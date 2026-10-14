@@ -1,0 +1,668 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using Godot;
+
+namespace Minecraft;
+
+/// <summary>
+/// Chunk mesher: turns block data into raw triangle arrays (+ collision
+/// triangles) with per-vertex ambient occlusion baked into vertex colors.
+///
+/// Pure and thread-safe: reads chunk data through <c>world.ChunkData()</c> and
+/// never touches the scene tree, so it can run on WorkerThreadPool workers.
+/// The caller applies the returned payload on the main thread.
+/// </summary>
+public static class Mesher
+{
+    public const int SX = 16;
+    public const int SZ = 16;
+    public const int PX = SX + 2;
+    public const int PZ = SZ + 2;
+    public const int PLANE = PX * PZ;
+
+    /// <summary>Greedy meshing flag (set from Settings; read by workers).</summary>
+    public static volatile bool Greedy;
+
+    // Two triangles per quad, preserving the clockwise winding of the face verts.
+    public static readonly int[] TriOrder = [0, 1, 2, 0, 2, 3];
+
+    // Padded-array index offsets of the 6 face neighbours (+Y, -Y, +X, -X, +Z, -Z).
+    private static readonly int[] FaceOff = [PLANE, -PLANE, 1, -1, PX, -PX];
+
+    // Classic voxel corner AO: both sides occluded -> 0, else 3 - (s1 + s2 + corner).
+    private static readonly float[] AoFactors = [0.5f, 0.7f, 0.85f, 1.0f];
+
+    // (f * 4 + v) * 2 + {0, 1} -> padded-array delta of the two tangent
+    // neighbours around that face corner. Samples sit in the neighbour's layer
+    // (one step out along the face normal), per the standard AO scheme.
+    private static readonly Lock TableLock = new();
+    private static int[] _aoDeltas = [];
+
+    // Greedy-meshing sweep tables, derived per face: the two tangent axes, and
+    // which world tangent axis each UV component scales with (1 tile per block).
+    private static int[] _normalAxis = [];
+    private static int[] _uAxis = [];
+    private static int[] _vAxis = [];
+    private static int[] _uvAxisOf = [];
+
+    public static void EnsureTables()
+    {
+        lock (TableLock)
+        {
+            if (_aoDeltas.Length != 0)
+            {
+                return;
+            }
+
+            BlockDb.EnsureTables();
+            _aoDeltas = new int[6 * 4 * 2];
+            _normalAxis = new int[6];
+            _uAxis = new int[6];
+            _vAxis = new int[6];
+            _uvAxisOf = [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1];
+            for (int f = 0; f < 6; f++)
+            {
+                List<int> axes = [];
+                for (int axis = 0; axis < 3; axis++)
+                {
+                    bool varies = false;
+                    for (int i = 1; i < 4; i++)
+                    {
+                        if (Mathf.Abs(BlockDb.FaceVerts[f * 4 + i][axis] - BlockDb.FaceVerts[f * 4][axis]) > 0.5f)
+                        {
+                            varies = true;
+                            break;
+                        }
+                    }
+
+                    if (varies)
+                    {
+                        axes.Add(axis);
+                    }
+                    else
+                    {
+                        _normalAxis[f] = axis;
+                    }
+                }
+
+                int uAxis = axes[0];
+                int vAxis = axes[1];
+                _uAxis[f] = uAxis;
+                _vAxis[f] = vAxis;
+                for (int i = 0; i < 4; i++)
+                {
+                    Vector3 v = BlockDb.FaceVerts[f * 4 + i];
+                    int su = v[uAxis] > 0.5f ? 1 : -1;
+                    int sv = v[vAxis] > 0.5f ? 1 : -1;
+                    _aoDeltas[(f * 4 + i) * 2] = AxisDelta(uAxis, su);
+                    _aoDeltas[(f * 4 + i) * 2 + 1] = AxisDelta(vAxis, sv);
+                }
+
+                // Which tangent axis does each UV component scale with? Found by
+                // comparing two corners that differ along exactly one tangent axis.
+                for (int i = 0; i < 4; i++)
+                {
+                    for (int j = i + 1; j < 4; j++)
+                    {
+                        Vector3 d = BlockDb.FaceVerts[f * 4 + j] - BlockDb.FaceVerts[f * 4 + i];
+                        int changed = -1;
+                        int changes = 0;
+                        for (int a = 0; a < 3; a++)
+                        {
+                            if (Mathf.Abs(d[a]) > 0.5f)
+                            {
+                                changed = a;
+                                changes++;
+                            }
+                        }
+
+                        if (changes != 1 || changed == _normalAxis[f])
+                        {
+                            continue;
+                        }
+
+                        Vector2 duv = BlockDb.FaceUvs[f * 4 + j] - BlockDb.FaceUvs[f * 4 + i];
+                        if (Mathf.Abs(duv.X) > 0.5f)
+                        {
+                            _uvAxisOf[f * 2] = changed;
+                        }
+                        else if (Mathf.Abs(duv.Y) > 0.5f)
+                        {
+                            _uvAxisOf[f * 2 + 1] = changed;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static int AxisDelta(int axis, int axisSign) => axis switch
+    {
+        0 => axisSign,
+        1 => axisSign * PLANE,
+        _ => axisSign * PX,
+    };
+
+    /// <summary>
+    /// Build the render + collision payload for one chunk.
+    /// The epoch is captured before any data is read; the caller discards the
+    /// payload if the world was edited meanwhile.
+    /// </summary>
+    public static MeshPayload Build(VoxelWorld world, Vector2I cp)
+    {
+        EnsureTables();
+        long epoch;
+        byte[] pad;
+        int sy = world.Height;
+        lock (world.SnapshotLock)
+        {
+            epoch = world.EditEpoch;
+            byte[] data = world.ChunkData(cp);
+            pad = BuildPadded(world, cp, data, sy);
+        }
+
+        SurfaceData opaque = PayloadPool.RentSurface();
+        SurfaceData glass = PayloadPool.RentSurface();
+        SurfaceData water = PayloadPool.RentSurface();
+        SurfaceData lava = PayloadPool.RentSurface();
+        List<Vector3> collision = PayloadPool.RentCollision();
+
+        // Reused per face; all four entries are always (re)assigned before use.
+        Span<float> kk = stackalloc float[4];
+
+        // Greedy mode: merged coplanar quads for the opaque surface (using the
+        // texture-array material). The per-face loop below then only emits the
+        // remaining surfaces and the collision for opaque blocks.
+        if (Greedy)
+        {
+            BuildOpaqueGreedy(pad, sy, opaque);
+        }
+
+        for (int y = 1; y <= sy; y++)
+        {
+            for (int z = 1; z <= SZ; z++)
+            {
+                for (int x = 1; x <= SX; x++)
+                {
+                    int i = (y * PZ + z) * PX + x;
+                    BlockId id = (BlockId)pad[i];
+                    if (id == BlockId.Air)
+                    {
+                        continue;
+                    }
+
+                    // Cross plants (grass/flowers): two double-sided diagonal
+                    // quads, no cube faces, no collision, no AO.
+                    if (BlockDb.IsCross(id))
+                    {
+                        AddCross(opaque, new Vector3(x - 1, y - 1, z - 1), BlockDb.IconTile(id));
+                        continue;
+                    }
+
+                    // Fully enclosed opaque block: nothing to draw, nothing to collide.
+                    if (BlockDb.Occl[(int)id] == 1
+                            && BlockDb.Occl[pad[i - 1]] == 1 && BlockDb.Occl[pad[i + 1]] == 1
+                            && BlockDb.Occl[pad[i - PLANE]] == 1 && BlockDb.Occl[pad[i + PLANE]] == 1
+                            && BlockDb.Occl[pad[i - PX]] == 1 && BlockDb.Occl[pad[i + PX]] == 1)
+                    {
+                        continue;
+                    }
+
+                    int baseIdx = (int)id * 6;
+                    bool isTrans = BlockDb.TransMask[(int)id] == 1;
+                    bool greedyHere = Greedy && !isTrans && id != BlockId.Water && id != BlockId.Lava;
+                    SurfaceData surf = id switch
+                    {
+                        BlockId.Water => water,
+                        BlockId.Lava => lava,
+                        _ => isTrans ? glass : opaque,
+                    };
+
+                    Vector3 b = new(x - 1, y - 1, z - 1);
+                    for (int f = 0; f < 6; f++)
+                    {
+                        int tile = BlockDb.Tiles[baseIdx + f];
+                        if (tile < 0)
+                        {
+                            continue;
+                        }
+
+                        int nb = pad[i + FaceOff[f]];
+                        if (BlockDb.Render[(int)id * BlockDb.BlockCount + nb] == 0)
+                        {
+                            continue;
+                        }
+
+                        int vi = f * 4;
+                        if (greedyHere)
+                        {
+                            // Quad already emitted by BuildOpaqueGreedy; here we
+                            // only need the collision triangle pair.
+                            if (BlockDb.SolidMask[(int)id] == 1)
+                            {
+                                collision.Add(b + BlockDb.FaceVerts[vi]);
+                                collision.Add(b + BlockDb.FaceVerts[vi + 1]);
+                                collision.Add(b + BlockDb.FaceVerts[vi + 2]);
+                                collision.Add(b + BlockDb.FaceVerts[vi]);
+                                collision.Add(b + BlockDb.FaceVerts[vi + 2]);
+                                collision.Add(b + BlockDb.FaceVerts[vi + 3]);
+                            }
+
+                            continue;
+                        }
+
+                        int ui = (tile * 6 + f) * 4;
+                        float shade = BlockDb.FaceColors[f].R;
+                        kk[0] = shade;
+                        kk[1] = shade;
+                        kk[2] = shade;
+                        kk[3] = shade;
+                        if (!isTrans)
+                        {
+                            int iNb = i + FaceOff[f];
+                            for (int v4 = 0; v4 < 4; v4++)
+                            {
+                                int du = _aoDeltas[(f * 4 + v4) * 2];
+                                int dv = _aoDeltas[(f * 4 + v4) * 2 + 1];
+                                int s1 = BlockDb.Occl[pad[iNb + du]];
+                                int s2 = BlockDb.Occl[pad[iNb + dv]];
+                                int co = BlockDb.Occl[pad[iNb + du + dv]];
+                                int ao = s1 == 1 && s2 == 1 ? 0 : 3 - (s1 + s2 + co);
+                                kk[v4] = shade * AoFactors[ao];
+                            }
+                        }
+
+                        Vector3 normal = BlockDb.FaceNormals[f];
+                        foreach (int t in TriOrder)
+                        {
+                            surf.Vertex.Add(b + BlockDb.FaceVerts[vi + t]);
+                            surf.Normal.Add(normal);
+                            float k = kk[t];
+                            surf.Color.Add(new Color(k, k, k, 1.0f));
+                            surf.Uv.Add(BlockDb.UvLut[ui + t]);
+                        }
+
+                        if (BlockDb.SolidMask[(int)id] == 1)
+                        {
+                            collision.Add(b + BlockDb.FaceVerts[vi]);
+                            collision.Add(b + BlockDb.FaceVerts[vi + 1]);
+                            collision.Add(b + BlockDb.FaceVerts[vi + 2]);
+                            collision.Add(b + BlockDb.FaceVerts[vi]);
+                            collision.Add(b + BlockDb.FaceVerts[vi + 2]);
+                            collision.Add(b + BlockDb.FaceVerts[vi + 3]);
+                        }
+                    }
+                }
+            }
+        }
+
+        return new MeshPayload(opaque, glass, water, lava, collision, epoch);
+    }
+
+    // -----------------------------------------------------------------------
+    // Greedy meshing (opaque terrain): for each face direction, sweep slices
+    // and merge equal neighbour faces into the largest possible rectangles.
+    // The merge key carries block id, tile and the four corner AO levels, so
+    // merges never change shading. UVs repeat one tile per block (the shader
+    // fract()s them against the texture array); collision stays per block in
+    // the main loop.
+    // -----------------------------------------------------------------------
+
+    private static readonly int[] AxisStep = [1, PLANE, PX];
+
+    private static void BuildOpaqueGreedy(byte[] pad, int sy, SurfaceData opaque)
+    {
+        int[] axisSize = [SX, sy, SZ];
+        long[] keys = new long[SX * sy];
+        int baseIdx = PLANE + PX + 1;   // padded (1,1,1)
+        for (int f = 0; f < 6; f++)
+        {
+            int nAxis = _normalAxis[f];
+            int uAxis = _uAxis[f];
+            int vAxis = _vAxis[f];
+            int nStep = AxisStep[nAxis];
+            int uStep = AxisStep[uAxis];
+            int vStep = AxisStep[vAxis];
+            int nExt = axisSize[nAxis];
+            int uExt = axisSize[uAxis];
+            int vExt = axisSize[vAxis];
+            int uvAxisU = _uvAxisOf[f * 2];
+            int uvAxisV = _uvAxisOf[f * 2 + 1];
+            bool positive = BlockDb.FaceDirs[f][nAxis] > 0.0f;
+            for (int sn = 1; sn <= nExt; sn++)
+            {
+                // Padded coordinate sn along the normal axis (base is padded 1,
+                // so sn-1 steps from it). sn also equals the plane of the
+                // positive face, since a block at padded sn occupies local sn-1.
+                int slice = baseIdx + (sn - 1) * nStep;
+                for (int vv = 0; vv < vExt; vv++)
+                {
+                    for (int uu = 0; uu < uExt; uu++)
+                    {
+                        keys[vv * uExt + uu] = FaceKey(pad, slice + uu * uStep + vv * vStep, f);
+                    }
+                }
+
+                for (int vv = 0; vv < vExt; vv++)
+                {
+                    for (int uu = 0; uu < uExt;)
+                    {
+                        long k = keys[vv * uExt + uu];
+                        if (k == 0L)
+                        {
+                            uu++;
+                            continue;
+                        }
+
+                        int w = 1;
+                        while (uu + w < uExt && keys[vv * uExt + uu + w] == k)
+                        {
+                            w++;
+                        }
+
+                        int h = 1;
+                        while (vv + h < vExt)
+                        {
+                            bool row = true;
+                            int rowBase = (vv + h) * uExt + uu;
+                            for (int x2 = 0; x2 < w; x2++)
+                            {
+                                if (keys[rowBase + x2] != k)
+                                {
+                                    row = false;
+                                    break;
+                                }
+                            }
+
+                            if (!row)
+                            {
+                                break;
+                            }
+
+                            h++;
+                        }
+
+                        EmitGreedyQuad(opaque, f, k, uu, vv, w, h, sn, positive,
+                                uAxis, vAxis, nAxis, uvAxisU, uvAxisV);
+                        for (int y2 = 0; y2 < h; y2++)
+                        {
+                            int rowBase = (vv + y2) * uExt + uu;
+                            for (int x2 = 0; x2 < w; x2++)
+                            {
+                                keys[rowBase + x2] = 0L;
+                            }
+                        }
+
+                        uu += w;
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>Merge key of the visible opaque face at a padded cell, or 0.</summary>
+    private static long FaceKey(byte[] pad, int i, int f)
+    {
+        BlockId id = (BlockId)pad[i];
+        if (id == BlockId.Air || BlockDb.IsCross(id))
+        {
+            return 0L;
+        }
+
+        if (BlockDb.TransMask[(int)id] == 1 || id == BlockId.Water || id == BlockId.Lava)
+        {
+            return 0L;   // non-opaque surfaces keep the per-face path
+        }
+
+        int tile = BlockDb.Tiles[(int)id * 6 + f];
+        if (tile < 0)
+        {
+            return 0L;
+        }
+
+        int nb = pad[i + FaceOff[f]];
+        if (BlockDb.Render[(int)id * BlockDb.BlockCount + nb] == 0)
+        {
+            return 0L;
+        }
+
+        long key = (uint)id | ((long)tile << 8);
+        int iNb = i + FaceOff[f];
+        for (int v4 = 0; v4 < 4; v4++)
+        {
+            int du = _aoDeltas[(f * 4 + v4) * 2];
+            int dv = _aoDeltas[(f * 4 + v4) * 2 + 1];
+            int s1 = BlockDb.Occl[pad[iNb + du]];
+            int s2 = BlockDb.Occl[pad[iNb + dv]];
+            int co = BlockDb.Occl[pad[iNb + du + dv]];
+            int ao = s1 == 1 && s2 == 1 ? 0 : 3 - (s1 + s2 + co);
+            key |= (long)ao << (16 + (v4 * 2));
+        }
+
+        return key;
+    }
+
+    private static void EmitGreedyQuad(
+            SurfaceData surf, int f, long key, int uu, int vv, int w, int h, int sn, bool positive,
+            int uAxis, int vAxis, int nAxis, int uvAxisU, int uvAxisV)
+    {
+        // Local-space rect: a block at padded coordinate p occupies local
+        // [p-1, p]; the face plane sits at the block's +1 boundary for positive
+        // faces and at its base for negative ones, matching FaceVerts' units.
+        Vector3 min = Vector3.Zero;
+        Vector3 size = Vector3.Zero;
+        min[uAxis] = uu;
+        min[vAxis] = vv;
+        min[nAxis] = positive ? sn : sn - 1;
+        size[uAxis] = w;
+        size[vAxis] = h;
+        float su = uvAxisU == uAxis ? w : h;
+        float sv = uvAxisV == uAxis ? w : h;
+        int tile = (int)((key >> 8) & 0xFF);
+        float shade = BlockDb.FaceColors[f].R;
+        Vector3 normal = BlockDb.FaceNormals[f];
+        foreach (int c in TriOrder)
+        {
+            Vector3 unit = BlockDb.FaceVerts[f * 4 + c];
+            surf.Vertex.Add(min + new Vector3(unit.X * size.X, unit.Y * size.Y, unit.Z * size.Z));
+            surf.Normal.Add(normal);
+            float k = shade * AoFactors[(int)(key >> (16 + (c * 2))) & 3];
+            surf.Color.Add(new Color(k, k, k, 1.0f));
+            Vector2 duv = BlockDb.FaceUvs[f * 4 + c];
+            surf.Uv.Add(new Vector2(duv.X * su, duv.Y * sv));
+            surf.Uv2.Add(new Vector2(tile, 0.0f));
+        }
+    }
+
+    /// <summary>
+    /// Cross plant geometry: two diagonal planes, each emitted with both
+    /// windings so the blades read from every angle (backface culling on the
+    /// opaque alpha-scissor material would otherwise hide one side). In greedy
+    /// mode the UVs are quad-local 0..1 and the tile travels in UV2, matching
+    /// the texture-array material.
+    /// </summary>
+    private static void AddCross(SurfaceData surf, Vector3 b, int tile)
+    {
+        Vector2[] uv;
+        if (Greedy)
+        {
+            uv = [new(0, 1), new(1, 1), new(1, 0), new(0, 0)];
+        }
+        else
+        {
+            Rect2 rect = BlockDb.TileUvRect(tile);
+            uv =
+            [
+                BlockDb.MapUv(rect, new Vector2(0, 1)), BlockDb.MapUv(rect, new Vector2(1, 1)),
+                BlockDb.MapUv(rect, new Vector2(1, 0)), BlockDb.MapUv(rect, new Vector2(0, 0)),
+            ];
+        }
+        Vector3[] planeA =
+        [
+            b, b + new Vector3(1, 0, 1), b + new Vector3(1, 1, 1), b + new Vector3(0, 1, 0),
+        ];
+        Vector3[] planeB =
+        [
+            b + new Vector3(1, 0, 0), b + new Vector3(0, 0, 1), b + new Vector3(0, 1, 1), b + new Vector3(1, 1, 0),
+        ];
+        EmitDoubleSided(surf, planeA, uv, tile);
+        EmitDoubleSided(surf, planeB, uv, tile);
+    }
+
+    private static void EmitDoubleSided(SurfaceData surf, Vector3[] p, Vector2[] uv, int tile)
+    {
+        Vector3 n = (p[1] - p[0]).Cross(p[3] - p[0]).Normalized();
+        Color white = Colors.White;
+        for (int pass = 0; pass < 2; pass++)
+        {
+            Vector3 normal = pass == 0 ? n : -n;
+            for (int t = 0; t < 6; t++)
+            {
+                int idx = pass == 0 ? TriOrder[t] : TriOrder[5 - t];
+                surf.Vertex.Add(p[idx]);
+                surf.Normal.Add(normal);
+                surf.Color.Add(white);
+                surf.Uv.Add(uv[idx]);
+                if (Greedy)
+                {
+                    surf.Uv2.Add(new Vector2(tile, 0.0f));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Padded copy of the chunk's block array (1-cell shell, y padded with air).
+    /// Neighbour data comes from world.ChunkData (built chunk or generated
+    /// cache), so this is plain array reads. Diagonal cells are never read by
+    /// the mesher.
+    /// </summary>
+    private static byte[] BuildPadded(VoxelWorld world, Vector2I cp, byte[] data, int sy)
+    {
+        byte[] pad = new byte[PX * (sy + 2) * PZ];
+        for (int y = 0; y < sy; y++)
+        {
+            for (int z = 0; z < SZ; z++)
+            {
+                int src = (y * SZ + z) * SX;
+                int dst = ((y + 1) * PZ + (z + 1)) * PX + 1;
+                for (int x = 0; x < SX; x++)
+                {
+                    pad[dst + x] = data[src + x];
+                }
+            }
+        }
+
+        byte[] west = world.ChunkData(cp + new Vector2I(-1, 0));
+        byte[] east = world.ChunkData(cp + new Vector2I(1, 0));
+        byte[] north = world.ChunkData(cp + new Vector2I(0, -1));
+        byte[] south = world.ChunkData(cp + new Vector2I(0, 1));
+        for (int y = -1; y <= sy; y++)
+        {
+            if (y < 0 || y >= sy)
+            {
+                continue;
+            }
+
+            int row = (y + 1) * PZ;
+            int nrow = y * SZ;
+            for (int z = -1; z <= SZ; z++)
+            {
+                int zi = Mathf.Clamp(z, 0, SZ - 1);
+                int col = row + z + 1;
+                pad[col * PX] = west[(nrow + zi) * SX + SX - 1];
+                pad[col * PX + PX - 1] = east[(nrow + zi) * SX];
+            }
+        }
+
+        for (int y = -1; y <= sy; y++)
+        {
+            if (y < 0 || y >= sy)
+            {
+                continue;
+            }
+
+            int row = (y + 1) * PZ;
+            int nrow = y * SZ;
+            for (int x = -1; x <= SX; x++)
+            {
+                int xi = Mathf.Clamp(x, 0, SX - 1);
+                pad[row * PX + x + 1] = north[(nrow + SZ - 1) * SX + xi];
+                pad[(row + PZ - 1) * PX + x + 1] = south[nrow * SX + xi];
+            }
+        }
+
+        return pad;
+    }
+}
+
+/// <summary>One render surface being built on a worker thread.</summary>
+public sealed class SurfaceData
+{
+    public readonly List<Vector3> Vertex = [];
+    public readonly List<Vector3> Normal = [];
+    public readonly List<Color> Color = [];
+    public readonly List<Vector2> Uv = [];
+    public readonly List<Vector2> Uv2 = [];   // greedy mode: tile layer in .x
+}
+
+/// <summary>Worker result of a chunk mesh build; applied on the main thread.
+/// Buffers come from PayloadPool and are returned there by Release().</summary>
+public sealed class MeshPayload(
+        SurfaceData opaque,
+        SurfaceData glass,
+        SurfaceData water,
+        SurfaceData lava,
+        List<Vector3> collision,
+        long epoch)
+{
+    public readonly SurfaceData Opaque = opaque;
+    public readonly SurfaceData Glass = glass;
+    public readonly SurfaceData Water = water;
+    public readonly SurfaceData Lava = lava;
+    public readonly List<Vector3> Collision = collision;
+    public readonly long Epoch = epoch;
+    public bool Released;
+}
+
+/// <summary>
+/// Reuses mesher buffers across builds: streaming allocates thousands of
+/// vertex lists, and keeping their backing arrays alive removes most of the
+/// GC churn. Rented on the worker, released on the main thread after applying.
+/// </summary>
+public static class PayloadPool
+{
+    private static readonly System.Collections.Concurrent.ConcurrentBag<SurfaceData> Surfaces = new();
+    private static readonly System.Collections.Concurrent.ConcurrentBag<List<Vector3>> Collisions = new();
+
+    public static SurfaceData RentSurface() => Surfaces.TryTake(out SurfaceData? s) ? s : new SurfaceData();
+
+    public static List<Vector3> RentCollision() => Collisions.TryTake(out List<Vector3>? c) ? c : [];
+
+    public static void Release(MeshPayload payload)
+    {
+        if (payload.Released)
+        {
+            return;
+        }
+
+        payload.Released = true;
+        ReturnSurface(payload.Opaque);
+        ReturnSurface(payload.Glass);
+        ReturnSurface(payload.Water);
+        ReturnSurface(payload.Lava);
+        payload.Collision.Clear();
+        Collisions.Add(payload.Collision);
+    }
+
+    private static void ReturnSurface(SurfaceData surf)
+    {
+        surf.Vertex.Clear();
+        surf.Normal.Clear();
+        surf.Color.Clear();
+        surf.Uv.Clear();
+        surf.Uv2.Clear();
+        Surfaces.Add(surf);
+    }
+}

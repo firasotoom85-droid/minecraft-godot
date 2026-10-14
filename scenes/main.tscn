@@ -1,0 +1,44 @@
+[gd_scene format=3 uid="uid://bkj586jrtthkq"]
+
+[ext_resource type="Script" uid="uid://beensgijrfuta" path="res://scripts/Main.cs" id="1_jyhfs"]
+[ext_resource type="Script" uid="uid://dbk34dfkfeb2r" path="res://scripts/VoxelWorld.cs" id="2_tbgi4"]
+[ext_resource type="Script" uid="uid://bhnawtxvbdl5j" path="res://scripts/Hud.cs" id="3_tefeu"]
+[ext_resource type="Script" uid="uid://b0276n4vyr346" path="res://scripts/Player.cs" id="4_o6xl0"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_tipki"]
+radius = 0.35
+height = 1.8
+
+[node name="Main" type="Node3D" unique_id=286287447]
+script = ExtResource("1_jyhfs")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=819492860]
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=648857576]
+transform = Transform3D(0.81915206, 0.45198438, -0.35312894, 0, 0.6156615, 0.7880107, 0.57357645, -0.6455006, 0.5043204, 0, 0, 0)
+light_color = Color(1, 0.97, 0.9, 1)
+light_energy = 1.1
+shadow_enabled = true
+directional_shadow_max_distance = 96.0
+
+[node name="World" type="Node3D" parent="." unique_id=1777194046]
+script = ExtResource("2_tbgi4")
+
+[node name="HUD" type="CanvasLayer" parent="." unique_id=257676389]
+script = ExtResource("3_tefeu")
+
+[node name="Player" type="CharacterBody3D" parent="." unique_id=214471143]
+collision_layer = 2
+script = ExtResource("4_o6xl0")
+
+[node name="Collision" type="CollisionShape3D" parent="Player" unique_id=2075193482]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("CapsuleShape3D_tipki")
+
+[node name="Camera3D" type="Camera3D" parent="Player" unique_id=1889238170]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.62, 0)
+current = true
+far = 300.0
+
+[node name="RayCast3D" type="RayCast3D" parent="Player/Camera3D" unique_id=732058334]
+target_position = Vector3(0, 0, -5)

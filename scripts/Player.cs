@@ -1,0 +1,1157 @@
+using Godot;
+
+namespace Minecraft;
+
+/// <summary>
+/// First-person player: walk / sprint / jump / fly (F or double-tap Space),
+/// mouse look, block breaking and placing with a 9-slot hotbar, hold-to-mine
+/// repetition, a blocky first-person arm, Minecraft-style selection outline
+/// and feel improvements (coyote time, jump buffer). Emits interaction
+/// signals consumed by Fx (particles) and Sound (audio).
+/// </summary>
+public partial class Player : CharacterBody3D, IDamageable
+{
+    [Export] public float WalkSpeed = 5.0f;
+    [Export] public float SprintSpeed = 8.5f;
+    [Export] public float FlySpeed = 12.0f;
+    [Export] public float JumpVelocity = 8.0f;
+    [Export] public float Gravity = 24.0f;
+    [Export] public float Reach = 5.0f;
+
+    public bool InputLocked;    // menus / console own the input while true
+
+    private const double CoyoteTime = 0.1;      // jump grace after leaving the ground
+    private const double JumpBuffer = 0.12;     // early jump press forgiveness
+    private const double MineRepeat = 0.22;     // hold-LMB repeat interval
+    private const double DoubleTapTime = 0.3;   // double-tap space to fly
+    private const float StepDistance = 1.9f;    // metres between footstep sounds
+    private const double SwingCooldown = 0.45;  // melee cadence
+    private const double FallSafe = 3.5f;       // fall height that hurts
+
+    [Signal] public delegate void HotbarChangedEventHandler(int index, int itemId);
+    [Signal] public delegate void FlyChangedEventHandler(bool flying);
+    [Signal] public delegate void BlockBrokenEventHandler(Vector3 pos, int blockId);
+    [Signal] public delegate void BlockPlacedEventHandler(Vector3 pos, int blockId);
+    [Signal] public delegate void SteppedEventHandler(Vector3 pos, int blockId);
+    [Signal] public delegate void SplashedEventHandler(Vector3 pos);
+    [Signal] public delegate void MiningTickEventHandler(Vector3 pos, int blockId);
+    [Signal] public delegate void ToolBrokeEventHandler();
+    [Signal] public delegate void InventoryFullEventHandler();
+    [Signal] public delegate void TableUsedEventHandler();
+    [Signal] public delegate void NoticeEventHandler(string text);
+    [Signal] public delegate void AteEventHandler();
+    [Signal] public delegate void CampfireUsedEventHandler(string message);
+    [Signal] public delegate void RespawnedEventHandler();
+    [Signal] public delegate void LandedEventHandler(Vector3 pos, float impact);
+
+    private static readonly string[] HotbarActions =
+    [
+        "hotbar_1", "hotbar_2", "hotbar_3", "hotbar_4", "hotbar_5",
+        "hotbar_6", "hotbar_7", "hotbar_8", "hotbar_9",
+    ];
+
+    public VoxelWorld? World;
+    public bool Flying;
+    public bool Underwater;
+    public int Selected;
+    public GameMode Mode = GameMode.Creative;
+    public Vector3? RespawnPoint;
+    public PlayerStats Stats { get; } = new();
+    public bool Dead => Stats.Dead;
+
+    public Inventory Inventory { get; } = new();
+
+    public Camera3D Camera = null!;
+    public RayCast3D Ray = null!;
+
+    private bool _skipMotion;
+    private double _coyote;
+    private double _jumpBuffer;
+    private MeshInstance3D _outline = null!;
+    private Node3D _arm = null!;
+    private Vector3 _armBase = Vector3.Zero;
+    private double _bobPhase;
+    private double _punch;
+    private double _mineTimer;
+    private float _mineProgress;
+    private double _mineSoundTimer;
+    private Vector3I _mineTarget = new(int.MinValue, 0, 0);
+    private MeshInstance3D _crack = null!;
+    private StandardMaterial3D _crackMat = null!;
+    private static readonly System.Lazy<ImageTexture> CrackTextureLazy = new(BuildCrackTexture);
+    private double _lastJumpTap = -10.0;
+    private double _stepAccum;
+    private bool _wasUnderwater;
+    private double _lastSwing = -10.0;
+    private double _lastEat = -10.0;
+    private double _lastRest = -10.0;
+    private float? _fallStartY;
+    private Vector3 _push;   // knockback impulse, decays (movement overwrites Velocity each frame)
+    private float _camBob;
+    private float _landKick;
+    private double _lavaTimer;
+
+    public override void _Ready()
+    {
+        Camera = GetNode<Camera3D>("Camera3D");
+        Ray = GetNode<RayCast3D>("Camera3D/RayCast3D");
+        Ray.TargetPosition = new Vector3(0, 0, -Reach);
+        Ray.CollisionMask = (uint)(PhysicsLayer.Terrain | PhysicsLayer.Mobs);
+        Ray.AddException(this);
+        FloorSnapLength = 0.4f;
+        // Eye adaptation: brightens caves/night, dims looking at the noon sky.
+        // Narrow range on purpose: the night must stay moody, not look like day.
+        CameraAttributesPractical attrs = new()
+        {
+            AutoExposureEnabled = true,
+            AutoExposureMinSensitivity = 40.0f,
+            AutoExposureMaxSensitivity = 140.0f,
+            AutoExposureScale = 0.3f,
+            AutoExposureSpeed = 0.8f,
+        };
+        Camera.Attributes = attrs;
+        BuildOutline();
+        BuildCrack();
+        BuildArm();
+        // Mouse capture happens on the first mouse move / click (works regardless
+        // of window focus at startup, unlike grabbing in _Ready).
+    }
+
+    public override void _UnhandledInput(InputEvent @event)
+    {
+        if (InputLocked || Stats.Dead)
+        {
+            return;
+        }
+
+        if (@event is InputEventMouseMotion motion)
+        {
+            if (Input.MouseMode != Input.MouseModeEnum.Captured)
+            {
+                Input.MouseMode = Input.MouseModeEnum.Captured;
+                _skipMotion = true;
+                return;
+            }
+
+            // Capturing recentres the cursor; ignore that teleport and any
+            // implausibly large delta so the view never snaps around.
+            if (_skipMotion)
+            {
+                _skipMotion = false;
+                return;
+            }
+
+            if (motion.Relative.Length() > 400.0f)
+            {
+                return;
+            }
+
+            float sensitivity = Settings.MouseSensitivity;
+            float dy = motion.Relative.Y * (Settings.InvertY ? -1.0f : 1.0f);
+            RotateY(-motion.Relative.X * sensitivity);
+            Vector3 camRot = Camera.Rotation;
+            camRot.X = Mathf.Clamp(camRot.X - dy * sensitivity, -1.55f, 1.55f);
+            Camera.Rotation = camRot;
+        }
+        else if (@event is InputEventMouseButton button && button.Pressed)
+        {
+            if (Input.MouseMode != Input.MouseModeEnum.Captured)
+            {
+                Input.MouseMode = Input.MouseModeEnum.Captured;
+                _skipMotion = true;
+                return;
+            }
+
+            if (button.IsActionPressed("break_block"))
+            {
+                AttackOrStartMining();
+                _mineTimer = MineRepeat;
+            }
+            else if (button.IsActionPressed("place_block"))
+            {
+                PlaceBlock();
+            }
+            else if (button.IsActionPressed("pick_block"))
+            {
+                PickBlock();
+            }
+            else if (button.ButtonIndex == MouseButton.WheelUp)
+            {
+                Select(Selected - 1);
+            }
+            else if (button.ButtonIndex == MouseButton.WheelDown)
+            {
+                Select(Selected + 1);
+            }
+        }
+        else if (@event is InputEventKey key && key.Pressed && !key.Echo)
+        {
+            if (key.IsActionPressed("toggle_fly"))
+            {
+                SetFlying(!Flying);
+            }
+            else
+            {
+                for (int i = 0; i < HotbarActions.Length; i++)
+                {
+                    if (key.IsActionPressed(HotbarActions[i]))
+                    {
+                        Select(i);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    public override void _PhysicsProcess(double delta)
+    {
+        if (World == null)
+        {
+            return;
+        }
+
+        float dt = (float)delta;
+        bool locked = InputLocked || Stats.Dead;
+        Vector2 inputDir = locked ? Vector2.Zero : Input.GetVector("left", "right", "forward", "back");
+        Vector3 direction = (Transform.Basis * new Vector3(inputDir.X, 0, inputDir.Y)).Normalized();
+        bool sprinting = !locked && Input.IsActionPressed("sprint");
+        float speed = sprinting ? SprintSpeed : WalkSpeed;
+        Stats.Update(delta, sprinting, (sprinting || inputDir != Vector2.Zero) && !Flying, Mode);
+
+        // Double-tap Space toggles fly (F also works); creative only.
+        if (!locked && Mode == GameMode.Creative && Input.IsActionJustPressed("jump"))
+        {
+            double now = Time.GetTicksMsec() / 1000.0;
+            if (now - _lastJumpTap < DoubleTapTime)
+            {
+                SetFlying(!Flying);
+                _lastJumpTap = -10.0;
+            }
+            else
+            {
+                _lastJumpTap = now;
+            }
+        }
+
+        Vector3 velocity = Velocity;
+        if (Flying)
+        {
+            speed = FlySpeed;
+            float up = 0.0f;
+            if (!locked && Input.IsActionPressed("jump"))
+            {
+                up += 1.0f;
+            }
+
+            if (sprinting)
+            {
+                up -= 1.0f;
+            }
+
+            velocity = direction * speed;
+            velocity.Y = up * speed;
+        }
+        else
+        {
+            if (IsOnFloor())
+            {
+                _coyote = CoyoteTime;
+            }
+            else
+            {
+                _coyote = System.Math.Max(_coyote - delta, 0.0);
+                velocity.Y -= (float)(Gravity * delta);
+            }
+
+            if (!locked && Input.IsActionJustPressed("jump"))
+            {
+                _jumpBuffer = JumpBuffer;
+            }
+            else
+            {
+                _jumpBuffer = System.Math.Max(_jumpBuffer - delta, 0.0);
+            }
+
+            if (_jumpBuffer > 0.0 && _coyote > 0.0)
+            {
+                velocity.Y = JumpVelocity;
+                _jumpBuffer = 0.0;
+                _coyote = 0.0;
+            }
+
+            velocity.X = direction.X * speed;
+            velocity.Z = direction.Z * speed;
+        }
+
+        velocity += _push;
+        _push = new Vector3(
+                Mathf.MoveToward(_push.X, 0.0f, dt * 10.0f),
+                Mathf.MoveToward(_push.Y, 0.0f, dt * 16.0f),
+                Mathf.MoveToward(_push.Z, 0.0f, dt * 10.0f));
+        Velocity = velocity;
+        MoveAndSlide();
+        // Safety net: never let the player fall out of the world (trimesh slips).
+        if (GlobalPosition.Y < -8.0f)
+        {
+            GlobalPosition = World.FindSpawn() + new Vector3(0, 1.0f, 0);
+            Velocity = Vector3.Zero;
+        }
+
+        UpdateOutline();
+        UpdateArm(dt);
+        HoldMine(dt);
+        UpdateSteps(dt);
+        TrackFall();
+        UpdateCameraFeel(dt, sprinting, direction);
+
+        float baseFov = Settings.Fov;
+        float targetFov = sprinting && !Flying && direction != Vector3.Zero ? baseFov + 5.0f : baseFov;
+        Camera.Fov = Mathf.Lerp(Camera.Fov, targetFov, 8.0f * dt);
+    }
+
+    /// <summary>Head bob while walking and a landing dip after drops.</summary>
+    private void UpdateCameraFeel(float dt, bool sprinting, Vector3 direction)
+    {
+        bool walking = IsOnFloor() && !Flying && direction != Vector3.Zero && !Stats.Dead;
+        _camBob = walking
+                ? _camBob + dt * (sprinting ? 11.5f : 8.5f)
+                : Mathf.MoveToward(_camBob, 0.0f, dt * 7.0f);
+        float amp = sprinting ? 0.05f : 0.032f;
+        float bobY = Mathf.Sin(_camBob * 2.0f) * amp;
+        float bobX = Mathf.Cos(_camBob) * amp * 0.7f;
+        _landKick = Mathf.MoveToward(_landKick, 0.0f, dt * 5.0f);
+        Camera.Position = new Vector3(bobX, 1.62f + bobY - _landKick, 0);
+    }
+
+    public override void _Process(double delta)
+    {
+        if (World == null)
+        {
+            return;
+        }
+
+        Vector3 p = Camera.GlobalPosition;
+        bool under = World.GetBlock(Mathf.FloorToInt(p.X), Mathf.FloorToInt(p.Y), Mathf.FloorToInt(p.Z)) == BlockId.Water;
+        Underwater = under;
+        if (under && !_wasUnderwater)
+        {
+            EmitSignal(SignalName.Splashed, Camera.GlobalPosition);
+        }
+
+        _wasUnderwater = under;
+        Stats.UpdateBreath(delta, under, Mode);
+
+        // Lava hurts (creative refuses at the damage pipeline).
+        Vector3 feet = GlobalPosition + new Vector3(0, 0.2f, 0);
+        bool inLava = World.GetBlock(Mathf.FloorToInt(feet.X), Mathf.FloorToInt(feet.Y),
+                Mathf.FloorToInt(feet.Z)) == BlockId.Lava;
+        if (inLava)
+        {
+            _lavaTimer -= delta;
+            if (_lavaTimer <= 0.0)
+            {
+                _lavaTimer = 0.5;
+                ApplyDamage(new DamageInfo(4.0f, DamageKind.Fire));
+            }
+        }
+        else
+        {
+            _lavaTimer = 0.0;
+        }
+
+        // Sky-island worlds have no floor: falling out of the world hurts fast.
+        if (GlobalPosition.Y < -8.0f)
+        {
+            ApplyDamage(new DamageInfo(4.0f, DamageKind.Fall));
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Survival: damage, death, respawn, mode
+    // -----------------------------------------------------------------------
+
+    /// <summary>All incoming hurt routes here; creative and invulnerability refuse it.</summary>
+    public bool ApplyDamage(in DamageInfo info)
+    {
+        bool applied = Stats.ApplyDamage(info.Amount, Mode);
+        if (applied && info.Knockback > 0.0f)
+        {
+            Vector3 away = GlobalPosition - info.Source;
+            away.Y = 0.0f;
+            if (away.LengthSquared() > 0.001f)
+            {
+                away = away.Normalized();
+            }
+
+            _push += away * info.Knockback + new Vector3(0, info.Lift, 0);
+        }
+
+        return applied;
+    }
+
+    /// <summary>Softcore respawn (D5): full bars at spawn/campfire, inventory kept.</summary>
+    public void Respawn()
+    {
+        if (!Stats.Dead)
+        {
+            return;
+        }
+
+        Stats.ResetForRespawn();
+        Vector3 target = RespawnPoint ?? (World?.FindSpawn() ?? GlobalPosition) + new Vector3(0, 1.0f, 0);
+        GlobalPosition = target;
+        Velocity = Vector3.Zero;
+        _fallStartY = null;
+        EmitSignal(SignalName.Respawned);
+    }
+
+    public void SetMode(GameMode mode)
+    {
+        Mode = mode;
+        if (Mode != GameMode.Creative)
+        {
+            SetFlying(false);
+        }
+
+        EmitSignal(SignalName.Notice, mode == GameMode.Survival
+                ? "survival mode — be careful out there"
+                : "creative mode — fly free");
+    }
+
+    /// <summary>Restore persisted player state; null mode keeps the world default.</summary>
+    public void LoadFromSave(string? mode, float health, float hunger, Vector3? respawn)
+    {
+        if (mode == "survival")
+        {
+            Mode = GameMode.Survival;
+        }
+        else if (mode == "creative")
+        {
+            Mode = GameMode.Creative;
+        }
+
+        Stats.Load(health, hunger);
+        RespawnPoint = respawn;
+    }
+
+    public string SaveMode => Mode == GameMode.Survival ? "survival" : "creative";
+
+    /// <summary>
+    /// Fall tracking: landing feel (bob kick + dust) in every mode, damage
+    /// only in survival.
+    /// </summary>
+    private void TrackFall()
+    {
+        if (Flying || Stats.Dead)
+        {
+            _fallStartY = null;
+            return;
+        }
+
+        if (!IsOnFloor())
+        {
+            if (Underwater)
+            {
+                _fallStartY = null;   // water breaks the fall
+            }
+            else if (_fallStartY is not { } start || GlobalPosition.Y > start)
+            {
+                _fallStartY = GlobalPosition.Y;
+            }
+
+            return;
+        }
+
+        if (_fallStartY is { } from)
+        {
+            float fallen = from - GlobalPosition.Y;
+            _fallStartY = null;
+            if (fallen <= 2.0f)
+            {
+                return;
+            }
+
+            _landKick = Mathf.Min(fallen * 0.02f, 0.14f);
+            EmitSignal(SignalName.Landed, GlobalPosition, fallen);
+            if (Mode == GameMode.Survival && fallen > FallSafe && World != null)
+            {
+                BlockId below = World.GetBlock(
+                        Mathf.FloorToInt(GlobalPosition.X),
+                        Mathf.FloorToInt(GlobalPosition.Y - 0.5f),
+                        Mathf.FloorToInt(GlobalPosition.Z));
+                if (below != BlockId.Water)
+                {
+                    Stats.ApplyDamage(Mathf.Floor(fallen - 3.0f), Mode);
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Block interaction
+    // -----------------------------------------------------------------------
+
+    /// <summary>LMB press: swing at a mob, or start/refresh block mining.</summary>
+    public void AttackOrStartMining()
+    {
+        if (World == null || !Ray.IsColliding())
+        {
+            return;
+        }
+
+        if (Ray.GetCollider() is IDamageable target)
+        {
+            Swing(target);
+            return;
+        }
+
+        Vector3I bp = TargetBlock();
+        BlockId id = World.GetBlock(bp.X, bp.Y, bp.Z);
+        if (id is BlockId.Air or BlockId.Water)
+        {
+            return;
+        }
+
+        _mineTarget = bp;
+        _mineProgress = 0.0f;
+        _mineSoundTimer = 0.0;
+        StartPunch();
+    }
+
+    /// <summary>One melee swing: tool tier picks the damage, swing cadence is capped.</summary>
+    private void Swing(IDamageable target)
+    {
+        double now = Time.GetTicksMsec() / 1000.0;
+        if (now - _lastSwing < SwingCooldown)
+        {
+            return;
+        }
+
+        _lastSwing = now;
+        StartPunch();
+        float damage = 1.0f + (ItemDb.ToolOf(Inventory.Hotbar[Selected].Id)?.Tier ?? 0);
+        target.ApplyDamage(new DamageInfo(damage, DamageKind.Melee, GlobalPosition, 3.0f, 1.5f));
+    }
+
+    public Vector3I TargetBlock()
+    {
+        Vector3 p = Ray.GetCollisionPoint() - Ray.GetCollisionNormal() * 0.5f;
+        return new Vector3I(Mathf.FloorToInt(p.X), Mathf.FloorToInt(p.Y), Mathf.FloorToInt(p.Z));
+    }
+
+    /// <summary>True when the ray currently rests on a crafting table in reach.</summary>
+    public bool TableInReach()
+    {
+        if (World == null || !Ray.IsColliding() || Ray.GetCollider() is Mob)
+        {
+            return false;
+        }
+
+        Vector3I bp = TargetBlock();
+        return World.GetBlock(bp.X, bp.Y, bp.Z) == BlockId.CraftingTable;
+    }
+
+    /// <summary>True when the ray rests on a campfire's log block.</summary>
+    public bool CampfireInReach()
+    {
+        if (World == null || !Ray.IsColliding() || Ray.GetCollider() is Mob)
+        {
+            return false;
+        }
+
+        Vector3I bp = TargetBlock();
+        return World.IsCampfireLog(bp.X, bp.Y, bp.Z);
+    }
+
+    /// <summary>Campfire use: cook the held raw food and/or rest (respawn + heal).</summary>
+    private void UseCampfire(ItemStack stack)
+    {
+        if (World == null)
+        {
+            return;
+        }
+
+        bool cooked = false;
+        if (ItemDb.CooksTo(stack.Id) is { } cookedId && Inventory.Consume(stack.Id, 1))
+        {
+            Inventory.Add(cookedId, 1);
+            cooked = true;
+        }
+
+        bool rested = false;
+        if (Time.GetTicksMsec() / 1000.0 - _lastRest >= 3.0)
+        {
+            _lastRest = Time.GetTicksMsec() / 1000.0;
+            rested = true;
+            Vector3I bp = TargetBlock();
+            RespawnPoint = new Vector3(bp.X + 0.5f, bp.Y + 1.0f, bp.Z + 0.5f);
+            Stats.Heal(8.0f);
+            Stats.AddHunger(3.0f);
+        }
+
+        if (!cooked && !rested)
+        {
+            return;
+        }
+
+        StartPunch();
+        EmitSignal(SignalName.CampfireUsed, (cooked, rested) switch
+        {
+            (true, true) => "Cooked 1 · rested — respawn set, healed",
+            (true, false) => "Cooked 1",
+            _ => "Rested — respawn point set, healed",
+        });
+    }
+
+    /// <summary>Eat one food item from the held stack.</summary>
+    private void Eat(ItemStack stack)
+    {
+        if (ItemDb.FoodOf(stack.Id) is not { } food)
+        {
+            return;
+        }
+
+        if (Stats.Hunger >= PlayerStats.MaxHunger)
+        {
+            EmitSignal(SignalName.Notice, "Not hungry");
+            return;
+        }
+
+        if (Time.GetTicksMsec() / 1000.0 - _lastEat < 0.7)
+        {
+            return;
+        }
+
+        _lastEat = Time.GetTicksMsec() / 1000.0;
+        Inventory.Consume(stack.Id, 1);
+        Stats.AddHunger(food.Hunger);
+        Stats.Heal(food.Heal);
+        EmitSignal(SignalName.Ate);
+        StartPunch();
+    }
+
+    private void FinishBreak(Vector3I bp, BlockId id, BlockDb.BlockDef def, ToolInfo? tool)
+    {
+        _mineProgress = 0.0f;
+        _mineTarget = new Vector3I(int.MinValue, 0, 0);
+        _crack.Visible = false;
+        if (World == null || !World.SetBlock(bp.X, bp.Y, bp.Z, BlockId.Air))
+        {
+            return;
+        }
+
+        StartPunch();
+        EmitSignal(SignalName.BlockBroken, new Vector3(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f), (int)id);
+
+        bool canHarvest = def.Tier == 0
+                || (tool is { } t && t.Kind == def.Tool && t.Tier >= def.Tier);
+        if (canHarvest)
+        {
+            ItemId drop = def.Drop != ItemId.None ? def.Drop : ItemDb.BlockItem(id);
+            if (drop != ItemId.None)
+            {
+                int leftover = Inventory.Add(drop, def.DropCount);
+                if (leftover > 0)
+                {
+                    EmitSignal(SignalName.InventoryFull);
+                }
+            }
+
+            // Leaves sometimes give an apple — the first bite of survival.
+            if (id is BlockId.Leaves or BlockId.BirchLeaves && GD.Randf() < 0.06f)
+            {
+                Inventory.Add(ItemId.Apple, 1);
+            }
+        }
+
+        if (tool is not null)
+        {
+            DamageTool();
+        }
+    }
+
+    private void DamageTool()
+    {
+        ItemStack stack = Inventory.Hotbar[Selected];
+        if (stack.IsEmpty || ItemDb.ToolOf(stack.Id) is null)
+        {
+            return;
+        }
+
+        int durability = stack.Durability - 1;
+        if (durability <= 0)
+        {
+            Inventory.Hotbar[Selected] = ItemStack.Empty;
+            EmitSignal(SignalName.ToolBroke);
+        }
+        else
+        {
+            Inventory.Hotbar[Selected] = stack with { Durability = durability };
+        }
+
+        Inventory.RaiseChanged();
+    }
+
+    public void PlaceBlock()
+    {
+        if (World == null)
+        {
+            return;
+        }
+
+        // Mobs first: right-click is "use" on a creature (tame a sheep).
+        if (Ray.IsColliding() && Ray.GetCollider() is Mob mob)
+        {
+            if (mob.Interact(this))
+            {
+                StartPunch();
+            }
+
+            return;
+        }
+
+        if (!Ray.IsColliding())
+        {
+            // Aiming at nothing: food still works (eat on the go).
+            ItemStack held = Inventory.Hotbar[Selected];
+            if (ItemDb.FoodOf(held.Id) != null)
+            {
+                Eat(held);
+            }
+
+            return;
+        }
+
+        ItemStack stack = Inventory.Hotbar[Selected];
+
+        // Campfires cook what you hold raw and offer a rest (respawn + heal).
+        if (CampfireInReach())
+        {
+            UseCampfire(stack);
+            return;
+        }
+
+        if (ItemDb.BlockFor(stack.Id) is not { } place)
+        {
+            // Non-block items are "use": tables open their UI, food is eaten.
+            if (TableInReach())
+            {
+                EmitSignal(SignalName.TableUsed);
+                return;
+            }
+
+            if (ItemDb.FoodOf(stack.Id) != null)
+            {
+                Eat(stack);
+            }
+
+            return;
+        }
+
+        Vector3 p = Ray.GetCollisionPoint() + Ray.GetCollisionNormal() * 0.5f;
+        int bx = Mathf.FloorToInt(p.X);
+        int by = Mathf.FloorToInt(p.Y);
+        int bz = Mathf.FloorToInt(p.Z);
+        if (World.GetBlock(bx, by, bz) is not (BlockId.Air or BlockId.Water))
+        {
+            return;
+        }
+
+        if (BlockHitsPlayer(bx, by, bz))
+        {
+            return;
+        }
+
+        if (World.SetBlock(bx, by, bz, place))
+        {
+            StartPunch();
+            EmitSignal(SignalName.BlockPlaced, new Vector3(bx + 0.5f, by + 0.5f, bz + 0.5f), (int)place);
+            Inventory.Hotbar[Selected] = stack.Count <= 1 ? ItemStack.Empty : stack with { Count = stack.Count - 1 };
+            Inventory.RaiseChanged();
+        }
+    }
+
+    public void PickBlock()
+    {
+        if (World == null || !Ray.IsColliding() || Ray.GetCollider() is Mob)
+        {
+            return;
+        }
+
+        Vector3I bp = TargetBlock();
+        BlockId id = World.GetBlock(bp.X, bp.Y, bp.Z);
+        if (id is BlockId.Air or BlockId.Water or BlockId.Bedrock)
+        {
+            return;
+        }
+
+        ItemId item = ItemDb.BlockItem(id);
+        if (item == ItemId.None)
+        {
+            return;
+        }
+
+        for (int i = 0; i < Inventory.HotbarSize; i++)
+        {
+            if (Inventory.Hotbar[i].Id == item)
+            {
+                Select(i);
+                return;
+            }
+        }
+
+        for (int i = 0; i < Inventory.BackpackSize; i++)
+        {
+            if (Inventory.Backpack[i].Id == item)
+            {
+                (Inventory.Hotbar[Selected], Inventory.Backpack[i]) =
+                        (Inventory.Backpack[i], Inventory.Hotbar[Selected]);
+                Inventory.RaiseChanged();
+                return;
+            }
+        }
+    }
+
+    private bool BlockHitsPlayer(int bx, int by, int bz)
+    {
+        Vector3 lo = GlobalPosition + new Vector3(-0.32f, 0.0f, -0.32f);
+        Vector3 hi = GlobalPosition + new Vector3(0.32f, 1.8f, 0.32f);
+        return bx + 1 > lo.X && bx < hi.X
+                && by + 1 > lo.Y && by < hi.Y
+                && bz + 1 > lo.Z && bz < hi.Z;
+    }
+
+    public void Select(int i)
+    {
+        Selected = Mathf.Wrap(i, 0, Inventory.HotbarSize);
+        EmitSignal(SignalName.HotbarChanged, Selected, (int)Inventory.Hotbar[Selected].Id);
+    }
+
+    private void SetFlying(bool value)
+    {
+        if (value && Mode != GameMode.Creative)
+        {
+            EmitSignal(SignalName.Notice, "flight is creative-only  (/gamemode creative)");
+            return;
+        }
+
+        Flying = value;
+        if (Flying)
+        {
+            Velocity = Vector3.Zero;
+        }
+
+        EmitSignal(SignalName.FlyChanged, Flying);
+    }
+
+    private void HoldMine(float delta)
+    {
+        if (InputLocked || Stats.Dead || Input.MouseMode != Input.MouseModeEnum.Captured
+                || !Input.IsActionPressed("break_block") || World == null || !Ray.IsColliding())
+        {
+            ResetMining();
+            _mineTimer = 0.0;
+            return;
+        }
+
+        if (Ray.GetCollider() is IDamageable target)
+        {
+            // Mob under the crosshair: swing on the hold cadence.
+            _mineTimer -= delta;
+            if (_mineTimer <= 0.0)
+            {
+                _mineTimer = 0.5;
+                Swing(target);
+            }
+
+            _crack.Visible = false;
+            _mineProgress = 0.0f;
+            return;
+        }
+
+        Vector3I bp = TargetBlock();
+        BlockId id = World.GetBlock(bp.X, bp.Y, bp.Z);
+        if (id is BlockId.Air or BlockId.Water)
+        {
+            ResetMining();
+            return;
+        }
+
+        if (bp != _mineTarget)
+        {
+            _mineTarget = bp;
+            _mineProgress = 0.0f;
+            _mineSoundTimer = 0.0;
+        }
+
+        BlockDb.BlockDef def = BlockDb.DefOf(id);
+        if (def.Hardness >= 1000.0f)
+        {
+            _crack.Visible = false;
+            return;
+        }
+
+        ItemStack held = Inventory.Hotbar[Selected];
+        ToolInfo? tool = ItemDb.ToolOf(held.Id);
+        float speed = tool is { } t && def.Tool == t.Kind ? t.Speed : 1.0f;
+        _mineProgress += (float)delta * speed / def.Hardness;
+
+        _mineSoundTimer -= delta;
+        if (_mineSoundTimer <= 0.0)
+        {
+            _mineSoundTimer = 0.25;
+            EmitSignal(SignalName.MiningTick, new Vector3(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f), (int)id);
+        }
+
+        _crack.Visible = true;
+        _crack.GlobalPosition = new Vector3(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
+        _crackMat.AlbedoColor = new Color(1, 1, 1, 0.15f + 0.75f * Mathf.Min(_mineProgress, 1.0f));
+
+        if (_mineProgress >= 1.0f)
+        {
+            FinishBreak(bp, id, def, tool);
+        }
+    }
+
+    private void ResetMining()
+    {
+        _mineProgress = 0.0f;
+        _mineTarget = new Vector3I(int.MinValue, 0, 0);
+        if (_crack != null)
+        {
+            _crack.Visible = false;
+        }
+    }
+
+    private void UpdateSteps(float delta)
+    {
+        float horiz = Velocity.XZ().Length();
+        if (IsOnFloor() && horiz > 1.0f)
+        {
+            _stepAccum += horiz * delta;
+            if (_stepAccum > StepDistance)
+            {
+                _stepAccum = 0.0;
+                Vector3 below = GlobalPosition + new Vector3(0, -0.4f, 0);
+                BlockId id = World!.GetBlock(Mathf.FloorToInt(below.X), Mathf.FloorToInt(below.Y), Mathf.FloorToInt(below.Z));
+                if (id != BlockId.Air)
+                {
+                    EmitSignal(SignalName.Stepped, GlobalPosition, (int)id);
+                }
+            }
+        }
+        else
+        {
+            _stepAccum = 0.0;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Selection outline
+    // -----------------------------------------------------------------------
+
+    private void BuildOutline()
+    {
+        SurfaceTool st = new();
+        st.Begin(Mesh.PrimitiveType.Triangles);
+        float t = 0.012f;
+        for (int axis = 0; axis < 3; axis++)
+        {
+            for (int a = 0; a < 2; a++)
+            {
+                for (int b = 0; b < 2; b++)
+                {
+                    Vector3 center = new(0.5f, 0.5f, 0.5f);
+                    Vector3 size = new(t * 2.0f, t * 2.0f, t * 2.0f);
+                    size[axis] = 1.0f + t * 2.0f;
+                    center[(axis + 1) % 3] = a;
+                    center[(axis + 2) % 3] = b;
+                    AddBox(st, center, size, Colors.White);
+                }
+            }
+        }
+
+        StandardMaterial3D mat = new()
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            AlbedoColor = new Color(0.05f, 0.05f, 0.05f, 0.9f),
+        };
+        _outline = new MeshInstance3D
+        {
+            Name = "Outline",
+            Mesh = st.Commit(),
+            MaterialOverride = mat,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            Visible = false,
+        };
+        AddChild(_outline);
+    }
+
+    private void BuildCrack()
+    {
+        _crackMat = new StandardMaterial3D
+        {
+            AlbedoTexture = CrackTextureLazy.Value,
+            AlbedoColor = new Color(1, 1, 1, 0),
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
+            SpecularMode = BaseMaterial3D.SpecularModeEnum.Disabled,
+        };
+        _crack = new MeshInstance3D
+        {
+            Name = "Crack",
+            Mesh = new BoxMesh
+            {
+                Size = new Vector3(1.006f, 1.006f, 1.006f),
+            },
+            MaterialOverride = _crackMat,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            Visible = false,
+        };
+        AddChild(_crack);
+    }
+
+    private static ImageTexture BuildCrackTexture()
+    {
+        const int n = 32;
+        Image img = Image.CreateEmpty(n, n, false, Image.Format.Rgba8);
+        img.Fill(new Color(0, 0, 0, 0));
+        RandomNumberGenerator rng = new()
+        {
+            Seed = 4242,
+        };
+        for (int line = 0; line < 9; line++)
+        {
+            float x = n / 2.0f + rng.RandfRange(-4.0f, 4.0f);
+            float y = n / 2.0f + rng.RandfRange(-4.0f, 4.0f);
+            float angle = rng.RandfRange(0.0f, Mathf.Tau);
+            for (int step = 0; step < 22; step++)
+            {
+                angle += rng.RandfRange(-0.5f, 0.5f);
+                x += Mathf.Cos(angle);
+                y += Mathf.Sin(angle);
+                int px = Mathf.Wrap((int)x, 0, n);
+                int py = Mathf.Wrap((int)y, 0, n);
+                img.SetPixel(px, py, new Color(0.05f, 0.05f, 0.05f, 1.0f));
+                if (rng.Randf() < 0.5f)
+                {
+                    img.SetPixel(Mathf.Wrap(px + 1, 0, n), py, new Color(0.05f, 0.05f, 0.05f, 1.0f));
+                }
+            }
+        }
+
+        return ImageTexture.CreateFromImage(img);
+    }
+
+    private static void AddBox(SurfaceTool st, Vector3 center, Vector3 size, Color col)
+    {
+        for (int f = 0; f < 6; f++)
+        {
+            st.SetNormal(BlockDb.FaceDirs[f]);
+            st.SetColor(col);
+            foreach (int t in Mesher.TriOrder)
+            {
+                Vector3 v = BlockDb.FaceVerts[f * 4 + t];
+                st.SetUV(Vector2.Zero);
+                st.AddVertex(center + (v - new Vector3(0.5f, 0.5f, 0.5f)) * size);
+            }
+        }
+    }
+
+    private void UpdateOutline()
+    {
+        if (World == null || _outline == null)
+        {
+            return;
+        }
+
+        if (Ray.IsColliding() && Ray.GetCollider() is not Mob)
+        {
+            Vector3 p = Ray.GetCollisionPoint() - Ray.GetCollisionNormal() * 0.5f;
+            _outline.GlobalPosition = new Vector3(Mathf.FloorToInt(p.X) + 0.5f, Mathf.FloorToInt(p.Y) + 0.5f, Mathf.FloorToInt(p.Z) + 0.5f);
+            _outline.Visible = true;
+        }
+        else
+        {
+            _outline.Visible = false;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // First-person arm
+    // -----------------------------------------------------------------------
+
+    private void BuildArm()
+    {
+        _arm = new Node3D();
+        _arm.Name = "Arm";
+        StandardMaterial3D skin = new()
+        {
+            AlbedoColor = new Color(0.87f, 0.66f, 0.50f),
+            Roughness = 1.0f,
+        };
+        StandardMaterial3D sleeve = new()
+        {
+            AlbedoColor = new Color(0.32f, 0.53f, 0.82f),
+            Roughness = 1.0f,
+        };
+        AddArmPart(MakeBoxMesh(new Vector3(0.22f, 0.55f, 0.22f), new Vector3(0, -0.27f, 0)), sleeve);
+        AddArmPart(MakeBoxMesh(new Vector3(0.245f, 0.30f, 0.245f), new Vector3(0, -0.70f, 0)), skin);
+        _armBase = new Vector3(0.46f, -0.42f, -0.55f);
+        _arm.Position = _armBase;
+        _arm.Rotation = new Vector3(-0.25f, 0.1f, -0.18f);
+        Camera.AddChild(_arm);
+    }
+
+    private void AddArmPart(ArrayMesh mesh, Material material)
+    {
+        MeshInstance3D part = new()
+        {
+            Mesh = mesh,
+            MaterialOverride = material,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+        };
+        _arm.AddChild(part);
+    }
+
+    private static ArrayMesh MakeBoxMesh(Vector3 size, Vector3 offset)
+    {
+        SurfaceTool st = new();
+        st.Begin(Mesh.PrimitiveType.Triangles);
+        AddBox(st, offset, size, Colors.White);
+        return st.Commit();
+    }
+
+    private void StartPunch()
+    {
+        _punch = 1.0;
+    }
+
+    private void UpdateArm(float delta)
+    {
+        if (_arm == null)
+        {
+            return;
+        }
+
+        float horiz = Velocity.XZ().Length();
+        if (IsOnFloor() && horiz > 0.5f)
+        {
+            _bobPhase += delta * (7.0 + horiz);
+        }
+
+        float bob = (float)(System.Math.Sin(_bobPhase) * 0.03 * Mathf.Clamp(horiz / WalkSpeed, 0.0f, 1.6f));
+        double swing = 0.0;
+        if (_punch > 0.0)
+        {
+            _punch = System.Math.Max(_punch - delta / 0.22, 0.0);
+            swing = System.Math.Sin(_punch * System.Math.PI);
+        }
+
+        float swingF = (float)swing;
+        _arm.Position = _armBase + new Vector3(bob * 0.5f, bob - 0.06f * swingF, -0.20f * swingF);
+        _arm.Rotation = new Vector3(-0.25f - 0.85f * swingF, 0.1f, -0.18f);
+    }
+}

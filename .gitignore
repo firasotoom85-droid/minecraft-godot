@@ -1,0 +1,10 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# godot-ai plugin self-update backup (dev clutter)
+addons/.godot_ai_update/
+bin/
+obj/
+.vs/
+*.user

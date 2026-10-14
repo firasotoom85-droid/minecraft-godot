@@ -1,0 +1,368 @@
+using System.Collections.Generic;
+using Godot;
+
+namespace Minecraft;
+
+/// <summary>
+/// Dynamic weather: clear -> cloudy -> rain/snow -> storm. Owns the state
+/// machine, precipitation particles, ground wetness, lightning and the rain /
+/// thunder audio hooks. The sky / fog / light side of weather is applied by
+/// DayNight through its <c>Cloudiness</c> and <c>SkyFlash</c> inputs.
+/// </summary>
+public partial class Weather : Node
+{
+    public enum State
+    {
+        Clear,
+        Cloudy,
+        Rain,
+        Storm,
+    }
+
+    public static readonly string[] StateNames = ["clear", "cloudy", "rain", "storm"];
+
+    private static readonly IReadOnlyDictionary<State, float> TargetCloudiness = new Dictionary<State, float>
+    {
+        [State.Clear] = 0.05f,
+        [State.Cloudy] = 0.55f,
+        [State.Rain] = 0.78f,
+        [State.Storm] = 0.95f,
+    };
+
+    private static readonly IReadOnlyDictionary<State, Vector2> Durations = new Dictionary<State, Vector2>
+    {
+        [State.Clear] = new(90.0f, 240.0f),
+        [State.Cloudy] = new(60.0f, 150.0f),
+        [State.Rain] = new(50.0f, 120.0f),
+        [State.Storm] = new(30.0f, 80.0f),
+    };
+
+    public VoxelWorld? World;
+    public Player? PlayerRef;
+    public DayNight? DayNightRef;
+    public Sound? SoundRef;
+
+    public State Current = State.Clear;
+    public double Cloudiness = 0.05;
+
+    private GpuParticles3D _rain = null!;
+    private GpuParticles3D _snow = null!;
+    private GpuParticles3D _groundSplash = null!;
+    private MeshInstance3D _bolt = null!;
+    private double _boltTime;
+    private double _timer = 20.0;
+    private double _wet;
+    private double _flash;
+    private double _flashAgain = -1.0;
+    private double _lightningTimer = 6.0;
+    private bool _snowing;
+    private readonly RandomNumberGenerator _rng = new();
+
+    public void Setup(VoxelWorld world, Player player, DayNight daynight, Sound sound)
+    {
+        World = world;
+        PlayerRef = player;
+        DayNightRef = daynight;
+        SoundRef = sound;
+        _rng.Randomize();
+        BuildParticles();
+        BuildBolt();
+        PickNextState();
+    }
+
+    public override void _Process(double delta)
+    {
+        if (PlayerRef == null || DayNightRef == null)
+        {
+            return;
+        }
+
+        _timer -= delta;
+        if (_timer <= 0.0)
+        {
+            PickNextState();
+        }
+
+        Cloudiness = Mathf.Lerp((float)Cloudiness, TargetCloudiness[Current], (float)System.Math.Clamp(delta * 0.12, 0.0, 1.0));
+
+        bool precip = Current is State.Rain or State.Storm;
+        Vector3 pp = PlayerRef.GlobalPosition;
+        Vector3 anchor = new(Mathf.Snapped(pp.X, 8.0f), pp.Y + 24.0f, Mathf.Snapped(pp.Z, 8.0f));
+        _rain.GlobalPosition = anchor;
+        _snow.GlobalPosition = anchor;
+        _rain.Emitting = precip && !_snowing;
+        _snow.Emitting = precip && _snowing;
+
+        // Ground splashes pop where the rain lands (approximate local ground).
+        if (World != null)
+        {
+            int gx = Mathf.FloorToInt(pp.X);
+            int gz = Mathf.FloorToInt(pp.Z);
+            float gy = World.SurfaceHeight(gx, gz);
+            _groundSplash.GlobalPosition = new Vector3(Mathf.Snapped(pp.X, 4.0f), gy + 0.2f, Mathf.Snapped(pp.Z, 4.0f));
+            _groundSplash.Emitting = precip && !_snowing;
+        }
+
+        // Ground darkens while rain soaks in (seconds) and dries out slowly.
+        double wetTarget = precip && !_snowing ? 1.0 : 0.0;
+        _wet = Mathf.MoveToward(_wet, wetTarget, delta * (wetTarget > 0.0 ? 0.25 : 0.02));
+        float mul = (float)(1.0 - _wet * 0.26);
+        Color wetTint = new(mul, mul, Mathf.Min(mul * 1.04f, 1.0f));
+        Material opaqueMat = ChunkMaterials.Opaque;
+        if (opaqueMat is ShaderMaterial wire)
+        {
+            wire.SetShaderParameter("tint", wetTint);   // greedy (texture-array) material
+        }
+        else if (opaqueMat is StandardMaterial3D std)
+        {
+            std.AlbedoColor = wetTint;
+        }
+        if (ChunkMaterials.Water is ShaderMaterial water)
+        {
+            water.SetShaderParameter("dim", 1.0 - Cloudiness * 0.3);
+        }
+
+        if (Current == State.Storm)
+        {
+            _lightningTimer -= delta;
+            if (_lightningTimer <= 0.0)
+            {
+                _lightningTimer = _rng.RandfRange(5.0f, 18.0f);
+                _flash = 1.0;
+                if (_rng.Randf() < 0.5f)
+                {
+                    _flashAgain = 0.12;
+                }
+
+                Strike();
+                SoundRef?.Thunder(_rng.RandfRange(0.3f, 1.8f));
+            }
+        }
+
+        if (_boltTime > 0.0)
+        {
+            _boltTime -= delta;
+            if (_boltTime <= 0.0)
+            {
+                _bolt.Visible = false;
+            }
+        }
+
+        if (_flashAgain > 0.0)
+        {
+            _flashAgain -= delta;
+            if (_flashAgain <= 0.0)
+            {
+                _flash = System.Math.Max(_flash, 0.75);
+                _flashAgain = -1.0;
+            }
+        }
+
+        _flash = System.Math.Max(_flash - delta * 4.5, 0.0);
+        DayNightRef.Cloudiness = Cloudiness;
+        DayNightRef.SkyFlash = _flash;
+
+        SoundRef?.SetRain((float)((precip ? Cloudiness : 0.0) * 0.9));
+    }
+
+    /// <summary>
+    /// Markov-style weather transitions, expressed as one relational-pattern
+    /// switch instead of a nested if/match chain — the whole state table reads
+    /// as a single expression.
+    /// </summary>
+    private void PickNextState()
+    {
+        float r = _rng.Randf();
+        Current = Current switch
+        {
+            State.Clear => r < 0.7f ? State.Cloudy : State.Clear,
+            State.Cloudy => r < 0.6f ? State.Rain : State.Clear,
+            State.Rain => r switch
+            {
+                < 0.35f => State.Storm,
+                < 0.65f => State.Cloudy,
+                _ => State.Clear,
+            },
+            State.Storm => r < 0.7f ? State.Rain : State.Cloudy,
+            _ => Current,
+        };
+        Vector2 dur = Durations[Current];
+        _timer = _rng.RandfRange(dur.X, dur.Y);
+        int px = PlayerRef != null ? (int)PlayerRef.GlobalPosition.X : 0;
+        int pz = PlayerRef != null ? (int)PlayerRef.GlobalPosition.Z : 0;
+        _snowing = World != null && World.BiomeAt(px, pz) == Biome.Snow;
+    }
+
+    // -----------------------------------------------------------------------
+    // Lightning strike: brief emissive beam + (rarely) real damage.
+    // -----------------------------------------------------------------------
+
+    private void BuildBolt()
+    {
+        StandardMaterial3D mat = new()
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            AlbedoColor = new Color(1.0f, 1.0f, 0.92f),
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            EmissionEnabled = true,
+            Emission = new Color(1.0f, 1.0f, 0.88f),
+            EmissionEnergyMultiplier = 3.0f,
+        };
+        _bolt = new MeshInstance3D
+        {
+            Name = "Bolt",
+            Mesh = new BoxMesh
+            {
+                Size = new Vector3(0.16f, 80.0f, 0.16f),
+            },
+            MaterialOverride = mat,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            Visible = false,
+        };
+        AddChild(_bolt);
+    }
+
+    private void Strike()
+    {
+        if (World == null || PlayerRef == null)
+        {
+            return;
+        }
+
+        float ang = _rng.Randf() * Mathf.Tau;
+        float dist = _rng.RandfRange(7.0f, 30.0f);
+        int x = Mathf.FloorToInt(PlayerRef.GlobalPosition.X + Mathf.Cos(ang) * dist);
+        int z = Mathf.FloorToInt(PlayerRef.GlobalPosition.Z + Mathf.Sin(ang) * dist);
+        int h = World.SurfaceHeight(x, z);
+        _bolt.GlobalPosition = new Vector3(x + 0.5f, h + 40.0f, z + 0.5f);
+        _bolt.Visible = true;
+        _boltTime = 0.15;
+
+        // Close strikes hurt — stand under a roof when it thunders.
+        Vector3 hit = new(x + 0.5f, h + 1.0f, z + 0.5f);
+        if (hit.DistanceTo(PlayerRef.GlobalPosition) < 2.5f && h > World.SeaLevel)
+        {
+            PlayerRef.ApplyDamage(new DamageInfo(4.0f, DamageKind.Lightning, hit));
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Particles
+    // -----------------------------------------------------------------------
+
+    private void BuildParticles()
+    {
+        StandardMaterial3D rainMat = new()
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            AlbedoTexture = ImageTexture.CreateFromImage(StreakImage()),
+            BillboardMode = BaseMaterial3D.BillboardModeEnum.FixedY,
+            DisableReceiveShadows = true,
+        };
+        QuadMesh rainQuad = new()
+        {
+            Size = new Vector2(0.05f, 0.8f),
+            Material = rainMat,
+        };
+        _rain = MakeEmitter(rainQuad, 2400, 1.6f, new Vector3(46, 2, 46),
+                new Vector3(0.12f, -1.0f, 0.05f), 14.0f, 20.0f, 0.7f, 1.3f, new Vector3(0, -4, 0));
+
+        StandardMaterial3D snowMat = new()
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            AlbedoTexture = ImageTexture.CreateFromImage(DotImage()),
+            BillboardMode = BaseMaterial3D.BillboardModeEnum.Enabled,
+            DisableReceiveShadows = true,
+        };
+        QuadMesh snowQuad = new()
+        {
+            Size = new Vector2(0.12f, 0.12f),
+            Material = snowMat,
+        };
+        _snow = MakeEmitter(snowQuad, 1400, 6.0f, new Vector3(46, 2, 46),
+                new Vector3(0.2f, -1.0f, 0.1f), 1.2f, 2.4f, 0.7f, 1.5f, new Vector3(0, -0.2f, 0));
+
+        StandardMaterial3D splashMat = new()
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            AlbedoTexture = ImageTexture.CreateFromImage(DotImage()),
+            AlbedoColor = new Color(0.85f, 0.92f, 1.0f, 0.8f),
+            BillboardMode = BaseMaterial3D.BillboardModeEnum.Enabled,
+            DisableReceiveShadows = true,
+        };
+        QuadMesh splashQuad = new()
+        {
+            Size = new Vector2(0.07f, 0.07f),
+            Material = splashMat,
+        };
+        _groundSplash = MakeEmitter(splashQuad, 300, 0.28f, new Vector3(20, 0.2f, 20),
+                new Vector3(0, 1, 0), 0.6f, 1.8f, 0.7f, 1.4f, new Vector3(0, -7, 0));
+    }
+
+    private GpuParticles3D MakeEmitter(Mesh draw, int amount, float lifetime, Vector3 extents,
+            Vector3 dir, float velMin, float velMax, float sMin, float sMax, Vector3 grav)
+    {
+        ParticleProcessMaterial pm = new()
+        {
+            EmissionShape = ParticleProcessMaterial.EmissionShapeEnum.Box,
+            EmissionBoxExtents = extents,
+            Direction = dir,
+            Spread = 4.0f,
+            InitialVelocityMin = velMin,
+            InitialVelocityMax = velMax,
+            Gravity = grav,
+            ScaleMin = sMin,
+            ScaleMax = sMax,
+        };
+        GpuParticles3D p = new()
+        {
+            ProcessMaterial = pm,
+            DrawPass1 = draw,
+            Amount = amount,
+            Lifetime = lifetime,
+            Preprocess = 0.8f,
+            LocalCoords = false,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            VisibilityAabb = new Aabb(new Vector3(-50, -30, -50), new Vector3(100, 60, 100)),
+            Emitting = false,
+        };
+        AddChild(p);
+        return p;
+    }
+
+    private static Image StreakImage()
+    {
+        Image img = Image.CreateEmpty(4, 24, false, Image.Format.Rgba8);
+        for (int y = 0; y < 24; y++)
+        {
+            float t = (float)y / 23.0f;
+            float a = Mathf.Sin(Mathf.Pi * t) * 0.9f;
+            for (int x = 0; x < 4; x++)
+            {
+                img.SetPixel(x, y, new Color(0.72f, 0.78f, 0.92f, a));
+            }
+        }
+
+        return img;
+    }
+
+    private static Image DotImage()
+    {
+        Image img = Image.CreateEmpty(16, 16, false, Image.Format.Rgba8);
+        Vector2 c = new(7.5f, 7.5f);
+        for (int y = 0; y < 16; y++)
+        {
+            for (int x = 0; x < 16; x++)
+            {
+                float d = new Vector2(x, y).DistanceTo(c) / 8.0f;
+                float a = Mathf.Clamp(1.0f - d, 0.0f, 1.0f);
+                img.SetPixel(x, y, new Color(1, 1, 1, a * 0.85f));
+            }
+        }
+
+        return img;
+    }
+}
