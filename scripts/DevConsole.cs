@@ -12,16 +12,18 @@ public partial class DevConsole : CanvasLayer
     private Player _player = null!;
     private Hud _hud = null!;
     private Mobs _mobs = null!;
+    private TraderSystem _trader = null!;
     private PanelContainer _panel = null!;
     private LineEdit _entry = null!;
     private bool _open;
 
-    public void Setup(Player player, VoxelWorld world, Hud hud, Mobs mobs)
+    public void Setup(Player player, VoxelWorld world, Hud hud, Mobs mobs, TraderSystem trader)
     {
         _player = player;
         _world = world;
         _hud = hud;
         _mobs = mobs;
+        _trader = trader;
         Layer = 11;
         ProcessMode = ProcessModeEnum.Always;
 
@@ -144,8 +146,8 @@ public partial class DevConsole : CanvasLayer
         {
             case "help":
                 return "/seed · /tp x y z · /time <0..1|day|noon|night|midnight> · /vd n · /autoq on|off · /greedy on|off · /spawn · /save"
-                        + " · /give <item> [n] · /hold <item> [n] · /gamemode · /difficulty · /heal · /hunger n"
-                        + " · /kill · /mob <shade|sheep> [n] · /struct <tower|ruin|mine>";
+                        + " · /give <item> [n] · /hold <item> [n] · /armor iron|diamond|off · /gamemode · /difficulty · /heal · /hunger n"
+                        + " · /kill · /mob <shade|rot|hollow|warden|sheep|cow|pig|chicken> [n] · /trader · /struct <tower|ruin|mine|ember>";
             case "seed":
                 return $"seed {_world.WorldSeed}  ·  gen v{_world.WorldGenVersion}";
             case "tp":
@@ -285,6 +287,39 @@ public partial class DevConsole : CanvasLayer
                 _player.Inventory.RaiseChanged();
                 return $"{ItemDb.NameOf(id)} x{count} in hand";
             }
+            case "armor":
+            {
+                if (parts.Length != 2)
+                {
+                    return "usage: /armor iron|diamond|off";
+                }
+
+                ItemId[] set = parts[1] switch
+                {
+                    "iron" =>
+                    [
+                        ItemId.IronHelmet, ItemId.IronChestplate, ItemId.IronLegs, ItemId.IronBoots,
+                    ],
+                    "diamond" =>
+                    [
+                        ItemId.DiamondHelmet, ItemId.DiamondChestplate, ItemId.DiamondLegs, ItemId.DiamondBoots,
+                    ],
+                    "off" => [],
+                    _ => [],
+                };
+                if (parts[1] is not ("iron" or "diamond" or "off"))
+                {
+                    return "usage: /armor iron|diamond|off";
+                }
+
+                for (int i = 0; i < _player.Inventory.Armor.Length; i++)
+                {
+                    _player.Inventory.Armor[i] = i < set.Length ? ItemDb.New(set[i], 1) : ItemStack.Empty;
+                }
+
+                _player.Inventory.RaiseChanged();
+                return $"armor {parts[1]}";
+            }
             case "gamemode":
                 if (parts.Length == 2)
                 {
@@ -330,24 +365,28 @@ public partial class DevConsole : CanvasLayer
                         ? "you died (softcore: items kept)"
                         : "no effect (creative or invulnerable)";
             case "mob":
-                if (parts.Length >= 2 && parts[1] is "shade" or "sheep")
+                if (parts.Length >= 2 && parts[1] is "shade" or "rot" or "hollow" or "warden" or "sheep" or "cow" or "pig" or "chicken")
                 {
-                    bool shade = parts[1] == "shade";
                     int many = parts.Length >= 3 && int.TryParse(parts[2], out int parsed)
                             ? Mathf.Clamp(parsed, 1, 20)
                             : 1;
-                    int spawned = _mobs.SpawnNear(shade, many);
+                    int spawned = _mobs.SpawnKind(parts[1], many);
                     return spawned > 0 ? $"spawned {spawned} {parts[1]}" : "no room nearby";
                 }
 
-                return "usage: /mob shade|sheep [n]";
+                return "usage: /mob shade|rot|hollow|warden|sheep|cow|pig|chicken [n]";
+            case "trader":
+                return _trader.SpawnNow()
+                        ? "a trader has arrived"
+                        : "could not find a safe trader spot";
             case "struct":
-                if (parts.Length == 2 && parts[1] is "tower" or "ruin" or "mine")
+                if (parts.Length == 2 && parts[1] is "tower" or "ruin" or "mine" or "ember")
                 {
                     int kind = parts[1] switch
                     {
                         "tower" => 0,
                         "ruin" => 1,
+                        "ember" => 3,
                         _ => 2,
                     };
                     Vector3 pp = _player.GlobalPosition;
@@ -355,7 +394,10 @@ public partial class DevConsole : CanvasLayer
                     int pcz = Mathf.FloorToInt(pp.Z / VoxelWorld.StructureCell);
                     if (_world.FindNearestStructure(kind, pcx, pcz, 6) is { } site)
                     {
-                        _player.GlobalPosition = new Vector3(site.X + 0.5f, site.Y + 3.0f, site.Z + 0.5f);
+                        float y = kind == 3
+                                ? Structures.DungeonArenaY(site) + 2.0f
+                                : site.Y + 3.0f;
+                        _player.GlobalPosition = new Vector3(site.X + 0.5f, y, site.Z + 0.5f);
                         _player.Velocity = Vector3.Zero;
                         return $"{parts[1]} at {site.X} {site.Y} {site.Z}";
                     }
@@ -363,7 +405,7 @@ public partial class DevConsole : CanvasLayer
                     return $"no {parts[1]} within 6 cells";
                 }
 
-                return "usage: /struct <tower|ruin|mine>";
+                return "usage: /struct <tower|ruin|mine|ember>";
             default:
                 return $"unknown command: {parts[0]}  (try /help)";
         }

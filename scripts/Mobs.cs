@@ -4,20 +4,20 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>
-/// Population manager: keeps a handful of sheep around the player, and in
-/// survival rises shades at night / during storms (never on peaceful).
-/// Routes deaths into loot, and exposes spawn/clear helpers for the dev
-/// console and respawn safety.
+/// Population manager: a handful of passive animals around the player, and
+/// hostile night/storm spawns (shades, rot packs, hollow archers). Routes
+/// deaths into loot, and exposes spawn/clear helpers for the dev console and
+/// respawn safety.
 /// </summary>
 public partial class Mobs : Node
 {
-    private const int SheepTarget = 6;
-    private const float SheepSpawnMin = 18.0f;
-    private const float SheepSpawnMax = 40.0f;
-    private const float SheepDespawn = 120.0f;
-    private const float ShadeSpawnMin = 24.0f;
-    private const float ShadeSpawnMax = 44.0f;
-    private const float ShadeDespawn = 80.0f;
+    private const int PassiveTarget = 9;
+    private const float PassiveSpawnMin = 18.0f;
+    private const float PassiveSpawnMax = 40.0f;
+    private const float PassiveDespawn = 120.0f;
+    private const float HostileSpawnMin = 24.0f;
+    private const float HostileSpawnMax = 44.0f;
+    private const float HostileDespawn = 80.0f;
     private const float FireSafety = 12.0f;
 
     public VoxelWorld? World;
@@ -26,14 +26,31 @@ public partial class Mobs : Node
     public Sound? SoundRef;
     public Weather? WeatherRef;
 
-    private readonly List<Sheep> _sheep = [];
-    private readonly List<Shade> _shades = [];
-    public int SheepCount => _sheep.Count;
-    public int ShadeCount => _shades.Count;
+    private readonly List<Mob> _passive = [];
+    private readonly List<Mob> _hostiles = [];
+    public int PassiveCount => _passive.Count;
+    public int HostileCount => _hostiles.Count;
+
+    /// <summary>Live boss hook for the dungeon HUD/dev spawns.</summary>
+    public EmberWarden? ActiveWarden
+    {
+        get
+        {
+            foreach (Mob mob in _hostiles)
+            {
+                if (mob is EmberWarden warden && IsInstanceValid(warden) && !warden.Dead)
+                {
+                    return warden;
+                }
+            }
+
+            return null;
+        }
+    }
     public bool IsStorm => WeatherRef?.Current == Weather.State.Storm;
 
     private double _timer = 1.5;
-    private double _shadeTimer = 8.0;
+    private double _hostileTimer = 8.0;
     private readonly RandomNumberGenerator _rng = new();
 
     public void Setup(VoxelWorld world, Player player, Fx fx, Sound sound, Weather weather)
@@ -53,42 +70,42 @@ public partial class Mobs : Node
             return;
         }
 
-        _sheep.RemoveAll(mob => !IsInstanceValid(mob));
-        _shades.RemoveAll(mob => !IsInstanceValid(mob));
+        _passive.RemoveAll(mob => !IsInstanceValid(mob));
+        _hostiles.RemoveAll(mob => !IsInstanceValid(mob));
         Vector3 pos = PlayerRef.GlobalPosition;
-        _sheep.RemoveAll(mob => DespawnFar(mob, pos, SheepDespawn));
-        _shades.RemoveAll(mob => DespawnFar(mob, pos, ShadeDespawn));
+        _passive.RemoveAll(mob => DespawnFar(mob, pos, PassiveDespawn));
+        _hostiles.RemoveAll(mob => DespawnFar(mob, pos, HostileDespawn));
 
-        if (Settings.Difficulty == Settings.DifficultyPeaceful && _shades.Count > 0)
+        if (Settings.Difficulty == Settings.DifficultyPeaceful && _hostiles.Count > 0)
         {
-            foreach (Shade shade in _shades)
+            foreach (Mob mob in _hostiles)
             {
-                Puff(shade.GlobalPosition + new Vector3(0, 1.0f, 0), new Color(0.30f, 0.26f, 0.38f));
-                shade.QueueFree();
+                Puff(mob.GlobalPosition + new Vector3(0, 1.0f, 0), new Color(0.30f, 0.26f, 0.38f));
+                mob.QueueFree();
             }
 
-            _shades.Clear();
+            _hostiles.Clear();
         }
 
         _timer -= delta;
         if (_timer <= 0.0)
         {
             _timer = 2.0;
-            if (_sheep.Count < SheepTarget)
+            if (_passive.Count < PassiveTarget)
             {
-                SpawnSheep();
+                SpawnPassive();
             }
         }
 
-        _shadeTimer -= delta;
-        if (_shadeTimer <= 0.0)
+        _hostileTimer -= delta;
+        if (_hostileTimer <= 0.0)
         {
-            _shadeTimer = IsStorm ? 2.5 : 5.0;
+            _hostileTimer = IsStorm ? 2.5 : 5.0;
             bool dark = DayNight.IsNight(World.TimeOfDay) || IsStorm;
-            int cap = Settings.Difficulty == Settings.DifficultyHard ? 9 : 6;
-            if (Settings.Difficulty != Settings.DifficultyPeaceful && dark && _shades.Count < cap)
+            int cap = Settings.Difficulty == Settings.DifficultyHard ? 10 : 7;
+            if (Settings.Difficulty != Settings.DifficultyPeaceful && dark && _hostiles.Count < cap)
             {
-                SpawnShade();
+                SpawnHostile();
             }
         }
     }
@@ -147,97 +164,136 @@ public partial class Mobs : Node
         return false;
     }
 
-    private void SpawnSheep()
+    private void SpawnMob(Mob mob, Vector3 point, float yOffset, bool hostile)
     {
-        if (!FindSpawnPoint(SheepSpawnMin, SheepSpawnMax, false, out Vector3 point))
-        {
-            return;
-        }
-
-        Sheep sheep = new();
-        AddChild(sheep);
-        sheep.Setup(World!, this, point);
-        sheep.GlobalPosition = point + new Vector3(0, 1.0f, 0);
-        sheep.GlobalRotation = new Vector3(0, _rng.Randf() * Mathf.Tau, 0);
-        sheep.Died += OnMobDied;
-        sheep.Hurt += OnMobHurt;
-        sheep.Signalled += OnSignalled;
-        _sheep.Add(sheep);
+        AddChild(mob);
+        mob.Setup(World!, this, point);
+        mob.GlobalPosition = point + new Vector3(0, yOffset, 0);
+        mob.GlobalRotation = new Vector3(0, _rng.Randf() * Mathf.Tau, 0);
+        mob.Died += OnMobDied;
+        mob.Hurt += OnMobHurt;
+        mob.Signalled += OnSignalled;
+        (hostile ? _hostiles : _passive).Add(mob);
     }
 
-    private void SpawnShade()
+    private void SpawnPassive()
     {
-        if (!FindSpawnPoint(ShadeSpawnMin, ShadeSpawnMax, true, out Vector3 point))
+        if (!FindSpawnPoint(PassiveSpawnMin, PassiveSpawnMax, false, out Vector3 point))
         {
             return;
         }
 
-        Shade shade = new();
-        AddChild(shade);
-        shade.Setup(World!, this, point);
-        shade.GlobalPosition = point + new Vector3(0, 1.2f, 0);
-        shade.GlobalRotation = new Vector3(0, _rng.Randf() * Mathf.Tau, 0);
-        shade.Died += OnMobDied;
-        shade.Hurt += OnMobHurt;
-        shade.Signalled += OnSignalled;
-        _shades.Add(shade);
+        Mob mob = _rng.RandiRange(0, 9) switch
+        {
+            < 3 => new Sheep(),
+            < 6 => new Cow(),
+            < 8 => new Pig(),
+            _ => new Chicken(),
+        };
+        SpawnMob(mob, point, 1.0f, false);
+    }
+
+    private void SpawnHostile()
+    {
+        int roll = _rng.RandiRange(0, 9);
+        if (roll < 5)
+        {
+            if (FindSpawnPoint(HostileSpawnMin, HostileSpawnMax, true, out Vector3 point))
+            {
+                SpawnMob(new Shade(), point, 1.2f, true);
+            }
+        }
+        else if (roll < 8)
+        {
+            int count = _rng.RandiRange(2, 3);
+            for (int i = 0; i < count; i++)
+            {
+                if (!FindSpawnPoint(HostileSpawnMin, HostileSpawnMax, true, out Vector3 point))
+                {
+                    break;
+                }
+
+                SpawnMob(new Rot(), point, 1.2f, true);
+            }
+        }
+        else if (FindSpawnPoint(HostileSpawnMin, HostileSpawnMax, true, out Vector3 point))
+        {
+            SpawnMob(new Hollow(), point, 1.2f, true);
+        }
     }
 
     /// <summary>Dev-console helper: spawn n mobs close to the player.</summary>
-    public int SpawnNear(bool shade, int count)
+    public int SpawnNear(bool shade, int count) => SpawnKind(shade ? "shade" : "sheep", count);
+
+    /// <summary>Dev-console helper for every released mob type.</summary>
+    public int SpawnKind(string kind, int count)
     {
+        bool hostile = kind is "shade" or "rot" or "hollow" or "warden";
         int spawned = 0;
         for (int i = 0; i < count; i++)
         {
-            if (!FindSpawnPoint(6.0f, 14.0f, shade, out Vector3 point))
+            if (kind is not ("shade" or "rot" or "hollow" or "warden" or "sheep" or "cow" or "pig" or "chicken"))
             {
                 break;
             }
 
-            if (shade)
+            if (!FindSpawnPoint(6.0f, 14.0f, hostile, out Vector3 point))
             {
-                Shade s = new();
-                AddChild(s);
-                s.Setup(World!, this, point);
-                s.GlobalPosition = point + new Vector3(0, 1.2f, 0);
-                s.Died += OnMobDied;
-                s.Hurt += OnMobHurt;
-                s.Signalled += OnSignalled;
-                _shades.Add(s);
-            }
-            else
-            {
-                Sheep s = new();
-                AddChild(s);
-                s.Setup(World!, this, point);
-                s.GlobalPosition = point + new Vector3(0, 1.0f, 0);
-                s.Died += OnMobDied;
-                s.Hurt += OnMobHurt;
-                s.Signalled += OnSignalled;
-                _sheep.Add(s);
+                break;
             }
 
+            Mob mob = kind switch
+            {
+                "shade" => new Shade(),
+                "rot" => new Rot(),
+                "hollow" => new Hollow(),
+                "warden" => new EmberWarden(),
+                "cow" => new Cow(),
+                "pig" => new Pig(),
+                "chicken" => new Chicken(),
+                _ => new Sheep(),
+            };
+            SpawnMob(mob, point, hostile ? 1.2f : 1.0f, hostile);
             spawned += 1;
         }
 
         return spawned;
     }
 
-    /// <summary>Respawn safety: poof hostile mobs within radius of a point.</summary>
+    /// <summary>Dungeon hook: place the boss at an exact arena position.</summary>
+    public EmberWarden? SpawnWarden(Vector3 pos)
+    {
+        EmberWarden warden = new();
+        SpawnMob(warden, pos, 0.2f, true);
+        return warden;
+    }
+
+    /// <summary>Boss phase hook: summon adds around an arena position.</summary>
+    public void SpawnAdds(Vector3 center, int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            float ang = i * Mathf.Tau / Mathf.Max(count, 1);
+            Vector3 point = center + new Vector3(Mathf.Cos(ang) * 2.5f, 1.0f, Mathf.Sin(ang) * 2.5f);
+            SpawnMob(new Shade(), point, 0.0f, true);
+        }
+    }
+
+    /// <summary>Respawn/sleep safety: poof hostile mobs within radius of a point.</summary>
     public void ClearHostilesNear(Vector3 pos, float radius)
     {
-        foreach (Shade shade in _shades)
+        foreach (Mob mob in _hostiles)
         {
-            if (shade.GlobalPosition.DistanceSquaredTo(pos) > radius * radius)
+            if (mob.GlobalPosition.DistanceSquaredTo(pos) > radius * radius)
             {
                 continue;
             }
 
-            Puff(shade.GlobalPosition + new Vector3(0, 1.0f, 0), new Color(0.30f, 0.26f, 0.38f));
-            shade.QueueFree();
+            Puff(mob.GlobalPosition + new Vector3(0, 1.0f, 0), new Color(0.30f, 0.26f, 0.38f));
+            mob.QueueFree();
         }
 
-        _shades.RemoveAll(mob => !IsInstanceValid(mob));
+        _hostiles.RemoveAll(mob => !IsInstanceValid(mob));
     }
 
     // -----------------------------------------------------------------------
@@ -247,9 +303,9 @@ public partial class Mobs : Node
     private void OnMobDied(Mob mob)
     {
         Vector3 pos = mob.GlobalPosition + new Vector3(0, 0.7f, 0);
-        bool sheep = mob is Sheep;
-        Puff(pos, sheep ? new Color(0.90f, 0.88f, 0.84f) : new Color(0.28f, 0.24f, 0.36f));
-        SoundRef?.Play(sheep ? "baa" : "mobdie", pos, sheep ? 1.0f : 0.9f, -2.0f);
+        bool passive = mob is Sheep or Cow or Pig or Chicken;
+        Puff(pos, passive ? new Color(0.90f, 0.88f, 0.84f) : new Color(0.28f, 0.24f, 0.36f));
+        SoundRef?.Play(passive ? "baa" : "mobdie", pos, passive ? 1.0f : 0.9f, -2.0f);
 
         if (PlayerRef == null || mob.Loot.Length == 0)
         {
@@ -282,7 +338,8 @@ public partial class Mobs : Node
     {
         if (_rng.Randf() < 0.6f)
         {
-            SoundRef?.Play(mob is Sheep ? "baa" : "mobhurt", mob.GlobalPosition + new Vector3(0, 1.0f, 0), 1.0f, -4.0f);
+            bool sheep = mob is Sheep;
+            SoundRef?.Play(sheep ? "baa" : "mobhurt", mob.GlobalPosition + new Vector3(0, 1.0f, 0), 1.0f, -4.0f);
         }
     }
 

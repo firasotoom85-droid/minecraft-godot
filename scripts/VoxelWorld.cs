@@ -77,6 +77,12 @@ public partial class VoxelWorld : Node3D
     public float SavedHunger;
     public Vector3? SavedRespawn;        // campfire anchor, null = world spawn
 
+    // Save v3: per-block inventories (chests/furnaces) and one-time world
+    // flags (dungeon clears, achievements). Keys are stable block coordinates.
+    public readonly Dictionary<string, Container> Containers = [];
+    public readonly Dictionary<string, FurnaceData> Furnaces = [];
+    public readonly Dictionary<string, bool> Flags = [];
+
     /// <summary>New worlds default to survival; pre-M2 worlds stay creative.</summary>
     public string DefaultMode => _manifest.Mode == "survival" ? "survival" : "creative";
 
@@ -89,6 +95,8 @@ public partial class VoxelWorld : Node3D
 
     private readonly Dictionary<Vector2I, byte[]> _dataCache = new();
     private readonly Dictionary<Vector2I, Dictionary<int, BlockId>> _edits = new();  // persisted
+    private readonly Dictionary<Vector3I, float> _lightSources = [];  // placed emitters (torches)
+    private readonly HashSet<Vector3I> _crops = [];  // placed wheat, for growth ticks
     private readonly Lock _mutex = new();           // guards _dataCache, _edits, EditEpoch
     public Lock SnapshotLock { get; } = new();      // serialises edits vs mesher snapshots
 
@@ -670,7 +678,17 @@ public partial class VoxelWorld : Node3D
         }
 
         uint rng = Mix((uint)_noiseSeeds[2], (uint)cx, (uint)cz, 0x53545255u);
-        int kind = Range(ref rng, 0, 2);
+        // Gen v6 adds rare Ember Deep dungeons. Keeping the old draw sequence
+        // for v4/v5 preserves every existing structure in existing worlds.
+        int kind;
+        if (_genVersion >= 6)
+        {
+            kind = Range(ref rng, 0, 9) == 0 ? 3 : Range(ref rng, 0, 2);
+        }
+        else
+        {
+            kind = Range(ref rng, 0, 2);
+        }
         int x = cx * StructureCell + Range(ref rng, 12, StructureCell - 12);
         int z = cz * StructureCell + Range(ref rng, 12, StructureCell - 12);
         int h = SurfaceHeight(x, z);
@@ -1294,6 +1312,8 @@ public partial class VoxelWorld : Node3D
             return false;
         }
 
+        UpdateLightSource(x, y, z, id);
+        UpdateCropSource(x, y, z, id);
         int i = lx + lz * ChunkX + y * ChunkX * ChunkZ;
         lock (SnapshotLock)
         {
@@ -1340,6 +1360,96 @@ public partial class VoxelWorld : Node3D
 
         return true;
     }
+
+    public static string ContainerKey(Vector3I pos) => $"{pos.X},{pos.Y},{pos.Z}";
+
+    public Container GetContainer(Vector3I pos)
+    {
+        string key = ContainerKey(pos);
+        if (!Containers.TryGetValue(key, out Container? container))
+        {
+            container = new Container();
+            Containers[key] = container;
+        }
+
+        return container;
+    }
+
+    public bool TryGetContainer(Vector3I pos, out Container? container) =>
+        Containers.TryGetValue(ContainerKey(pos), out container);
+
+    public void RemoveContainer(Vector3I pos) => Containers.Remove(ContainerKey(pos));
+
+    public FurnaceData GetFurnace(Vector3I pos)
+    {
+        string key = ContainerKey(pos);
+        if (!Furnaces.TryGetValue(key, out FurnaceData? furnace))
+        {
+            furnace = new FurnaceData();
+            Furnaces[key] = furnace;
+        }
+
+        return furnace;
+    }
+
+    public bool TryGetFurnace(Vector3I pos, out FurnaceData? furnace) =>
+        Furnaces.TryGetValue(ContainerKey(pos), out furnace);
+
+    public void RemoveFurnace(Vector3I pos) => Furnaces.Remove(ContainerKey(pos));
+
+    /// <summary>Placed light emitters within a radius, nearest first.</summary>
+    public List<Vector3I> NearestLights(Vector3 pos, int max, float radius = 32.0f)
+    {
+        List<(Vector3I Pos, float Dist)> found = [];
+        float radiusSq = radius * radius;
+        foreach ((Vector3I cell, float _) in _lightSources)
+        {
+            Vector3 center = new(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f);
+            float dist = center.DistanceSquaredTo(pos);
+            if (dist <= radiusSq)
+            {
+                found.Add((cell, dist));
+            }
+        }
+
+        found.Sort((a, b) => a.Dist.CompareTo(b.Dist));
+        List<Vector3I> result = [];
+        for (int i = 0; i < found.Count && i < max; i++)
+        {
+            result.Add(found[i].Pos);
+        }
+
+        return result;
+    }
+
+    private void UpdateLightSource(int x, int y, int z, BlockId id)
+    {
+        Vector3I cell = new(x, y, z);
+        if (BlockDb.IsDefined(id) && BlockDb.DefOf(id).Light > 0.0f)
+        {
+            _lightSources[cell] = BlockDb.DefOf(id).Light;
+        }
+        else
+        {
+            _lightSources.Remove(cell);
+        }
+    }
+
+    private void UpdateCropSource(int x, int y, int z, BlockId id)
+    {
+        Vector3I cell = new(x, y, z);
+        if (BlockDb.IsWheat(id))
+        {
+            _crops.Add(cell);
+        }
+        else
+        {
+            _crops.Remove(cell);
+        }
+    }
+
+    /// <summary>Snapshot for the growth tick (avoids mutating the set mid-loop).</summary>
+    public Vector3I[] CropSnapshot() => [.. _crops];
 
     // -----------------------------------------------------------------------
     // Edit-aware surface heights: per-chunk topmost solid block of every
@@ -1410,6 +1520,28 @@ public partial class VoxelWorld : Node3D
         _lastPlayerChunk = pcp;
         _lastPlayerPos = Player?.GlobalPosition ?? Vector3.Zero;
         RebuildQueue(pcp);
+    }
+
+    /// <summary>
+    /// Synchronous chunk build for the menu backdrop. No player is required;
+    /// the camera orbits this centre while the menu is open.
+    /// </summary>
+    public void BuildPreview(Vector3 center, int radius)
+    {
+        Vector2I pcp = new(
+                Mathf.FloorToInt(center.X / ChunkX),
+                Mathf.FloorToInt(center.Z / ChunkZ));
+        int r = Mathf.Clamp(radius, 1, 5);
+        for (int dz = -r; dz <= r; dz++)
+        {
+            for (int dx = -r; dx <= r; dx++)
+            {
+                BuildNow(pcp + new Vector2I(dx, dz));
+            }
+        }
+
+        _lastPlayerChunk = pcp;
+        _lastPlayerPos = center;
     }
 
     /// <summary>Change the streamed radius (gfx presets / F7-F8) and re-evaluate the queue.</summary>
@@ -1861,7 +1993,51 @@ public partial class VoxelWorld : Node3D
             editsOut[$"{cp.X},{cp.Y}"] = inner.ToDictionary(e => e.Key.ToString(), e => e.Value);
         }
 
-        WorldSave world = new(2, editsOut, TimeOfDay);
+        Dictionary<string, List<ItemStackSave>>? containers = null;
+        if (Containers.Count > 0)
+        {
+            containers = [];
+            foreach ((string key, Container container) in Containers)
+            {
+                List<ItemStackSave> items = container.ToSave();
+                if (items.Count > 0)
+                {
+                    containers[key] = items;
+                }
+            }
+
+            if (containers.Count == 0)
+            {
+                containers = null;
+            }
+        }
+
+        Dictionary<string, FurnaceSave>? furnaces = null;
+        if (Furnaces.Count > 0)
+        {
+            furnaces = [];
+            foreach ((string key, FurnaceData furnace) in Furnaces)
+            {
+                if (!furnace.IsEmpty)
+                {
+                    furnaces[key] = new FurnaceSave(
+                            furnace.ToSave(), furnace.BurnTime, furnace.BurnMax, furnace.SmeltTime);
+                }
+            }
+
+            if (furnaces.Count == 0)
+            {
+                furnaces = null;
+            }
+        }
+
+        WorldSave world = new(
+                WorldStore.WorldFormatVersion,
+                editsOut,
+                TimeOfDay,
+                containers,
+                Flags.Count == 0 ? null : Flags,
+                furnaces);
         WorldStore.WriteAtomic(
                 WorldStore.WorldSavePath(_worldDir),
                 JsonSerializer.Serialize(world, WorldStore.Json));
@@ -1926,7 +2102,34 @@ public partial class VoxelWorld : Node3D
                 {
                     if (int.TryParse(index, out int i))
                     {
+                        if (!BlockDb.IsDefined(id))
+                        {
+                            GD.PushWarning($"minecraft: ignoring unknown block id {(int)id} in {_worldDir}");
+                            continue;
+                        }
+
                         edits[i] = id;
+                        if (i >= 0 && i < ChunkX * Height * ChunkZ
+                                && BlockDb.IsDefined(id) && BlockDb.DefOf(id).Light > 0.0f)
+                        {
+                            int stride = ChunkX * ChunkZ;
+                            int y = i / stride;
+                            int rem = i % stride;
+                            int lz = rem / ChunkX;
+                            int lx = rem % ChunkX;
+                            _lightSources[new Vector3I(
+                                    cx * ChunkX + lx, y, cz * ChunkZ + lz)] = BlockDb.DefOf(id).Light;
+                        }
+
+                        if (i >= 0 && i < ChunkX * Height * ChunkZ && BlockDb.IsWheat(id))
+                        {
+                            int stride = ChunkX * ChunkZ;
+                            int y = i / stride;
+                            int rem = i % stride;
+                            int lz = rem / ChunkX;
+                            int lx = rem % ChunkX;
+                            _crops.Add(new Vector3I(cx * ChunkX + lx, y, cz * ChunkZ + lz));
+                        }
                     }
                 }
 
@@ -1936,7 +2139,47 @@ public partial class VoxelWorld : Node3D
 
         if (world != null)
         {
+            if (world.Version > WorldStore.WorldFormatVersion)
+            {
+                GD.PushWarning($"minecraft: world save version {world.Version} is newer than {WorldStore.WorldFormatVersion}; loading known fields only");
+            }
+
             TimeOfDay = Mathf.Clamp(world.Time, 0.0, 1.0);
+            if (world.Containers != null)
+            {
+                foreach ((string key, List<ItemStackSave> items) in world.Containers)
+                {
+                    if (items is not null)
+                    {
+                        Container container = new();
+                        container.LoadFrom(items);
+                        Containers[key] = container;
+                    }
+                }
+            }
+
+            if (world.Flags != null)
+            {
+                foreach ((string key, bool value) in world.Flags)
+                {
+                    Flags[key] = value;
+                }
+            }
+
+            if (world.Furnaces != null)
+            {
+                foreach ((string key, FurnaceSave saved) in world.Furnaces)
+                {
+                    FurnaceData furnace = new()
+                    {
+                        BurnTime = saved.BurnTime,
+                        BurnMax = saved.BurnMax,
+                        SmeltTime = saved.SmeltTime,
+                    };
+                    furnace.LoadFrom(saved.Slots);
+                    Furnaces[key] = furnace;
+                }
+            }
         }
 
         PlayerSave? player = WorldStore.ReadJson<PlayerSave>(

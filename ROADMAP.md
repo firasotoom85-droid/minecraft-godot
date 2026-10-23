@@ -1,0 +1,628 @@
+# ROADMAP — 1.0 “Cozy Survival” (M5–M10)
+
+Generated 2026-10-21 from a code audit of the current project plus the
+progress recorded in `PLAN.md`. `PLAN.md` remains the historical progress log
+(M0–M4b); this file is the forward plan.
+
+**Baseline note:** no build or playtest was run while writing this plan. The
+current-state claims come from the source and `PLAN.md`; the first work item in
+M5 is to verify the build, record a performance baseline, and start the test
+harness.
+
+---
+
+## 1. Current state
+
+### Already built
+
+`PLAN.md` records M0–M4b as complete, and the corresponding code exists:
+
+- Menus, world select/create, pause, settings, atomic saves with backups,
+  per-world folders, dev console.
+- Items, tools, 9+27 inventory, 2×2/3×3 crafting, recipe book, durability.
+- Survival stats, damage pipeline, softcore death, campfires, sheep, one
+  hostile (`Shade`), weather and lightning.
+- Worldgen v5: normal/flat/amplified/sky presets, rivers, caves, lava,
+  structures, height 128.
+- Streaming, far LOD, greedy meshing, async remesh, dynamic quality governor,
+  profiler.
+- Minimap, photo mode, procedural textures/audio, adaptive soundscape.
+- Linux and Windows export presets.
+
+### Verified gaps
+
+| Area | Current state |
+|---|---|
+| Content capacity | 29 block IDs (`BlockId.cs`), `BlockDb.BlockCount = 32` → **3 free IDs**; 33 of 64 atlas tiles used |
+| Content | No torch/light, chest, furnace, farming, armor, ladder, bed, boats, buckets |
+| Mobs | Only `Sheep` and `Shade` |
+| Water | Drowning and muffling exist, but **no swimming** — water is effectively a walkable floor |
+| Progression | Iron/gold ore → raw ore → tools directly; no smelting/ingots/armor |
+| Goals | No achievements, journal, boss, or directed objective |
+| UX/platform | No key rebinding, gamepad, onboarding, localization, or music |
+| World management | List + create only; no rename/delete/duplicate/export |
+| Quality | **Zero automated tests**; save version field is written but ignored; no README |
+| Save format | `WorldSave` v2: edits + time only; no containers/achievements |
+
+### Strengths to protect
+
+Worldgen determinism, save architecture, greedy meshing, procedural art/audio,
+photo mode, and the “cozy but optional danger” identity.
+
+---
+
+## 2. Product direction
+
+**Ship a focused 1.0 before scale or multiplayer.**
+
+Four pillars:
+
+1. **A home that matters** — light, storage, smelting, farming, bed, campfire.
+2. **A world that lives** — more animals, a ranged threat, one dungeon boss, a
+   trader, fishing, achievements.
+3. **Approachable by default** — onboarding, rebinding, gamepad, Arabic/English.
+4. **Tactile and cozy** — music, ambience, photo mode, accessible settings.
+
+Why this order: the game already looks and streams well. What it lacks is
+**purpose** (why mine?) and **comfort** (how do I learn/control it?).
+Multiplayer and dimensions multiply risk without fixing either. Keep the
+existing “door open” rules, but do not start them before 1.0.
+
+---
+
+## 3. Non-negotiable constraints
+
+1. **Old worlds always load.** Append IDs only; never renumber. All worldgen
+   changes stay gated on `GenVersion`. Re-verify the v1 anchor chunk hash.
+2. **Capacity before content.** Raise block/atlas limits first, or M6 will
+   silently break.
+3. **One mutation seam.** All edits through `SetBlock`/`ApplyEdit`; no new
+   direct `World.Player` reads.
+4. **Every milestone gate:** 0-warning build, tests green, save round-trip,
+   perf baseline, 30-minute soak.
+5. **Scope guard:** no multiplayer, dimensions, non-cube blocks, or mod API
+   before 1.0.
+
+---
+
+## 4. Roadmap at a glance
+
+| Milestone | Theme | Size | Depends on | Exit criteria |
+|---|---|---|---|---|
+| **M5** | Foundation & guardrails | 1–1.5 wk | — | Tests, content capacity, save v3, perf baseline |
+| **M6** | Base & progression | 3–4 wk | M5 | Torch/light, chest, furnace/ingots/armor, farming, bed, swimming |
+| **M7** | Living world & goals | 3–4 wk | M6 | Mob roster, dungeon/boss, trader, fishing, achievements |
+| **M8** | UX, platform & 1.0 | 2–3 wk | M5–M7 | Rebinding/gamepad, onboarding, world management, EN/AR, music, release |
+| **M9** | Scale & online | 4–8 wk | 1.0 | Mid-LOD/occlusion, height 256, dimensions, LAN co-op |
+| **M10** | Post-1.0 | ongoing | 1.0 | Data-driven content, villages/quests, non-cube blocks |
+
+Estimated 1.0: **9–12 weeks solo + AI**, faster at the pace this project has
+moved.
+
+---
+
+## 5. Detailed milestones
+
+### M5 — Foundation & guardrails (1–1.5 weeks)
+
+**5.1 Content capacity**
+
+- `BlockDb.cs`: raise `BlockCount` 32 → 128; `AtlasCols` 8 → 16 (256 tiles);
+  update UV/tile-array math.
+- Add a startup **content validator**: every `BlockId` has a definition and
+  valid tile; every `ItemId` has a name/icon; every recipe ingredient/result
+  exists; block↔item pairs round-trip.
+- Document the append-only ID policy at the top of `BlockId.cs` / `ItemId.cs`.
+- *Why:* only 3 spare block IDs and 31 spare tiles today. M6 needs far more.
+
+**5.2 Headless test harness**
+
+- Add `tests/` with a `TestRunner.tscn` runnable via
+  `godot --headless --path .`; exit non-zero on failure. No third-party addon
+  required.
+- Suites: content registry, inventory add/stack/overflow, recipe
+  matching/crafting, player stats damage/hunger/drown, save atomic
+  write/backup/corruption, worldgen anchors, mesher greedy/per-face area
+  parity.
+- Add `scripts/verify.sh` = build + tests + anchor check.
+
+**5.3 Save v3**
+
+- Make `WorldSave.Version` actually checked; add a migration chain
+  (v1→v2→v3).
+- Add `Containers` (per-block inventories) and `Flags`/`Achievements` fields,
+  all optional.
+- Add armor slots to `PlayerSave` (optional, old saves default empty).
+- Tests: old save loads; corrupt file recovers from `.bak`; round-trip stable.
+
+**5.4 Performance baseline**
+
+- Fixed seed + camera path + `VD8/HIGH`; record FPS p50/p1, mesh ms, RAM/VRAM,
+  chunk count.
+- Set gates: no >10% regression per milestone; target ≥50 FPS release at
+  HIGH/VD8 on the MX230.
+
+**5.5 Stabilization**
+
+- 30-minute soak: fly across biomes, place/break, weather, mobs, save/load.
+  Fix crashes/leaks; clean logs.
+
+**Done when:** old worlds load, v1 anchor unchanged, tests green, baseline
+recorded.
+
+---
+
+### M6 — Base & progression (3–4 weeks)
+
+#### M6a — Light & water (week 1)
+
+- **Torch**: block + item + recipe (coal + stick → 4). Cross-shaped mesh with an
+  emissive surface; extend the existing `IsCross`/`AddCross` path in
+  `Mesher.cs`.
+- **Lighting v1**: pooled `OmniLight3D` nodes (max ~16 nearest, 8 m, flicker,
+  no shadows), registered from edits/payloads and freed on unload. No voxel
+  light propagation yet.
+- *Stretch (only if v1 looks bad):* voxel block-light nibble baked into vertex
+  colors. This is an L-sized change; do not start it unless review demands.
+- **Swimming**: buoyancy, Space = up, Sprint = down, slower movement,
+  underwater fog/overlay, slower mining, exit-water assist. Keep drowning and
+  lava damage.
+- **Ladder**: climbable block, no orientation needed.
+- **Done when:** a cave can be lit and navigated; the player can swim up from
+  10 m; FPS stays within 3% of baseline.
+
+#### M6b — Storage, heat & armor (weeks 2–3)
+
+- **Chest**: 27 slots, shared storage UI, save in `WorldSave.Containers`, break
+  drops contents, shift-click quick-move. Refactor `InventoryUi`/`InvSlot` into
+  a reusable item-grid widget (also needed by the furnace).
+- **Furnace**: input/fuel/output, fuel values (coal, planks, logs, sticks),
+  smelt times, lit state + light + particles, progress persists.
+- **Smelting recipes**: raw iron→iron ingot, raw gold→gold ingot, sand→glass,
+  cobblestone→stone, raw mutton→cooked mutton.
+- **Ingots**: iron/gold tool recipes move to ingots; gold becomes the trader
+  currency.
+- **Armor**: helmet/chest/legs/boots slots, leather/iron/diamond sets,
+  durability, damage-reduction formula, HUD armor bar. Arm visuals optional.
+- **Done when:** chest/furnace contents survive save/load; armor reduces damage
+  predictably; old saves still load.
+
+#### M6c — Farm, food & home (week 4)
+
+- **Farming**: hoe tools, farmland block, seeds from tall grass, wheat in 3
+  growth stages using appended block IDs, random-tick growth, harvest → wheat
+  + seeds, bread recipe.
+- **Bed**: one block, sleep at night → skip to dawn, set respawn, cooldown;
+  shades despawn/stop spawning nearby.
+- **Food balance**: bread, cooked meats, hunger tuning.
+- **Creative quality-of-life**: full item palette, not just blocks.
+- **Done when:** plant→grow→harvest→bread works; bed skips night and sets
+  spawn; no worldgen changes.
+
+---
+
+### M7 — Living world & goals (3–4 weeks)
+
+**7.1 Mob roster + AI v2**
+
+- Passive: cow (beef/leather), chicken (chicken/feather), pig (porkchop);
+  breeding with wheat/seeds; babies.
+- Hostile: **Hollow** (ranged, keeps distance, slow projectile) and **Rot**
+  (melee pack of 2–3). Keep `Shade` as the night baseline.
+- AI: raycast “whisker” steering + step-up, line-of-sight, group alert, attack
+  telegraph, sound cues. No navmesh.
+- Companion v2: wolf/dog tame + follow/stay/guard command wheel; extend
+  existing sheep taming.
+
+**7.2 Dungeon + boss**
+
+- One new structure per 320×320 cell: **Ember Deep** — entrance, 2–3 rooms,
+  loot chests, spawner, boss arena.
+- Boss **Ember Warden**: ~120 HP, three attacks (slam shockwave, ember volley,
+  summon shades), phase changes at 66%/33%, arena bounds.
+- Unique drop **Ember Core** → craftable lantern (portable light) so the reward
+  ties into M6a.
+- One-time clear flag in world save; `/struct ember` dev command.
+
+**7.3 Trader & campfire life**
+
+- Wandering trader visits campfires every few in-game days; barter UI; pays
+  gold for surplus, sells seeds/glass/wool/maps; despawns at dawn.
+- This is the 1.0 stand-in for villages.
+
+**7.4 Fishing**
+
+- Rod recipe, cast to water, 2–8 s wait, reel-timing minigame;
+  cod/salmon/treasure; cook fish.
+
+**7.5 Achievements / journal**
+
+- Per-world flags for first block, first night, first iron, first dungeon,
+  boss, homestead (bed+chest+furnace+farm), trader.
+- Toast on unlock; `J` opens a journal panel; persisted in save v3.
+
+**7.6 Ambient life**
+
+- Butterflies/fireflies/birds as cheap particles; cave drips; distant howls;
+  weather-aware scheduling.
+
+**Done when:** the boss is completable, achievements persist, and perf
+regression is under 10%.
+
+---
+
+### M8 — UX, platform & 1.0 release (2–3 weeks)
+
+- **Key rebinding**: persist InputMap actions, conflict detection, reset
+  defaults; mouse buttons included.
+- **Gamepad**: joypad look, deadzone/sensitivity, UI focus navigation, button
+  glyphs; verify with one Xbox and one PlayStation controller.
+- **Onboarding “First Night”**: six contextual objectives — wood → table →
+  tools → shelter → torch → survive night. Skippable; no modal tutorial.
+- **World management**: rename, duplicate, delete (confirm + backup),
+  export/import world zip, backup restore, world details
+  (seed/gen/playtime/size), “open folder”.
+- **Localization EN/AR**: central `Tr()` + CSV, extract player-facing strings
+  from code-built UI, Arabic font (e.g. Noto Naskh), RTL layout; language
+  setting. Dev console can stay English.
+- **Accessibility**: head-bob and shake toggles, UI scale, captions for key
+  sounds, colorblind-safe colors, hold/toggle sprint and mining.
+- **Music**: at least three loops (menu/day/night) on the existing Music bus,
+  crossfade/ducking, license file. Use original or CC0; do not ship unclear
+  licenses.
+- **Photo mode v2**: filters, FOV, hide hand, gallery + open folder, panorama.
+- **Release engineering**: version string, README/controls, changelog, Linux +
+  Windows packages, Steam Deck smoke test, 60-minute soak, crash-log
+  instructions.
+
+**1.0 definition of done**
+
+1. A new player can go menu → tutorial → survive first night → mine → smelt →
+   armor → dungeon → boss without a wiki.
+2. Every pre-1.0 save loads; no data loss in migration tests.
+3. Keyboard/mouse + gamepad, rebinding, English/Arabic.
+4. 0-warning build, tests green, 60-minute soak clean.
+5. ≥50 FPS release at HIGH/VD8 on the MX230; no >33 ms build spikes.
+6. No known crash, save-loss, or progression-blocking bug.
+
+---
+
+### M9 — Scale & online (post-1.0, optional)
+
+Only after 1.0, and only with a measured reason:
+
+- Mid-LOD + section/occlusion culling (the old M4c item).
+- Chunk store if memory budget demands it.
+- Height 256/512.
+- Dimension framework + portals (Nether-like parameterized worlds,
+  per-dimension saves).
+- LAN co-op: host-authoritative, seed + edit log, player/mob/container sync,
+  chat, join codes.
+- Dedicated server: headless export, reconnect, interest management, admin
+  commands.
+
+Keep the current door-open rules; do not start multiplayer before the 1.0
+content is stable.
+
+---
+
+### M10 — Post-1.0 differentiators
+
+- Data-driven content packs: JSON blocks/items/recipes/loot/worldgen
+  parameters; texture packs; world templates.
+- Villages/NPC economy and quests (after the trader proves the pattern).
+- Non-cube blocks (slabs/stairs/doors) with a block-metadata layer +
+  mesher/collision work.
+- Boats, buckets, seasons, redstone-like logic only if playtests ask for them.
+
+---
+
+## 6. 1.0 scope cut
+
+| Priority | Items |
+|---|---|
+| **Must** | M5; M6a/b/c; M7 mobs + dungeon/boss + achievements; M8 rebinding/gamepad, onboarding, world management, EN/AR, accessibility, music, release |
+| **Should** | Trader, fishing, companion commands, photo mode v2, richer ambience |
+| **Not now** | Multiplayer, dimensions, villages, non-cube blocks, mod API, web export (verify Godot .NET web support before promising it) |
+
+---
+
+## 7. Verification & quality gates
+
+**Automated**
+
+- Content registry, inventory, recipes, stats, save/backup/migration, worldgen
+  anchors, mesher parity.
+- Headless smoke: boot → create world → place/break → save → reload → assert.
+- Optional GitHub Actions: `dotnet build` + headless tests (Godot mono download
+  is heavy; local `verify.sh` is the minimum).
+
+**Golden anchors**
+
+- v1 chunk `(7,7)` SHA-256
+  `c7fe5ea262d362606196e2fffcdc65dd130eb2df1fc58ab051fb54d3623a352a`
+  unchanged.
+- Greedy vs per-face surface-area parity per normal.
+- `player.json` save→load→save stable.
+- New gen versions never alter old ones.
+
+**Manual matrix**
+
+- Fresh normal/flat/sky worlds; old v1/v3/v5 worlds; peaceful/normal/hard;
+  keyboard + gamepad; 16:9/ultrawide; English/Arabic; 30/60-minute sessions.
+
+**Perf gates**
+
+- Baseline at M5; no >10% regression per milestone.
+- Target ≥50 FPS release at HIGH/VD8; p99 frame <33 ms while building.
+
+---
+
+## 8. Main risks
+
+| Risk | Mitigation |
+|---|---|
+| Content capacity/atlas overflow | M5 validator + 16×16 atlas before adding blocks |
+| Torch lighting looks flat or costs FPS | Ship pooled-light v1; only build voxel propagation with measured justification |
+| Chest/furnace save bloat | Save only non-empty containers; cap; versioned migration |
+| Localization touches every code-built UI string | Central `Tr()` first, extract incrementally; prototype Arabic/RTL early |
+| Music licensing | Original/CC0 only; license file in repo |
+| Scope creep (villages, doors, multiplayer) | Explicit 1.0 cut line; defer to M9/M10 |
+| No tests means silent save/worldgen breakage | M5 harness is a hard prerequisite, not optional |
+| Arabic font/RTL issues | Bundle a known Arabic font; test shaping and layout on one screen before full extraction |
+
+---
+
+## 9. First five days (actionable)
+
+1. **Day 1** — Run build + baseline; record FPS/memory; add the test-runner
+   skeleton and content validator.
+2. **Day 2** — Raise `BlockCount`/atlas capacity; verify anchor, greedy parity,
+   tile array.
+3. **Day 3** — Add save v3 skeleton (version check, containers, flags) +
+   migration tests.
+4. **Day 4** — Prototype torch: block/item/recipe, cross mesh, pooled lights;
+   measure FPS.
+5. **Day 5** — Prototype swimming; review both prototypes against the baseline;
+   adjust M6 scope.
+
+---
+
+## 10. Decisions pending
+
+- [ ] Confirm “cozy survival 1.0” focus (recommended) vs combat/adventure-first
+	  vs technical sandbox.
+- [ ] Arabic in 1.0 (recommended if it is the target audience) or post-1.0?
+- [ ] Keep multiplayer deferred to post-1.0 (recommended) or make LAN co-op a
+	  1.0 goal?
+- [ ] Music: original/CC0 tracks (recommended) or extend the procedural synth?
+- [ ] Defer doors/stairs/slabs to post-1.0 (recommended)?
+
+When a decision is made, record it in the project’s decision log (`PLAN.md`
+§1 follows the existing `D#` format) so later work does not re-litigate it.
+
+---
+
+## 11. Progress log
+
+- **2026-10-21 — M5 complete (foundation & guardrails).**
+  - **Content capacity:** `BlockCount` 32 → 128; atlas 8×8 → 16×16 (256
+	tiles); removed the last hardcoded 64-tile UV table. Verified visually in
+	the running game: all existing block icons and world textures still map
+	correctly.
+  - **Content validator:** new `ContentValidation` checks every `BlockId`,
+	tile index, item name/stack, block↔item mapping and recipe; boot logs any
+	problem. Wired into `GameSession`.
+  - **Tests:** headless `TestRunner.tscn` + `scripts/verify.sh`; suites for
+	content, inventory, recipes, stats, saves, worldgen and mesher parity.
+	**373 checks, 0 failures** at the M5 checkpoint.
+  - **Save v3:** `WorldSave` now versions containers and flags; loader warns on
+	newer formats, v2 saves still parse, and container/flag data round-trips.
+	Backup rotation and corrupt-file recovery are covered by tests.
+  - **Golden anchors:** v1 chunk `(7,7)` hash unchanged; greedy vs per-face
+	surface area parity verified.
+  - **Baseline:** `docs/PERF_BASELINE.md` — Debug build, HIGH/VD8, focused
+	window, **42–47 FPS** at 441 chunks / 3,092 nodes on the MX230.
+  - **Not verified:** the 30-minute soak and a fixed-camera benchmark are still
+	manual follow-ups.
+
+- **2026-10-21 — M6a complete (torch/light + swimming).**
+  - **Torch:** appended `BlockId.Torch` / `ItemId.Torch`, procedural cross
+	texture, coal + stick → 4 recipe, placeable block item.
+  - **Lighting v1:** `BlockLights` pools the 16 nearest placed emitters
+	(10 m warm flicker, no shadows); `VoxelWorld` rebuilds the emitter registry
+	from saved edits on load and updates it on every `SetBlock`. This is the
+	bounded v1 — voxel light propagation is still the later option.
+  - **Swimming:** buoyancy with Space to rise and Sprint to dive; movement is
+	slower, footstep bob is suppressed, and the existing underwater fog,
+	muffling and drowning rules still apply.
+  - **Verified live:** night screenshot shows the warm torch pool lighting the
+	ground and foliage; one light node at the torch position; a submerged
+	player rose from y 34.5 to the surface at y 40.8 while holding Space.
+  - **Tests:** **389 checks, 0 failures**, 0-warning build. Test torches and
+	the teleported test position were removed and the world clock restored
+	before stopping.
+  - **Not verified:** long dive/drowning after the swim change and the full
+	30-minute soak. The ladder was not part of this slice and remains optional
+	for M6b/M6c.
+
+**Next:** M6b — chest, furnace/ingots, armor, and the shared item-grid UI.
+
+- **2026-10-21 — M6b.1 complete (chest storage).**
+  - Appended `BlockId.Chest` / `ItemId.Chest`, procedural chest tile, and an
+	eight-plank ring recipe.
+  - `Container` (27 slots) + save-v3 conversion: chest contents load, accept
+	changes, and survive `SaveNow`; empty chests stay out of the save.
+  - The inventory screen now shows a chest grid above the player grid when a
+	chest is opened (right-click); the existing cursor-held stack logic moves
+	items between chest/backpack/hotbar. Breaking a non-empty chest is refused
+	with "Empty the chest first".
+  - **Verified live:** chest placed and opened; the chest screen rendered 27
+	chest slots plus the player inventory and recipe/palette panels.
+  - **Tests:** **416 checks, 0 failures**, 0-warning build; chest save/load
+	covered in the worldgen suite.
+  - **Not verified live:** filling the chest by mouse and reopening it after a
+	full game restart (the container save/load path is covered by tests).
+  - **Next:** furnace/ingots/armor, then farming/bed.
+
+- **2026-10-21 — M6b.2 complete (furnace, ingots, armor).**
+  - **Furnace:** block/item/eight-cobblestone recipe, three slots (input, fuel,
+	output), burn and smelt timers, fuel values (coal 80 s, logs 60 s, planks
+	15 s, sticks 5 s), and recipes for raw iron/gold, sand, cobblestone and
+	mutton. State ticks even while the chunk is unloaded and persists through
+	`WorldSave.Furnaces`.
+  - **Ingots:** raw iron/gold now smelt into iron/gold ingots; iron tools use
+	ingots instead of raw ore.
+  - **Armor:** eight pieces (iron + diamond sets), four equipment slots saved
+	as inventory slots 36–39, durability wear on every landed hit, 4% damage
+	reduction per defense point (capped at 80%), inventory armor row + HUD
+	armor pips. Armor does not protect against drowning or starvation.
+  - **UI:** furnace panel (input → fuel → output with progress bar), recipe
+	book entries, and the armor row on the inventory screen.
+  - **Verified:** build 0 warnings, **461 checks / 0 failures** (furnace
+	smelting, fuel rules, save round-trip, armor values/save, recipes), live
+	furnace panel and armor row rendered; `/armor iron` showed the HUD armor
+	pips. Test armor and the test furnace were removed afterward.
+  - **Not verified live:** a full 10-second smelt and damage reduction in
+	combat (both covered by unit tests); chest/furnace full-restart reload.
+  - **Next:** farming/bed (M6c), then move to M7.
+
+- **2026-10-22 — M6c complete (farming, bed, ladder, food).**
+  - **Farming:** farmland + three wheat growth stages, hoe tools at all four
+	tiers, seeds from tall grass and harvests, bread recipe, and a daytime
+	random growth tick. Wheat is a cross-mesh crop; crop positions are tracked
+	for growth and rebuilt from saved edits on load.
+  - **Bed:** one-block bed, night-only sleep that advances the clock to dawn,
+	sets the respawn point, and clears nearby hostiles. Sleeping during the day
+	gives the "only at night" notice.
+  - **Ladder:** craftable ladder block and climb movement (jump/forward up,
+	back down) with fall protection; footsteps and head bob are suppressed
+	while climbing.
+  - **Food:** bread restores five hunger plus a small heal.
+  - **Verified:** build 0 warnings, **528 checks / 0 failures**; live bed,
+	farmland/wheat, and ladder placed; wheat planting returned true; ladder
+	climb raised the player from y 55.0 to 58.08; bed sleep changed time
+	0.90 → 0.26. Test blocks were removed afterward.
+  - **Not verified live:** the probabilistic full wheat growth cycle and
+	harvesting ripe wheat (content/recipe tests cover the data path).
+  - **Next:** M7 — living world & goals (mob roster, dungeon/boss, trader,
+	fishing, achievements, ambience).
+
+- **2026-10-22 — M7.1 + M7.5 complete (mob roster + achievements).**
+  - **Animals:** cow, pig and chicken added as passive wanderers with beef,
+	pork, chicken, leather and feather drops; raw meats cook at campfires and
+	smelt in furnaces.
+  - **Hostiles:** Rot (tough melee pack) and Hollow (line-of-sight ranged
+	attacker) join the Shade; the population manager now spawns weighted
+	night/storm waves and supports `/mob rot|hollow|cow|pig|chicken`.
+  - **Achievements:** six persisted goals (first block, first torch, first
+	iron, homestead, first night, deep), HUD toasts, and a J-key journal.
+  - **Verified:** build 0 warnings, **568 checks / 0 failures**; live `/mob`
+	spawns returned 14 passive / 3 hostile agents; the journal showed
+	“Iron Age” checked after receiving an iron ingot.
+  - **Not live-verified:** new hostile chase/ranged combat over a full night,
+	animal loot drops by killing, and journal after a full restart (flags save
+	through `WorldSave.Flags` and are covered by save tests).
+  - **Next:** M7.2 — Ember Deep dungeon and Ember Warden boss.
+
+- **2026-10-22 — M7.2 complete (Ember Deep + Ember Warden).**
+  - **Ember Deep:** new gen v6 structure (rare per 160×160 cell) with a
+	surface rim, 20-block ladder shaft, 15×13 brick arena, corner pillars,
+	lava pockets and wall torches. Gen v4/v5 structure layouts and worlds are
+	untouched.
+  - **Boss:** Ember Warden (120 HP) with slam, ember volley, and two
+	add-summon phases; drops the unique Ember Core. Boss bar in the HUD.
+  - **Clear state:** the arena wakes the boss on entry and writes the
+	`dungeon/ember` world flag on death, so cleared dungeons stay cleared.
+  - **Dev tools:** `/struct ember` teleports to the nearest arena;
+	`/mob warden` spawns the boss for testing.
+  - **Verified:** build 0 warnings, **577 checks / 0 failures**; live warden
+	spawn showed the “EMBER WARDEN” bar at 120 HP and the boss killed the
+	player, proving its attack loop is live.
+  - **Not live-verified:** a complete dungeon descent and clear flag; the
+	template geometry is covered by `DungeonTests`.
+  - **Next:** trader, fishing and ambient-life slices to close M7.
+
+- **2026-10-22 — M7.3 + M7.4 complete (trader + fishing).**
+  - **Trader:** wandering trader NPC visits campfires at night, sells/buys
+	against gold (wheat/cobblestone → gold; gold → seeds/glass/wool), and has a
+	barter UI. `/trader` spawns one immediately.
+  - **Fishing:** fishing rod recipe, water cast, random bite window, short
+	right-click reel timing, raw/cooked fish, campfire/furnace cooking, and
+	inventory integration.
+  - **Verified:** build 0 warnings, **586 checks / 0 failures**; live trader
+	panel rendered with all five offers.
+  - **Not live-verified:** right-click trader opening, a completed fishing
+	catch, and trade inventory mutation (logic and recipes are covered by
+	tests).
+  - **Next:** ambient-life polish (butterflies/fireflies/birds, cave drips,
+	weather-aware cues) to close M7.
+
+- **2026-10-22 — M7.6 complete (ambient life) / M7 closed.**
+  - Added daytime butterfly and bird particle rigs alongside the existing
+	motes, fireflies and underwater bubbles; all are gated by time, weather,
+	submersion and underground state.
+  - **Verified:** build 0 warnings, **586 checks / 0 failures**.
+  - **Not live-verified:** visual density/tuning of butterflies and birds.
+  - **M7 complete:** mob roster, achievements/journal, Ember Deep + boss,
+	trader, fishing and ambient life.
+  - **Next:** M8 — UX, platform and the 1.0 release slice (rebinding/gamepad,
+	onboarding, world management, EN/AR, accessibility, music, release).
+
+- **2026-10-22 — M8.1 complete (world management).**
+  - Main-menu world rows now have **Manage**: rename, duplicate and delete.
+  - Delete uses a confirmation dialog and refuses paths outside the worlds
+	folder; duplicate copies the full world folder and assigns a new identity.
+  - `WorldStore` helpers plus save-suite coverage for rename/copy/delete.
+  - **Verified:** build 0 warnings, **597 checks / 0 failures**; live menu
+	showed the Manage buttons and the manage panel.
+  - **Arabic localization is intentionally skipped per request;** the next
+	localization work, if any, is English-only polish.
+  - **Not live-verified:** an actual rename/copy/delete from the menu (the
+	store operations are covered by tests); delete dialog copy is live.
+  - **Next:** onboarding “First Night” and key rebinding / accessibility.
+
+- **2026-10-22 — M8.2 complete (onboarding, keybinds, accessibility).**
+  - **Onboarding:** contextual “First Night” chain — wood → crafting table →
+	wooden pick → stone → torch → survive night — shown as a persistent HUD
+	hint, with per-world progress flags. No modal tutorial.
+  - **Keybinds:** pause-menu **Controls** panel for 15 actions, click-to-bind,
+	Escape cancels, reset-to-defaults, persisted to `user://keybinds.cfg` and
+	applied at boot.
+  - **Accessibility:** head-bob toggle and hints toggle in Settings.
+  - **Verified:** build 0 warnings, **660 checks / 0 failures**; live HUD showed
+	“Craft a crafting table (E)”, and the Controls panel rendered with all
+	bindings; the list was made scrollable after the first live check exposed
+	an overflow.
+  - **Not live-verified:** rebinding a key and the keybind config surviving a
+	restart (the InputMap actions and labels are covered by tests).
+  - **Arabic remains skipped per request.**
+  - **Next:** music + release engineering (Linux/Windows packages, README,
+	version string, soak test).
+
+- **2026-10-22 — M8.3 complete (live main-menu backdrop).**
+  - Main menu now renders the selected world live in 3D: 9×9 preview chunks
+	around the saved player position, sky/lighting/fog from the shared
+	environment factory, golden-hour sun, soft vignette and a slowly orbiting,
+	gently breathing camera.
+  - Menu UI overlays the world with a translucent tint; the world keeps
+	rotating while panels are open.
+  - Screenshot saved to
+	`user://menu_backdrop.png` (`~/.local/share/godot/app_userdata/minecraft/`).
+  - **Verified:** build 0 warnings, **660 checks / 0 failures**; live menu
+	render inspected and screenshot saved.
+  - **Next:** music + release engineering.
+
+- **2026-10-23 — M8.4 complete (minimap overhaul).**
+  - Map resolution raised to **128×128** with hill shading, biome colours
+	(plains/birch/desert/snow), water depth shading, and player-edit tops.
+  - Added compass labels, a black-outlined heading arrow, spawn/respawn/campfire
+	waypoints, and a live scale label.
+  - Added four zoom levels (128 m → 1024 m across) with `[`/`]` actions and
+	pause-menu rebinding support.
+  - Rebuilds are sliced over frames (16 rows per frame) instead of one 16k-column
+	spike, and still pause while the map is hidden.
+  - **Verified:** build 0 warnings, **668 checks / 0 failures**; live zoom
+	changed the scale to 512 m and the larger map rendered.
+  - **Not measured:** frame-time hitch before/after the sliced rebuild.
+  - **Next:** music + release engineering.

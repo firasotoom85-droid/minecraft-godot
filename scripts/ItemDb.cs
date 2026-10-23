@@ -8,6 +8,9 @@ namespace Minecraft;
 /// <summary>Tool behaviour: kind, tier (1 wood .. 4 diamond), mining speed, durability.</summary>
 public readonly record struct ToolInfo(ToolKind Kind, int Tier, float Speed, int Durability);
 
+/// <summary>Armor behaviour: slot 0 helmet .. 3 boots, defense points and durability.</summary>
+public readonly record struct ArmorInfo(int Slot, int Points, int Durability, int Tier);
+
 /// <summary>
 /// Item database: names, stack sizes, block↔item mapping, tool stats and
 /// procedurally painted icons (block items reuse the atlas; tools and
@@ -29,6 +32,11 @@ public static class ItemDb
         (ItemId.Wool, BlockId.Wool),
         (ItemId.Lava, BlockId.Lava), (ItemId.TallGrass, BlockId.TallGrass),
         (ItemId.FlowerRed, BlockId.FlowerRed), (ItemId.FlowerYellow, BlockId.FlowerYellow),
+        (ItemId.Torch, BlockId.Torch),
+        (ItemId.Chest, BlockId.Chest),
+        (ItemId.Furnace, BlockId.Furnace),
+        (ItemId.Bed, BlockId.Bed),
+        (ItemId.Ladder, BlockId.Ladder),
     ];
 
     private static readonly Dictionary<BlockId, ItemId> BlockToItem =
@@ -61,6 +69,8 @@ public static class ItemDb
             ItemId.Coal => "Coal",
             ItemId.RawIron => "Raw Iron",
             ItemId.RawGold => "Raw Gold",
+            ItemId.IronIngot => "Iron Ingot",
+            ItemId.GoldIngot => "Gold Ingot",
             ItemId.Diamond => "Diamond",
             ItemId.Stick => "Stick",
             ItemId.WoodPick => "Wooden Pickaxe",
@@ -79,6 +89,33 @@ public static class ItemDb
             ItemId.RawMutton => "Raw Mutton",
             ItemId.CookedMutton => "Cooked Mutton",
             ItemId.Wool => "Wool",
+            ItemId.IronHelmet => "Iron Helmet",
+            ItemId.IronChestplate => "Iron Chestplate",
+            ItemId.IronLegs => "Iron Leggings",
+            ItemId.IronBoots => "Iron Boots",
+            ItemId.DiamondHelmet => "Diamond Helmet",
+            ItemId.DiamondChestplate => "Diamond Chestplate",
+            ItemId.DiamondLegs => "Diamond Leggings",
+            ItemId.DiamondBoots => "Diamond Boots",
+            ItemId.Seeds => "Wheat Seeds",
+            ItemId.Wheat => "Wheat",
+            ItemId.Bread => "Bread",
+            ItemId.WoodHoe => "Wooden Hoe",
+            ItemId.StoneHoe => "Stone Hoe",
+            ItemId.IronHoe => "Iron Hoe",
+            ItemId.DiamondHoe => "Diamond Hoe",
+            ItemId.RawBeef => "Raw Beef",
+            ItemId.CookedBeef => "Steak",
+            ItemId.RawPork => "Raw Porkchop",
+            ItemId.CookedPork => "Cooked Porkchop",
+            ItemId.RawChicken => "Raw Chicken",
+            ItemId.CookedChicken => "Cooked Chicken",
+            ItemId.Leather => "Leather",
+            ItemId.Feather => "Feather",
+            ItemId.EmberCore => "Ember Core",
+            ItemId.FishingRod => "Fishing Rod",
+            ItemId.RawFish => "Raw Fish",
+            ItemId.CookedFish => "Cooked Fish",
             _ => id.ToString(),
         };
     }
@@ -91,6 +128,15 @@ public static class ItemDb
         ItemId.Apple => new FoodInfo(3.0f),
         ItemId.RawMutton => new FoodInfo(2.0f),
         ItemId.CookedMutton => new FoodInfo(6.0f, 1.0f),
+        ItemId.Bread => new FoodInfo(5.0f, 1.0f),
+        ItemId.RawBeef => new FoodInfo(2.0f),
+        ItemId.CookedBeef => new FoodInfo(7.0f, 1.0f),
+        ItemId.RawPork => new FoodInfo(2.0f),
+        ItemId.CookedPork => new FoodInfo(7.0f, 1.0f),
+        ItemId.RawChicken => new FoodInfo(1.0f),
+        ItemId.CookedChicken => new FoodInfo(5.0f, 1.0f),
+        ItemId.RawFish => new FoodInfo(2.0f),
+        ItemId.CookedFish => new FoodInfo(5.0f, 1.0f),
         _ => null,
     };
 
@@ -98,7 +144,37 @@ public static class ItemDb
     public static ItemId? CooksTo(ItemId id) => id switch
     {
         ItemId.RawMutton => ItemId.CookedMutton,
+        ItemId.RawBeef => ItemId.CookedBeef,
+        ItemId.RawPork => ItemId.CookedPork,
+        ItemId.RawChicken => ItemId.CookedChicken,
+        ItemId.RawFish => ItemId.CookedFish,
         _ => null,
+    };
+
+    /// <summary>Furnace recipes (one input item becomes one result).</summary>
+    public static ItemId? SmeltsTo(ItemId id) => id switch
+    {
+        ItemId.RawIron => ItemId.IronIngot,
+        ItemId.RawGold => ItemId.GoldIngot,
+        ItemId.Sand => ItemId.Glass,
+        ItemId.Cobblestone => ItemId.Stone,
+        ItemId.RawMutton => ItemId.CookedMutton,
+        ItemId.RawBeef => ItemId.CookedBeef,
+        ItemId.RawPork => ItemId.CookedPork,
+        ItemId.RawChicken => ItemId.CookedChicken,
+        ItemId.RawFish => ItemId.CookedFish,
+        _ => null,
+    };
+
+    /// <summary>Seconds one fuel item keeps a furnace burning; 0 = not a fuel.</summary>
+    public static float FuelSeconds(ItemId id) => id switch
+    {
+        ItemId.Coal => 80.0f,
+        ItemId.Log => 60.0f,
+        ItemId.BirchLog => 60.0f,
+        ItemId.Planks => 15.0f,
+        ItemId.Stick => 5.0f,
+        _ => 0.0f,
     };
 
     public static ToolInfo? ToolOf(ItemId id) => id switch
@@ -115,14 +191,34 @@ public static class ItemDb
         ItemId.DiamondPick => new(ToolKind.Pick, 4, 8.0f, 450),
         ItemId.DiamondAxe => new(ToolKind.Axe, 4, 8.0f, 450),
         ItemId.DiamondShovel => new(ToolKind.Shovel, 4, 8.0f, 450),
+        ItemId.WoodHoe => new(ToolKind.Hoe, 1, 2.5f, 60),
+        ItemId.StoneHoe => new(ToolKind.Hoe, 2, 4.0f, 130),
+        ItemId.IronHoe => new(ToolKind.Hoe, 3, 6.0f, 250),
+        ItemId.DiamondHoe => new(ToolKind.Hoe, 4, 8.0f, 450),
         _ => null,
     };
 
-    public static int MaxStack(ItemId id) => ToolOf(id) != null ? 1 : 64;
+    public static ArmorInfo? ArmorOf(ItemId id) => id switch
+    {
+        ItemId.IronHelmet => new(0, 2, 200, 3),
+        ItemId.IronChestplate => new(1, 6, 300, 3),
+        ItemId.IronLegs => new(2, 5, 250, 3),
+        ItemId.IronBoots => new(3, 2, 180, 3),
+        ItemId.DiamondHelmet => new(0, 3, 400, 4),
+        ItemId.DiamondChestplate => new(1, 8, 600, 4),
+        ItemId.DiamondLegs => new(2, 6, 500, 4),
+        ItemId.DiamondBoots => new(3, 3, 350, 4),
+        _ => null,
+    };
 
-    /// <summary>A fresh stack; tools start at full durability.</summary>
+    public static int MaxStack(ItemId id) =>
+        id == ItemId.FishingRod || ToolOf(id) != null || ArmorOf(id) != null ? 1 : 64;
+
+    /// <summary>A fresh stack; tools and armor start at full durability.</summary>
     public static ItemStack New(ItemId id, int count) =>
-        ToolOf(id) is { } tool ? new ItemStack(id, 1, tool.Durability) : new ItemStack(id, count, 0);
+        ToolOf(id) is { } tool ? new ItemStack(id, 1, tool.Durability)
+        : ArmorOf(id) is { } armor ? new ItemStack(id, 1, armor.Durability)
+        : new ItemStack(id, count, 0);
 
     /// <summary>The pre-items hotbar, handed to saves that never had an inventory.</summary>
     public static (int Slot, ItemId Id, int Count)[] StarterKit() =>
@@ -193,6 +289,10 @@ public static class ItemDb
         {
             PaintTool(img, tool);
         }
+        else if (ArmorOf(id) is { } armor)
+        {
+            PaintArmor(img, armor);
+        }
         else
         {
             switch (id)
@@ -205,6 +305,65 @@ public static class ItemDb
                     break;
                 case ItemId.RawGold:
                     PaintBlob(img, new Color(0.92f, 0.76f, 0.28f), new Color(0.70f, 0.55f, 0.16f), 123);
+                    break;
+                case ItemId.IronIngot:
+                    PaintIngot(img, new Color(0.82f, 0.82f, 0.86f), new Color(0.58f, 0.58f, 0.64f));
+                    break;
+                case ItemId.GoldIngot:
+                    PaintIngot(img, new Color(0.95f, 0.80f, 0.30f), new Color(0.72f, 0.54f, 0.12f));
+                    break;
+                case ItemId.Seeds:
+                    PaintSeeds(img);
+                    break;
+                case ItemId.Wheat:
+                    PaintWheatItem(img);
+                    break;
+                case ItemId.Bread:
+                    PaintBread(img);
+                    break;
+                case ItemId.RawBeef:
+                    PaintMutton(img, new Color(0.72f, 0.18f, 0.18f), new Color(0.90f, 0.52f, 0.48f));
+                    break;
+                case ItemId.CookedBeef:
+                    PaintMutton(img, new Color(0.42f, 0.20f, 0.09f), new Color(0.70f, 0.42f, 0.18f));
+                    break;
+                case ItemId.RawPork:
+                    PaintMutton(img, new Color(0.88f, 0.46f, 0.48f), new Color(0.98f, 0.72f, 0.72f));
+                    break;
+                case ItemId.CookedPork:
+                    PaintMutton(img, new Color(0.50f, 0.24f, 0.12f), new Color(0.75f, 0.46f, 0.22f));
+                    break;
+                case ItemId.RawChicken:
+                    PaintMutton(img, new Color(0.92f, 0.62f, 0.52f), new Color(0.98f, 0.82f, 0.72f));
+                    break;
+                case ItemId.CookedChicken:
+                    PaintMutton(img, new Color(0.70f, 0.46f, 0.18f), new Color(0.90f, 0.68f, 0.34f));
+                    break;
+                case ItemId.Leather:
+                    Rect(img, 7, 10, 18, 13, new Color(0.48f, 0.28f, 0.13f));
+                    Rect(img, 9, 12, 14, 9, new Color(0.62f, 0.38f, 0.18f));
+                    break;
+                case ItemId.Feather:
+                    Rect(img, 15, 5, 2, 22, new Color(0.90f, 0.90f, 0.86f));
+                    for (int y = 7; y < 20; y += 3)
+                    {
+                        Rect(img, 11, y, 5, 2, new Color(0.96f, 0.96f, 0.92f));
+                        Rect(img, 16, y + 1, 5, 2, new Color(0.88f, 0.88f, 0.84f));
+                    }
+                    break;
+                case ItemId.EmberCore:
+                    PaintDiamond(img);
+                    Rect(img, 12, 12, 8, 8, new Color(1.0f, 0.55f, 0.12f));
+                    Rect(img, 14, 14, 4, 4, new Color(1.0f, 0.92f, 0.55f));
+                    break;
+                case ItemId.FishingRod:
+                    PaintFishingRod(img);
+                    break;
+                case ItemId.RawFish:
+                    PaintMutton(img, new Color(0.52f, 0.72f, 0.78f), new Color(0.78f, 0.90f, 0.92f));
+                    break;
+                case ItemId.CookedFish:
+                    PaintMutton(img, new Color(0.70f, 0.52f, 0.26f), new Color(0.92f, 0.78f, 0.46f));
                     break;
                 case ItemId.Diamond:
                     PaintDiamond(img);
@@ -265,6 +424,129 @@ public static class ItemDb
             case ToolKind.Shovel:
                 Rect(img, 8, 3, 9, 10, head);
                 Rect(img, 10, 11, 5, 3, head);
+                break;
+            case ToolKind.Hoe:
+                Rect(img, 4, 5, 17, 5, head);
+                Rect(img, 18, 8, 4, 4, head);
+                break;
+        }
+    }
+
+    private static void PaintFishingRod(Image img)
+    {
+        Color rod = new(0.55f, 0.38f, 0.18f);
+        Color line = new(0.86f, 0.86f, 0.82f);
+        for (int i = 0; i < 20; i++)
+        {
+            Rect(img, 7 + i, 24 - i, 2, 2, rod);
+        }
+
+        for (int i = 0; i < 12; i++)
+        {
+            Rect(img, 26, 5 + i, 1, 1, line);
+        }
+
+        Rect(img, 25, 16, 2, 2, line);
+        Rect(img, 24, 17, 2, 2, line);
+        Rect(img, 25, 19, 2, 2, new Color(0.70f, 0.70f, 0.66f));
+    }
+
+    private static void PaintSeeds(Image img)
+    {
+        Color seed = new(0.56f, 0.68f, 0.22f);
+        Rect(img, 10, 10, 4, 3, seed);
+        Rect(img, 17, 9, 4, 3, seed.Lightened(0.1f));
+        Rect(img, 13, 17, 4, 3, seed.Darkened(0.1f));
+        Rect(img, 19, 18, 3, 3, seed);
+        Rect(img, 8, 20, 3, 3, seed.Darkened(0.15f));
+    }
+
+    private static void PaintWheatItem(Image img)
+    {
+        Color stem = new(0.72f, 0.56f, 0.18f);
+        Color grain = new(0.95f, 0.80f, 0.26f);
+        for (int y = 8; y < 28; y++)
+        {
+            Rect(img, 15, y, 2, 1, stem);
+        }
+
+        for (int y = 8; y < 20; y += 4)
+        {
+            Rect(img, 10, y, 6, 3, grain);
+            Rect(img, 17, y + 2, 6, 3, grain.Darkened(0.08f));
+        }
+    }
+
+    private static void PaintBread(Image img)
+    {
+        Color crust = new(0.58f, 0.34f, 0.14f);
+        Color top = new(0.80f, 0.54f, 0.25f);
+        for (int y = 12; y < 24; y++)
+        {
+            for (int x = 6; x < 26; x++)
+            {
+                float d = new Vector2((x - 16) / 10.0f, (y - 18) / 6.0f).Length();
+                if (d <= 1.0f)
+                {
+                    Rect(img, x, y, 1, 1, y < 17 ? top : crust);
+                }
+            }
+        }
+
+        Rect(img, 10, 14, 4, 2, top.Lightened(0.15f));
+        Rect(img, 18, 14, 3, 2, top.Lightened(0.1f));
+    }
+
+    private static void PaintIngot(Image img, Color light, Color dark)
+    {
+        // A small isometric bar: top face, front face and a darker side.
+        for (int y = 10; y < 20; y++)
+        {
+            for (int x = 7; x < 25; x++)
+            {
+                bool top = y < 14;
+                bool side = x > 20;
+                Color c = top ? light : side ? dark : light.Darkened(0.12f);
+                Rect(img, x, y, 1, 1, c);
+            }
+        }
+
+        Rect(img, 9, 11, 14, 2, light.Lightened(0.15f));
+    }
+
+    private static void PaintArmor(Image img, ArmorInfo armor)
+    {
+        Color metal = TierColor(armor.Tier);
+        Color shade = metal.Darkened(0.25f);
+        Color dark = metal.Darkened(0.45f);
+
+        switch (armor.Slot)
+        {
+            case 0: // helmet
+                Rect(img, 8, 8, 16, 7, metal);
+                Rect(img, 6, 13, 20, 5, metal);
+                Rect(img, 10, 14, 12, 5, dark);
+                Rect(img, 8, 9, 3, 3, metal.Lightened(0.2f));
+                break;
+            case 1: // chestplate
+                Rect(img, 7, 8, 18, 14, metal);
+                Rect(img, 4, 10, 5, 9, shade);
+                Rect(img, 23, 10, 5, 9, shade);
+                Rect(img, 12, 17, 8, 7, dark);
+                Rect(img, 9, 9, 4, 3, metal.Lightened(0.2f));
+                break;
+            case 2: // leggings
+                Rect(img, 8, 8, 16, 6, metal);
+                Rect(img, 9, 14, 5, 14, metal);
+                Rect(img, 18, 14, 5, 14, metal);
+                Rect(img, 10, 24, 3, 4, dark);
+                Rect(img, 19, 24, 3, 4, dark);
+                break;
+            default: // boots
+                Rect(img, 8, 16, 6, 10, metal);
+                Rect(img, 18, 16, 6, 10, metal);
+                Rect(img, 6, 24, 8, 4, shade);
+                Rect(img, 18, 24, 8, 4, shade);
                 break;
         }
     }

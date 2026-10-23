@@ -15,7 +15,9 @@ namespace Minecraft;
 /// </summary>
 public static class BlockDb
 {
-    public const int BlockCount = 32;  // table stride; slots past Cactus are unused
+    // Table stride, not the number of defined blocks. Ids are append-only and
+    // persist in saves, so leave headroom and never renumber an existing id.
+    public const int BlockCount = 128;
 
     public static readonly BlockId[] Hotbar =
     [
@@ -23,7 +25,10 @@ public static class BlockDb
         BlockId.Planks, BlockId.Cobblestone, BlockId.Glass, BlockId.Leaves,
     ];
 
-    public const int AtlasCols = 8;
+    // 16x16 tiles keeps the atlas at 512x512 and gives 256 texture-array
+    // layers, enough for the M6 content pass without reworking UV math again.
+    public const int AtlasCols = 16;
+    public const int TileCount = AtlasCols * AtlasCols;
     public const int TilePx = 32;
 
     private const int TGrassTop = 0;
@@ -59,16 +64,27 @@ public static class BlockDb
     private const int TTallGrass = 30;
     private const int TFlowerRed = 31;
     private const int TFlowerYellow = 32;
+    private const int TTorch = 33;
+    private const int TChest = 34;
+    private const int TFurnace = 35;
+    private const int TFarmlandTop = 36;
+    private const int TFarmlandSide = 37;
+    private const int TWheat0 = 38;
+    private const int TWheat1 = 39;
+    private const int TWheat2 = 40;
+    private const int TBedTop = 41;
+    private const int TBedSide = 42;
+    private const int TLadder = 43;
 
     /// <summary>
     /// One block's definition; the tiles array is indexed by face (FACE order).
     /// Hardness is seconds by hand. Tier 0 means "any tool harvests"; Drop None
-    /// means "drop the block's own item".
+    /// means "drop the block's own item". Light is 0..1 for placeable emitters.
     /// </summary>
     public readonly record struct BlockDef(
         string Name, bool Solid, bool Transparent, int[] Tiles,
         float Hardness = 1.0f, ToolKind Tool = ToolKind.None, int Tier = 0,
-        ItemId Drop = ItemId.None, int DropCount = 1);
+        ItemId Drop = ItemId.None, int DropCount = 1, float Light = 0.0f);
 
     // Face order: +Y, -Y, +X, -X, +Z, -Z  (-1 = no face)
     private static readonly BlockDef[] Defs =
@@ -120,6 +136,25 @@ public static class BlockDb
         new("Red Flower", false, true, [TFlowerRed, TFlowerRed, TFlowerRed, TFlowerRed, TFlowerRed, TFlowerRed], 0.05f),
         new("Yellow Flower", false, true,
                 [TFlowerYellow, TFlowerYellow, TFlowerYellow, TFlowerYellow, TFlowerYellow, TFlowerYellow], 0.05f),
+        new("Torch", false, true,
+                [TTorch, TTorch, TTorch, TTorch, TTorch, TTorch], 0.05f, Light: 0.9f),
+        new("Chest", true, false,
+                [TChest, TChest, TChest, TChest, TChest, TChest], 1.0f, ToolKind.Axe),
+        new("Furnace", true, false,
+                [TFurnace, TFurnace, TFurnace, TFurnace, TFurnace, TFurnace], 2.0f, ToolKind.Pick, 1),
+        new("Farmland", true, false,
+                [TFarmlandTop, TDirt, TFarmlandSide, TFarmlandSide, TFarmlandSide, TFarmlandSide],
+                0.6f, ToolKind.Shovel, Drop: ItemId.Dirt),
+        new("Wheat Sprout", false, true,
+                [TWheat0, TWheat0, TWheat0, TWheat0, TWheat0, TWheat0], 0.05f),
+        new("Wheat", false, true,
+                [TWheat1, TWheat1, TWheat1, TWheat1, TWheat1, TWheat1], 0.05f),
+        new("Ripe Wheat", false, true,
+                [TWheat2, TWheat2, TWheat2, TWheat2, TWheat2, TWheat2], 0.05f),
+        new("Bed", true, false,
+                [TBedTop, TBedSide, TBedSide, TBedSide, TBedSide, TBedSide], 0.4f),
+        new("Ladder", false, true,
+                [TLadder, TLadder, TLadder, TLadder, TLadder, TLadder], 0.4f),
     ];
 
     // Cube face geometry shared by the mesher. Order: +Y, -Y, +X, -X, +Z, -Z.
@@ -224,8 +259,8 @@ public static class BlockDb
                 FaceColors[f] = new Color(shade, shade, shade, 1.0f);
             }
 
-            UvLut = new Vector2[64 * 6 * 4];
-            for (int tile = 0; tile < 64; tile++)
+            UvLut = new Vector2[TileCount * 6 * 4];
+            for (int tile = 0; tile < TileCount; tile++)
             {
                 Rect2 rect = TileUvRect(tile);
                 for (int f = 0; f < 6; f++)
@@ -285,7 +320,11 @@ public static class BlockDb
 
     /// <summary>Cross-shaped plants: two crossed double-sided quads, no cube faces.</summary>
     public static bool IsCross(BlockId id) =>
-        id is BlockId.TallGrass or BlockId.FlowerRed or BlockId.FlowerYellow;
+        id is BlockId.TallGrass or BlockId.FlowerRed or BlockId.FlowerYellow or BlockId.Torch
+                or BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2;
+
+    public static bool IsWheat(BlockId id) =>
+        id is BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2;
 
     /// <summary>Tile used for the hotbar icon of a block.</summary>
     public static int IconTile(BlockId id)
@@ -558,6 +597,15 @@ void fragment() {
         PaintPlant(img, TTallGrass, rng, new Color(0.30f, 0.55f, 0.20f), new Color(0.20f, 0.40f, 0.13f), 0.90f, false);
         PaintPlant(img, TFlowerRed, rng, new Color(0.30f, 0.52f, 0.18f), new Color(0.86f, 0.20f, 0.18f), 0.85f, true);
         PaintPlant(img, TFlowerYellow, rng, new Color(0.30f, 0.52f, 0.18f), new Color(0.94f, 0.82f, 0.20f), 0.85f, true);
+        PaintTorch(img, rng);
+        PaintChest(img, rng);
+        PaintFurnace(img, rng);
+        PaintFarmland(img, rng);
+        PaintWheat(img, TWheat0, rng, 0.35f, false);
+        PaintWheat(img, TWheat1, rng, 0.65f, false);
+        PaintWheat(img, TWheat2, rng, 0.95f, true);
+        PaintBed(img, rng);
+        PaintLadder(img);
         return img;
     }
 
@@ -1132,6 +1180,239 @@ void fragment() {
                         Px(img, tile, x + 1, y, Jitter(rng, stem.Darkened(0.12f), 0.04f));
                     }
                 }
+            }
+        }
+    }
+
+    private static void PaintTorch(Image img, RandomNumberGenerator rng)
+    {
+        for (int y = 0; y < TilePx; y++)
+        {
+            for (int x = 0; x < TilePx; x++)
+            {
+                Px(img, TTorch, x, y, new Color(0, 0, 0, 0));
+            }
+        }
+
+        // Wooden stick, slightly tapered, standing on the tile's bottom edge.
+        for (int y = 12; y < TilePx; y++)
+        {
+            int half = y < 22 ? 1 : 2;
+            for (int x = 15 - half; x <= 15 + half; x++)
+            {
+                Color wood = x == 15 ? new Color(0.55f, 0.36f, 0.18f) : new Color(0.38f, 0.24f, 0.12f);
+                Px(img, TTorch, x, y, Jitter(rng, wood, 0.03f));
+            }
+        }
+
+        // Flame: a small bright core with orange edges.
+        for (int y = 4; y <= 12; y++)
+        {
+            int spread = y < 7 ? 2 : y < 10 ? 3 : 2;
+            for (int x = 15 - spread; x <= 15 + spread; x++)
+            {
+                float d = new Vector2(x - 15, (y - 8) * 0.8f).Length();
+                if (d > spread + 1.0f)
+                {
+                    continue;
+                }
+
+                Color c = d < 1.6f
+                        ? new Color(1.0f, 0.94f, 0.55f)
+                        : d < 2.8f
+                                ? new Color(1.0f, 0.62f, 0.14f)
+                                : new Color(0.86f, 0.28f, 0.06f);
+                Px(img, TTorch, x, y, Jitter(rng, c, 0.05f));
+            }
+        }
+    }
+
+    private static void PaintFarmland(Image img, RandomNumberGenerator rng)
+    {
+        PaintDirt(img, TFarmlandTop, rng);
+        for (int y = 4; y < TilePx; y += 6)
+        {
+            for (int x = 3; x < TilePx - 3; x++)
+            {
+                Px(img, TFarmlandTop, x, y, new Color(0.30f, 0.21f, 0.13f));
+                Px(img, TFarmlandTop, x, y + 1, new Color(0.52f, 0.38f, 0.24f));
+            }
+        }
+
+        PaintDirt(img, TFarmlandSide, rng);
+        for (int x = 0; x < TilePx; x++)
+        {
+            for (int y = 0; y < 7; y++)
+            {
+                Px(img, TFarmlandSide, x, y, Jitter(rng, new Color(0.34f, 0.24f, 0.15f), 0.04f));
+            }
+        }
+    }
+
+    private static void PaintWheat(Image img, int tile, RandomNumberGenerator rng, float height, bool ripe)
+    {
+        for (int y = 0; y < TilePx; y++)
+        {
+            for (int x = 0; x < TilePx; x++)
+            {
+                Px(img, tile, x, y, new Color(0, 0, 0, 0));
+            }
+        }
+
+        int top = (int)(TilePx * (1.0f - height));
+        Color stem = ripe ? new Color(0.72f, 0.58f, 0.18f) : new Color(0.30f, 0.55f, 0.20f);
+        Color head = ripe ? new Color(0.95f, 0.80f, 0.24f) : new Color(0.42f, 0.68f, 0.26f);
+        for (int stalk = 0; stalk < 5; stalk++)
+        {
+            int bx = 5 + stalk * 6;
+            int bend = (stalk % 2 == 0) ? 1 : -1;
+            for (int y = top; y < TilePx; y++)
+            {
+                int x = bx + bend * (y - top) / 14;
+                Px(img, tile, x, y, Jitter(rng, stem, 0.04f));
+                if (ripe && y < top + 8)
+                {
+                    Px(img, tile, x + 1, y, Jitter(rng, head, 0.05f));
+                    Px(img, tile, x - 1, y, Jitter(rng, head.Darkened(0.1f), 0.05f));
+                }
+            }
+        }
+    }
+
+    private static void PaintBed(Image img, RandomNumberGenerator rng)
+    {
+        Color blanket = new(0.72f, 0.16f, 0.18f);
+        Color blanketDark = new(0.48f, 0.09f, 0.12f);
+        Color wood = new(0.50f, 0.34f, 0.18f);
+        for (int y = 0; y < TilePx; y++)
+        {
+            for (int x = 0; x < TilePx; x++)
+            {
+                bool edge = x < 3 || x >= TilePx - 3 || y < 3 || y >= TilePx - 3;
+                Px(img, TBedTop, x, y, edge ? wood : blanket);
+            }
+        }
+
+        // Pillow and blanket folds.
+        for (int y = 4; y < 12; y++)
+        {
+            for (int x = 4; x < 21; x++)
+            {
+                Px(img, TBedTop, x, y, new Color(0.92f, 0.92f, 0.88f));
+            }
+        }
+
+        for (int x = 4; x < TilePx - 4; x++)
+        {
+            Px(img, TBedTop, x, 22, blanketDark);
+            Px(img, TBedTop, x, 23, blanketDark.Lightened(0.1f));
+        }
+
+        for (int y = 0; y < TilePx; y++)
+        {
+            for (int x = 0; x < TilePx; x++)
+            {
+                bool edge = x < 4 || x >= TilePx - 4 || y < 2 || y >= TilePx - 2;
+                Color c = edge ? wood.Darkened(0.15f) : (y < 13 ? blanket : wood);
+                Px(img, TBedSide, x, y, Jitter(rng, c, 0.03f));
+            }
+        }
+    }
+
+    private static void PaintLadder(Image img)
+    {
+        for (int y = 0; y < TilePx; y++)
+        {
+            for (int x = 0; x < TilePx; x++)
+            {
+                Px(img, TLadder, x, y, new Color(0, 0, 0, 0));
+            }
+        }
+
+        Color wood = new(0.55f, 0.38f, 0.19f);
+        for (int y = 0; y < TilePx; y++)
+        {
+            for (int x = 8; x < 12; x++)
+            {
+                Px(img, TLadder, x, y, wood);
+                Px(img, TLadder, x + 12, y, wood.Darkened(0.1f));
+            }
+        }
+
+        for (int y = 5; y < TilePx; y += 7)
+        {
+            for (int x = 8; x < 24; x++)
+            {
+                Px(img, TLadder, x, y, wood);
+                Px(img, TLadder, x, y + 1, wood.Darkened(0.15f));
+            }
+        }
+    }
+
+    private static void PaintChest(Image img, RandomNumberGenerator rng)
+    {
+        Color wood = new(0.48f, 0.30f, 0.14f);
+        Color dark = new(0.30f, 0.18f, 0.08f);
+        Color band = new(0.68f, 0.52f, 0.22f);
+        for (int y = 4; y < TilePx - 2; y++)
+        {
+            for (int x = 3; x < TilePx - 3; x++)
+            {
+                bool edge = x < 5 || x >= TilePx - 5 || y < 6 || y >= TilePx - 4;
+                Px(img, TChest, x, y, Jitter(rng, edge ? dark : wood, 0.025f));
+            }
+        }
+
+        // Iron bands and a simple latch on the front.
+        for (int x = 3; x < TilePx - 3; x++)
+        {
+            Px(img, TChest, x, 9, band);
+            Px(img, TChest, x, 10, band.Darkened(0.15f));
+            Px(img, TChest, x, TilePx - 8, band);
+            Px(img, TChest, x, TilePx - 7, band.Darkened(0.15f));
+        }
+
+        for (int y = 11; y < 22; y++)
+        {
+            for (int x = 15; x <= 17; x++)
+            {
+                Px(img, TChest, x, y, y < 15 ? band.Lightened(0.1f) : band.Darkened(0.2f));
+            }
+        }
+
+        Px(img, TChest, 16, 15, new Color(0.12f, 0.10f, 0.07f));
+    }
+
+    private static void PaintFurnace(Image img, RandomNumberGenerator rng)
+    {
+        Color stone = new(0.42f, 0.42f, 0.44f);
+        Color dark = new(0.20f, 0.20f, 0.22f);
+        for (int y = 2; y < TilePx - 2; y++)
+        {
+            for (int x = 2; x < TilePx - 2; x++)
+            {
+                bool edge = x < 4 || x >= TilePx - 4 || y < 4 || y >= TilePx - 4;
+                Px(img, TFurnace, x, y, Jitter(rng, edge ? dark : stone, 0.035f));
+            }
+        }
+
+        // Fire mouth.
+        for (int y = 15; y < 26; y++)
+        {
+            for (int x = 8; x < 24; x++)
+            {
+                bool lip = y < 17 || y >= 24 || x < 10 || x >= 22;
+                Color c = lip ? dark : new Color(0.06f, 0.05f, 0.05f);
+                Px(img, TFurnace, x, y, c);
+            }
+        }
+
+        for (int y = 20; y < 24; y++)
+        {
+            int half = 23 - y;
+            for (int x = 16 - half; x <= 16 + half; x++)
+            {
+                Px(img, TFurnace, x, y, y < 21 ? new Color(1.0f, 0.78f, 0.25f) : new Color(0.95f, 0.42f, 0.08f));
             }
         }
     }

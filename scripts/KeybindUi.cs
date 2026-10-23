@@ -1,0 +1,181 @@
+using Godot;
+
+namespace Minecraft;
+
+/// <summary>Keyboard rebinding panel. Opened from the pause menu.</summary>
+public partial class KeybindUi : CanvasLayer
+{
+    private Player _player = null!;
+    private Control _root = null!;
+    private VBoxContainer _rows = null!;
+    private string? _waitingAction;
+    private bool _open;
+
+    public void Setup(Player player)
+    {
+        _player = player;
+        Layer = 15;
+        ProcessMode = ProcessModeEnum.Always;
+        Build();
+    }
+
+    private void Build()
+    {
+        _root = new Control
+        {
+            Name = "KeybindRoot",
+            Visible = false,
+        };
+        _root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        AddChild(_root);
+
+        ColorRect dim = new()
+        {
+            Color = new Color(0, 0, 0, 0.45f),
+            MouseFilter = Control.MouseFilterEnum.Stop,
+        };
+        dim.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _root.AddChild(dim);
+
+        CenterContainer center = new();
+        center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        center.MouseFilter = Control.MouseFilterEnum.Ignore;
+        _root.AddChild(center);
+
+        VBoxContainer box = new();
+        box.AddThemeConstantOverride("separation", 8);
+        box.AddChild(MenuSkin.Title("CONTROLS", 18));
+        Label hint = new()
+        {
+            Text = "Click a binding, then press a key. Escape cancels.",
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        hint.AddThemeFontSizeOverride("font_size", 12);
+        hint.AddThemeColorOverride("font_color", new Color(0.70f, 0.78f, 0.88f));
+        box.AddChild(hint);
+        _rows = new VBoxContainer
+        {
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+        };
+        _rows.AddThemeConstantOverride("separation", 4);
+        ScrollContainer scroll = new()
+        {
+            CustomMinimumSize = new Vector2(500, 390),
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+        };
+        scroll.AddChild(_rows);
+        box.AddChild(scroll);
+        HBoxContainer actions = new();
+        actions.AddThemeConstantOverride("separation", 10);
+        actions.AddChild(MenuSkin.MakeButton("Reset defaults", ResetAll, 0));
+        actions.AddChild(MenuSkin.MakeButton("Back", Close, 0));
+        box.AddChild(actions);
+        center.AddChild(MenuSkin.Wrap(box, 520));
+        BuildRows();
+    }
+
+    private void BuildRows()
+    {
+        foreach ((string action, string label) in Keybinds.Bindable)
+        {
+            HBoxContainer row = new();
+            row.AddThemeConstantOverride("separation", 12);
+            Label name = new()
+            {
+                Text = label,
+                CustomMinimumSize = new Vector2(250, 0),
+            };
+            row.AddChild(name);
+            Button key = MenuSkin.MakeButton(Keybinds.LabelFor(action), () => WaitFor(action), 120);
+            key.Name = "Key_" + action;
+            row.AddChild(key);
+            _rows.AddChild(row);
+        }
+    }
+
+    private void WaitFor(string action)
+    {
+        _waitingAction = action;
+        Button? target = _rows.GetNodeOrNull<Button>("Key_" + action);
+        if (target != null)
+        {
+            target.Text = "Press a key…";
+        }
+    }
+
+    public override void _UnhandledInput(InputEvent @event)
+    {
+        if (!_open)
+        {
+            return;
+        }
+
+        if (@event is not InputEventKey key || !key.Pressed || key.Echo)
+        {
+            return;
+        }
+
+        if (_waitingAction is { } action)
+        {
+            if (key.Keycode == Key.Escape)
+            {
+                RefreshButton(action);
+            }
+            else
+            {
+                Keybinds.Rebind(action, key.Keycode);
+                RefreshButton(action);
+            }
+
+            _waitingAction = null;
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
+        if (key.Keycode == Key.Escape)
+        {
+            Close();
+            GetViewport().SetInputAsHandled();
+        }
+    }
+
+    private void RefreshButton(string action)
+    {
+        Button? target = _rows.GetNodeOrNull<Button>("Key_" + action);
+        if (target != null)
+        {
+            target.Text = Keybinds.LabelFor(action);
+        }
+    }
+
+    private void RefreshAll()
+    {
+        foreach ((string action, _) in Keybinds.Bindable)
+        {
+            RefreshButton(action);
+        }
+    }
+
+    private void ResetAll()
+    {
+        Keybinds.ResetDefaults();
+        RefreshAll();
+    }
+
+    public void Open()
+    {
+        _open = true;
+        _root.Visible = true;
+        _waitingAction = null;
+        RefreshAll();
+        Input.MouseMode = Input.MouseModeEnum.Visible;
+        _player.InputLocked = true;
+    }
+
+    private void Close()
+    {
+        _open = false;
+        _root.Visible = false;
+        _waitingAction = null;
+    }
+}

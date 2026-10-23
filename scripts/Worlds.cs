@@ -24,11 +24,16 @@ public sealed record LegacySave(
     float[]? Player,
     double Time);
 
-/// <summary>World state (version 2): block edits + world clock. No player data.</summary>
+/// <summary>World state (version 3): block edits, world clock, container
+/// inventories, furnace states and per-world flags. Every field past Time is
+/// optional so v2 saves load unchanged.</summary>
 public sealed record WorldSave(
     int Version,
     Dictionary<string, Dictionary<string, BlockId>>? Edits,
-    double Time);
+    double Time,
+    Dictionary<string, List<ItemStackSave>>? Containers = null,
+    Dictionary<string, bool>? Flags = null,
+    Dictionary<string, FurnaceSave>? Furnaces = null);
 
 /// <summary>Per-player state. Split from world state so multiplayer code
 /// never has to untangle the two. M2 fields default to "unset" for old saves.</summary>
@@ -44,6 +49,13 @@ public sealed record PlayerSave(
 /// <summary>One saved inventory slot (0-8 hotbar, 9-35 backpack).</summary>
 public sealed record ItemStackSave(int Slot, int Id, int Count, int Durability = 0);
 
+/// <summary>Persisted furnace slots + burn/smelt timers.</summary>
+public sealed record FurnaceSave(
+    List<ItemStackSave> Slots,
+    float BurnTime = 0.0f,
+    float BurnMax = 0.0f,
+    float SmeltTime = 0.0f);
+
 /// <summary>
 /// World folders under user://worlds/&lt;id&gt;/ hold manifest.json (identity +
 /// seeds), world.json (edits + time) and player.json (position). Saves are
@@ -51,7 +63,8 @@ public sealed record ItemStackSave(int Slot, int Id, int Count, int Durability =
 /// </summary>
 public static class WorldStore
 {
-    public const int CurrentGenVersion = 5;
+    public const int CurrentGenVersion = 6;
+    public const int WorldFormatVersion = 3;
     public const string WorldsRoot = "user://worlds";
     private const string LegacySavePath = "user://minecraft_save.json";
 
@@ -139,6 +152,122 @@ public static class WorldStore
         return dir;
     }
 
+    /// <summary>Rename a world without touching its seed or save files.</summary>
+    public static bool Rename(string dir, string name)
+    {
+        name = name.Trim();
+        if (name.Length == 0 || ReadManifest(dir) is not { } manifest)
+        {
+            return false;
+        }
+
+        WriteManifest(dir, manifest with { Name = name });
+        return true;
+    }
+
+    /// <summary>Copy a world folder and give the copy a fresh identity.</summary>
+    public static string? Duplicate(string dir, string? name = null)
+    {
+        if (ReadManifest(dir) is not { } manifest)
+        {
+            return null;
+        }
+
+        string target = $"{WorldsRoot}/w{Time.GetTicksUsec() & 0xFFFFFFFF:X8}";
+        if (DirAccess.DirExistsAbsolute(target))
+        {
+            return null;
+        }
+
+        if (!CopyDirectory(dir, target))
+        {
+            return null;
+        }
+
+        WriteManifest(target, manifest with
+        {
+            Name = string.IsNullOrWhiteSpace(name) ? $"{manifest.Name} copy" : name.Trim(),
+            CreatedUtc = NowUtc(),
+            PlayedUtc = NowUtc(),
+        });
+        return target;
+    }
+
+    /// <summary>Delete a world folder and all of its files. Never deletes outside WorldsRoot.</summary>
+    public static bool Delete(string dir)
+    {
+        if (!dir.StartsWith(WorldsRoot + "/", StringComparison.Ordinal)
+                || !DirAccess.DirExistsAbsolute(dir))
+        {
+            return false;
+        }
+
+        return DeleteDirectory(dir) && DirAccess.RemoveAbsolute(dir) == Error.Ok;
+    }
+
+    private static bool CopyDirectory(string source, string target)
+    {
+        if (DirAccess.MakeDirRecursiveAbsolute(target) != Error.Ok)
+        {
+            return false;
+        }
+
+        using DirAccess? da = DirAccess.Open(source);
+        if (da == null)
+        {
+            return false;
+        }
+
+        foreach (string file in da.GetFiles())
+        {
+            byte[] bytes = FileAccess.GetFileAsBytes(source + "/" + file);
+            using FileAccess? output = FileAccess.Open(target + "/" + file, FileAccess.ModeFlags.Write);
+            if (output == null)
+            {
+                return false;
+            }
+
+            output.StoreBuffer(bytes);
+        }
+
+        foreach (string subdir in da.GetDirectories())
+        {
+            if (!CopyDirectory(source + "/" + subdir, target + "/" + subdir))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool DeleteDirectory(string source)
+    {
+        using DirAccess? da = DirAccess.Open(source);
+        if (da == null)
+        {
+            return false;
+        }
+
+        foreach (string file in da.GetFiles())
+        {
+            if (DirAccess.RemoveAbsolute(source + "/" + file) != Error.Ok)
+            {
+                return false;
+            }
+        }
+
+        foreach (string subdir in da.GetDirectories())
+        {
+            if (!DeleteDirectory(source + "/" + subdir))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>Safety net for a missing manifest: an untouched v1-style world.</summary>
     public static WorldManifest DefaultFor(string dir)
     {
@@ -175,7 +304,8 @@ public static class WorldStore
         string dir = $"{WorldsRoot}/default";
         DirAccess.MakeDirRecursiveAbsolute(dir);
         bool worldWritten = WriteAtomic(
-                WorldSavePath(dir), JsonSerializer.Serialize(new WorldSave(2, save.Edits, save.Time), Json));
+                WorldSavePath(dir), JsonSerializer.Serialize(new WorldSave(
+                        WorldFormatVersion, save.Edits, save.Time), Json));
         bool playerWritten = WriteAtomic(
                 PlayerSavePath(dir), JsonSerializer.Serialize(new PlayerSave(save.Player ?? []), Json));
         if (!worldWritten || !playerWritten)

@@ -34,6 +34,8 @@ public partial class Ambient : Node
     private GpuParticles3D _motes = null!;
     private GpuParticles3D _fireflies = null!;
     private GpuParticles3D _bubbles = null!;
+    private GpuParticles3D _butterflies = null!;
+    private GpuParticles3D _birds = null!;
     private ImageTexture _dot = null!;
 
     public void Setup(Player player, VoxelWorld world, Weather weather)
@@ -54,6 +56,14 @@ public partial class Ambient : Node
             Name: "bubbles", Amount: 70, Lifetime: 2.2f, HalfExtents: new Vector3(2.5f, 1.5f, 2.5f),
             VelMin: 0.7f, VelMax: 1.4f, Size: 0.03f, Color: new Color(0.85f, 0.93f, 1.0f, 0.4f),
             Glow: false, Gravity: new Vector3(0, 0.7f, 0), GlowEnergy: 0.0f));
+        _butterflies = MakeRig(new RigSpec(
+            Name: "butterflies", Amount: 22, Lifetime: 9.0f, HalfExtents: new Vector3(8, 2, 8),
+            VelMin: 0.15f, VelMax: 0.55f, Size: 0.075f, Color: new Color(1.0f, 0.72f, 0.28f, 0.9f),
+            Glow: false, Gravity: new Vector3(0, 0.03f, 0), GlowEnergy: 0.0f));
+        _birds = MakeRig(new RigSpec(
+            Name: "birds", Amount: 12, Lifetime: 12.0f, HalfExtents: new Vector3(24, 8, 24),
+            VelMin: 0.6f, VelMax: 1.5f, Size: 0.11f, Color: new Color(0.30f, 0.34f, 0.38f, 0.8f),
+            Glow: false, Gravity: new Vector3(0, 0.01f, 0), GlowEnergy: 0.0f));
     }
 
     public override void _Process(double delta)
@@ -68,6 +78,8 @@ public partial class Ambient : Node
         _motes.GlobalPosition = snap;
         _fireflies.GlobalPosition = snap;
         _bubbles.GlobalPosition = snap;
+        _butterflies.GlobalPosition = snap;
+        _birds.GlobalPosition = snap;
         double t = World.TimeOfDay;
         bool isNight = t > 0.72 || t < 0.26;
         bool raining = WeatherRef != null && (int)WeatherRef.Current >= 2;
@@ -77,6 +89,8 @@ public partial class Ambient : Node
         _motes.Emitting = !uw && !isNight && !underground;
         _fireflies.Emitting = isNight && !raining && !uw;
         _bubbles.Emitting = uw;
+        _butterflies.Emitting = !uw && !isNight && !raining && !underground;
+        _birds.Emitting = !uw && !isNight && !raining;
     }
 
     private GpuParticles3D MakeRig(RigSpec spec)

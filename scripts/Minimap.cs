@@ -1,86 +1,172 @@
+using System;
 using Godot;
 
 namespace Minecraft;
 
 /// <summary>
-/// Top-down minimap + compass: a small cached surface-colour image around the
-/// player (noise + biome, rebuilt a few times a second), a heading needle, and
-/// waypoint dots for campfires, the world spawn and the respawn anchor.
+/// Top-down minimap + compass. Terrain is rebuilt in small row slices so a
+/// 96×96 map never stalls a frame, with hill shading, biome/water colours,
+/// campfire/spawn/respawn waypoints, a heading arrow and zoom levels.
 /// </summary>
 public partial class Minimap : Control
 {
-    private const int Px = 96;                 // image resolution
-    private const float MetresPerPx = 2.0f;    // 192 m across
+    private const int Px = 128;
+    private const int SliceRows = 16;
+    private static readonly float[] ZoomLevels = [1.0f, 2.0f, 4.0f, 8.0f];
 
     public VoxelWorld? World;
     public Player? PlayerRef;
 
     private Image _img = null!;
     private ImageTexture _tex = null!;
+    private readonly int[] _heights = new int[Px * Px];
+    private readonly bool[] _edited = new bool[Px * Px];
     private double _timer;
     private Vector2 _lastCentre;
+    private int _zoom = 1;
+    private int _buildRow;
+    private bool _building;
+    private int _buildCx;
+    private int _buildCz;
+    private VoxelWorld? _spawnWorld;
+    private Vector3 _spawn;
+
     private Color _sand = new(0.86f, 0.81f, 0.61f);
     private Color _grass = new(0.34f, 0.56f, 0.24f);
+    private Color _birch = new(0.48f, 0.68f, 0.30f);
     private Color _snow = new(0.88f, 0.92f, 0.97f);
-    private Color _water = new(0.16f, 0.33f, 0.62f);
+    private Color _shallow = new(0.20f, 0.48f, 0.72f);
+    private Color _deep = new(0.08f, 0.22f, 0.48f);
     private Color _stone = new(0.55f, 0.55f, 0.57f);
+
+    public float MetresPerPx => ZoomLevels[_zoom];
+    public string ScaleLabel => $"{Mathf.RoundToInt(Px * MetresPerPx)} m";
 
     public override void _Ready()
     {
-        CustomMinimumSize = new Vector2(150, 150);
+        CustomMinimumSize = new Vector2(176, 176);
         MouseFilter = MouseFilterEnum.Ignore;
         _img = Image.CreateEmpty(Px, Px, false, Image.Format.Rgba8);
         _tex = ImageTexture.CreateFromImage(_img);
+    }
+
+    public void ZoomIn()
+    {
+        _zoom = Mathf.Min(_zoom + 1, ZoomLevels.Length - 1);
+        StartRebuild();
+    }
+
+    public void ZoomOut()
+    {
+        _zoom = Mathf.Max(_zoom - 1, 0);
+        StartRebuild();
     }
 
     public override void _Process(double delta)
     {
         if (World == null || PlayerRef == null || !IsVisibleInTree())
         {
-            return;   // hidden HUD or minimap costs nothing
+            _building = false;
+            return;
+        }
+
+        if (_building)
+        {
+            BuildSlice();
+            return;
         }
 
         _timer -= delta;
-        if (_timer <= 0.0)
+        if (_timer > 0.0)
         {
-            // A rebuild is 96x96 columns of terrain noise: only when the player
-            // actually moved, or occasionally in place (edits, waypoints).
-            Vector2 here = new(PlayerRef.GlobalPosition.X, PlayerRef.GlobalPosition.Z);
-            bool moved = _lastCentre.DistanceTo(here) > 2.0f;
-            _timer = moved ? 0.5 : 3.0;
-            _lastCentre = here;
-            Rebuild();
-            QueueRedraw();
+            return;
+        }
+
+        Vector2 here = new(PlayerRef.GlobalPosition.X, PlayerRef.GlobalPosition.Z);
+        bool moved = _lastCentre.DistanceTo(here) > 2.0f;
+        _timer = moved ? 0.55 : 2.5;
+        if (moved || _lastCentre == Vector2.Zero)
+        {
+            StartRebuild();
         }
     }
 
-    private void Rebuild()
+    private void StartRebuild()
     {
-        int cx = Mathf.FloorToInt(PlayerRef!.GlobalPosition.X);
-        int cz = Mathf.FloorToInt(PlayerRef.GlobalPosition.Z);
-        int half = Px / 2;
+        if (World == null || PlayerRef == null)
+        {
+            return;
+        }
+
+        _buildCx = Mathf.FloorToInt(PlayerRef.GlobalPosition.X);
+        _buildCz = Mathf.FloorToInt(PlayerRef.GlobalPosition.Z);
+        _lastCentre = new Vector2(_buildCx, _buildCz);
+        _buildRow = 0;
+        _building = true;
+    }
+
+    private void BuildSlice()
+    {
+        if (World == null)
+        {
+            _building = false;
+            return;
+        }
+
+        int end = Mathf.Min(_buildRow + SliceRows, Px);
+        for (int j = _buildRow; j < end; j++)
+        {
+            for (int i = 0; i < Px; i++)
+            {
+                int wx = _buildCx + (int)((i - Px / 2) * MetresPerPx);
+                int wz = _buildCz + (int)((j - Px / 2) * MetresPerPx);
+                int h = World.SurfaceHeight(wx, wz);
+                bool edited = World.TryEditTop(wx, wz, out int editedTop);
+                if (edited)
+                {
+                    h = editedTop;
+                }
+
+                int index = i + j * Px;
+                _heights[index] = h;
+                _edited[index] = edited;
+            }
+        }
+
+        _buildRow = end;
+        if (_buildRow < Px)
+        {
+            return;
+        }
+
+        Colorize();
+        _tex.Update(_img);
+        _building = false;
+        QueueRedraw();
+    }
+
+    private void Colorize()
+    {
         int sea = World!.SeaLevel;
         for (int j = 0; j < Px; j++)
         {
             for (int i = 0; i < Px; i++)
             {
-                int wx = cx + (int)((i - half) * MetresPerPx);
-                int wz = cz + (int)((j - half) * MetresPerPx);
-                int h = World.SurfaceHeight(wx, wz);
-                bool editedTop = World.TryEditTop(wx, wz, out int edited);
-                if (editedTop)
-                {
-                    h = edited;
-                }
+                int index = i + j * Px;
+                int h = _heights[index];
+                bool edited = _edited[index];
+                int wx = _buildCx + (int)((i - Px / 2) * MetresPerPx);
+                int wz = _buildCz + (int)((j - Px / 2) * MetresPerPx);
 
                 Color c;
-                if (World.IsSky && !editedTop && !World.IslandAt(wx, wz))
+                if (World.IsSky && !edited && !World.IslandAt(wx, wz))
                 {
-                    c = new Color(0.05f, 0.07f, 0.12f);   // open sky below the islands
+                    c = new Color(0.04f, 0.06f, 0.11f);
                 }
                 else if (h <= sea)
                 {
-                    c = _water;
+                    float depth = Mathf.Clamp((sea - h) / 12.0f, 0.0f, 1.0f);
+                    c = _shallow.Lerp(_deep, depth);
                 }
                 else if (h <= sea + 1)
                 {
@@ -92,62 +178,129 @@ public partial class Minimap : Control
                     {
                         Biome.Desert => _sand,
                         Biome.Snow => _snow,
+                        Biome.Birch => _birch,
                         _ => _grass,
                     };
-                    // Higher ground reads brighter; steep ridges go stony.
-                    float lift = Mathf.Clamp((h - sea) / 18.0f, 0.0f, 1.0f);
-                    c = c.Lerp(_stone, lift * 0.55f).Lightened(lift * 0.15f);
+                    float lift = Mathf.Clamp((h - sea) / 20.0f, 0.0f, 1.0f);
+                    c = c.Lerp(_stone, lift * 0.55f).Lightened(lift * 0.12f);
                 }
 
+                // Hill shade from the two nearest neighbours; this is what
+                // turns a flat colour map into readable terrain.
+                int right = _heights[Math.Min(i + 1, Px - 1) + j * Px];
+                int down = _heights[i + Math.Min(j + 1, Px - 1) * Px];
+                float shade = 1.0f + (h - right) * 0.06f + (h - down) * 0.06f;
+                shade = Mathf.Clamp(shade, 0.72f, 1.18f);
+                c = new Color(
+                        Mathf.Clamp(c.R * shade, 0.0f, 1.0f),
+                        Mathf.Clamp(c.G * shade, 0.0f, 1.0f),
+                        Mathf.Clamp(c.B * shade, 0.0f, 1.0f),
+                        c.A);
                 _img.SetPixel(i, j, c);
             }
         }
-
-        _tex.Update(_img);
     }
 
     public override void _Draw()
     {
         Vector2 size = Size;
         Vector2 origin = (size - new Vector2(Px, Px)) / 2.0f;
-        DrawTextureRect(_tex, new Rect2(origin, new Vector2(Px, Px)), false);
+        Rect2 mapRect = new(origin, new Vector2(Px, Px));
+        DrawTextureRect(_tex, mapRect, false);
+        DrawRect(mapRect, new Color(0.95f, 0.97f, 1.0f, 0.18f), false, 1.0f);
 
-        // Compass: N at the top of the frame.
         Font font = GetThemeDefaultFont();
-        DrawString(font, origin + new Vector2(2, 12), "N", HorizontalAlignment.Left, -1, 11, Colors.White);
-        DrawLine(origin + new Vector2(Px / 2.0f, 4), origin + new Vector2(Px / 2.0f, 10),
-                new Color(1, 1, 1, 0.4f), 1.0f);
+        DrawCompass(font, origin, "N", new Vector2(Px / 2.0f, 12), HorizontalAlignment.Center);
+        DrawCompass(font, origin, "E", new Vector2(Px - 8, Px / 2.0f + 4), HorizontalAlignment.Right);
+        DrawCompass(font, origin, "S", new Vector2(Px / 2.0f, Px - 3), HorizontalAlignment.Center);
+        DrawCompass(font, origin, "W", new Vector2(6, Px / 2.0f + 4), HorizontalAlignment.Left);
 
         if (World == null || PlayerRef == null)
         {
             return;
         }
 
-        Vector2 centre = size / 2.0f;
         Vector3 pp = PlayerRef.GlobalPosition;
+        Vector2 centre = origin + new Vector2(Px / 2.0f, Px / 2.0f);
 
-        // Waypoints: campfires (warm dots), respawn anchor (ringed), spawn (star-ish).
         foreach (Vector3I site in World.NearbyCampfireSites(pp, Px * MetresPerPx * 0.5f))
         {
-            Vector2 d = new Vector2(site.X + 0.5f - pp.X, site.Z + 0.5f - pp.Z) / MetresPerPx;
-            DrawCircle(centre + d, 2.4f, new Color(1.0f, 0.62f, 0.22f));
+            DrawWaypoint(centre, mapRect, site.X + 0.5f, site.Z + 0.5f, pp,
+                    new Color(1.0f, 0.62f, 0.22f), 2.4f);
         }
 
         if (PlayerRef.RespawnPoint is { } respawn)
         {
-            Vector2 d = new Vector2(respawn.X - pp.X, respawn.Z - pp.Z) / MetresPerPx;
-            Vector2 p = centre + d;
-            DrawCircle(p, 3.2f, new Color(0.95f, 0.35f, 0.25f));
-            DrawArc(p, 5.0f, 0.0f, Mathf.Tau, 24, new Color(1, 1, 1, 0.8f), 1.2f);
+            DrawWaypoint(centre, mapRect, respawn.X, respawn.Z, pp,
+                    new Color(0.95f, 0.35f, 0.25f), 3.0f, true);
         }
 
-        // Heading needle: a triangle pointing where the player looks.
+        Vector3 spawn = SpawnPoint();
+        DrawWaypoint(centre, mapRect, spawn.X, spawn.Z, pp,
+                new Color(0.75f, 0.92f, 1.0f), 2.8f, true);
+
+        // Player heading arrow with a dark outline for readability.
         float yaw = PlayerRef.Rotation.Y;
-        Vector2 dir = new(-Mathf.Sin(yaw), -Mathf.Cos(yaw));   // north (-Z) is up
+        Vector2 dir = new(-Mathf.Sin(yaw), -Mathf.Cos(yaw));
         Vector2 perp = new(-dir.Y, dir.X);
-        Vector2 tip = centre + dir * 8.0f;
-        DrawColoredPolygon(
-                [tip, centre - dir * 4.0f + perp * 4.0f, centre - dir * 4.0f - perp * 4.0f],
-                Colors.White);
+        Vector2[] outline =
+        [
+            centre + dir * 10.0f,
+            centre - dir * 5.0f + perp * 5.0f,
+            centre - dir * 5.0f - perp * 5.0f,
+        ];
+        Vector2[] arrow =
+        [
+            centre + dir * 8.0f,
+            centre - dir * 3.5f + perp * 3.5f,
+            centre - dir * 3.5f - perp * 3.5f,
+        ];
+        DrawColoredPolygon(outline, new Color(0, 0, 0, 0.65f));
+        DrawColoredPolygon(arrow, Colors.White);
+
+        string scale = ScaleLabel;
+        DrawString(font, origin + new Vector2(4, Px - 5), scale,
+                HorizontalAlignment.Left, -1, 10, new Color(1, 1, 1, 0.8f));
+    }
+
+    private Vector3 SpawnPoint()
+    {
+        if (_spawnWorld != World)
+        {
+            _spawnWorld = World;
+            _spawn = World?.FindSpawn() ?? Vector3.Zero;
+        }
+
+        return _spawn;
+    }
+
+    private void DrawWaypoint(Vector2 centre, Rect2 mapRect, float x, float z, Vector3 player,
+            Color color, float radius, bool ring = false)
+    {
+        Vector2 p = centre + new Vector2(x - player.X, z - player.Z) / MetresPerPx;
+        if (!mapRect.Grow(2.0f).HasPoint(p))
+        {
+            return;
+        }
+
+        if (ring)
+        {
+            DrawCircle(p, radius + 2.0f, new Color(0, 0, 0, 0.55f));
+            DrawCircle(p, radius, color);
+            DrawArc(p, radius + 2.5f, 0.0f, Mathf.Tau, 20, new Color(1, 1, 1, 0.85f), 1.0f);
+        }
+        else
+        {
+            DrawCircle(p, radius + 1.0f, new Color(0, 0, 0, 0.45f));
+            DrawCircle(p, radius, color);
+        }
+    }
+
+    private void DrawCompass(Font font, Vector2 origin, string text, Vector2 at,
+            HorizontalAlignment alignment)
+    {
+        Vector2 pos = origin + at;
+        DrawString(font, pos + new Vector2(1, 1), text, alignment, -1, 10, new Color(0, 0, 0, 0.6f));
+        DrawString(font, pos, text, alignment, -1, 10, new Color(1, 1, 1, 0.75f));
     }
 }

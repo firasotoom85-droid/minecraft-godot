@@ -9,13 +9,20 @@ public sealed class Inventory
     public const int HotbarSize = 9;
     public const int BackpackSize = 27;
     public const int SlotCount = HotbarSize + BackpackSize;
+    public const int ArmorSlots = 4;
+    public const int SaveSlotCount = SlotCount + ArmorSlots;
 
     public readonly ItemStack[] Hotbar = new ItemStack[HotbarSize];
     public readonly ItemStack[] Backpack = new ItemStack[BackpackSize];
+    public readonly ItemStack[] Armor = new ItemStack[ArmorSlots];  // helmet, chest, legs, boots
 
     public event Action? Changed;
 
-    public ItemStack Get(int slot) => slot < HotbarSize ? Hotbar[slot] : Backpack[slot - HotbarSize];
+    public ItemStack Get(int slot) => slot < HotbarSize
+            ? Hotbar[slot]
+            : slot < SlotCount
+                    ? Backpack[slot - HotbarSize]
+                    : Armor[slot - SlotCount];
 
     public void Set(int slot, ItemStack stack)
     {
@@ -23,9 +30,13 @@ public sealed class Inventory
         {
             Hotbar[slot] = stack;
         }
-        else
+        else if (slot < SlotCount)
         {
             Backpack[slot - HotbarSize] = stack;
+        }
+        else
+        {
+            Armor[slot - SlotCount] = stack;
         }
     }
 
@@ -191,12 +202,13 @@ public sealed class Inventory
     {
         System.Array.Fill(Hotbar, ItemStack.Empty);
         System.Array.Fill(Backpack, ItemStack.Empty);
+        System.Array.Fill(Armor, ItemStack.Empty);
     }
 
     public List<ItemStackSave> ToSave()
     {
         List<ItemStackSave> list = [];
-        for (int i = 0; i < SlotCount; i++)
+        for (int i = 0; i < SaveSlotCount; i++)
         {
             ItemStack s = Get(i);
             if (!s.IsEmpty)
@@ -223,7 +235,7 @@ public sealed class Inventory
         {
             foreach (ItemStackSave s in items)
             {
-                if (s.Slot >= 0 && s.Slot < SlotCount && s.Count > 0)
+                if (s.Slot >= 0 && s.Slot < SaveSlotCount && s.Count > 0)
                 {
                     Set(s.Slot, new ItemStack((ItemId)s.Id, s.Count, s.Durability));
                 }

@@ -1,0 +1,100 @@
+using System.Collections.Generic;
+using System.Text.Json;
+using Godot;
+
+namespace Minecraft;
+
+public static class SaveTests
+{
+    public static void Run()
+    {
+        string root = $"user://tests/save-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(root);
+
+        Dictionary<string, Dictionary<string, BlockId>> edits = new()
+        {
+            ["0,0"] = new Dictionary<string, BlockId> { ["123"] = BlockId.Stone },
+        };
+        Dictionary<string, List<ItemStackSave>> containers = new()
+        {
+            ["1,2,3"] = [new ItemStackSave(0, (int)ItemId.Stone, 12)],
+        };
+        Dictionary<string, bool> flags = new() { ["dungeon/ember"] = true };
+        WorldSave save = new(WorldStore.WorldFormatVersion, edits, 0.625, containers, flags);
+        string path = root + "/world.json";
+        TestAssert.Check(WorldStore.WriteAtomic(path, JsonSerializer.Serialize(save, WorldStore.Json)),
+                "world save writes atomically");
+
+        WorldSave? loaded = WorldStore.ReadJson<WorldSave>(path, WorldStore.Json);
+        TestAssert.Check(loaded is not null, "world save reads back");
+        if (loaded is not null)
+        {
+            TestAssert.Equal(WorldStore.WorldFormatVersion, loaded.Version, "save version round-trips");
+            TestAssert.Equal(0.625, loaded.Time, "world time round-trips");
+            TestAssert.Equal(BlockId.Stone, loaded.Edits?["0,0"]["123"], "edits round-trip");
+            TestAssert.Equal(12, loaded.Containers?["1,2,3"][0].Count, "containers round-trip");
+            TestAssert.Check(loaded.Flags?["dungeon/ember"] == true, "flags round-trip");
+        }
+
+        string backupPath = root + "/backup.json";
+        WorldStore.WriteAtomic(backupPath, "one");
+        WorldStore.WriteAtomic(backupPath, "two");
+        WorldStore.WriteAtomic(backupPath, "three");
+        TestAssert.Equal("three", FileAccess.GetFileAsString(backupPath), "newest save is current");
+        TestAssert.Equal("two", FileAccess.GetFileAsString(backupPath + ".bak"), "first backup is previous save");
+        TestAssert.Equal("one", FileAccess.GetFileAsString(backupPath + ".bak2"), "second backup is oldest save");
+
+        string corruptPath = root + "/corrupt.json";
+        WorldStore.WriteAtomic(corruptPath, JsonSerializer.Serialize(save, WorldStore.Json));
+        WorldStore.WriteAtomic(corruptPath, JsonSerializer.Serialize(save with { Time = 0.75 }, WorldStore.Json));
+        using (FileAccess? f = FileAccess.Open(corruptPath, FileAccess.ModeFlags.Write))
+        {
+            f?.StoreString("{ definitely not json");
+        }
+
+        WorldSave? recovered = WorldStore.ReadJson<WorldSave>(corruptPath, WorldStore.Json);
+        TestAssert.Check(recovered is not null, "corrupt save recovers from backup");
+        TestAssert.Equal(0.625, recovered?.Time, "recovered save is the previous valid one");
+
+        const string v2 = "{\"version\":2,\"edits\":{},\"time\":0.5}";
+        WorldSave? old = JsonSerializer.Deserialize<WorldSave>(v2, WorldStore.Json);
+        TestAssert.Check(old is not null, "v2 save still parses");
+        TestAssert.Equal(2, old?.Version, "v2 version is preserved");
+        TestAssert.Check(old?.Containers is null, "v2 save has no containers");
+        TestAssert.Check(old?.Flags is null, "v2 save has no flags");
+
+        WorldSave upgraded = new(WorldStore.WorldFormatVersion, old?.Edits, old?.Time ?? 0.5);
+        string upgradedJson = JsonSerializer.Serialize(upgraded, WorldStore.Json);
+        TestAssert.Check(upgradedJson.Contains("\"version\":3"), "upgraded save writes version 3");
+        TestAssert.Equal(6, WorldStore.CurrentGenVersion, "worldgen version includes Ember Deep");
+
+        string worldDir = WorldStore.Create("Management Test", 424242);
+        TestAssert.Check(WorldStore.Rename(worldDir, "Renamed World"), "world rename succeeds");
+        TestAssert.Equal("Renamed World", WorldStore.ReadManifest(worldDir)?.Name, "renamed manifest persists");
+
+        string? copyDir = WorldStore.Duplicate(worldDir, "Copied World");
+        TestAssert.Check(copyDir is not null, "world duplicate succeeds");
+        if (copyDir is not null)
+        {
+            TestAssert.Equal("Copied World", WorldStore.ReadManifest(copyDir)?.Name, "copy has a new name");
+            TestAssert.Equal(424242, WorldStore.ReadManifest(copyDir)?.Seed, "copy keeps the seed");
+            TestAssert.Check(DirAccess.DirExistsAbsolute(copyDir), "copy folder exists");
+            TestAssert.Check(WorldStore.Delete(copyDir), "copy can be deleted");
+            TestAssert.Check(!DirAccess.DirExistsAbsolute(copyDir), "copy folder is gone");
+        }
+
+        TestAssert.Check(WorldStore.Delete(worldDir), "world can be deleted");
+        TestAssert.Check(!DirAccess.DirExistsAbsolute(worldDir), "world folder is gone");
+        TestAssert.Check(!WorldStore.Delete("user://settings.cfg"), "delete refuses paths outside worlds");
+
+        DirAccess.RemoveAbsolute(backupPath + ".bak2");
+        DirAccess.RemoveAbsolute(backupPath + ".bak");
+        DirAccess.RemoveAbsolute(backupPath);
+        DirAccess.RemoveAbsolute(corruptPath + ".bak");
+        DirAccess.RemoveAbsolute(corruptPath);
+        DirAccess.RemoveAbsolute(path + ".bak2");
+        DirAccess.RemoveAbsolute(path + ".bak");
+        DirAccess.RemoveAbsolute(path);
+        DirAccess.RemoveAbsolute(root);
+    }
+}

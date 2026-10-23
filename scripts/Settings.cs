@@ -23,6 +23,8 @@ public static class Settings
     public static bool AutoQuality = true;
     public static bool GreedyMeshing = true;
     public static int ViewDistance = 12;
+    public static bool HeadBob = true;
+    public static bool ShowHints = true;
 
     // Gameplay: 0 peaceful, 1 normal, 2 hard. Peaceful-leaning default (D1).
     public const int DifficultyPeaceful = 0;
@@ -59,6 +61,8 @@ public static class Settings
         ViewDistance = Mathf.Clamp((int)cfg.GetValue("video", "view_distance", ViewDistance), 2, 24);
         AutoQuality = (bool)cfg.GetValue("video", "auto_quality", AutoQuality);
         GreedyMeshing = (bool)cfg.GetValue("video", "greedy_meshing", GreedyMeshing);
+        HeadBob = (bool)cfg.GetValue("video", "head_bob", HeadBob);
+        ShowHints = (bool)cfg.GetValue("gameplay", "show_hints", ShowHints);
         Difficulty = Mathf.Clamp((int)cfg.GetValue("gameplay", "difficulty", Difficulty), 0, 2);
     }
 
@@ -77,6 +81,8 @@ public static class Settings
         cfg.SetValue("video", "view_distance", ViewDistance);
         cfg.SetValue("video", "auto_quality", AutoQuality);
         cfg.SetValue("video", "greedy_meshing", GreedyMeshing);
+        cfg.SetValue("video", "head_bob", HeadBob);
+        cfg.SetValue("gameplay", "show_hints", ShowHints);
         cfg.SetValue("gameplay", "difficulty", Difficulty);
         cfg.Save(Path);
     }

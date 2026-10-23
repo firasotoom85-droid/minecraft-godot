@@ -16,17 +16,27 @@ public partial class Main : Node3D
     private DirectionalLight3D _sun = null!;
 
     private Gfx _gfx = null!;
+    private BlockLights _blockLights = null!;
+    private FurnaceSystem _furnaceSystem = null!;
+    private CropSystem _cropSystem = null!;
     private DayNight _daynight = null!;
     private Fx _fx = null!;
     private Sound _sound = null!;
     private Mobs _mobs = null!;
     private Weather _weather = null!;
+    private DungeonSystem _dungeonSystem = null!;
+    private TraderSystem _traderSystem = null!;
+    private TraderUi _traderUi = null!;
     private Ambient _ambient = null!;
     private Campfires _campfires = null!;
     private PauseMenu _pause = null!;
+    private KeybindUi _keybindUi = null!;
     private DevConsole _console = null!;
     private InventoryUi _inventoryUi = null!;
     private PhotoMode _photo = null!;
+    private AchievementSystem _achievementSystem = null!;
+    private AchievementUi _achievementUi = null!;
+    private OnboardingSystem _onboarding = null!;
 
     public override void _Ready()
     {
@@ -51,6 +61,15 @@ public partial class Main : Node3D
         _world.SetViewDistance(Settings.ViewDistance);
         Sound.ApplyVolumes();
 
+        _blockLights = AddSystem(new BlockLights());
+        _blockLights.Setup(_world, _player);
+
+        _furnaceSystem = AddSystem(new FurnaceSystem());
+        _furnaceSystem.Setup(_world);
+
+        _cropSystem = AddSystem(new CropSystem());
+        _cropSystem.Setup(_world);
+
         _daynight = AddSystem(new DayNight());
         _daynight.Setup(_world, _player, _sun, _worldEnv);
 
@@ -71,6 +90,12 @@ public partial class Main : Node3D
         _mobs = AddSystem(new Mobs());
         _mobs.Setup(_world, _player, _fx, _sound, _weather);
 
+        _dungeonSystem = AddSystem(new DungeonSystem());
+        _dungeonSystem.Setup(_world, _player, _hud, _mobs);
+
+        _traderSystem = AddSystem(new TraderSystem());
+        _traderSystem.Setup(_world, _player);
+
         _ambient = AddSystem(new Ambient());
         _ambient.Setup(_player, _world, _weather);
 
@@ -78,20 +103,37 @@ public partial class Main : Node3D
         _campfires.Setup(_world, _player);
 
         _pause = AddSystem(new PauseMenu());
-        _pause.Setup(_world, _hud, _player);
+        _keybindUi = AddSystem(new KeybindUi());
+        _keybindUi.Setup(_player);
+        _pause.Setup(_world, _hud, _player, _keybindUi);
 
         _console = AddSystem(new DevConsole());
-        _console.Setup(_player, _world, _hud, _mobs);
+        _console.Setup(_player, _world, _hud, _mobs, _traderSystem);
 
         _inventoryUi = AddSystem(new InventoryUi());
         _inventoryUi.Setup(_player, _hud);
+        _player.ChestUsed += pos => _inventoryUi.OpenChest(pos);
+        _player.FurnaceUsed += pos => _inventoryUi.OpenFurnace(pos);
+
+        _traderUi = AddSystem(new TraderUi());
+        _traderUi.Setup(_player, _hud);
+        _player.TraderUsed += _traderUi.Open;
 
         _photo = AddSystem(new PhotoMode());
         _photo.Setup(_player, _world, _hud, _daynight);
 
+        _achievementSystem = AddSystem(new AchievementSystem());
+        _achievementSystem.Setup(_world, _player, _hud);
+        _achievementUi = AddSystem(new AchievementUi());
+        _achievementUi.Setup(_player, _world);
+
+        _onboarding = AddSystem(new OnboardingSystem());
+        _onboarding.Setup(_world, _player, _hud);
+
         _player.Notice += _hud.ShowToast;
         _player.CampfireUsed += _hud.ShowToast;
         _player.Respawned += () => _mobs.ClearHostilesNear(_player.GlobalPosition, 10.0f);
+        _player.Slept += () => _mobs.ClearHostilesNear(_player.GlobalPosition, 32.0f);
 
         _player.Inventory.Changed += _world.MarkDirty;
         _player.ToolBroke += () =>
@@ -141,54 +183,6 @@ public partial class Main : Node3D
 
     private void SetupEnvironment()
     {
-        ProceduralSkyMaterial skyMat = new()
-        {
-            SkyTopColor = new Color(0.22f, 0.44f, 0.80f),
-            SkyHorizonColor = new Color(0.66f, 0.78f, 0.95f),
-            GroundBottomColor = new Color(0.25f, 0.30f, 0.25f),
-            GroundHorizonColor = new Color(0.66f, 0.78f, 0.95f),
-            SunAngleMax = 18.0f,
-            SunCurve = 0.12f,
-            SkyCurve = 0.2f,
-        };
-        Sky sky = new()
-        {
-            SkyMaterial = skyMat,
-            RadianceSize = Sky.RadianceSizeEnum.Size128,
-        };
-
-        Godot.Environment env = new()
-        {
-            BackgroundMode = Godot.Environment.BGMode.Sky,
-            Sky = sky,
-            AmbientLightSource = Godot.Environment.AmbientSource.Sky,
-            AmbientLightSkyContribution = 1.0f,
-            AmbientLightEnergy = 1.0f,
-            TonemapMode = Godot.Environment.ToneMapper.Filmic,
-            FogEnabled = true,
-            FogLightColor = new Color(0.66f, 0.78f, 0.95f),
-            FogDensity = 0.0035f,
-            FogSkyAffect = 0.15f,
-            // Distance haze reads as atmosphere rather than a flat wall; the height
-            // term keeps a soft mist in valleys while ridges stay clear.
-            FogAerialPerspective = 0.5f,
-            FogHeight = 30.0f,
-            FogHeightDensity = 0.012f,
-            // Heavy screen-space effects; Gfx toggles them per preset.
-            SsaoEnabled = true,
-            SsaoRadius = 1.2f,
-            SsaoIntensity = 1.4f,
-            SsrEnabled = true,
-            SsrMaxSteps = 64,
-            GlowEnabled = true,
-            GlowIntensity = 0.5f,
-            GlowBloom = 0.04f,
-            GlowHdrThreshold = 0.9f,
-            VolumetricFogEnabled = true,
-            VolumetricFogDensity = 0.0028f,
-            VolumetricFogLength = 140.0f,
-            VolumetricFogAlbedo = new Color(0.9f, 0.95f, 1.0f),
-        };
-        _worldEnv.Environment = env;
+        _worldEnv.Environment = WorldEnvironmentFactory.Build();
     }
 }

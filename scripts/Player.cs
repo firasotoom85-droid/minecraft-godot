@@ -38,6 +38,10 @@ public partial class Player : CharacterBody3D, IDamageable
     [Signal] public delegate void ToolBrokeEventHandler();
     [Signal] public delegate void InventoryFullEventHandler();
     [Signal] public delegate void TableUsedEventHandler();
+    [Signal] public delegate void ChestUsedEventHandler(Vector3I pos);
+    [Signal] public delegate void FurnaceUsedEventHandler(Vector3I pos);
+    [Signal] public delegate void SleptEventHandler();
+    [Signal] public delegate void TraderUsedEventHandler();
     [Signal] public delegate void NoticeEventHandler(string text);
     [Signal] public delegate void AteEventHandler();
     [Signal] public delegate void CampfireUsedEventHandler(string message);
@@ -53,6 +57,8 @@ public partial class Player : CharacterBody3D, IDamageable
     public VoxelWorld? World;
     public bool Flying;
     public bool Underwater;
+    public bool Swimming;
+    public bool Climbing;
     public int Selected;
     public GameMode Mode = GameMode.Creative;
     public Vector3? RespawnPoint;
@@ -90,6 +96,9 @@ public partial class Player : CharacterBody3D, IDamageable
     private float _camBob;
     private float _landKick;
     private double _lavaTimer;
+    private enum FishingState { Idle, Waiting, Biting }
+    private FishingState _fishingState;
+    private double _fishingTimer;
 
     public override void _Ready()
     {
@@ -216,6 +225,9 @@ public partial class Player : CharacterBody3D, IDamageable
         Vector2 inputDir = locked ? Vector2.Zero : Input.GetVector("left", "right", "forward", "back");
         Vector3 direction = (Transform.Basis * new Vector3(inputDir.X, 0, inputDir.Y)).Normalized();
         bool sprinting = !locked && Input.IsActionPressed("sprint");
+        Climbing = !Flying && (IsLadderAt(GlobalPosition + new Vector3(0, 1.0f, 0))
+                || IsLadderAt(GlobalPosition + new Vector3(0, 0.2f, 0)));
+        Swimming = !Flying && !Climbing && IsWaterAt(GlobalPosition + new Vector3(0, 0.2f, 0));
         float speed = sprinting ? SprintSpeed : WalkSpeed;
         Stats.Update(delta, sprinting, (sprinting || inputDir != Vector2.Zero) && !Flying, Mode);
 
@@ -254,34 +266,83 @@ public partial class Player : CharacterBody3D, IDamageable
         }
         else
         {
-            if (IsOnFloor())
+            if (Climbing)
             {
-                _coyote = CoyoteTime;
-            }
-            else
-            {
-                _coyote = System.Math.Max(_coyote - delta, 0.0);
-                velocity.Y -= (float)(Gravity * delta);
-            }
+                speed = 3.2f;
+                float targetY = 0.0f;
+                bool vertical = false;
+                if (!locked && (Input.IsActionPressed("jump") || Input.IsActionPressed("forward")))
+                {
+                    targetY = 3.6f;
+                    vertical = true;
+                }
+                else if (!locked && Input.IsActionPressed("back"))
+                {
+                    targetY = -3.2f;
+                    vertical = true;
+                }
 
-            if (!locked && Input.IsActionJustPressed("jump"))
-            {
-                _jumpBuffer = JumpBuffer;
-            }
-            else
-            {
-                _jumpBuffer = System.Math.Max(_jumpBuffer - delta, 0.0);
-            }
-
-            if (_jumpBuffer > 0.0 && _coyote > 0.0)
-            {
-                velocity.Y = JumpVelocity;
-                _jumpBuffer = 0.0;
+                velocity.Y = Mathf.MoveToward(velocity.Y, targetY, 14.0f * dt);
+                // Keep horizontal input from sliding the player off the ladder
+                // while climbing; strafing still works when no vertical key is held.
+                velocity.X = vertical ? 0.0f : direction.X * speed;
+                velocity.Z = vertical ? 0.0f : direction.Z * speed;
                 _coyote = 0.0;
+                _jumpBuffer = 0.0;
             }
+            else if (Swimming)
+            {
+                // Buoyancy rather than gravity: the player floats toward the
+                // surface, Space swims up and Sprint dives. A small sink rate
+                // prevents walking along the water floor.
+                speed = sprinting ? 4.4f : 3.2f;
+                float targetY = -1.2f;
+                if (!locked && Input.IsActionPressed("jump"))
+                {
+                    targetY = 3.8f;
+                }
+                else if (sprinting)
+                {
+                    targetY = -3.0f;
+                }
 
-            velocity.X = direction.X * speed;
-            velocity.Z = direction.Z * speed;
+                velocity.Y = Mathf.MoveToward(velocity.Y, targetY, 12.0f * dt);
+                velocity.X = direction.X * speed;
+                velocity.Z = direction.Z * speed;
+                _coyote = 0.0;
+                _jumpBuffer = 0.0;
+            }
+            else
+            {
+                if (IsOnFloor())
+                {
+                    _coyote = CoyoteTime;
+                }
+                else
+                {
+                    _coyote = System.Math.Max(_coyote - delta, 0.0);
+                    velocity.Y -= (float)(Gravity * delta);
+                }
+
+                if (!locked && Input.IsActionJustPressed("jump"))
+                {
+                    _jumpBuffer = JumpBuffer;
+                }
+                else
+                {
+                    _jumpBuffer = System.Math.Max(_jumpBuffer - delta, 0.0);
+                }
+
+                if (_jumpBuffer > 0.0 && _coyote > 0.0)
+                {
+                    velocity.Y = JumpVelocity;
+                    _jumpBuffer = 0.0;
+                    _coyote = 0.0;
+                }
+
+                velocity.X = direction.X * speed;
+                velocity.Z = direction.Z * speed;
+            }
         }
 
         velocity += _push;
@@ -310,14 +371,27 @@ public partial class Player : CharacterBody3D, IDamageable
         Camera.Fov = Mathf.Lerp(Camera.Fov, targetFov, 8.0f * dt);
     }
 
+    private bool IsWaterAt(Vector3 p) =>
+        World != null && World.GetBlock(
+                Mathf.FloorToInt(p.X), Mathf.FloorToInt(p.Y), Mathf.FloorToInt(p.Z)) == BlockId.Water;
+
+    private bool IsLadderAt(Vector3 p) =>
+        World != null && World.GetBlock(
+                Mathf.FloorToInt(p.X), Mathf.FloorToInt(p.Y), Mathf.FloorToInt(p.Z)) == BlockId.Ladder;
+
     /// <summary>Head bob while walking and a landing dip after drops.</summary>
     private void UpdateCameraFeel(float dt, bool sprinting, Vector3 direction)
     {
-        bool walking = IsOnFloor() && !Flying && direction != Vector3.Zero && !Stats.Dead;
+        bool walking = IsOnFloor() && !Flying && !Swimming && !Climbing && direction != Vector3.Zero && !Stats.Dead;
         _camBob = walking
                 ? _camBob + dt * (sprinting ? 11.5f : 8.5f)
                 : Mathf.MoveToward(_camBob, 0.0f, dt * 7.0f);
-        float amp = sprinting ? 0.05f : 0.032f;
+        float amp = Settings.HeadBob ? (sprinting ? 0.05f : 0.032f) : 0.0f;
+        if (!Settings.HeadBob)
+        {
+            _camBob = 0.0f;
+        }
+
         float bobY = Mathf.Sin(_camBob * 2.0f) * amp;
         float bobX = Mathf.Cos(_camBob) * amp * 0.7f;
         _landKick = Mathf.MoveToward(_landKick, 0.0f, dt * 5.0f);
@@ -360,6 +434,30 @@ public partial class Player : CharacterBody3D, IDamageable
             _lavaTimer = 0.0;
         }
 
+        // Fishing state: bite window, then escape.
+        if (_fishingState != FishingState.Idle)
+        {
+            if (Inventory.Hotbar[Selected].Id != ItemId.FishingRod)
+            {
+                _fishingState = FishingState.Idle;
+            }
+            else
+            {
+                _fishingTimer -= delta;
+                if (_fishingState == FishingState.Waiting && _fishingTimer <= 0.0)
+                {
+                    _fishingState = FishingState.Biting;
+                    _fishingTimer = 1.6;
+                    EmitSignal(SignalName.Notice, "A fish bites — right-click to reel");
+                }
+                else if (_fishingState == FishingState.Biting && _fishingTimer <= 0.0)
+                {
+                    _fishingState = FishingState.Idle;
+                    EmitSignal(SignalName.Notice, "The fish got away");
+                }
+            }
+        }
+
         // Sky-island worlds have no floor: falling out of the world hurts fast.
         if (GlobalPosition.Y < -8.0f)
         {
@@ -374,7 +472,19 @@ public partial class Player : CharacterBody3D, IDamageable
     /// <summary>All incoming hurt routes here; creative and invulnerability refuse it.</summary>
     public bool ApplyDamage(in DamageInfo info)
     {
-        bool applied = Stats.ApplyDamage(info.Amount, Mode);
+        float amount = info.Amount;
+        // Armor protects against physical/environmental hits, not hunger or drowning.
+        if (info.Kind is not (DamageKind.Drown or DamageKind.Starve))
+        {
+            amount *= 1.0f - ArmorReduction;
+        }
+
+        bool applied = Stats.ApplyDamage(amount, Mode);
+        if (applied)
+        {
+            DamageArmor();
+        }
+
         if (applied && info.Knockback > 0.0f)
         {
             Vector3 away = GlobalPosition - info.Source;
@@ -388,6 +498,57 @@ public partial class Player : CharacterBody3D, IDamageable
         }
 
         return applied;
+    }
+
+    /// <summary>Total defense points from equipped armor (0..20).</summary>
+    public int ArmorPoints
+    {
+        get
+        {
+            int points = 0;
+            foreach (ItemStack stack in Inventory.Armor)
+            {
+                if (ItemDb.ArmorOf(stack.Id) is { } armor)
+                {
+                    points += armor.Points;
+                }
+            }
+
+            return points;
+        }
+    }
+
+    private float ArmorReduction => Mathf.Min(ArmorPoints * 0.04f, 0.80f);
+
+    /// <summary>Every landed hit wears each equipped piece by one point.</summary>
+    private void DamageArmor()
+    {
+        bool broke = false;
+        for (int i = 0; i < Inventory.Armor.Length; i++)
+        {
+            ItemStack stack = Inventory.Armor[i];
+            if (stack.IsEmpty)
+            {
+                continue;
+            }
+
+            int durability = stack.Durability - 1;
+            if (durability <= 0)
+            {
+                Inventory.Armor[i] = ItemStack.Empty;
+                broke = true;
+            }
+            else
+            {
+                Inventory.Armor[i] = stack with { Durability = durability };
+            }
+        }
+
+        Inventory.RaiseChanged();
+        if (broke)
+        {
+            EmitSignal(SignalName.Notice, "A piece of armor broke");
+        }
     }
 
     /// <summary>Softcore respawn (D5): full bars at spawn/campfire, inventory kept.</summary>
@@ -454,6 +615,10 @@ public partial class Player : CharacterBody3D, IDamageable
             if (Underwater)
             {
                 _fallStartY = null;   // water breaks the fall
+            }
+            else if (Climbing)
+            {
+                _fallStartY = null;   // ladders break the fall
             }
             else if (_fallStartY is not { } start || GlobalPosition.Y > start)
             {
@@ -552,6 +717,213 @@ public partial class Player : CharacterBody3D, IDamageable
         return World.GetBlock(bp.X, bp.Y, bp.Z) == BlockId.CraftingTable;
     }
 
+    /// <summary>True when the ray currently rests on a furnace in reach.</summary>
+    public bool FurnaceInReach()
+    {
+        if (World == null || !Ray.IsColliding() || Ray.GetCollider() is Mob)
+        {
+            return false;
+        }
+
+        Vector3I bp = TargetBlock();
+        return World.GetBlock(bp.X, bp.Y, bp.Z) == BlockId.Furnace;
+    }
+
+    public bool BedInReach()
+    {
+        if (World == null || !Ray.IsColliding() || Ray.GetCollider() is Mob)
+        {
+            return false;
+        }
+
+        Vector3I bp = TargetBlock();
+        return World.GetBlock(bp.X, bp.Y, bp.Z) == BlockId.Bed;
+    }
+
+    /// <summary>Finds tillable soil under the crosshair.</summary>
+    public bool HoeInReach(out Vector3I soil)
+    {
+        soil = default;
+        if (World == null || !Ray.IsColliding() || Ray.GetCollider() is Mob)
+        {
+            return false;
+        }
+
+        soil = TargetBlock();
+        BlockId id = World.GetBlock(soil.X, soil.Y, soil.Z);
+        return id is BlockId.Grass or BlockId.Dirt or BlockId.SnowGrass;
+    }
+
+    /// <summary>Finds farmland with air above it for planting.</summary>
+    public bool SeedsInReach(out Vector3I plantAt)
+    {
+        plantAt = default;
+        if (World == null || !Ray.IsColliding() || Ray.GetCollider() is Mob)
+        {
+            return false;
+        }
+
+        Vector3I soil = TargetBlock();
+        if (World.GetBlock(soil.X, soil.Y, soil.Z) != BlockId.Farmland)
+        {
+            return false;
+        }
+
+        int y = soil.Y + 1;
+        if (World.GetBlock(soil.X, y, soil.Z) != BlockId.Air)
+        {
+            return false;
+        }
+
+        plantAt = new Vector3I(soil.X, y, soil.Z);
+        return true;
+    }
+
+    private void UseHoe(Vector3I soil)
+    {
+        if (World == null || !World.SetBlock(soil.X, soil.Y, soil.Z, BlockId.Farmland))
+        {
+            return;
+        }
+
+        StartPunch();
+        EmitSignal(SignalName.BlockPlaced,
+                new Vector3(soil.X + 0.5f, soil.Y + 0.5f, soil.Z + 0.5f), (int)BlockId.Farmland);
+        DamageTool();
+        Inventory.RaiseChanged();
+    }
+
+    private void PlantSeeds(Vector3I plantAt)
+    {
+        PlantSeedsAt(plantAt);
+    }
+
+    /// <summary>Plant one seed on farmland; public for the dev/test path.</summary>
+    public bool PlantSeedsAt(Vector3I plantAt)
+    {
+        if (World == null
+                || World.GetBlock(plantAt.X, plantAt.Y, plantAt.Z) != BlockId.Air
+                || World.GetBlock(plantAt.X, plantAt.Y - 1, plantAt.Z) != BlockId.Farmland
+                || Inventory.CountOf(ItemId.Seeds) <= 0)
+        {
+            return false;
+        }
+
+        if (!World.SetBlock(plantAt.X, plantAt.Y, plantAt.Z, BlockId.Wheat0))
+        {
+            return false;
+        }
+
+        Inventory.Consume(ItemId.Seeds, 1);
+        StartPunch();
+        EmitSignal(SignalName.BlockPlaced,
+                new Vector3(plantAt.X + 0.5f, plantAt.Y + 0.5f, plantAt.Z + 0.5f), (int)BlockId.Wheat0);
+        Inventory.RaiseChanged();
+        return true;
+    }
+
+    /// <summary>Cast or reel a fishing rod; the bite window is intentionally short.</summary>
+    private void UseFishingRod()
+    {
+        if (_fishingState == FishingState.Biting)
+        {
+            CatchFish();
+            return;
+        }
+
+        if (_fishingState == FishingState.Waiting)
+        {
+            EmitSignal(SignalName.Notice, "Wait for a bite…");
+            return;
+        }
+
+        if (!WaterAhead())
+        {
+            EmitSignal(SignalName.Notice, "Cast toward water");
+            return;
+        }
+
+        _fishingState = FishingState.Waiting;
+        _fishingTimer = GD.RandRange(2.5, 5.5);
+        StartPunch();
+        EmitSignal(SignalName.Notice, "Cast — wait for a bite");
+    }
+
+    private bool WaterAhead()
+    {
+        if (World == null)
+        {
+            return false;
+        }
+
+        Vector3 forward = -Camera.GlobalTransform.Basis.Z;
+        for (int d = 1; d <= 6; d++)
+        {
+            Vector3 p = Camera.GlobalPosition + forward * d;
+            if (World.GetBlock(
+                    Mathf.FloorToInt(p.X), Mathf.FloorToInt(p.Y), Mathf.FloorToInt(p.Z)) == BlockId.Water)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void CatchFish()
+    {
+        _fishingState = FishingState.Idle;
+        StartPunch();
+        if (Inventory.Add(ItemId.RawFish, 1) > 0)
+        {
+            EmitSignal(SignalName.InventoryFull);
+            return;
+        }
+
+        Inventory.RaiseChanged();
+        EmitSignal(SignalName.Notice, "Caught a fish");
+    }
+
+    private void UseBed()
+    {
+        SleepAt(TargetBlock());
+    }
+
+    /// <summary>Sleep at a bed if it is night; public for the dev/test path.</summary>
+    public bool SleepAt(Vector3I bedPos)
+    {
+        if (World == null || World.GetBlock(bedPos.X, bedPos.Y, bedPos.Z) != BlockId.Bed)
+        {
+            return false;
+        }
+
+        if (!DayNight.IsNight(World.TimeOfDay))
+        {
+            EmitSignal(SignalName.Notice, "You can only sleep at night");
+            return false;
+        }
+
+        RespawnPoint = new Vector3(bedPos.X + 0.5f, bedPos.Y + 1.0f, bedPos.Z + 0.5f);
+        World.TimeOfDay = 0.26;
+        World.MarkDirty();
+        StartPunch();
+        EmitSignal(SignalName.Slept);
+        EmitSignal(SignalName.Notice, "Slept until dawn — respawn set");
+        return true;
+    }
+
+    /// <summary>True when the ray currently rests on a chest in reach.</summary>
+    public bool ChestInReach()
+    {
+        if (World == null || !Ray.IsColliding() || Ray.GetCollider() is Mob)
+        {
+            return false;
+        }
+
+        Vector3I bp = TargetBlock();
+        return World.GetBlock(bp.X, bp.Y, bp.Z) == BlockId.Chest;
+    }
+
     /// <summary>True when the ray rests on a campfire's log block.</summary>
     public bool CampfireInReach()
     {
@@ -636,13 +1008,58 @@ public partial class Player : CharacterBody3D, IDamageable
         _mineProgress = 0.0f;
         _mineTarget = new Vector3I(int.MinValue, 0, 0);
         _crack.Visible = false;
-        if (World == null || !World.SetBlock(bp.X, bp.Y, bp.Z, BlockId.Air))
+        if (World == null)
         {
             return;
         }
 
+        if (id == BlockId.Chest
+                && World.TryGetContainer(bp, out Container? chest)
+                && chest is { IsEmpty: false })
+        {
+            EmitSignal(SignalName.Notice, "Empty the chest first");
+            return;
+        }
+
+        if (id == BlockId.Furnace
+                && World.TryGetFurnace(bp, out FurnaceData? furnace)
+                && furnace is { IsEmpty: false })
+        {
+            EmitSignal(SignalName.Notice, "Empty the furnace first");
+            return;
+        }
+
+        if (!World.SetBlock(bp.X, bp.Y, bp.Z, BlockId.Air))
+        {
+            return;
+        }
+
+        if (id == BlockId.Chest)
+        {
+            World.RemoveContainer(bp);
+        }
+        else if (id == BlockId.Furnace)
+        {
+            World.RemoveFurnace(bp);
+        }
+
         StartPunch();
         EmitSignal(SignalName.BlockBroken, new Vector3(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f), (int)id);
+
+        // Crop harvests are multi-drop and do not use the single-drop table.
+        if (id == BlockId.Wheat2)
+        {
+            GiveDrop(ItemId.Wheat, 1 + (int)(GD.Randf() * 3.0f));
+            GiveDrop(ItemId.Seeds, 1 + (int)(GD.Randf() * 2.0f));
+        }
+        else if (id is BlockId.Wheat0 or BlockId.Wheat1)
+        {
+            GiveDrop(ItemId.Seeds, 1);
+        }
+        else if (id == BlockId.TallGrass && GD.Randf() < 0.15f)
+        {
+            GiveDrop(ItemId.Seeds, 1);
+        }
 
         bool canHarvest = def.Tier == 0
                 || (tool is { } t && t.Kind == def.Tool && t.Tier >= def.Tier);
@@ -668,6 +1085,19 @@ public partial class Player : CharacterBody3D, IDamageable
         if (tool is not null)
         {
             DamageTool();
+        }
+    }
+
+    private void GiveDrop(ItemId id, int count)
+    {
+        if (count <= 0)
+        {
+            return;
+        }
+
+        if (Inventory.Add(id, count) > 0)
+        {
+            EmitSignal(SignalName.InventoryFull);
         }
     }
 
@@ -732,6 +1162,42 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
+        if (ChestInReach())
+        {
+            EmitSignal(SignalName.ChestUsed, TargetBlock());
+            return;
+        }
+
+        if (FurnaceInReach())
+        {
+            EmitSignal(SignalName.FurnaceUsed, TargetBlock());
+            return;
+        }
+
+        if (BedInReach())
+        {
+            UseBed();
+            return;
+        }
+
+        if (stack.Id == ItemId.FishingRod)
+        {
+            UseFishingRod();
+            return;
+        }
+
+        if (ItemDb.ToolOf(stack.Id) is { Kind: ToolKind.Hoe } && HoeInReach(out Vector3I soil))
+        {
+            UseHoe(soil);
+            return;
+        }
+
+        if (stack.Id == ItemId.Seeds && SeedsInReach(out Vector3I plantAt))
+        {
+            PlantSeeds(plantAt);
+            return;
+        }
+
         if (ItemDb.BlockFor(stack.Id) is not { } place)
         {
             // Non-block items are "use": tables open their UI, food is eaten.
@@ -765,6 +1231,15 @@ public partial class Player : CharacterBody3D, IDamageable
 
         if (World.SetBlock(bx, by, bz, place))
         {
+            if (place == BlockId.Chest)
+            {
+                World.GetContainer(new Vector3I(bx, by, bz));
+            }
+            else if (place == BlockId.Furnace)
+            {
+                World.GetFurnace(new Vector3I(bx, by, bz));
+            }
+
             StartPunch();
             EmitSignal(SignalName.BlockPlaced, new Vector3(bx + 0.5f, by + 0.5f, bz + 0.5f), (int)place);
             Inventory.Hotbar[Selected] = stack.Count <= 1 ? ItemStack.Empty : stack with { Count = stack.Count - 1 };
@@ -927,7 +1402,7 @@ public partial class Player : CharacterBody3D, IDamageable
     private void UpdateSteps(float delta)
     {
         float horiz = Velocity.XZ().Length();
-        if (IsOnFloor() && horiz > 1.0f)
+        if (IsOnFloor() && !Swimming && !Climbing && horiz > 1.0f)
         {
             _stepAccum += horiz * delta;
             if (_stepAccum > StepDistance)

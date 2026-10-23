@@ -22,9 +22,133 @@ public static class Structures
             case 1:
                 Ruin(site, ref rng, put);
                 break;
+            case 2:
+                Mine(site, ref rng, put);
+                break;
+            case 3:
+                EmberDeep(site, ref rng, put);
+                break;
             default:
                 Mine(site, ref rng, put);
                 break;
+        }
+    }
+
+    /// <summary>Floor height of the Ember Deep arena for a surface site.</summary>
+    public static int DungeonArenaY(VoxelWorld.StructureInfo site) => site.Y - 20;
+
+    /// <summary>
+    /// A brick entrance shaft down to a 15×13 arena. The arena is deliberately
+    /// simple geometry so it clips cleanly into chunk generation and stays
+    /// readable in a dark cave.
+    /// </summary>
+    private static void EmberDeep(VoxelWorld.StructureInfo s, ref uint rng,
+            System.Action<int, int, int, BlockId> put)
+    {
+        int x = s.X;
+        int y = s.Y;
+        int z = s.Z;
+        int ay = DungeonArenaY(s);
+        if (ay < 8)
+        {
+            return;
+        }
+
+        // Shaft down from the surface.
+        for (int dy = 1; dy <= y - ay; dy++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                for (int dz = -1; dz <= 1; dz++)
+                {
+                    put(x + dx, y - dy, z + dz, BlockId.Air);
+                }
+            }
+
+            put(x - 1, y - dy, z, BlockId.Ladder);
+        }
+
+        // Entrance rim.
+        for (int dx = -3; dx <= 3; dx++)
+        {
+            for (int dz = -3; dz <= 3; dz++)
+            {
+                if (System.Math.Max(System.Math.Abs(dx), System.Math.Abs(dz)) >= 2)
+                {
+                    put(x + dx, y + 1, z + dz,
+                            Range(ref rng, 0, 2) == 0 ? BlockId.Cobblestone : BlockId.Brick);
+                }
+            }
+        }
+
+        // Carve the arena volume first, then add floor, walls and ceiling.
+        for (int dx = -7; dx <= 7; dx++)
+        {
+            for (int dz = -6; dz <= 6; dz++)
+            {
+                for (int dy = 0; dy <= 6; dy++)
+                {
+                    put(x + dx, ay + dy, z + dz, BlockId.Air);
+                }
+
+                put(x + dx, ay - 1, z + dz,
+                        Range(ref rng, 0, 3) == 0 ? BlockId.Cobblestone : BlockId.Brick);
+            }
+        }
+
+        for (int dx = -7; dx <= 7; dx++)
+        {
+            for (int dz = -6; dz <= 6; dz++)
+            {
+                bool wall = System.Math.Abs(dx) == 7 || System.Math.Abs(dz) == 6;
+                if (!wall)
+                {
+                    continue;
+                }
+
+                for (int dy = 0; dy <= 5; dy++)
+                {
+                    put(x + dx, ay + dy, z + dz,
+                            Range(ref rng, 0, 2) == 0 ? BlockId.Cobblestone : BlockId.Brick);
+                }
+            }
+        }
+
+        for (int dx = -7; dx <= 7; dx++)
+        {
+            for (int dz = -6; dz <= 6; dz++)
+            {
+                if (System.Math.Abs(dx) <= 1 && System.Math.Abs(dz) <= 1)
+                {
+                    continue;   // shaft opening
+                }
+
+                put(x + dx, ay + 6, z + dz, BlockId.Brick);
+            }
+        }
+
+        // Corner pillars and lava pockets.
+        foreach (int sx in new[] { -4, 4 })
+        {
+            foreach (int sz in new[] { -3, 3 })
+            {
+                for (int dy = 0; dy <= 4; dy++)
+                {
+                    put(x + sx, ay + dy, z + sz, BlockId.Cobblestone);
+                }
+            }
+        }
+
+        foreach ((int lx, int lz) in new[] { (-6, -5), (6, -5), (-6, 5), (6, 5) })
+        {
+            put(x + lx, ay, z + lz, BlockId.Lava);
+        }
+
+        // Wall torches (the mesher still draws the flame even without a tracked
+        // light; the arena's lava pools provide the ambient glow).
+        foreach ((int tx, int tz) in new[] { (-6, -2), (-6, 2), (6, -2), (6, 2) })
+        {
+            put(x + tx, ay + 2, z + tz, BlockId.Torch);
         }
     }
 

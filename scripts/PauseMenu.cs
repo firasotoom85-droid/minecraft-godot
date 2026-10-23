@@ -13,17 +13,19 @@ public partial class PauseMenu : CanvasLayer
     private VoxelWorld _world = null!;
     private Hud _hud = null!;
     private Player _player = null!;
+    private KeybindUi _keybinds = null!;
     private Control _root = null!;
     private PanelContainer _mainPanel = null!;
     private PanelContainer _settingsPanel = null!;
     private Label _status = null!;
     private bool _open;
 
-    public void Setup(VoxelWorld world, Hud hud, Player player)
+    public void Setup(VoxelWorld world, Hud hud, Player player, KeybindUi keybinds)
     {
         _world = world;
         _hud = hud;
         _player = player;
+        _keybinds = keybinds;
         Layer = 10;
         ProcessMode = ProcessModeEnum.Always;
 
@@ -65,6 +67,7 @@ public partial class PauseMenu : CanvasLayer
             _status.Text = $"Saved · {Time.GetTimeStringFromSystem()}";
         }, 0));
         box.AddChild(MenuSkin.MakeButton("Settings", () => SwitchSettings(true), 0));
+        box.AddChild(MenuSkin.MakeButton("Controls", () => _keybinds.Open(), 0));
         box.AddChild(MenuSkin.MakeButton("Quit to menu", QuitToMenu, 0));
         _mainPanel = MenuSkin.Wrap(box, 320);
 

@@ -24,6 +24,32 @@ public enum ItemId : byte
 
     // M3 world richness (appended: persisted ids never move).
     Lava, TallGrass, FlowerRed, FlowerYellow,
+
+    // M6 base building (appended).
+    Torch,
+    Chest,
+    Furnace,
+    IronIngot,
+    GoldIngot,
+
+    // Armor (appended; slot order is helmet/chest/legs/boots).
+    IronHelmet, IronChestplate, IronLegs, IronBoots,
+    DiamondHelmet, DiamondChestplate, DiamondLegs, DiamondBoots,
+
+    // M6c farming/home (appended).
+    Seeds, Wheat, Bread,
+    WoodHoe, StoneHoe, IronHoe, DiamondHoe,
+    Bed, Ladder,
+
+    // M7 animal drops (appended).
+    RawBeef, CookedBeef, RawPork, CookedPork, RawChicken, CookedChicken,
+    Leather, Feather,
+
+    // M7 boss trophy (appended).
+    EmberCore,
+
+    // M7 fishing/trading (appended).
+    FishingRod, RawFish, CookedFish,
 }
 
 public enum ToolKind : byte
@@ -32,6 +58,7 @@ public enum ToolKind : byte
     Pick,
     Axe,
     Shovel,
+    Hoe,
 }
 
 /// <summary>One stack of items. Durability only matters for tools (Count == 1).</summary>

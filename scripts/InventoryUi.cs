@@ -10,6 +10,11 @@ public enum SlotKind
     Result,
     Backpack,
     Hotbar,
+    Container,
+    Armor,
+    FurnaceInput,
+    FurnaceFuel,
+    FurnaceOutput,
 }
 
 /// <summary>One inventory grid cell: icon + count, clickable with either mouse button.</summary>
@@ -111,6 +116,10 @@ public partial class InventoryUi : CanvasLayer
     private GridContainer _craftGrid = null!;
     private GridContainer _backpackGrid = null!;
     private HBoxContainer _hotbarRow = null!;
+    private VBoxContainer _containerBox = null!;
+    private GridContainer _containerGrid = null!;
+    private VBoxContainer _furnaceBox = null!;
+    private ProgressBar _furnaceProgress = null!;
     private InvSlot _resultSlot = null!;
     private VBoxContainer _recipeList = null!;
     private VBoxContainer _paletteList = null!;
@@ -120,7 +129,13 @@ public partial class InventoryUi : CanvasLayer
     private readonly InvSlot[] _craftSlots = new InvSlot[9];
     private readonly InvSlot[] _backpackSlots = new InvSlot[27];
     private readonly InvSlot[] _hotbarSlots = new InvSlot[9];
+    private readonly InvSlot[] _armorSlots = new InvSlot[Inventory.ArmorSlots];
+    private readonly InvSlot[] _containerSlots = new InvSlot[Container.Size];
+    private readonly InvSlot[] _furnaceSlots = new InvSlot[3];
     private readonly ItemStack[] _craft = new ItemStack[9];
+    private Container? _container;
+    private FurnaceData? _furnace;
+    private double _furnaceRefreshTimer;
     private int _craftSize = 2;
     private ItemStack _cursor = ItemStack.Empty;
     private bool _open;
@@ -170,6 +185,12 @@ public partial class InventoryUi : CanvasLayer
 
         VBoxContainer box = new();
         box.AddThemeConstantOverride("separation", 10);
+        _containerBox = BuildContainer();
+        _containerBox.Visible = false;
+        box.AddChild(_containerBox);
+        _furnaceBox = BuildFurnace();
+        _furnaceBox.Visible = false;
+        box.AddChild(_furnaceBox);
         _title = MenuSkin.Title("INVENTORY", 18);
         box.AddChild(_title);
         box.AddChild(BuildColumns());
@@ -194,6 +215,65 @@ public partial class InventoryUi : CanvasLayer
         _cursorCount.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0, 0.9f));
         _cursorCount.AddThemeConstantOverride("outline_size", 4);
         _root.AddChild(_cursorCount);
+    }
+
+    private VBoxContainer BuildContainer()
+    {
+        VBoxContainer box = new();
+        box.AddThemeConstantOverride("separation", 8);
+        box.AddChild(MenuSkin.Title("CHEST", 14));
+        _containerGrid = new GridContainer
+        {
+            Columns = 9,
+        };
+        _containerGrid.AddThemeConstantOverride("h_separation", 6);
+        _containerGrid.AddThemeConstantOverride("v_separation", 6);
+        for (int i = 0; i < Container.Size; i++)
+        {
+            _containerSlots[i] = MakeSlot(SlotKind.Container, i);
+            _containerGrid.AddChild(_containerSlots[i]);
+        }
+
+        box.AddChild(_containerGrid);
+        return box;
+    }
+
+    private VBoxContainer BuildFurnace()
+    {
+        VBoxContainer box = new();
+        box.AddThemeConstantOverride("separation", 8);
+        box.AddChild(MenuSkin.Title("FURNACE", 14));
+        HBoxContainer row = new();
+        row.AddThemeConstantOverride("separation", 10);
+        row.AddChild(FurnaceColumn(box, "INPUT", SlotKind.FurnaceInput, 0));
+        row.AddChild(new Label { Text = "→", VerticalAlignment = VerticalAlignment.Center });
+        row.AddChild(FurnaceColumn(box, "FUEL", SlotKind.FurnaceFuel, 1));
+        row.AddChild(new Label { Text = "→", VerticalAlignment = VerticalAlignment.Center });
+        row.AddChild(FurnaceColumn(box, "OUTPUT", SlotKind.FurnaceOutput, 2));
+        box.AddChild(row);
+
+        _furnaceProgress = new ProgressBar
+        {
+            MinValue = 0,
+            MaxValue = FurnaceData.SmeltSeconds,
+            ShowPercentage = false,
+            CustomMinimumSize = new Vector2(220, 10),
+        };
+        box.AddChild(_furnaceProgress);
+        return box;
+    }
+
+    private VBoxContainer FurnaceColumn(VBoxContainer parent, string label, SlotKind kind, int index)
+    {
+        VBoxContainer col = new();
+        col.AddThemeConstantOverride("separation", 4);
+        Label text = new() { Text = label, HorizontalAlignment = HorizontalAlignment.Center };
+        text.AddThemeFontSizeOverride("font_size", 11);
+        text.AddThemeColorOverride("font_color", new Color(0.75f, 0.82f, 0.92f, 0.8f));
+        col.AddChild(text);
+        _furnaceSlots[index] = MakeSlot(kind, index);
+        col.AddChild(_furnaceSlots[index]);
+        return col;
     }
 
     private Control BuildColumns()
@@ -253,6 +333,16 @@ public partial class InventoryUi : CanvasLayer
         }
 
         bagCol.AddChild(_backpackGrid);
+        bagCol.AddChild(MenuSkin.Title("ARMOR", 14));
+        HBoxContainer armorRow = new();
+        armorRow.AddThemeConstantOverride("separation", 6);
+        for (int i = 0; i < Inventory.ArmorSlots; i++)
+        {
+            _armorSlots[i] = MakeSlot(SlotKind.Armor, i);
+            armorRow.AddChild(_armorSlots[i]);
+        }
+
+        bagCol.AddChild(armorRow);
         bagCol.AddChild(MenuSkin.Title("HOTBAR", 14));
         _hotbarRow = new HBoxContainer();
         _hotbarRow.AddThemeConstantOverride("separation", 6);
@@ -348,6 +438,49 @@ public partial class InventoryUi : CanvasLayer
         }
     }
 
+    /// <summary>Open the inventory screen backed by a chest at <paramref name="pos"/>.</summary>
+    public void OpenChest(Vector3I pos)
+    {
+        if (_player.World == null)
+        {
+            return;
+        }
+
+        if (!_open)
+        {
+            Open(2);
+        }
+
+        _container = _player.World.GetContainer(pos);
+        _containerBox.Visible = true;
+        _furnaceBox.Visible = false;
+        _furnace = null;
+        _title.Text = "INVENTORY";
+        Refresh();
+    }
+
+    /// <summary>Open the inventory screen backed by a furnace at <paramref name="pos"/>.</summary>
+    public void OpenFurnace(Vector3I pos)
+    {
+        if (_player.World == null)
+        {
+            return;
+        }
+
+        if (!_open)
+        {
+            Open(2);
+        }
+
+        _furnace = _player.World.GetFurnace(pos);
+        _containerBox.Visible = false;
+        _container = null;
+        _furnaceBox.Visible = true;
+        _title.Text = "INVENTORY";
+        _furnaceRefreshTimer = 0.0;
+        Refresh();
+    }
+
     private void Open(int size)
     {
         if (_open && size == _craftSize)
@@ -363,6 +496,10 @@ public partial class InventoryUi : CanvasLayer
         _open = true;
         _craftSize = size;
         _title.Text = size == 3 ? "CRAFTING TABLE" : "INVENTORY";
+        _containerBox.Visible = false;
+        _container = null;
+        _furnaceBox.Visible = false;
+        _furnace = null;
         _craftGrid.Columns = size;
         foreach (Node child in _craftGrid.GetChildren())
         {
@@ -384,6 +521,10 @@ public partial class InventoryUi : CanvasLayer
     {
         _open = false;
         _root.Visible = false;
+        _containerBox.Visible = false;
+        _container = null;
+        _furnaceBox.Visible = false;
+        _furnace = null;
         ReturnCraftItems();
         GiveCursorBack();
         Input.MouseMode = Input.MouseModeEnum.Captured;
@@ -440,6 +581,33 @@ public partial class InventoryUi : CanvasLayer
                 _player.Select(slot.Index);
                 ClickStack(ref _player.Inventory.Hotbar[slot.Index], button);
                 break;
+            case SlotKind.Container:
+                if (_container != null)
+                {
+                    ClickStack(ref _container.Slots[slot.Index], button);
+                }
+
+                break;
+            case SlotKind.Armor:
+                ClickArmor(slot.Index, button);
+                break;
+            case SlotKind.FurnaceInput:
+                if (_furnace != null)
+                {
+                    ClickStack(ref _furnace.Input, button);
+                }
+
+                break;
+            case SlotKind.FurnaceFuel:
+                if (_furnace != null)
+                {
+                    ClickStack(ref _furnace.Fuel, button);
+                }
+
+                break;
+            case SlotKind.FurnaceOutput:
+                TakeFurnaceOutput(button);
+                break;
         }
 
         _player.Inventory.RaiseChanged();
@@ -492,6 +660,62 @@ public partial class InventoryUi : CanvasLayer
                 slot = slot with { Count = slot.Count + 1 };
                 _cursor = _cursor.Count <= 1 ? ItemStack.Empty : _cursor with { Count = _cursor.Count - 1 };
             }
+        }
+    }
+
+    private void ClickArmor(int index, MouseButton button)
+    {
+        if (button != MouseButton.Left)
+        {
+            return;
+        }
+
+        ItemStack current = _player.Inventory.Armor[index];
+        if (_cursor.IsEmpty)
+        {
+            _cursor = current;
+            _player.Inventory.Armor[index] = ItemStack.Empty;
+        }
+        else if (ItemDb.ArmorOf(_cursor.Id) is { } armor && armor.Slot == index)
+        {
+            if (current.IsEmpty)
+            {
+                _player.Inventory.Armor[index] = _cursor;
+                _cursor = ItemStack.Empty;
+            }
+            else
+            {
+                (_cursor, _player.Inventory.Armor[index]) = (current, _cursor);
+            }
+        }
+    }
+
+    private void TakeFurnaceOutput(MouseButton button)
+    {
+        if (_furnace == null || _furnace.Output.IsEmpty)
+        {
+            return;
+        }
+
+        ItemStack output = _furnace.Output;
+        if (button == MouseButton.Left)
+        {
+            if (_cursor.IsEmpty)
+            {
+                _cursor = output;
+                _furnace.Output = ItemStack.Empty;
+            }
+            else if (_cursor.Id == output.Id
+                    && _cursor.Count + output.Count <= ItemDb.MaxStack(output.Id))
+            {
+                _cursor = _cursor with { Count = _cursor.Count + output.Count };
+                _furnace.Output = ItemStack.Empty;
+            }
+        }
+        else if (button == MouseButton.Right && _cursor.IsEmpty)
+        {
+            _cursor = output with { Count = 1 };
+            _furnace.Output = output.Count <= 1 ? ItemStack.Empty : output with { Count = output.Count - 1 };
         }
     }
 
@@ -558,12 +782,36 @@ public partial class InventoryUi : CanvasLayer
             _backpackSlots[i].ShowStack(inv.Backpack[i], false);
         }
 
+        for (int i = 0; i < Container.Size; i++)
+        {
+            _containerSlots[i].ShowStack(_container?.Slots[i] ?? ItemStack.Empty, false);
+        }
+
+        for (int i = 0; i < Inventory.ArmorSlots; i++)
+        {
+            _armorSlots[i].ShowStack(_player.Inventory.Armor[i], false);
+        }
+
+        RefreshFurnace();
         _resultSlot.ShowStack(
                 Recipes.Match(_craft, _craftSize) is { } match
                         ? ItemDb.New(match.Recipe.Result, match.Recipe.ResultCount)
                         : ItemStack.Empty,
                 false);
         RefreshRecipes();
+    }
+
+    private void RefreshFurnace()
+    {
+        if (_furnace == null)
+        {
+            return;
+        }
+
+        _furnaceSlots[0].ShowStack(_furnace.Input, false);
+        _furnaceSlots[1].ShowStack(_furnace.Fuel, false);
+        _furnaceSlots[2].ShowStack(_furnace.Output, false);
+        _furnaceProgress.Value = _furnace.SmeltTime;
     }
 
     private void RefreshRecipes()
@@ -637,5 +885,15 @@ public partial class InventoryUi : CanvasLayer
         Vector2 pos = GetViewport().GetMousePosition() + new Vector2(10, 10);
         _cursorIcon.GlobalPosition = pos;
         _cursorCount.GlobalPosition = pos + new Vector2(18, 16);
+
+        if (_furnace != null)
+        {
+            _furnaceRefreshTimer -= delta;
+            if (_furnaceRefreshTimer <= 0.0)
+            {
+                _furnaceRefreshTimer = 0.2;
+                RefreshFurnace();
+            }
+        }
     }
 }

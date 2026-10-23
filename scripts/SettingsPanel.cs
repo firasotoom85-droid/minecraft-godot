@@ -86,8 +86,20 @@ public static class SettingsPanel
                     Settings.AutoQuality = v;
                     Apply();
                 }));
+        root.AddChild(Check("Head bob", Settings.HeadBob,
+                v =>
+                {
+                    Settings.HeadBob = v;
+                    Apply();
+                }));
 
         root.AddChild(Header("GAMEPLAY"));
+        root.AddChild(Check("Show hints", Settings.ShowHints,
+                v =>
+                {
+                    Settings.ShowHints = v;
+                    Apply();
+                }));
         root.AddChild(Option("Difficulty", ["Peaceful", "Normal", "Hard"], Settings.Difficulty,
                 i =>
                 {

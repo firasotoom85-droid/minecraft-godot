@@ -13,19 +13,58 @@ public partial class MainMenu : Control
     private PanelContainer _worldsPanel = null!;
     private PanelContainer _newWorldPanel = null!;
     private PanelContainer _settingsPanel = null!;
+    private PanelContainer _managePanel = null!;
     private VBoxContainer _worldList = null!;
     private LineEdit _nameEdit = null!;
     private LineEdit _seedEdit = null!;
+    private LineEdit _renameEdit = null!;
+    private Label _manageTitle = null!;
+    private Label _manageStatus = null!;
+    private ConfirmationDialog _deleteDialog = null!;
+    private string _manageDir = "";
     private OptionButton _typeOption = null!;
 
     public override void _Ready()
     {
+        MenuBackdrop backdrop = new()
+        {
+            Name = "MenuBackdrop",
+        };
+        AddChild(backdrop);
+
         ColorRect bg = new()
         {
-            Color = new Color(0.05f, 0.07f, 0.10f),
+            Color = new Color(0.02f, 0.04f, 0.07f, 0.26f),
         };
         bg.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(bg);
+
+        GradientTexture2D vignetteTex = new()
+        {
+            Width = 2,
+            Height = 256,
+            FillFrom = new Vector2(0, 0),
+            FillTo = new Vector2(0, 1),
+            Gradient = new Gradient
+            {
+                Colors =
+                [
+                    new Color(0, 0, 0, 0.58f),
+                    new Color(0, 0, 0, 0.02f),
+                    new Color(0, 0, 0, 0.42f),
+                ],
+                Offsets = [0.0f, 0.52f, 1.0f],
+            },
+        };
+        TextureRect vignette = new()
+        {
+            Texture = vignetteTex,
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.Scale,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        vignette.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        AddChild(vignette);
 
         CenterContainer center = new();
         center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
@@ -59,11 +98,7 @@ public partial class MainMenu : Control
 
         _buttons = new VBoxContainer();
         _buttons.AddThemeConstantOverride("separation", 10);
-        _buttons.AddChild(MenuSkin.MakeButton("Play", () =>
-        {
-            RefreshWorlds();
-            ShowWorlds();
-        }));
+        _buttons.AddChild(MenuSkin.MakeButton("Play", ShowWorlds));
         _buttons.AddChild(MenuSkin.MakeButton("Settings", ShowSettings));
         _buttons.AddChild(MenuSkin.MakeButton("Quit", () => GetTree().Quit()));
         stack.AddChild(_buttons);
@@ -71,9 +106,11 @@ public partial class MainMenu : Control
         _worldsPanel = BuildWorlds();
         _newWorldPanel = BuildNewWorld();
         _settingsPanel = BuildSettings();
+        _managePanel = BuildManage();
         stack.AddChild(_worldsPanel);
         stack.AddChild(_newWorldPanel);
         stack.AddChild(_settingsPanel);
+        stack.AddChild(_managePanel);
         ShowMain();
     }
 
@@ -156,6 +193,42 @@ public partial class MainMenu : Control
         return MenuSkin.Wrap(box);
     }
 
+    private PanelContainer BuildManage()
+    {
+        VBoxContainer box = new();
+        box.AddThemeConstantOverride("separation", 10);
+        _manageTitle = MenuSkin.Title("MANAGE WORLD", 16);
+        box.AddChild(_manageTitle);
+        _renameEdit = new LineEdit
+        {
+            PlaceholderText = "world name",
+            CustomMinimumSize = new Vector2(540, 0),
+        };
+        box.AddChild(_renameEdit);
+        HBoxContainer row = new();
+        row.AddThemeConstantOverride("separation", 10);
+        row.AddChild(MenuSkin.MakeButton("Rename", RenameWorld, 0));
+        row.AddChild(MenuSkin.MakeButton("Duplicate", DuplicateWorld, 0));
+        row.AddChild(MenuSkin.MakeButton("Delete", ConfirmDelete, 0));
+        box.AddChild(row);
+        _manageStatus = new Label
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        _manageStatus.AddThemeFontSizeOverride("font_size", 13);
+        box.AddChild(_manageStatus);
+        box.AddChild(MenuSkin.MakeButton("Back", () => { RefreshWorlds(); ShowWorlds(); }, 0));
+
+        _deleteDialog = new ConfirmationDialog
+        {
+            Title = "Delete world?",
+            DialogText = "This permanently deletes the world and its save files.",
+        };
+        _deleteDialog.Confirmed += DeleteWorld;
+        AddChild(_deleteDialog);
+        return MenuSkin.Wrap(box);
+    }
+
     // -----------------------------------------------------------------------
     // Actions
     // -----------------------------------------------------------------------
@@ -184,12 +257,69 @@ public partial class MainMenu : Control
         {
             string played = Time.GetDatetimeStringFromUnixTime(manifest.PlayedUtc, true);
             string presetTag = manifest.Preset is { Length: > 0 } pr ? $"   ·   {pr}" : "";
+            HBoxContainer row = new();
+            row.AddThemeConstantOverride("separation", 6);
             Button entry = MenuSkin.MakeButton(
                     $"{manifest.Name}   ·   seed {manifest.Seed}{presetTag}   ·   gen v{manifest.GenVersion}   ·   {played}",
                     () => StartWorld(dir),
                     0);
             entry.Alignment = HorizontalAlignment.Left;
-            _worldList.AddChild(entry);
+            entry.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            row.AddChild(entry);
+            row.AddChild(MenuSkin.MakeButton("Manage", () => ShowManage(dir, manifest), 92));
+            _worldList.AddChild(row);
+        }
+    }
+
+    private void ShowManage(string dir, WorldManifest manifest)
+    {
+        _manageDir = dir;
+        _manageTitle.Text = $"MANAGE — {manifest.Name}";
+        _renameEdit.Text = manifest.Name;
+        _manageStatus.Text = "";
+        _buttons.Visible = false;
+        _worldsPanel.Visible = false;
+        _newWorldPanel.Visible = false;
+        _settingsPanel.Visible = false;
+        _managePanel.Visible = true;
+    }
+
+    private void RenameWorld()
+    {
+        if (WorldStore.Rename(_manageDir, _renameEdit.Text))
+        {
+            _manageStatus.Text = "Renamed.";
+            _manageTitle.Text = $"MANAGE — {_renameEdit.Text.Trim()}";
+        }
+        else
+        {
+            _manageStatus.Text = "Enter a name.";
+        }
+    }
+
+    private void DuplicateWorld()
+    {
+        string? copy = WorldStore.Duplicate(_manageDir);
+        _manageStatus.Text = copy is null ? "Could not duplicate world." : "Copy created.";
+    }
+
+    private void ConfirmDelete()
+    {
+        _deleteDialog.DialogText = $"Delete “{_renameEdit.Text.Trim()}” and all of its saves?";
+        _deleteDialog.PopupCentered();
+    }
+
+    private void DeleteWorld()
+    {
+        if (WorldStore.Delete(_manageDir))
+        {
+            _manageStatus.Text = "World deleted.";
+            RefreshWorlds();
+            ShowWorlds();
+        }
+        else
+        {
+            _manageStatus.Text = "Could not delete world.";
         }
     }
 
@@ -249,14 +379,17 @@ public partial class MainMenu : Control
         _worldsPanel.Visible = false;
         _newWorldPanel.Visible = false;
         _settingsPanel.Visible = false;
+        _managePanel.Visible = false;
     }
 
     private void ShowWorlds()
     {
+        RefreshWorlds();
         _buttons.Visible = false;
         _worldsPanel.Visible = true;
         _newWorldPanel.Visible = false;
         _settingsPanel.Visible = false;
+        _managePanel.Visible = false;
     }
 
     private void ShowNewWorld()
@@ -266,6 +399,7 @@ public partial class MainMenu : Control
         _worldsPanel.Visible = false;
         _newWorldPanel.Visible = true;
         _settingsPanel.Visible = false;
+        _managePanel.Visible = false;
     }
 
     private void ShowSettings()
@@ -274,5 +408,6 @@ public partial class MainMenu : Control
         _worldsPanel.Visible = false;
         _newWorldPanel.Visible = false;
         _settingsPanel.Visible = true;
+        _managePanel.Visible = false;
     }
 }

@@ -37,4 +37,15 @@ public enum BlockId : byte
     TallGrass = 26,
     FlowerRed = 27,
     FlowerYellow = 28,
+
+    // M6 base building. Append-only: these ids persist in saves.
+    Torch = 29,
+    Chest = 30,
+    Furnace = 31,
+    Farmland = 32,
+    Wheat0 = 33,
+    Wheat1 = 34,
+    Wheat2 = 35,
+    Bed = 36,
+    Ladder = 37,
 }

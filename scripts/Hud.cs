@@ -48,21 +48,29 @@ public partial class Hud : CanvasLayer
     private PanelContainer _deathPanel = null!;
     private HBoxContainer _statsRow = null!;
     private HBoxContainer _breathRow = null!;
+    private HBoxContainer _armorRow = null!;
     private readonly TextureRect[] _hearts = new TextureRect[10];
     private readonly TextureRect[] _hungers = new TextureRect[10];
     private readonly TextureRect[] _bubbles = new TextureRect[10];
+    private readonly TextureRect[] _armorIcons = new TextureRect[4];
     private Texture2D[] _heartTex = [];
     private Texture2D[] _hungerTex = [];
+    private Texture2D[] _armorTex = [];
     private float _vignetteStrength;
     private bool _statsBound;
     private PanelContainer _toast = null!;
     private Label _toastLabel = null!;
+    private PanelContainer _hintPanel = null!;
+    private Label _hintLabel = null!;
     private double _toastTime;
     private PanelContainer _infoPanel = null!;
     private Label _infoLabel = null!;
     private PanelContainer _helpPanel = null!;
     private PanelContainer _flyBadge = null!;
     private PanelContainer _mapPanel = null!;
+    private PanelContainer _bossPanel = null!;
+    private Label _bossName = null!;
+    private ProgressBar _bossBar = null!;
     private Minimap _minimap = null!;
     private bool? _wasNight;
     private double _refresh;
@@ -100,6 +108,60 @@ public partial class Hud : CanvasLayer
         BuildBottom(root);
         BuildOverlays(root);
         BuildMinimap(root);
+        BuildBossBar(root);
+    }
+
+    private void BuildBossBar(Control root)
+    {
+        _bossPanel = new PanelContainer
+        {
+            Name = "BossBar",
+            Visible = false,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        _bossPanel.AddThemeStyleboxOverride("panel", MenuSkin.PanelStyle());
+        VBoxContainer box = new();
+        box.AddThemeConstantOverride("separation", 4);
+        _bossName = new Label
+        {
+            Text = "BOSS",
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        _bossName.AddThemeFontSizeOverride("font_size", 15);
+        box.AddChild(_bossName);
+        _bossBar = new ProgressBar
+        {
+            MinValue = 0,
+            MaxValue = 100,
+            Value = 100,
+            ShowPercentage = false,
+            CustomMinimumSize = new Vector2(340, 12),
+        };
+        box.AddChild(_bossBar);
+        _bossPanel.AddChild(box);
+        _bossPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop, Control.LayoutPresetMode.Minsize, 16);
+        root.AddChild(_bossPanel);
+    }
+
+    public void ShowBoss(string name, float health, float maxHealth)
+    {
+        if (_bossPanel == null)
+        {
+            return;
+        }
+
+        _bossPanel.Visible = true;
+        _bossName.Text = name;
+        _bossBar.MaxValue = maxHealth;
+        _bossBar.Value = Mathf.Max(health, 0.0f);
+    }
+
+    public void HideBoss()
+    {
+        if (_bossPanel != null)
+        {
+            _bossPanel.Visible = false;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -232,6 +294,7 @@ public partial class Hud : CanvasLayer
         {
             p.HotbarChanged += OnHotbarChanged;
             p.Inventory.Changed += RefreshHotbar;
+            p.Inventory.Changed += RefreshSurvival;
             _bound = true;
         }
 
@@ -320,6 +383,7 @@ public partial class Hud : CanvasLayer
         Heart,
         Hunger,
         Bubble,
+        Armor,
     }
 
     private void BuildSurvivalBars(Control parent)
@@ -343,6 +407,19 @@ public partial class Hud : CanvasLayer
         for (int i = 0; i < 10; i++)
         {
             _hearts[i] = IconRect(hearts, _heartTex[2], 20);
+        }
+
+        _armorTex = [BarIcon(IconKind.Armor, 0), BarIcon(IconKind.Armor, 2)];
+        _armorRow = new HBoxContainer
+        {
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            Visible = false,
+        };
+        _armorRow.AddThemeConstantOverride("separation", 1);
+        _statsRow.AddChild(_armorRow);
+        for (int i = 0; i < 4; i++)
+        {
+            _armorIcons[i] = IconRect(_armorRow, _armorTex[1], 15);
         }
 
         _statsRow.AddChild(new Control
@@ -399,9 +476,35 @@ public partial class Hud : CanvasLayer
         {
             IconKind.Heart => new Color(0.83f, 0.14f, 0.14f),
             IconKind.Hunger => new Color(0.74f, 0.47f, 0.22f),
+            IconKind.Armor => new Color(0.72f, 0.78f, 0.88f),
             _ => new Color(0.55f, 0.80f, 0.97f),
         };
         Color dim = new(0.22f, 0.22f, 0.25f, 0.85f);
+
+        if (kind == IconKind.Armor)
+        {
+            string[] plate =
+            [
+                "..XXX..",
+                ".XXXXX.",
+                "XXXXXXX",
+                "XX...XX",
+                "XX...XX",
+                ".X...X.",
+            ];
+            for (int y = 0; y < plate.Length; y++)
+            {
+                for (int x = 0; x < plate[y].Length; x++)
+                {
+                    if (plate[y][x] == 'X')
+                    {
+                        img.SetPixel(x + 1, y + 1, state == 2 ? dim : fill);
+                    }
+                }
+            }
+
+            return ImageTexture.CreateFromImage(img);
+        }
 
         if (kind == IconKind.Bubble)
         {
@@ -490,6 +593,13 @@ public partial class Hud : CanvasLayer
             _hungers[i].Texture = _hungerTex[food >= 2.0f ? 0 : food >= 1.0f ? 1 : 2];
         }
 
+        int armor = PlayerRef.ArmorPoints;
+        _armorRow.Visible = armor > 0;
+        for (int i = 0; i < _armorIcons.Length; i++)
+        {
+            _armorIcons[i].Texture = _armorTex[armor >= (i + 1) * 5 ? 0 : 1];
+        }
+
         bool showBreath = stats.Breath < PlayerStats.MaxBreath;
         _breathRow.Visible = showBreath;
         if (showBreath)
@@ -535,6 +645,20 @@ public partial class Hud : CanvasLayer
         _toastLabel.AddThemeFontSizeOverride("font_size", 16);
         _toastLabel.AddThemeColorOverride("font_color", new Color(1, 1, 1, 0.97f));
         _toast.AddChild(_toastLabel);
+
+        _hintPanel = MakePanel(8.0f);
+        _hintPanel.Visible = false;
+        root.AddChild(_hintPanel);
+        _hintLabel = new Label
+        {
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        _hintLabel.AddThemeFontSizeOverride("font_size", 14);
+        _hintLabel.AddThemeColorOverride("font_color", new Color(1.0f, 0.92f, 0.68f, 0.98f));
+        _hintLabel.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0, 0.8f));
+        _hintLabel.AddThemeConstantOverride("outline_size", 3);
+        _hintPanel.AddChild(_hintLabel);
+        _hintPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomLeft, Control.LayoutPresetMode.Minsize, 14);
 
         _infoPanel = MakePanel(6.0f);
         _infoPanel.Position = new Vector2(10, 8);
@@ -645,6 +769,26 @@ public partial class Hud : CanvasLayer
         _toastTime = 3.0;
     }
 
+    /// <summary>Contextual onboarding hint pinned near the bottom-left.</summary>
+    public void SetHint(string text)
+    {
+        if (_hintPanel == null)
+        {
+            return;
+        }
+
+        _hintPanel.Visible = true;
+        _hintLabel.Text = text;
+    }
+
+    public void HideHint()
+    {
+        if (_hintPanel != null)
+        {
+            _hintPanel.Visible = false;
+        }
+    }
+
     public void CloseHelp()
     {
         _helpPanel.Visible = false;
@@ -668,6 +812,14 @@ public partial class Hud : CanvasLayer
         else if (key.IsActionPressed("toggle_map"))
         {
             _mapPanel.Visible = !_mapPanel.Visible;
+        }
+        else if (key.IsActionPressed("map_zoom_in"))
+        {
+            _minimap.ZoomIn();
+        }
+        else if (key.IsActionPressed("map_zoom_out"))
+        {
+            _minimap.ZoomOut();
         }
     }
 
@@ -771,7 +923,7 @@ public partial class Hud : CanvasLayer
         lines.Add($"Time {hh:00}:{mm:00}   Facing {FacingOf(yaw)} ({(int)(-yaw * 180.0 / System.Math.PI + 360.0) % 360}°)");
         lines.Add($"Looking at: {LookingAt()}");
         string weatherName = Weather is null ? "clear" : Minecraft.Weather.StateNames[(int)Weather.Current];
-        lines.Add($"Mobs {Mobs?.SheepCount ?? 0} sheep · {Mobs?.ShadeCount ?? 0} shades   Chunks {world.ChunkCount}   {weatherName}");
+        lines.Add($"Mobs {Mobs?.PassiveCount ?? 0} animals · {Mobs?.HostileCount ?? 0} hostiles   Chunks {world.ChunkCount}   {weatherName}");
         (double meshAvg, double meshMax) = Profiler.BuildStats();
         lines.Add($"Stream q {Profiler.FreshQueued}+{Profiler.RebuildQueued} rebuild · workers {(Profiler.WorkersActive ? "on" : "idle")}"
                 + $"   Mesh {meshAvg:0.0} ms avg / {meshMax:0.0} max");
