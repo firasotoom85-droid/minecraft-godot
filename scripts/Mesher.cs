@@ -640,6 +640,57 @@ public static class Mesher
 
         return pad;
     }
+
+    /// <summary>
+    /// One-cell packed-light shell matching BuildPadded. Cardinal and diagonal
+    /// maps keep vertex-light interpolation continuous at chunk corners.
+    /// </summary>
+    private static byte[] BuildLightPadded(VoxelWorld world, Vector2I cp, int sy)
+    {
+        byte[] pad = RentLightPad(PX * (sy + 2) * PZ);
+        VoxelLightData center = world.LightData(cp);
+        VoxelLightData west = world.LightData(cp + new Vector2I(-1, 0));
+        VoxelLightData east = world.LightData(cp + new Vector2I(1, 0));
+        VoxelLightData north = world.LightData(cp + new Vector2I(0, -1));
+        VoxelLightData south = world.LightData(cp + new Vector2I(0, 1));
+        VoxelLightData northWest = world.LightData(cp + new Vector2I(-1, -1));
+        VoxelLightData northEast = world.LightData(cp + new Vector2I(1, -1));
+        VoxelLightData southWest = world.LightData(cp + new Vector2I(-1, 1));
+        VoxelLightData southEast = world.LightData(cp + new Vector2I(1, 1));
+
+        for (int y = 0; y < sy; y++)
+        {
+            int srcLayer = y * SX * SZ;
+            int dstLayer = (y + 1) * PLANE;
+            for (int z = 0; z < SZ; z++)
+            {
+                int src = srcLayer + z * SX;
+                int dst = dstLayer + (z + 1) * PX + 1;
+                for (int x = 0; x < SX; x++) pad[dst + x] = center.Packed[src + x];
+                pad[dst - 1] = west.Packed[src + SX - 1];
+                pad[dst + SX] = east.Packed[src];
+            }
+
+            for (int x = 0; x < SX; x++)
+            {
+                int dst = dstLayer + PX + x + 1;
+                pad[dst - PX] = north.Packed[(SZ - 1) * SX + x];
+                pad[dst + SZ * PX] = south.Packed[x];
+            }
+
+            pad[dstLayer] = northWest.Packed[(SZ - 1) * SX + SX - 1];
+            pad[dstLayer + PX - 1] = northEast.Packed[(SZ - 1) * SX];
+            pad[dstLayer + (SZ + 1) * PX] = southWest.Packed[SX - 1];
+            pad[dstLayer + (SZ + 1) * PX + PX - 1] = southEast.Packed[0];
+        }
+
+        // The sky above the world is a permanent skylight source.
+        int topLayer = (sy + 1) * PLANE;
+        for (int z = 0; z < PZ; z++)
+            for (int x = 0; x < PX; x++)
+                pad[topLayer + z * PX + x] = 0xF0;
+        return pad;
+    }
 }
 
 /// <summary>One render surface being built on a worker thread.</summary>
@@ -710,56 +761,7 @@ public static class PayloadPool
         surf.Uv2.Clear();
         Surfaces.Add(surf);
     }
-    /// <summary>
-    /// One-cell packed-light shell matching BuildPadded. Cardinal and diagonal
-    /// maps keep vertex-light interpolation continuous at chunk corners.
-    /// </summary>
-    private static byte[] BuildLightPadded(VoxelWorld world, Vector2I cp, int sy)
-    {
-        byte[] pad = RentLightPad(PX * (sy + 2) * PZ);
-        VoxelLightData center = world.LightData(cp);
-        VoxelLightData west = world.LightData(cp + new Vector2I(-1, 0));
-        VoxelLightData east = world.LightData(cp + new Vector2I(1, 0));
-        VoxelLightData north = world.LightData(cp + new Vector2I(0, -1));
-        VoxelLightData south = world.LightData(cp + new Vector2I(0, 1));
-        VoxelLightData northWest = world.LightData(cp + new Vector2I(-1, -1));
-        VoxelLightData northEast = world.LightData(cp + new Vector2I(1, -1));
-        VoxelLightData southWest = world.LightData(cp + new Vector2I(-1, 1));
-        VoxelLightData southEast = world.LightData(cp + new Vector2I(1, 1));
 
-        for (int y = 0; y < sy; y++)
-        {
-            int srcLayer = y * SX * SZ;
-            int dstLayer = (y + 1) * PLANE;
-            for (int z = 0; z < SZ; z++)
-            {
-                int src = srcLayer + z * SX;
-                int dst = dstLayer + (z + 1) * PX + 1;
-                for (int x = 0; x < SX; x++) pad[dst + x] = center.Packed[src + x];
-                pad[dst - 1] = west.Packed[src + SX - 1];
-                pad[dst + SX] = east.Packed[src];
-            }
-
-            for (int x = 0; x < SX; x++)
-            {
-                int dst = dstLayer + PX + x + 1;
-                pad[dst - PX] = north.Packed[(SZ - 1) * SX + x];
-                pad[dst + SZ * PX] = south.Packed[x];
-            }
-
-            pad[dstLayer] = northWest.Packed[(SZ - 1) * SX + SX - 1];
-            pad[dstLayer + PX - 1] = northEast.Packed[(SZ - 1) * SX];
-            pad[dstLayer + (SZ + 1) * PX] = southWest.Packed[SX - 1];
-            pad[dstLayer + (SZ + 1) * PX + PX - 1] = southEast.Packed[0];
-        }
-
-        // The sky above the world is a permanent skylight source.
-        int topLayer = (sy + 1) * PLANE;
-        for (int z = 0; z < PZ; z++)
-            for (int x = 0; x < PX; x++)
-                pad[topLayer + z * PX + x] = 0xF0;
-        return pad;
-    }
 
 
 }

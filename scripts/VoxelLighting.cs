@@ -336,7 +336,7 @@ public static class VoxelLighting
     }
 
     public static byte Pack(byte sky, byte block) =>
-        (byte)((Math.Min(MaxLevel, sky) << 4) | Math.Min(MaxLevel, block));
+        (byte)((Math.Min(MaxLevel, (int)sky) << 4) | Math.Min(MaxLevel, (int)block));
 
     /// <summary>Shader channels: sky, warm block emission, and AO/face shade.</summary>
     public static Color VertexColor(byte packed, float shade) =>

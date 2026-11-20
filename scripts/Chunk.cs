@@ -150,15 +150,34 @@ public partial class Chunk : StaticBody3D
 /// </summary>
 public static class ChunkMaterials
 {
-    private static readonly Lazy<ShaderMaterial> OpaqueLazy = new(BlockDb.MakeOpaqueMaterial);
-    private static readonly Lazy<ShaderMaterial> OpaqueArrayLazy = new(BlockDb.MakeArrayOpaqueMaterial);
-    private static readonly Lazy<ShaderMaterial> GlassLazy = new(BlockDb.MakeGlassMaterial);
-    private static readonly Lazy<Material> WaterLazy = new(BlockDb.MakeWaterMaterial);
-    private static readonly Lazy<ShaderMaterial> LavaLazy = new(BlockDb.MakeLavaMaterial);
+    private static float _skyEnergy = 1.0f;
 
-    /// <summary>Opaque terrain material for the active meshing mode: the atlas
-    /// standard material for per-face meshes, the texture-array shader for
-    /// greedy (merged, UV-tiled) meshes.</summary>
+    private static readonly Lazy<ShaderMaterial> OpaqueLazy = new(CreateOpaqueMaterial);
+    private static readonly Lazy<ShaderMaterial> OpaqueArrayLazy = new(CreateArrayOpaqueMaterial);
+    private static readonly Lazy<ShaderMaterial> GlassLazy = new(CreateGlassMaterial);
+    private static readonly Lazy<Material> WaterLazy = new(CreateWaterMaterial);
+    private static readonly Lazy<ShaderMaterial> LavaLazy = new(CreateLavaMaterial);
+
+    private static ShaderMaterial ApplySky(ShaderMaterial material)
+    {
+        material.SetShaderParameter("sky_light_energy", _skyEnergy);
+        return material;
+    }
+
+    private static ShaderMaterial CreateOpaqueMaterial() => ApplySky(BlockDb.MakeOpaqueMaterial());
+    private static ShaderMaterial CreateArrayOpaqueMaterial() => ApplySky(BlockDb.MakeArrayOpaqueMaterial());
+    private static ShaderMaterial CreateGlassMaterial() => ApplySky(BlockDb.MakeGlassMaterial());
+    private static ShaderMaterial CreateLavaMaterial() => ApplySky(BlockDb.MakeLavaMaterial());
+
+    private static Material CreateWaterMaterial()
+    {
+        Material material = BlockDb.MakeWaterMaterial();
+        if (material is ShaderMaterial shader)
+            shader.SetShaderParameter("sky_light_energy", _skyEnergy);
+        return material;
+    }
+
+    /// <summary>Opaque terrain material for the active meshing mode.</summary>
     public static Material Opaque => Mesher.Greedy ? OpaqueArrayLazy.Value : OpaqueLazy.Value;
 
     public static ShaderMaterial Glass => GlassLazy.Value;
@@ -170,12 +189,12 @@ public static class ChunkMaterials
     /// <summary>Adjusts baked skylight response without rebuilding chunk meshes.</summary>
     public static void SetSkyEnergy(float energy)
     {
-        energy = Mathf.Clamp(energy, 0.0f, 1.25f);
-        if (OpaqueLazy.IsValueCreated) OpaqueLazy.Value.SetShaderParameter("sky_light_energy", energy);
-        if (OpaqueArrayLazy.IsValueCreated) OpaqueArrayLazy.Value.SetShaderParameter("sky_light_energy", energy);
-        if (GlassLazy.IsValueCreated) GlassLazy.Value.SetShaderParameter("sky_light_energy", energy);
+        _skyEnergy = Mathf.Clamp(energy, 0.0f, 1.25f);
+        if (OpaqueLazy.IsValueCreated) OpaqueLazy.Value.SetShaderParameter("sky_light_energy", _skyEnergy);
+        if (OpaqueArrayLazy.IsValueCreated) OpaqueArrayLazy.Value.SetShaderParameter("sky_light_energy", _skyEnergy);
+        if (GlassLazy.IsValueCreated) GlassLazy.Value.SetShaderParameter("sky_light_energy", _skyEnergy);
         if (WaterLazy.IsValueCreated && WaterLazy.Value is ShaderMaterial water)
-            water.SetShaderParameter("sky_light_energy", energy);
-        if (LavaLazy.IsValueCreated) LavaLazy.Value.SetShaderParameter("sky_light_energy", energy);
+            water.SetShaderParameter("sky_light_energy", _skyEnergy);
+        if (LavaLazy.IsValueCreated) LavaLazy.Value.SetShaderParameter("sky_light_energy", _skyEnergy);
     }
 }
