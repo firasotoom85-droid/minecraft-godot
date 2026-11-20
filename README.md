@@ -26,6 +26,7 @@ The project is a long-running solo build with an extensive design log in
 - **A living world** — herding sheep, cows, pigs and chickens react to nearby
   danger, gather in small groups, accept species-appropriate breeding food, and
   raise young that mature over time. Briarbacks defend birch forests.
+- **Equipment progression** — wood/stone/iron/diamond swords, bows and arrows, directional shields, weapon durability, critical strikes and knockback. Ember Warden trophies can be forged into an end-game Ember Blade.
 - **Creature combat** — Shades and Rots coordinate detection, Hollows and
   Crystal Wisps telegraph dodgeable ranged shots, Cave Stalkers pounce from
   caves, and rare Dreadwings flank players at night; the Ember Warden remains
