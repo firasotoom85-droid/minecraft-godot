@@ -51,7 +51,7 @@ public enum ItemId : byte
     // M7 fishing/trading (appended).
     FishingRod, RawFish, CookedFish,
     // Appended persisted IDs: prior item values remain unchanged.
-    WoodSword, StoneSword, IronSword, DiamondSword, Bow, Arrow, Shield, EmberBlade,
+    WoodSword, StoneSword, IronSword, DiamondSword, Bow, Arrow, Shield, EmberBlade, LapisLazuli,
 }
 
 public enum ToolKind : byte
