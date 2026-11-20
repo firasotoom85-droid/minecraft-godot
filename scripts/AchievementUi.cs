@@ -96,6 +96,7 @@ public partial class AchievementUi : CanvasLayer, IModalUi
         Input.MouseMode = Input.MouseModeEnum.Visible;
         _player.InputLocked = true;
         Refresh();
+        UiFocus.FocusFirst(_root);
     }
 
     private void Close()
