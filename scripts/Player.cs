@@ -552,6 +552,7 @@ public partial class Player : CharacterBody3D, IDamageable
                 continue;
             }
 
+            if (EquipmentProgression.DurabilityDamage(stack, GD.Randf()) == 0) continue;
             int durability = stack.Durability - 1;
             if (durability <= 0)
             {
