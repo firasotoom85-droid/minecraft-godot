@@ -1477,6 +1477,97 @@ public partial class VoxelWorld : Node3D
     public VoxelLightData LightData(Vector2I cp) => LightDataNeighborhood(cp)[4];
 
     // Called while SnapshotLock and _mutex are held by SetBlock.
+    // Updates all nine already-cached chunk maps as one volume so propagation
+    // remains continuous across chunk seams. Missing cache entries fall back
+    // to the existing lazy region solve.
+    private bool TryApplyIncrementalBlockLightLocked(
+            Vector2I center, int worldX, int y, int worldZ, byte emission)
+    {
+        const int side = ChunkX * 3;
+        int width = side;
+        int depth = ChunkZ * 3;
+        int plane = width * depth;
+        int volume = plane * Height;
+        VoxelLightData[] maps = new VoxelLightData[9];
+        byte[][] chunks = new byte[9][];
+
+        for (int dz = -1; dz <= 1; dz++)
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            Vector2I cp = center + new Vector2I(dx, dz);
+            int slot = (dz + 1) * 3 + dx + 1;
+            if (!_voxelLightCache.TryGetValue(cp, out VoxelLightData? map)
+                    || !_dataCache.TryGetValue(cp, out byte[]? blocks))
+                return false;
+            maps[slot] = map;
+            chunks[slot] = blocks;
+        }
+
+        byte[] regionBlocks = new byte[volume];
+        byte[] regionLight = new byte[volume];
+        for (int dz = -1; dz <= 1; dz++)
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int slot = (dz + 1) * 3 + dx + 1;
+            byte[] chunkBlocks = chunks[slot];
+            byte[] packed = maps[slot].Packed;
+            for (int yLocal = 0; yLocal < Height; yLocal++)
+            for (int zLocal = 0; zLocal < ChunkZ; zLocal++)
+            {
+                int source = (yLocal * ChunkZ + zLocal) * ChunkX;
+                int target = yLocal * plane
+                        + (dz + 1) * ChunkZ * width
+                        + zLocal * width
+                        + (dx + 1) * ChunkX;
+                Array.Copy(chunkBlocks, source, regionBlocks, target, ChunkX);
+                for (int xLocal = 0; xLocal < ChunkX; xLocal++)
+                    regionLight[target + xLocal] = (byte)(packed[source + xLocal] & 0x0F);
+            }
+        }
+
+        int localX = worldX - (center.X - 1) * ChunkX;
+        int localZ = worldZ - (center.Y - 1) * ChunkZ;
+        int changedIndex = localX + localZ * width + y * plane;
+        VoxelLighting.ApplyIncrementalBlockLight(
+                regionBlocks, width, Height, depth, regionLight, changedIndex, emission);
+
+        for (int dz = -1; dz <= 1; dz++)
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int slot = (dz + 1) * 3 + dx + 1;
+            byte[] packed = maps[slot].Packed;
+            for (int yLocal = 0; yLocal < Height; yLocal++)
+            for (int zLocal = 0; zLocal < ChunkZ; zLocal++)
+            {
+                int source = yLocal * plane
+                        + (dz + 1) * ChunkZ * width
+                        + zLocal * width
+                        + (dx + 1) * ChunkX;
+                int target = (yLocal * ChunkZ + zLocal) * ChunkX;
+                for (int xLocal = 0; xLocal < ChunkX; xLocal++)
+                    packed[target + xLocal] = (byte)((packed[target + xLocal] & 0xF0)
+                            | regionLight[source + xLocal]);
+            }
+
+            _blockLightCache.Remove(center + new Vector2I(dx, dz));
+        }
+
+        return true;
+    }
+
+    // Called while SnapshotLock and _mutex are held by SetBlock.
+    private void InvalidateBlockLightingLocked(Vector2I cp)
+    {
+        for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                Vector2I affected = cp + new Vector2I(dx, dz);
+                _blockLightCache.Remove(affected);
+                _voxelLightCache.Remove(affected);
+            }
+    }
+
+    // Called while SnapshotLock and _mutex are held by SetBlock.
     private void InvalidateLightingLocked(Vector2I cp)
     {
         for (int dz = -1; dz <= 1; dz++)
@@ -1546,6 +1637,7 @@ public partial class VoxelWorld : Node3D
         {
             // Chunk.Blocks is also read by worker meshing. Mutate it while
             // holding the snapshot lock so payload data and EditEpoch agree.
+            byte oldBlock = c.Blocks[i];
             if (!c.SetBlockLocal(lx, y, lz, id))
             {
                 return false;
@@ -1564,7 +1656,31 @@ public partial class VoxelWorld : Node3D
                 d[i] = id;
                 _dataCache[cp] = c.Blocks;
                 UpdateEditTop(cp, lx, lz, c.Blocks);
-                InvalidateLightingLocked(cp);
+
+                byte oldOpacity = oldBlock < BlockDb.LightOpacity.Length
+                        ? BlockDb.LightOpacity[oldBlock] : VoxelLighting.MaxLevel;
+                byte newOpacity = BlockDb.IsDefined(id)
+                        ? BlockDb.LightOpacity[(int)id] : VoxelLighting.MaxLevel;
+                byte oldEmission = oldBlock < BlockDb.LightEmission.Length
+                        ? BlockDb.LightEmission[oldBlock] : (byte)0;
+                byte newEmission = BlockDb.IsDefined(id)
+                        ? BlockDb.LightEmission[(int)id] : (byte)0;
+
+                if (oldOpacity != newOpacity)
+                {
+                    // Opacity changes affect direct sun and cave spill. Drop
+                    // the packed maps so the next snapshot rebuilds skylight
+                    // from the edited block volume.
+                    InvalidateLightingLocked(cp);
+                }
+                else if (oldEmission != newEmission
+                        && !TryApplyIncrementalBlockLightLocked(cp, x, y, z, newEmission))
+                {
+                    // No complete cached 3x3 exists yet: keep the lazy full
+                    // solve as the safe fallback, without discarding valid sky.
+                    InvalidateBlockLightingLocked(cp);
+                }
+
                 EditEpoch += 1;
             }
         }
