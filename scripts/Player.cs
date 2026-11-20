@@ -489,9 +489,14 @@ public partial class Player : CharacterBody3D, IDamageable
     /// <summary>All incoming hurt routes here; creative and invulnerability refuse it.</summary>
     public bool ApplyDamage(in DamageInfo info)
     {
-        float amount = info.Amount; ItemStack held=Inventory.Hotbar[Selected];
-        if (held.Id == ItemId.Shield && (info.Kind is DamageKind.Melee or DamageKind.Projectile) && info.Source != Vector3.Zero){Vector3 incoming=GlobalPosition-info.Source;incoming.Y=0;Vector3 forward=-GlobalTransform.Basis.Z;forward.Y=0;
-            if(incoming.LengthSquared()>0.001f&&forward.LengthSquared()>0.001f&&forward.Normalized().Dot(incoming.Normalized())>=0.35f){Inventory.DamageEquipment(Selected);EmitSignal(SignalName.Notice,"Blocked");return false;}}
+        float amount = info.Amount;
+        ItemStack held = Inventory.Hotbar[Selected];
+        if (EquipmentProgression.BlocksWithShield(held, -GlobalTransform.Basis.Z, GlobalPosition, info))
+        {
+            Inventory.DamageEquipment(Selected);
+            EmitSignal(SignalName.Notice, "Blocked");
+            return false;
+        }
         // Armor protects against physical/environmental hits, not hunger or drowning.
         if (info.Kind is not (DamageKind.Drown or DamageKind.Starve))
         {
