@@ -636,6 +636,12 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     private bool TransferSlotToInventory(InvSlot slot)
     {
+        // Never add a stack back into the same player inventory it already occupies.
+        if (slot.Kind is SlotKind.Backpack or SlotKind.Hotbar or SlotKind.Armor or SlotKind.Result)
+        {
+            return false;
+        }
+
         ItemStack stack = slot.Kind switch
         {
             SlotKind.Craft => _craft[slot.Index],
