@@ -12,6 +12,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
     private Label _notice = null!;
     private string? _waitingAction;
     private bool _waitingForGamepad;
+    private bool _ignoreNextGamepadEvent;
     private bool _open;
 
     public void Setup(Player player)
@@ -138,6 +139,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
     {
         _waitingAction = action;
         _waitingForGamepad = true;
+        _ignoreNextGamepadEvent = true;
         _notice.Text = "Press a controller button…";
         Button? target = _rows.GetNodeOrNull<Button>("Pad_" + action);
         if (target != null) target.Text = "Press button…";
@@ -160,6 +162,11 @@ public partial class KeybindUi : CanvasLayer, IModalUi
 
             if (@event is InputEventJoypadButton padEvent && padEvent.Pressed)
             {
+                if (_ignoreNextGamepadEvent)
+                {
+                    _ignoreNextGamepadEvent = false;
+                    return;
+                }
                 JoyButton button = padEvent.ButtonIndex;
                 string? conflict = GamepadBindings.Conflict(action, button);
                 if (conflict != null)
@@ -247,6 +254,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         _root.Visible = true;
         _waitingAction = null;
         _waitingForGamepad = false;
+        _ignoreNextGamepadEvent = false;
         RefreshAll();
         foreach ((string action, _) in Keybinds.Bindable) RefreshPadButton(action);
         Input.MouseMode = Input.MouseModeEnum.Visible;
