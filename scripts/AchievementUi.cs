@@ -32,7 +32,7 @@ public partial class AchievementUi : CanvasLayer, IModalUi
 
         ColorRect dim = new()
         {
-            Color = new Color(0, 0, 0, 0.35f),
+            Color = new Color(0.008f, 0.020f, 0.025f, 0.76f),
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
         dim.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
@@ -44,13 +44,20 @@ public partial class AchievementUi : CanvasLayer, IModalUi
         _root.AddChild(center);
 
         VBoxContainer box = new();
-        box.AddThemeConstantOverride("separation", 10);
-        box.AddChild(MenuSkin.Title("ACHIEVEMENTS", 18));
+        box.AddThemeConstantOverride("separation", 12);
+        box.AddChild(MenuSkin.Eyebrow("PROGRESS JOURNAL"));
+        box.AddChild(MenuSkin.Title("Achievements", 26, true));
+        ScrollContainer scroll = new()
+        {
+            CustomMinimumSize = new Vector2(0, 430),
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+        };
         _list = new VBoxContainer();
-        _list.AddThemeConstantOverride("separation", 7);
-        box.AddChild(_list);
-        box.AddChild(MenuSkin.MakeButton("Close", Close, 240));
-        center.AddChild(MenuSkin.Wrap(box, 460));
+        _list.AddThemeConstantOverride("separation", 8);
+        scroll.AddChild(_list);
+        box.AddChild(scroll);
+        box.AddChild(MenuSkin.MakeButton("DONE", Close, 160, primary: true));
+        center.AddChild(MenuSkin.Wrap(box, 540));
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -123,22 +130,30 @@ public partial class AchievementUi : CanvasLayer, IModalUi
         foreach (Achievement achievement in AchievementDb.All)
         {
             bool done = _world.Flags.ContainsKey("ach/" + achievement.Id);
-            Label row = new()
+            PanelContainer card = new();
+            card.AddThemeStyleboxOverride("panel", MenuSkin.InsetStyle());
+            HBoxContainer row = new();
+            row.AddThemeConstantOverride("separation", 12);
+            Label status = new()
             {
-                Text = $"{(done ? "✓" : "•")}  {achievement.Name}",
+                Text = done ? "✓" : "○",
+                CustomMinimumSize = new Vector2(26, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
             };
-            row.AddThemeFontSizeOverride("font_size", 15);
-            row.AddThemeColorOverride("font_color",
-                    done ? new Color(0.72f, 0.95f, 0.72f) : new Color(0.86f, 0.90f, 0.98f));
-            _list.AddChild(row);
-
-            Label hint = new()
-            {
-                Text = "     " + achievement.Hint,
-            };
-            hint.AddThemeFontSizeOverride("font_size", 12);
-            hint.AddThemeColorOverride("font_color", new Color(0.62f, 0.68f, 0.78f, done ? 0.75f : 1.0f));
-            _list.AddChild(hint);
+            status.AddThemeFontSizeOverride("font_size", 20);
+            status.AddThemeColorOverride("font_color", done ? MenuSkin.AccentBright : MenuSkin.Muted);
+            row.AddChild(status);
+            VBoxContainer details = new();
+            details.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+            details.AddThemeConstantOverride("separation", 3);
+            Label title = MenuSkin.Title(achievement.Name, 14, true);
+            title.AddThemeColorOverride("font_color", done ? MenuSkin.AccentBright : MenuSkin.Text);
+            details.AddChild(title);
+            details.AddChild(MenuSkin.MutedLabel(achievement.Hint, 12));
+            row.AddChild(details);
+            card.AddChild(row);
+            _list.AddChild(card);
         }
     }
 }
