@@ -78,9 +78,19 @@ public partial class InvSlot : Panel
             _count.Text = stack.Count > 1 ? stack.Count.ToString() : "";
         }
 
-        TooltipText = stack.IsEmpty ? "" : $"{ItemDb.NameOf(stack.Id)}\n{ItemDb.DescriptionOf(stack.Id)}";
+        string enchantments = EnchantmentSummary(stack);
+        TooltipText = stack.IsEmpty ? "" : $"{ItemDb.NameOf(stack.Id)}\n{ItemDb.DescriptionOf(stack.Id)}" + (enchantments.Length == 0 ? "" : "\n" + enchantments);
 
         AddThemeStyleboxOverride("panel", Style(selected));
+    }
+
+    private static string EnchantmentSummary(ItemStack stack)
+    {
+        List<string> values = [];
+        if (stack.Sharpness > 0) values.Add($"Sharpness {stack.Sharpness}");
+        if (stack.Protection > 0) values.Add($"Protection {stack.Protection}");
+        if (stack.Unbreaking > 0) values.Add($"Unbreaking {stack.Unbreaking}");
+        return string.Join(" · ", values);
     }
 
     private static StyleBoxFlat Style(bool selected)
