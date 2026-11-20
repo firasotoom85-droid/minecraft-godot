@@ -21,8 +21,8 @@ public static class GamepadBindings
         ("break_block", JoyButton.RightShoulder),
         ("place_block", JoyButton.LeftShoulder),
         ("pick_block", JoyButton.RightStick),
-        ("hotbar_prev", JoyButton.LeftShoulder),
-        ("hotbar_next", JoyButton.RightShoulder),
+        ("hotbar_prev", JoyButton.DpadLeft),
+        ("hotbar_next", JoyButton.DpadRight),
         ("toggle_map", JoyButton.DpadUp),
         ("journal", JoyButton.DpadDown),
     ];
