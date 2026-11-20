@@ -1393,6 +1393,7 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
+        StartPunch();
         // Mobs first: right-click is "use" on a creature (tame a sheep).
         if (Ray.IsColliding() && Ray.GetCollider() is Mob mob)
         {
@@ -1563,7 +1564,10 @@ public partial class Player : CharacterBody3D, IDamageable
 
     public void Select(int i)
     {
-        Selected = Mathf.Wrap(i, 0, Inventory.HotbarSize);
+        int next = Mathf.Wrap(i, 0, Inventory.HotbarSize);
+        if (next != Selected)
+            StartPunch();
+        Selected = next;
         EmitSignal(SignalName.HotbarChanged, Selected, (int)Inventory.Hotbar[Selected].Id);
     }
 
