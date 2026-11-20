@@ -30,6 +30,8 @@ public static class Keybinds
         ("toggle_info", "Info panel"),
         ("toggle_help", "Help"),
         ("journal", "Achievements journal"),
+        ("hotbar_prev", "Previous hotbar slot"),
+        ("hotbar_next", "Next hotbar slot"),
     ];
 
     private static readonly Dictionary<string, Key> Defaults = [];
@@ -90,9 +92,15 @@ public static class Keybinds
     {
         foreach ((string action, _) in Bindable)
         {
-            if (Defaults.TryGetValue(action, out Key key))
+            if (Defaults.TryGetValue(action, out Key key) && key != Key.None)
             {
                 Apply(action, key);
+            }
+            else if (InputMap.HasAction(action))
+            {
+                foreach (InputEvent existing in InputMap.ActionGetEvents(action))
+                    if (existing is InputEventKey)
+                        InputMap.ActionEraseEvent(action, existing);
             }
         }
 
@@ -131,7 +139,11 @@ public static class Keybinds
             return;
         }
 
-        InputMap.ActionEraseEvents(action);
+        foreach (InputEvent existing in InputMap.ActionGetEvents(action))
+        {
+            if (existing is InputEventKey)
+                InputMap.ActionEraseEvent(action, existing);
+        }
         InputEventKey ev = new()
         {
             Keycode = key,
