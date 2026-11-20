@@ -109,13 +109,24 @@ Bindings are rebindable from **Esc → Controls**.
 | `PLAN.md` | Completed milestone log (M0–M4b) |
 | `ROADMAP.md` | Forward plan (M5–M10) and progress log |
 
+## Combat equipment and enchantments
+
+Survival combat includes tiered swords, a bow with gravity-driven arrow projectiles,
+front-facing shield blocks against melee and ranged attacks, and armor mitigation.
+Mob defeats award experience; Crystal Wisps can drop lapis lazuli. The inventory's
+**Enchant / Upgrade** panel applies Sharpness, Protection, and Unbreaking (I–III)
+using experience levels and lapis, and upgrades supported gear while preserving
+its remaining durability and enchantments. Experience and enchantment levels are
+stored in the existing player/inventory save files; old saves default these fields
+to zero.
+
 ## World saves
 
 Each world lives in `user://worlds/<id>/`:
 
 - `manifest.json` — seed, generator version, preset, spawn, play time.
 - `world.json` — edits, time, containers, furnaces, flags.
-- `player.json` — position, inventory, mode, health, hunger, respawn.
+- `player.json` — position, inventory, mode, health, hunger, respawn, experience, and optional per-item enchantment levels.
 
 Writes are atomic (temp file + rename) and keep two rotating backups. Old
 worlds remain loadable: block/item ids are append-only and worldgen changes are
