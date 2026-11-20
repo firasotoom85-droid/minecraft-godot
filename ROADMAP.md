@@ -722,3 +722,27 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   hardness validity, and tool durability. Persisted block/item IDs,
   world-generation versions, chunk streaming, greedy meshing, and save formats
   are unchanged.
+
+
+## 13. Combat equipment progression — 2026-11-20
+
+- Added experience points and levels; hostile/passive mob defeats award XP and
+  Crystal Wisps provide a renewable but uncommon lapis lazuli source.
+- Added Sharpness, Protection, and Unbreaking levels I–III with escalating
+  experience-level/lapis costs. Enchantments affect melee damage, armor
+  mitigation, and durability wear respectively.
+- Added an inventory Enchant / Upgrade panel. Supported swords, iron armor,
+  and iron tools can be upgraded one tier while preserving durability ratio
+  and enchantments. The selected hotbar item is the current target.
+- Player bow use now spawns a ballistic arrow with gravity and swept collision;
+  arrows damage mobs through the shared damage interface and report impact
+  feedback. Hostile projectiles now use a distinct projectile damage type.
+- Shields block frontal hostile projectiles as well as melee attacks and lose
+  durability on a successful block. Unbreaking also reduces tool, weapon,
+  shield, and armor wear.
+- Save extensions are optional JSON fields: legacy player files load with zero
+  experience and legacy inventory stacks load with no enchantments. No old IDs
+  were reordered or reused.
+- Added regression coverage for enchant costs/eligibility, upgrade preservation,
+  save round-trips, unbreaking odds, and shield facing. Build, headless tests,
+  and live playtesting remain pending CI verification.
