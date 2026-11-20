@@ -131,7 +131,12 @@ public static class Keybinds
             return;
         }
 
-        InputMap.ActionEraseEvents(action);
+        foreach (InputEvent existing in InputMap.ActionGetEvents(action))
+        {
+            if (existing is InputEventKey)
+                InputMap.ActionEraseEvent(action, existing);
+        }
+
         InputEventKey ev = new()
         {
             Keycode = key,
