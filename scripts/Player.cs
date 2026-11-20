@@ -75,6 +75,8 @@ public partial class Player : CharacterBody3D, IDamageable
     private double _jumpBuffer;
     private MeshInstance3D _outline = null!;
     private Node3D _arm = null!;
+    private Sprite3D _heldItemSprite = null!;
+    private int _heldItemId = -1;
     private Vector3 _armBase = Vector3.Zero;
     private double _bobPhase;
     private double _punch;
@@ -1606,6 +1608,18 @@ public partial class Player : CharacterBody3D, IDamageable
         _armBase = new Vector3(0.46f, -0.42f, -0.55f);
         _arm.Position = _armBase;
         _arm.Rotation = new Vector3(-0.25f, 0.1f, -0.18f);
+        _heldItemSprite = new Sprite3D
+        {
+            Name = "HeldItem",
+            PixelSize = 0.008f,
+            Position = new Vector3(0.12f, -0.53f, -0.10f),
+            Rotation = new Vector3(0.0f, 0.0f, -0.12f),
+            Billboard = BaseMaterial3D.BillboardModeEnum.Disabled,
+            TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
+            Shaded = false,
+            NoDepthTest = false,
+        };
+        _arm.AddChild(_heldItemSprite);
         Camera.AddChild(_arm);
     }
 
@@ -1640,6 +1654,15 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
+        ItemStack held = Inventory.Hotbar[Selected];
+        int heldId = held.IsEmpty ? 0 : held.Id;
+        if (heldId != _heldItemId)
+        {
+            _heldItemId = heldId;
+            _heldItemSprite.Texture = held.IsEmpty ? null : ItemDb.Icon(held.Id);
+            _heldItemSprite.Visible = !held.IsEmpty;
+        }
+
         float horiz = Velocity.XZ().Length();
         if (IsOnFloor() && horiz > 0.5f)
         {
@@ -1657,5 +1680,7 @@ public partial class Player : CharacterBody3D, IDamageable
         float swingF = (float)swing;
         _arm.Position = _armBase + new Vector3(bob * 0.5f, bob - 0.06f * swingF, -0.20f * swingF);
         _arm.Rotation = new Vector3(-0.25f - 0.85f * swingF, 0.1f, -0.18f);
+        _heldItemSprite.Position = new Vector3(0.12f, -0.53f - 0.04f * swingF, -0.10f - 0.12f * swingF);
+        _heldItemSprite.Rotation = new Vector3(-0.12f * swingF, 0.0f, -0.12f - 0.35f * swingF);
     }
 }
