@@ -262,7 +262,7 @@ public partial class Player : CharacterBody3D, IDamageable
                 PickBlock();
             }
         }
-        else if (@event is InputEventJoypadMotion motion && Mathf.Abs(motion.AxisValue) > 0.25f)
+        else if (@event is InputEventJoypadMotion padMotion && Mathf.Abs(padMotion.AxisValue) > 0.25f)
         {
             Input.MouseMode = Input.MouseModeEnum.Hidden;
         }
