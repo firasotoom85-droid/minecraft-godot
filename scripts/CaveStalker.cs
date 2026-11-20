@@ -75,7 +75,6 @@ public partial class CaveStalker : Mob
         if (!HasLineOfSight(player))
         {
             _windup = 0.0f;
-            RememberTarget(player.GlobalPosition);
             if (TryGetRememberedTarget(out Vector3 lastSeen))
             {
                 Vector3 remembered = lastSeen - GlobalPosition;
