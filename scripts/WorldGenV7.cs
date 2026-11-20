@@ -462,13 +462,14 @@ public partial class VoxelWorld
             return null;
         }
 
-        int height = SurfaceHeight(tx, tz);
+        WorldGenV7.SurfaceSample surface = GeneratorV7.SampleSurface(tx, tz, SeaLevel);
+        int height = surface.Height;
         if (height <= SeaLevel + 1 || height >= Height - 12)
         {
             return null;
         }
 
-        Biome biome = BiomeAt(tx, tz, height);
+        Biome biome = surface.Biome;
         int chance = biome switch
         {
             Biome.DenseForest => 38,
@@ -598,13 +599,14 @@ public partial class VoxelWorld
             return null;
         }
 
-        int height = SurfaceHeight(x, z);
+        WorldGenV7.SurfaceSample surface = GeneratorV7.SampleSurface(x, z, SeaLevel);
+        int height = surface.Height;
         if (height <= SeaLevel + 2 || height >= Height - 14)
         {
             return null;
         }
 
-        Biome biome = BiomeAt(x, z, height);
+        Biome biome = surface.Biome;
         if (biome is Biome.Ocean or Biome.Beach)
         {
             return null;
@@ -691,13 +693,14 @@ public partial class VoxelWorld
         {
             for (int wx = ox - 2; wx < ox + ChunkX + 2; wx++)
             {
-                int height = SurfaceHeight(wx, wz);
+                WorldGenV7.SurfaceSample surface = GeneratorV7.SampleSurface(wx, wz, SeaLevel);
+                int height = surface.Height;
                 if (height <= SeaLevel + 1 || height >= Height - 4)
                 {
                     continue;
                 }
 
-                Biome biome = BiomeAt(wx, wz, height);
+                Biome biome = surface.Biome;
                 if (biome is Biome.Desert or Biome.Snow or Biome.Ocean or Biome.Beach
                         || BlockAtV7(wx, height, wz, height, biome) != BlockId.Grass)
                 {
