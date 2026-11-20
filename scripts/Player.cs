@@ -1197,13 +1197,13 @@ public partial class Player : CharacterBody3D, IDamageable
         if (Inventory.Hotbar[Selected].Id != ItemId.Bow) return;
         double now = Time.GetTicksMsec() / 1000.0;
         if (now - _lastSwing < 0.8) return;
-        if (!Inventory.Consume(ItemId.Arrow, 1))
+        if (Mode == GameMode.Survival && !Inventory.Consume(ItemId.Arrow, 1))
         {
             EmitSignal(SignalName.Notice, "Need arrows to fire");
             return;
         }
         _lastSwing = now;
-        Inventory.DamageEquipment(Selected);
+        if (Mode == GameMode.Survival) Inventory.DamageEquipment(Selected);
         StartPunch();
         ArrowProjectile arrow = new();
         Node parent = GetTree().CurrentScene ?? this;
