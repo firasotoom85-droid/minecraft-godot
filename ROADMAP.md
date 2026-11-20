@@ -775,3 +775,29 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
     progress. Herd-size tuning, hunger/grazing, limb animation, light-aware cave
     detection, projectile-specific integration tests, and rest/weather behavior
     remain unimplemented; a sustained survival soak is still outstanding.
+
+
+## 14. Incremental voxel-light mutation follow-up — 2026-11-20
+
+- Added a decrease-and-relight block-light update path: removing an emitter
+  clears dependent values, preserves other emitters and surviving boundary
+  light, then propagates the remaining sources. Adding an emitter only visits
+  cells whose light can increase.
+- Integrated the update into the existing `VoxelWorld.SetBlock` mutation path.
+  When all nine cached chunk maps are present, their packed block-light
+  channels are updated as one 3×3 volume, preserving continuity across chunk
+  seams. If the cache is incomplete, the existing lazy full solve remains the
+  safe fallback.
+- `SetBlock` now distinguishes opacity changes from emission changes.
+  Opacity edits invalidate sky and block maps so direct sunlight and cave spill
+  are rebuilt from the updated voxel data; emitter-only edits preserve valid
+  skylight and update only block light.
+- Added solver parity tests comparing incremental add, overlapping-source
+  removal and final-source removal byte-for-byte with a full multi-source solve.
+  Added world-level tests for placement/removal, overlap, chunk boundaries,
+  opacity edits, and saved emitter restoration after chunk unload/reload.
+- No persisted IDs, save formats, world-generation versions, meshing rules or
+  chunk-streaming policies were changed.
+- **Verification:** pending the final CI run for this follow-up; run the
+  Godot 4.7.2 .NET build and headless suite before considering the change
+  complete.
