@@ -501,3 +501,14 @@ public partial class Mob : CharacterBody3D, IDamageable
         _bodyRestPosition = mi.Position;
     }
 }
+
+/// <summary>Shared deterministic gates for hostile attacks and visible telegraphs.</summary>
+public static class MobCombatRules
+{
+    public static bool CanAttack(float cooldownRemaining, bool hasLineOfSight) =>
+            cooldownRemaining <= 0.0f && hasLineOfSight;
+
+    public static bool CanBeginTelegraph(float cooldownRemaining, float distance,
+            float range, bool hasLineOfSight) =>
+            cooldownRemaining <= 0.0f && hasLineOfSight && distance > 0.0f && distance <= range;
+}
