@@ -86,7 +86,7 @@ public sealed class PlayerStats
         if (levels <= 0) return true;
         int current = ExperienceLevel;
         if (current < levels) return false;
-        Experience = Math.Max(ExperienceAtLevel(current - levels), 0);
+        Experience = Math.Max(Experience - (ExperienceAtLevel(current) - ExperienceAtLevel(current - levels)), 0);
         Changed?.Invoke();
         return true;
     }
