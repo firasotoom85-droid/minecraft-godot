@@ -11,6 +11,33 @@ harness.
 
 ---
 
+## Implementation snapshot — 2026-11-20
+
+The historical baseline and milestone notes below are retained for context. The
+current mob implementation has since advanced:
+
+- Passive herds share voxel-aware steering, obstacle avoidance, player/predator
+  flight, flock cohesion/separation, and movement/idle body animation.
+- Sheep, cows and pigs accept wheat; chickens accept seeds. Feeding starts a
+  timed breeding state, nearby compatible adults produce a juvenile, and young
+  creatures mature after a growth period.
+- Surface spawns are biome-aware: normal herds avoid deserts, snow biomes favour
+  sheep, and Briarbacks are restricted to birch forests. Hostiles use night,
+  storm, biome and cave-depth conditions; distant populations remain capped and
+  are removed outside their active radius.
+- New creatures: the fast Cave Stalker, defensive Briarback, ranged Crystal Wisp,
+  and rare nocturnal Dreadwing. Hollow and Crystal Wisp attacks use visible
+  projectiles; hostile perception is sampled at a bounded AI tick rather than
+  raycasting every rendered physics frame.
+- Procedural creature-specific sound cues and mob-content regression tests were
+  added. Existing item IDs, world-generation versions, block mutation paths,
+  greedy meshing and chunk streaming were not changed.
+
+**Verification status:** repository edits are committed, but a Godot/.NET build,
+headless test run and in-game performance soak have not yet been run from this
+remote editing session. Those remain required before treating this slice as
+release-verified.
+
 ## 1. Current state
 
 ### Already built
@@ -626,3 +653,31 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 	changed the scale to 512 m and the larger map rendered.
   - **Not measured:** frame-time hitch before/after the sliced rebuild.
   - **Next:** music + release engineering.
+
+
+- **2026-11-20 — Mob AI, combat and ecology expanded (implementation committed; verification pending).**
+  - Shared mob AI now caches steering between short perception ticks, checks
+    nearby voxel obstacles without navmesh baking, and uses lower update
+    frequency at distance. Passive animals flee from nearby threats, form
+    loose same-species herds, and use gentle idle/movement body motion.
+  - Added food-driven breeding for sheep/cows/pigs (wheat) and chickens (seeds),
+    short-lived love state, nearby pair matching, juvenile scale/speed, and
+    timed maturation. Existing sheep tame/stay/follow behavior remains.
+  - Spawn director now distinguishes surface night/storm encounters from
+    underground cave fauna, filters by biome, limits group and total
+    populations, retreats surface hostiles at dawn, and retains the existing
+    boss/trader hooks.
+  - Added Briarback (defensive birch-forest grazer), Cave Stalker (wind-up
+    pouncer), Crystal Wisp (ranged cave sentry), and Dreadwing (rare night
+    flanker). Shades/Rots/Hollows gained alert propagation, pack-aware damage
+    and telegraphed projectile attacks; existing mob loot was completed using
+    already-persisted items.
+  - Added synthesized creature sound cues, developer-console spawn names, and
+    tests for species roles, breeding food consumption, juvenile state, health
+    and drops.
+  - **Compatibility:** no `BlockId`/`ItemId` values added or reordered; no save
+    schema, world-generation version, terrain mutation, meshing or streaming
+    changes.
+  - **Not yet verified:** `dotnet build -c Debug`, `scripts/verify.sh`, and a
+    live multi-night/cave/animal breeding/performance soak must pass on the
+    Godot 4.7.2 .NET runtime.
