@@ -94,7 +94,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
     private void ApplyResponsiveScale()
     {
         if (_center == null || !IsInstanceValid(_center)) return;
-        Vector2 viewport = GetViewportRect().Size;
+        Vector2 viewport = GetViewport().GetVisibleRect().Size;
         if (viewport.X <= 0 || viewport.Y <= 0) return;
         float scale = Mathf.Clamp(Mathf.Min(viewport.X / 1100.0f, viewport.Y / 850.0f), 0.68f, 1.0f);
         _center.PivotOffset = viewport * 0.5f;
