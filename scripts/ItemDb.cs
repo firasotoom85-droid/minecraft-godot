@@ -38,6 +38,7 @@ public static class ItemDb
         (ItemId.Furnace, BlockId.Furnace),
         (ItemId.Bed, BlockId.Bed),
         (ItemId.Ladder, BlockId.Ladder),
+        (ItemId.EnchantingTable, BlockId.EnchantingTable),
     ];
 
     private static readonly Dictionary<BlockId, ItemId> BlockToItem =
