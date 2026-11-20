@@ -101,14 +101,14 @@ public sealed class WorldGenV7
     /// </summary>
     public SurfaceSample SampleSurface(int x, int z, int seaLevel)
     {
-        int climateReferenceHeight = seaLevel + 12;
-        ClimateSample climate = ClimateAt(x, z, climateReferenceHeight);
-
         int height;
-        bool climateAtSurface = false;
+        ClimateSample climate;
+        bool climateAtSurface;
         if (_preset == "flat")
         {
             height = seaLevel + 4;
+            climate = ClimateAt(x, z, height, includeRivers: false);
+            climateAtSurface = true;
         }
         else if (_preset == "sky")
         {
@@ -121,6 +121,9 @@ public sealed class WorldGenV7
         }
         else
         {
+            const int climateReferenceHeightOffset = 12;
+            int climateReferenceHeight = seaLevel + climateReferenceHeightOffset;
+            climate = ClimateAt(x, z, climateReferenceHeight);
             float land = SmoothStep(-0.42f, -0.04f, climate.Continentalness);
             float erosion = _erosion.GetNoise2D(x, z);
             float hills = _hills.GetNoise2D(x, z);
@@ -150,13 +153,14 @@ public sealed class WorldGenV7
             }
 
             height = Mathf.Clamp(Mathf.RoundToInt(terrainHeight), 4, 118);
+            climateAtSurface = false;
         }
 
         // ClimateAt applied altitude cooling at the reference height. Adjust
         // it to the actual surface without resampling temperature noise.
         float temperature = climateAtSurface ? climate.Temperature
                 : climate.Temperature - Math.Max(0, height - 40) * 0.0085f
-                        + Math.Max(0, climateReferenceHeight - 40) * 0.0085f;
+                        + Math.Max(0, seaLevel + 12 - 40) * 0.0085f;
         float plains = _plainsVariation.GetNoise2D(x, z);
         Biome biome = ClassifyBiome(temperature, climate.Moisture,
                 height, seaLevel, plains);
