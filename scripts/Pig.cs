@@ -41,11 +41,10 @@ public partial class Pig : Wanderer
         foreach (float sx in new[] { -1.0f, 1.0f })
         {
             AddBox(st, new Vector3(0.16f, 0.18f, 0.16f), new Vector3(sx * 0.22f, 1.03f, -0.64f), skin.Darkened(0.08f));
-            AddBox(st, new Vector3(0.15f, 0.36f, 0.15f), new Vector3(sx * 0.28f, 0.24f, -0.34f), skin);
-            AddBox(st, new Vector3(0.15f, 0.36f, 0.15f), new Vector3(sx * 0.28f, 0.24f, 0.34f), skin);
         }
 
         AddBox(st, new Vector3(0.14f, 0.12f, 0.10f), new Vector3(0, 0.82f, 0.58f), skin.Darkened(0.08f));
         CommitBody(st);
+        AddAnimatedLegs(skin, 0.36f, 0.15f, 0.28f, 0.34f, 0.42f);
     }
 }
