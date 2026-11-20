@@ -92,6 +92,7 @@ public partial class CaveStalker : Mob
                 _pounceCooldown = 3.3;
                 Manager?.Puff(GlobalPosition + new Vector3(0, 0.45f, 0),
                         new Color(0.78f, 0.48f, 0.24f));
+                Manager?.SoundRef?.Play("mobchitter", GlobalPosition, 0.85f, -8.0f);
             }
 
             return Vector3.Zero;
@@ -102,6 +103,7 @@ public partial class CaveStalker : Mob
             _windup = 0.52f;
             Manager?.Puff(GlobalPosition + new Vector3(0, 0.65f, 0),
                     new Color(0.92f, 0.46f, 0.18f));
+            Manager?.SoundRef?.Play("mobchitter", GlobalPosition, 0.72f, -6.0f);
             return Vector3.Zero;
         }
 
