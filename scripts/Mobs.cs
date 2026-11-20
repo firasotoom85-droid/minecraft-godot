@@ -534,16 +534,25 @@ public partial class Mobs : Node
         Biome biome = World.BiomeAt(x, z, World.SurfaceHeight(x, z));
         int roll = _rng.RandiRange(0, 99);
 
-        // Rare night ambusher: low population pressure and a long cooldown via
-        // its next successful encounter being governed by the same cap.
-        if (!IsStorm && roll < 4 && _hostiles.Count < 7)
+        // Keep the rare flier to one active encounter at a time.
+        bool dreadwingActive = false;
+        foreach (Mob existing in _hostiles)
+        {
+            if (existing is Dreadwing && IsInstanceValid(existing) && !existing.Dead)
+            {
+                dreadwingActive = true;
+                break;
+            }
+        }
+
+        if (!IsStorm && roll < 4 && !dreadwingActive && _hostiles.Count < cap)
         {
             SpawnMob(new Dreadwing(), point, 3.2f, true);
         }
         else if (biome == Biome.Birch && roll < 38)
         {
             int count = _rng.RandiRange(2, 3);
-            for (int i = 0; i < count && _hostiles.Count < 10; i++)
+            for (int i = 0; i < count && _hostiles.Count < cap; i++)
             {
                 if (!FindSpawnPoint(HostileSpawnMin, HostileSpawnMax,
                         true, out Vector3 packPoint, Biome.Birch))
