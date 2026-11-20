@@ -3,9 +3,8 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>
-/// Hollow: a ranged night stalker. It keeps its distance and fires a
-/// line-of-sight hit; no projectile entity is needed yet, the impact puff and
-/// hit feedback carry the shot.
+/// Hollow: a patient ranged night stalker. It keeps a middle distance,
+/// charges a visible shot, then fires a slow projectile that can be dodged.
 /// </summary>
 public partial class Hollow : Mob
 {
@@ -15,6 +14,7 @@ public partial class Hollow : Mob
     private const double ShotCooldown = 2.4;
 
     private double _shotCd = 0.8;
+    private float _charge;
 
     public Hollow()
     {
@@ -88,20 +88,28 @@ public partial class Hollow : Mob
             Vector3 toPlayer = player.GlobalPosition - GlobalPosition;
             toPlayer.Y = 0.0f;
             float d = toPlayer.Length();
-            if (d < SightRadius && CanSee(player))
+            if (d < SightRadius && (IsAlerted || HasLineOfSight(player)))
             {
+                Manager?.AlertHostiles(GlobalPosition, 12.0f, 7.0f);
                 _shotCd -= delta;
-                if (_shotCd <= 0.0 && d <= KeepMax)
+                if (_charge > 0.0f)
                 {
-                    _shotCd = ShotCooldown;
-                    float damage = Settings.Difficulty == Settings.DifficultyHard ? 3.0f : 2.0f;
-                    if (player.ApplyDamage(new DamageInfo(
-                            damage, DamageKind.Melee, GlobalPosition, 1.5f, 0.5f)))
+                    _charge -= (float)delta;
+                    if (_charge <= 0.0f)
                     {
-                        Manager?.Puff(player.GlobalPosition + new Vector3(0, 1.2f, 0),
-                                new Color(0.70f, 0.86f, 0.94f));
-                        Manager?.Lunge(this);
+                        _shotCd = ShotCooldown;
+                        float damage = Settings.Difficulty == Settings.DifficultyHard ? 3.0f : 2.0f;
+                        Manager?.FireProjectile(GlobalPosition + new Vector3(0, 1.2f, 0),
+                                player.GlobalPosition + new Vector3(0, 1.2f, 0), damage,
+                                new Color(0.70f, 0.86f, 0.94f), 7.5f, "mobchitter");
                     }
+                }
+                else if (_shotCd <= 0.0 && d <= KeepMax)
+                {
+                    _charge = 0.48f;
+                    Manager?.Puff(GlobalPosition + new Vector3(0, 1.45f, 0),
+                            new Color(0.55f, 0.82f, 0.94f));
+                    Manager?.SoundRef?.Play("mobchitter", GlobalPosition, 0.9f, -10.0f);
                 }
 
                 if (d < KeepMin)
@@ -146,12 +154,4 @@ public partial class Hollow : Mob
         return Dir;
     }
 
-    private bool CanSee(Player player)
-    {
-        Vector3 from = GlobalPosition + new Vector3(0, 1.55f, 0);
-        Vector3 to = player.GlobalPosition + new Vector3(0, 1.2f, 0);
-        PhysicsRayQueryParameters3D query = PhysicsRayQueryParameters3D.Create(
-                from, to, (uint)PhysicsLayer.Terrain);
-        return GetWorld3D().DirectSpaceState.IntersectRay(query).Count == 0;
-    }
 }
