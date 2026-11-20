@@ -24,8 +24,9 @@ spacing, readable muted text, and explicit hover / pressed / selected states.
   distinct inset recipe cards, and visible selected tab/slot states.
 - **HUD:** a restrained backing plate around survival indicators and the hotbar,
   with a teal selected slot, plus shared panel styling for contextual overlays.
-- **Settings, controls, achievements, and trader:** section cards, consistent
-  button styling, scrollable long lists, and clearer state / requirement labels.
+- **Settings, controls, achievements, trader, and developer console:** section
+  cards, consistent button styling, scrollable long lists, explicit command
+  affordances, and clearer state / requirement labels.
 
 ## Asset and licensing decision
 
