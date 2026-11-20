@@ -89,7 +89,8 @@ public partial class Hollow : Mob
             toPlayer.Y = 0.0f;
             float d = toPlayer.Length();
             bool visible = HasLineOfSight(player);
-            if (d < SightRadius && (IsAlerted || visible))
+            if (visible) RememberTarget(player.GlobalPosition);
+            if (d < SightRadius && (IsAlerted || visible || TryGetRememberedTarget(out _)))
             {
                 Manager?.AlertHostiles(GlobalPosition, 12.0f, 7.0f);
                 _shotCd -= delta;
@@ -122,7 +123,14 @@ public partial class Hollow : Mob
 
                 if (!visible)
                 {
-                    return toPlayer;
+                    if (TryGetRememberedTarget(out Vector3 lastSeen))
+                    {
+                        Vector3 remembered = lastSeen - GlobalPosition;
+                        remembered.Y = 0.0f;
+                        return remembered.LengthSquared() > 1.0f ? remembered : Vector3.Zero;
+                    }
+
+                    return Vector3.Zero;
                 }
 
                 if (d < KeepMin)
