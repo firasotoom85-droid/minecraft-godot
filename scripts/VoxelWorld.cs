@@ -1658,9 +1658,9 @@ public partial class VoxelWorld : Node3D
                 UpdateEditTop(cp, lx, lz, c.Blocks);
 
                 byte oldOpacity = oldBlock < BlockDb.LightOpacity.Length
-                        ? BlockDb.LightOpacity[oldBlock] : VoxelLighting.MaxLevel;
+                        ? BlockDb.LightOpacity[oldBlock] : (byte)VoxelLighting.MaxLevel;
                 byte newOpacity = BlockDb.IsDefined(id)
-                        ? BlockDb.LightOpacity[(int)id] : VoxelLighting.MaxLevel;
+                        ? BlockDb.LightOpacity[(int)id] : (byte)VoxelLighting.MaxLevel;
                 byte oldEmission = oldBlock < BlockDb.LightEmission.Length
                         ? BlockDb.LightEmission[oldBlock] : (byte)0;
                 byte newEmission = BlockDb.IsDefined(id)
