@@ -51,6 +51,8 @@ public partial class InvSlot : Panel
         _count.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight, LayoutPresetMode.Minsize, 2);
         AddChild(_count);
         AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle());
+        MouseEntered += OnMouseEntered;
+        MouseExited += OnMouseExited;
     }
 
     public void ShowStack(ItemStack stack, bool selected)
@@ -79,13 +81,13 @@ public partial class InvSlot : Panel
         AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(selected, _hovered));
     }
 
-    public override void _MouseEnter()
+    private void OnMouseEntered()
     {
         _hovered = true;
         AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(false, true));
     }
 
-    public override void _MouseExit()
+    private void OnMouseExited()
     {
         _hovered = false;
         AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle());
