@@ -69,6 +69,7 @@ public static class WorldgenTests
         ProfileV7ColumnSampling();
         CheckV7Determinism(host);
         CheckV7ChunkBoundaries(host);
+        ProfileChunkGeneration(host);
     }
 
     private static void CheckLegacyGoldenHashes(Node host)
@@ -305,28 +306,52 @@ public static class WorldgenTests
 
                 Dictionary<Vector3I, BlockId> blocks = [];
                 Structures.Stamp(site, (x, y, z, id) => blocks[new Vector3I(x, y, z)] = id);
-                foreach ((Vector3I position, BlockId id) in blocks)
+                int minX = int.MaxValue;
+                int maxX = int.MinValue;
+                foreach (Vector3I position in blocks.Keys)
                 {
-                    if (id == BlockId.Air || position.Y <= 1 || position.Y >= world.Height)
-                    {
-                        continue;
-                    }
+                    minX = Math.Min(minX, position.X);
+                    maxX = Math.Max(maxX, position.X);
+                }
 
-                    int chunkX = Mathf.FloorToInt(position.X / 16.0f);
-                    int chunkZ = Mathf.FloorToInt(position.Z / 16.0f);
-                    int localX = position.X - chunkX * 16;
-                    int localZ = position.Z - chunkZ * 16;
-                    if (localX > 1 && localX < 14)
+                for (int boundary = (Mathf.FloorToInt(minX / 16.0f) + 1) * 16;
+                        boundary <= maxX && !foundStructureSeam; boundary += 16)
+                {
+                    bool leftFound = false;
+                    bool rightFound = false;
+                    foreach ((Vector3I position, BlockId id) in blocks)
                     {
-                        continue;
-                    }
+                        if (id == BlockId.Air || position.Y <= 1 || position.Y >= world.Height
+                                || Math.Abs(position.X - boundary) > 7)
+                        {
+                            continue;
+                        }
 
-                    byte[] chunk = world.ChunkData(new Vector2I(chunkX, chunkZ));
-                    BlockId actual = (BlockId)chunk[localX + localZ * 16 + position.Y * 256];
-                    if (actual == id)
-                    {
-                        foundStructureSeam = true;
-                        break;
+                        int chunkX = Mathf.FloorToInt(position.X / 16.0f);
+                        int chunkZ = Mathf.FloorToInt(position.Z / 16.0f);
+                        int localX = position.X - chunkX * 16;
+                        int localZ = position.Z - chunkZ * 16;
+                        byte[] chunk = world.ChunkData(new Vector2I(chunkX, chunkZ));
+                        BlockId actual = (BlockId)chunk[localX + localZ * 16 + position.Y * 256];
+                        if (actual != id)
+                        {
+                            continue;
+                        }
+
+                        if (position.X < boundary)
+                        {
+                            leftFound = true;
+                        }
+                        else
+                        {
+                            rightFound = true;
+                        }
+
+                        if (leftFound && rightFound)
+                        {
+                            foundStructureSeam = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -339,6 +364,46 @@ public static class WorldgenTests
         world.QueueFree();
         DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
         DirAccess.RemoveAbsolute(dir);
+    }
+
+    private static void ProfileChunkGeneration(Node host)
+    {
+        const int seed = 7654321;
+        Vector2I[] chunks =
+        [
+            new(-2, -2), new(-1, -2), new(0, -2), new(1, -2),
+            new(-2, -1), new(-1, -1), new(0, -1), new(1, -1),
+        ];
+        double[] elapsed = new double[2];
+        int[] versions = [6, WorldGenV7.Version];
+        for (int v = 0; v < versions.Length; v++)
+        {
+            int version = versions[v];
+            string dir = $"user://tests/world-v{version}-profile-{Time.GetTicksUsec()}";
+            DirAccess.MakeDirRecursiveAbsolute(dir);
+            WorldStore.WriteManifest(dir, new WorldManifest(
+                    $"V{version} profile", seed, version,
+                    WorldStore.DeriveNoiseSeeds(seed), 0, 0, "survival", "normal"));
+            GameSession.Instance.SelectWorld(dir);
+            VoxelWorld world = new();
+            host.AddChild(world);
+            Stopwatch timer = Stopwatch.StartNew();
+            foreach (Vector2I chunk in chunks)
+            {
+                _ = world.ChunkData(chunk);
+            }
+
+            timer.Stop();
+            elapsed[v] = timer.Elapsed.TotalMilliseconds / chunks.Length;
+            host.RemoveChild(world);
+            world.QueueFree();
+            DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+            DirAccess.RemoveAbsolute(dir);
+        }
+
+        GD.Print($"WORLDGEN_CHUNK_PROFILE chunks={chunks.Length} v6_ms_per_chunk={elapsed[0]:F2} v7_ms_per_chunk={elapsed[1]:F2} ratio={(elapsed[1] / Math.Max(0.001, elapsed[0])):F2}x");
+        TestAssert.Check(elapsed[0] > 0.0 && elapsed[1] > 0.0,
+                "legacy and V7 chunk generation profiling completed");
     }
 
     private static void ProfileV7ColumnSampling()
