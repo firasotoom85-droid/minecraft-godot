@@ -431,7 +431,7 @@ public partial class Mobs : Node
 
         if (biome == Biome.Birch && _rng.Randf() < 0.18f)
         {
-            SpawnMob(new Briarback(), point, 1.0f, false);
+            SpawnMob(new Briarback(), point, 0.0f, false);
             return;
         }
 
@@ -456,7 +456,7 @@ public partial class Mobs : Node
             }
 
             Mob animal = i == 0 ? prototype : CreatePassive(prototype);
-            SpawnMob(animal, spawn, 1.0f, false);
+            SpawnMob(animal, spawn, 0.0f, false);
         }
     }
 
@@ -568,20 +568,20 @@ public partial class Mobs : Node
                     break;
                 }
 
-                SpawnMob(new Rot(), packPoint, 1.2f, true);
+                SpawnMob(new Rot(), packPoint, 0.0f, true);
             }
         }
         else if (biome == Biome.Snow && roll < 72)
         {
-            SpawnMob(new Hollow(), point, 1.2f, true);
+            SpawnMob(new Hollow(), point, 0.0f, true);
         }
         else if (roll < 68 || IsStorm)
         {
-            SpawnMob(new Shade(), point, 1.2f, true);
+            SpawnMob(new Shade(), point, 0.0f, true);
         }
         else
         {
-            SpawnMob(new Hollow(), point, 1.2f, true);
+            SpawnMob(new Hollow(), point, 0.0f, true);
         }
     }
 
@@ -630,14 +630,7 @@ public partial class Mobs : Node
                 "chicken" => new Chicken(),
                 _ => new Sheep(),
             };
-            SpawnMob(mob, point, kind switch
-            {
-                "stalker" or "crystalwisp" => 0.0f,
-                "dreadwing" => 3.2f,
-                "briarback" or "sheep" or "cow" or "pig" or "chicken" => 1.0f,
-                "warden" => 0.2f,
-                _ => 1.2f,
-            }, hostile);
+            SpawnMob(mob, point, kind == "dreadwing" ? 3.2f : 0.0f, hostile);
             spawned++;
         }
 
