@@ -16,7 +16,6 @@ public partial class Main : Node3D
     private DirectionalLight3D _sun = null!;
 
     private Gfx _gfx = null!;
-    private BlockLights _blockLights = null!;
     private FurnaceSystem _furnaceSystem = null!;
     private CropSystem _cropSystem = null!;
     private DayNight _daynight = null!;
@@ -60,9 +59,6 @@ public partial class Main : Node3D
         _gfx.ApplyPreset(Settings.GfxPreset, false);
         _world.SetViewDistance(Settings.ViewDistance);
         Sound.ApplyVolumes();
-
-        _blockLights = AddSystem(new BlockLights());
-        _blockLights.Setup(_world, _player);
 
         _furnaceSystem = AddSystem(new FurnaceSystem());
         _furnaceSystem.Setup(_world);

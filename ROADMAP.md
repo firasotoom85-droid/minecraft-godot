@@ -16,9 +16,8 @@ harness.
 The historical baseline and milestone notes below are retained for context. The
 current mob implementation has since advanced:
 
-- Passive herds share voxel-aware steering, obstacle avoidance, threat-source
-  flight, flock cohesion/separation, feeding/breeding, juvenile growth, and
-  movement/idle body animation.
+- Passive herds share voxel-aware steering, obstacle avoidance, player/predator
+  flight, flock cohesion/separation, and movement/idle body animation.
 - Sheep, cows and pigs accept wheat; chickens accept seeds. Feeding starts a
   timed breeding state, nearby compatible adults produce a juvenile, and young
   creatures mature after a growth period.
@@ -30,21 +29,14 @@ current mob implementation has since advanced:
   and rare nocturnal Dreadwing. Hollow and Crystal Wisp attacks use visible
   projectiles; hostile perception is sampled at a bounded AI tick rather than
   raycasting every rendered physics frame.
-- AI perception is sampled at a bounded tick (0.14 s nearby / 0.42 s distant);
-  mob population pruning runs on a 0.5 s maintenance interval. Ground mobs use
-  floor/wall probes, while hoverers use wall-only probes. No navmesh is baked.
 - Procedural creature-specific sound cues and mob-content regression tests were
   added. Existing item IDs, world-generation versions, block mutation paths,
   greedy meshing and chunk streaming were not changed.
 
-**Automated verification:** GitHub Actions run
-[44801600594](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44801600594)
-for code revision `7ebaf9b` passed. `dotnet build -c Debug` succeeded with
-**0 warnings**, and the Godot 4.7.2 headless suite reported **805 checks, 0
-failures**, including the mob-content tests.
-
-**Still unmeasured:** an in-game long-duration soak with many active creatures
-and CPU/frame-time profiling has not been performed.
+**Verification status:** repository edits are committed, but a Godot/.NET build,
+headless test run and in-game performance soak have not yet been run from this
+remote editing session. Those remain required before treating this slice as
+release-verified.
 
 ## 1. Current state
 
@@ -714,3 +706,26 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   hardness validity, and tool durability. Persisted block/item IDs,
   world-generation versions, chunk streaming, greedy meshing, and save formats
   are unchanged.
+
+
+## 13. Voxel lighting upgrade — 2026-11-20
+
+- Replaced the nearby-`OmniLight3D` pool with packed one-byte-per-voxel light
+  data: high nibble for skylight, low nibble for block emission.
+- Added direct sunlight per column, transparent-block transmission, water/leaf
+  attenuation, cave spill and neighbour-border merging for skylight.
+- Added multi-source block-light flood fill over a 14-voxel halo. Opaque voxels
+  stop propagation; torch, lava and future emitters derive their levels from
+  `BlockDef.Light` without changing persisted block IDs.
+- `SetBlock` invalidates affected light caches and schedules loaded chunks in
+  the 3×3 neighbourhood for remeshing. Chunk data, emitter registration and
+  light caches are rebuilt lazily on load and pruned on unload.
+- Greedy meshing includes four-corner sky/block values in its face key, so
+  light boundaries cannot be merged away. Per-face and cross meshes use the
+  same light channels; the existing AO calculation is retained.
+- Shared spatial shaders separate sky illumination from warm block emission.
+  Day/night updates one shared sky-energy uniform rather than rebuilding meshes.
+- Added propagation, opaque blocking, attenuation, transparent transmission,
+  removal, chunk-seam, source-level, skylight-shaft and cave-darkness tests.
+- **Verification pending:** run the Godot 4.7.2 .NET build, headless suite and
+  MX230 visual/performance soak before treating this change as release-verified.

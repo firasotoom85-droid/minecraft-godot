@@ -15,7 +15,12 @@ The project is a long-running solo build with an extensive design log in
   caves, lava, ores, trees, and deterministic structures (towers, ruins, mines,
   and the Ember Deep dungeon).
 - **Greedy meshing** — merged coplanar quads cut triangle count roughly in half;
-  per-face meshing remains available for comparison.
+  per-face meshing remains available for comparison. Vertex-light and AO samples
+  are part of the merge key, preserving lighting boundaries.
+- **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
+  voxels, warm multi-source propagation with opaque occlusion, cave darkness and
+  live place/break updates across chunk boundaries. Lighting is baked into mesh
+  vertex channels; no per-torch light-node pool is required.
 - **World presets** — normal, flat, amplified, and floating sky islands, with
   share codes and per-world seeds.
 - **Survival** — health, hunger, breath, drowning, fall damage, softcore

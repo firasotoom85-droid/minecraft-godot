@@ -154,12 +154,14 @@ public static class Mesher
         EnsureTables();
         long epoch;
         byte[] pad;
+        byte[] lightPad;
         int sy = world.Height;
         lock (world.SnapshotLock)
         {
             epoch = world.EditEpoch;
             byte[] data = world.ChunkData(cp);
             pad = BuildPadded(world, cp, data, sy);
+            lightPad = BuildLightPadded(world, cp, sy);
         }
 
         SurfaceData opaque = PayloadPool.RentSurface();
@@ -170,13 +172,14 @@ public static class Mesher
 
         // Reused per face; all four entries are always (re)assigned before use.
         Span<float> kk = stackalloc float[4];
+        Span<byte> cornerLight = stackalloc byte[4];
 
         // Greedy mode: merged coplanar quads for the opaque surface (using the
         // texture-array material). The per-face loop below then only emits the
         // remaining surfaces and the collision for opaque blocks.
         if (Greedy)
         {
-            BuildOpaqueGreedy(pad, sy, opaque);
+            BuildOpaqueGreedy(pad, lightPad, sy, opaque);
         }
 
         for (int y = 1; y <= sy; y++)
@@ -196,7 +199,8 @@ public static class Mesher
                     // quads, no cube faces, no collision, no AO.
                     if (BlockDb.IsCross(id))
                     {
-                        AddCross(opaque, new Vector3(x - 1, y - 1, z - 1), BlockDb.IconTile(id));
+                        AddCross(opaque, new Vector3(x - 1, y - 1, z - 1), BlockDb.IconTile(id),
+                                VoxelLighting.VertexColor(lightPad[i], 1.0f));
                         continue;
                     }
 
@@ -254,17 +258,15 @@ public static class Mesher
 
                         int ui = (tile * 6 + f) * 4;
                         float shade = BlockDb.FaceColors[f].R;
-                        kk[0] = shade;
-                        kk[1] = shade;
-                        kk[2] = shade;
-                        kk[3] = shade;
-                        if (!isTrans)
+                        int iNb = i + FaceOff[f];
+                        for (int v4 = 0; v4 < 4; v4++)
                         {
-                            int iNb = i + FaceOff[f];
-                            for (int v4 = 0; v4 < 4; v4++)
+                            int du = _aoDeltas[(f * 4 + v4) * 2];
+                            int dv = _aoDeltas[(f * 4 + v4) * 2 + 1];
+                            cornerLight[v4] = VoxelLighting.AverageCorner(lightPad, iNb, du, dv);
+                            kk[v4] = shade;
+                            if (!isTrans)
                             {
-                                int du = _aoDeltas[(f * 4 + v4) * 2];
-                                int dv = _aoDeltas[(f * 4 + v4) * 2 + 1];
                                 int s1 = BlockDb.Occl[pad[iNb + du]];
                                 int s2 = BlockDb.Occl[pad[iNb + dv]];
                                 int co = BlockDb.Occl[pad[iNb + du + dv]];
@@ -278,8 +280,7 @@ public static class Mesher
                         {
                             surf.Vertex.Add(b + BlockDb.FaceVerts[vi + t]);
                             surf.Normal.Add(normal);
-                            float k = kk[t];
-                            surf.Color.Add(new Color(k, k, k, 1.0f));
+                            surf.Color.Add(VoxelLighting.VertexColor(cornerLight[t], kk[t]));
                             surf.Uv.Add(BlockDb.UvLut[ui + t]);
                         }
 
@@ -315,6 +316,7 @@ public static class Mesher
     // are safe and avoid a large allocation per streamed chunk.
     [System.ThreadStatic] private static long[]? _keyScratch;
     [System.ThreadStatic] private static byte[]? _padScratch;
+    [System.ThreadStatic] private static byte[]? _lightPadScratch;
 
     private static long[] RentKeys(int length)
     {
@@ -340,7 +342,16 @@ public static class Mesher
         return _padScratch;
     }
 
-    private static void BuildOpaqueGreedy(byte[] pad, int sy, SurfaceData opaque)
+    private static byte[] RentLightPad(int length)
+    {
+        if (_lightPadScratch is null || _lightPadScratch.Length < length)
+            _lightPadScratch = new byte[length];
+        else
+            System.Array.Clear(_lightPadScratch, 0, length);
+        return _lightPadScratch;
+    }
+
+    private static void BuildOpaqueGreedy(byte[] pad, byte[] lightPad, int sy, SurfaceData opaque)
     {
         int[] axisSize = [SX, sy, SZ];
         long[] keys = RentKeys(SX * sy);
@@ -369,7 +380,7 @@ public static class Mesher
                 {
                     for (int uu = 0; uu < uExt; uu++)
                     {
-                        keys[vv * uExt + uu] = FaceKey(pad, slice + uu * uStep + vv * vStep, f);
+                        keys[vv * uExt + uu] = FaceKey(pad, lightPad, slice + uu * uStep + vv * vStep, f);
                     }
                 }
 
@@ -431,7 +442,7 @@ public static class Mesher
     }
 
     /// <summary>Merge key of the visible opaque face at a padded cell, or 0.</summary>
-    private static long FaceKey(byte[] pad, int i, int f)
+    private static long FaceKey(byte[] pad, byte[] lightPad, int i, int f)
     {
         BlockId id = (BlockId)pad[i];
         if (id == BlockId.Air || BlockDb.IsCross(id))
@@ -467,6 +478,9 @@ public static class Mesher
             int co = BlockDb.Occl[pad[iNb + du + dv]];
             int ao = s1 == 1 && s2 == 1 ? 0 : 3 - (s1 + s2 + co);
             key |= (long)ao << (16 + (v4 * 2));
+            byte light = VoxelLighting.AverageCorner(lightPad, iNb, du, dv);
+            key |= (long)(light >> 4) << (24 + v4 * 4);
+            key |= (long)(light & 0x0F) << (40 + v4 * 4);
         }
 
         return key;
@@ -497,7 +511,9 @@ public static class Mesher
             surf.Vertex.Add(min + new Vector3(unit.X * size.X, unit.Y * size.Y, unit.Z * size.Z));
             surf.Normal.Add(normal);
             float k = shade * AoFactors[(int)(key >> (16 + (c * 2))) & 3];
-            surf.Color.Add(new Color(k, k, k, 1.0f));
+            byte sky = (byte)((key >> (24 + c * 4)) & 0x0F);
+            byte block = (byte)((key >> (40 + c * 4)) & 0x0F);
+            surf.Color.Add(VoxelLighting.VertexColor(VoxelLighting.Pack(sky, block), k));
             Vector2 duv = BlockDb.FaceUvs[f * 4 + c];
             surf.Uv.Add(new Vector2(duv.X * su, duv.Y * sv));
             surf.Uv2.Add(new Vector2(tile, 0.0f));
@@ -511,7 +527,7 @@ public static class Mesher
     /// mode the UVs are quad-local 0..1 and the tile travels in UV2, matching
     /// the texture-array material.
     /// </summary>
-    private static void AddCross(SurfaceData surf, Vector3 b, int tile)
+    private static void AddCross(SurfaceData surf, Vector3 b, int tile, Color lightColor)
     {
         Vector2[] uv;
         if (Greedy)
@@ -535,14 +551,14 @@ public static class Mesher
         [
             b + new Vector3(1, 0, 0), b + new Vector3(0, 0, 1), b + new Vector3(0, 1, 1), b + new Vector3(1, 1, 0),
         ];
-        EmitDoubleSided(surf, planeA, uv, tile);
-        EmitDoubleSided(surf, planeB, uv, tile);
+        EmitDoubleSided(surf, planeA, uv, tile, lightColor);
+        EmitDoubleSided(surf, planeB, uv, tile, lightColor);
     }
 
-    private static void EmitDoubleSided(SurfaceData surf, Vector3[] p, Vector2[] uv, int tile)
+    private static void EmitDoubleSided(SurfaceData surf, Vector3[] p, Vector2[] uv, int tile, Color lightColor)
     {
         Vector3 n = (p[1] - p[0]).Cross(p[3] - p[0]).Normalized();
-        Color white = Colors.White;
+        Color white = lightColor;
         for (int pass = 0; pass < 2; pass++)
         {
             Vector3 normal = pass == 0 ? n : -n;
@@ -694,4 +710,56 @@ public static class PayloadPool
         surf.Uv2.Clear();
         Surfaces.Add(surf);
     }
+    /// <summary>
+    /// One-cell packed-light shell matching BuildPadded. Cardinal and diagonal
+    /// maps keep vertex-light interpolation continuous at chunk corners.
+    /// </summary>
+    private static byte[] BuildLightPadded(VoxelWorld world, Vector2I cp, int sy)
+    {
+        byte[] pad = RentLightPad(PX * (sy + 2) * PZ);
+        VoxelLightData center = world.LightData(cp);
+        VoxelLightData west = world.LightData(cp + new Vector2I(-1, 0));
+        VoxelLightData east = world.LightData(cp + new Vector2I(1, 0));
+        VoxelLightData north = world.LightData(cp + new Vector2I(0, -1));
+        VoxelLightData south = world.LightData(cp + new Vector2I(0, 1));
+        VoxelLightData northWest = world.LightData(cp + new Vector2I(-1, -1));
+        VoxelLightData northEast = world.LightData(cp + new Vector2I(1, -1));
+        VoxelLightData southWest = world.LightData(cp + new Vector2I(-1, 1));
+        VoxelLightData southEast = world.LightData(cp + new Vector2I(1, 1));
+
+        for (int y = 0; y < sy; y++)
+        {
+            int srcLayer = y * SX * SZ;
+            int dstLayer = (y + 1) * PLANE;
+            for (int z = 0; z < SZ; z++)
+            {
+                int src = srcLayer + z * SX;
+                int dst = dstLayer + (z + 1) * PX + 1;
+                for (int x = 0; x < SX; x++) pad[dst + x] = center.Packed[src + x];
+                pad[dst - 1] = west.Packed[src + SX - 1];
+                pad[dst + SX] = east.Packed[src];
+            }
+
+            for (int x = 0; x < SX; x++)
+            {
+                int dst = dstLayer + PX + x + 1;
+                pad[dst - PX] = north.Packed[(SZ - 1) * SX + x];
+                pad[dst + SZ * PX] = south.Packed[x];
+            }
+
+            pad[dstLayer] = northWest.Packed[(SZ - 1) * SX + SX - 1];
+            pad[dstLayer + PX - 1] = northEast.Packed[(SZ - 1) * SX];
+            pad[dstLayer + (SZ + 1) * PX] = southWest.Packed[SX - 1];
+            pad[dstLayer + (SZ + 1) * PX + PX - 1] = southEast.Packed[0];
+        }
+
+        // The sky above the world is a permanent skylight source.
+        int topLayer = (sy + 1) * PLANE;
+        for (int z = 0; z < PZ; z++)
+            for (int x = 0; x < PX; x++)
+                pad[topLayer + z * PX + x] = 0xF0;
+        return pad;
+    }
+
+
 }

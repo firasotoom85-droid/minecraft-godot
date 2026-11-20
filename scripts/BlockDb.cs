@@ -135,7 +135,7 @@ public static class BlockDb
                 [TCraftingTop, TPlanks, TCraftingSide, TCraftingSide, TCraftingSide, TCraftingSide],
                 2.5f, ToolKind.Axe),
         new("Wool", true, false, [TWool, TWool, TWool, TWool, TWool, TWool], 0.8f),
-        new("Lava", false, true, [TLava, TLava, TLava, TLava, TLava, TLava], 0.0f, Drops: false),
+        new("Lava", false, true, [TLava, TLava, TLava, TLava, TLava, TLava], 0.0f, Drops: false, Light: 0.8f),
         new("Tall Grass", false, true,
                 [TTallGrass, TTallGrass, TTallGrass, TTallGrass, TTallGrass, TTallGrass],
                 0.05f, Drops: false),
@@ -205,6 +205,8 @@ public static class BlockDb
     internal static byte[] SolidMask = [];  // id -> 1/0
     internal static byte[] TransMask = [];  // id -> 1/0
     internal static byte[] Occl = [];       // id -> 1/0 (opaque solid, not foliage)
+    internal static byte[] LightEmission = []; // id -> 0..15 block-light source level
+    internal static byte[] LightOpacity = [];  // id -> 0..15 propagation loss
     private static byte[] _foliage = [];    // id -> 1/0 (cutout leaf types)
     internal static Vector3[] FaceNormals = [];  // f
     internal static Color[] FaceColors = [];     // f
@@ -259,6 +261,8 @@ public static class BlockDb
             SolidMask = new byte[BlockCount];
             TransMask = new byte[BlockCount];
             Occl = new byte[BlockCount];
+            LightEmission = new byte[BlockCount];
+            LightOpacity = new byte[BlockCount];
             _foliage = new byte[BlockCount];
             _foliage[(int)BlockId.Leaves] = 1;
             _foliage[(int)BlockId.BirchLeaves] = 1;
@@ -276,6 +280,13 @@ public static class BlockDb
                 // is never skipped as "fully enclosed" because leaf/leaf faces
                 // are drawn.
                 Occl[(int)id] = IsSolid(id) && !IsTransparent(id) && !IsFoliage(id) ? (byte)1 : (byte)0;
+                LightEmission[(int)id] = (byte)Mathf.Clamp(Mathf.RoundToInt(Defs[(int)id].Light * 15.0f), 0, 15);
+                LightOpacity[(int)id] = id switch
+                {
+                    BlockId.Water or BlockId.Leaves or BlockId.BirchLeaves => 2,
+                    _ when IsSolid(id) && !IsTransparent(id) && !IsFoliage(id) => 15,
+                    _ => 0,
+                };
             }
 
             foreach (BlockId self in DefinedIds())
@@ -435,44 +446,67 @@ public static class BlockDb
             rect.Position.Y + inset + uv.Y * (rect.Size.Y - inset * 2.0f));
     }
 
-    /// <summary>
-    /// Opaque terrain (alpha-scissor so the cutout leaf pixels work while the
-    /// material still lives in the opaque pipeline and casts shadows).
-    /// </summary>
-    public static StandardMaterial3D MakeOpaqueMaterial()
+    private const string LitAtlasShader = @"
+shader_type spatial;
+render_mode cull_back, depth_draw_opaque, specular_disabled, alpha_to_coverage;
+
+uniform sampler2D atlas : source_color, filter_nearest, repeat_disable;
+uniform vec4 tint = vec4(1.0);
+uniform float sky_light_energy = 1.0;
+
+void fragment() {
+    vec4 tex = texture(atlas, UV);
+    float sky = COLOR.r * sky_light_energy;
+    float block = COLOR.g;
+    float shade = COLOR.b;
+    vec3 warm = vec3(1.0, 0.68, 0.38);
+    vec3 illumination = vec3(0.035) + vec3(1.0, 0.98, 0.92) * sky + warm * block * 0.42;
+    ALBEDO = tex.rgb * illumination * shade * tint.rgb;
+    EMISSION = tex.rgb * warm * block * 0.88;
+    ALPHA = tex.a;
+    ALPHA_SCISSOR_THRESHOLD = 0.5;
+    ROUGHNESS = 1.0;
+}
+";
+
+    private const string LitGlassShader = @"
+shader_type spatial;
+render_mode blend_mix, cull_disabled, depth_draw_opaque, specular_disabled;
+
+uniform sampler2D atlas : source_color, filter_nearest, repeat_disable;
+uniform float sky_light_energy = 1.0;
+
+void fragment() {
+    vec4 tex = texture(atlas, UV);
+    float sky = COLOR.r * sky_light_energy;
+    float block = COLOR.g;
+    float shade = COLOR.b;
+    vec3 warm = vec3(1.0, 0.72, 0.46);
+    vec3 illumination = vec3(0.05) + vec3(1.0, 0.98, 0.92) * sky + warm * block * 0.4;
+    ALBEDO = tex.rgb * illumination * shade;
+    EMISSION = tex.rgb * warm * block * 0.72;
+    ALPHA = tex.a * 0.72;
+    ROUGHNESS = 0.18;
+}
+";
+
+    /// <summary>Opaque atlas material; vertex channels carry sky, block light and AO.</summary>
+    public static ShaderMaterial MakeOpaqueMaterial()
     {
-        StandardMaterial3D m = new()
-        {
-            AlbedoTexture = AtlasTexture(),
-            TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
-            TextureRepeat = false,
-            VertexColorUseAsAlbedo = true,
-            Roughness = 1.0f,
-            SpecularMode = BaseMaterial3D.SpecularModeEnum.Disabled,
-            Transparency = BaseMaterial3D.TransparencyEnum.AlphaScissor,
-            AlphaScissorThreshold = 0.5f,
-            // Per-sample coverage for cutout leaves (needs MSAA; no-op without it) so
-            // distant foliage does not sparkle against the sky.
-            AlphaAntialiasingMode = BaseMaterial3D.AlphaAntiAliasing.AlphaToCoverage,
-        };
-        return m;
+        ShaderMaterial material = new() { Shader = new Shader { Code = LitAtlasShader } };
+        material.SetShaderParameter("atlas", AtlasTexture());
+        material.SetShaderParameter("sky_light_energy", 1.0f);
+        material.SetShaderParameter("tint", Colors.White);
+        return material;
     }
 
-    /// <summary>Alpha-blended glass.</summary>
-    public static StandardMaterial3D MakeGlassMaterial()
+    /// <summary>Alpha-blended glass with baked voxel-light channels.</summary>
+    public static ShaderMaterial MakeGlassMaterial()
     {
-        StandardMaterial3D m = new()
-        {
-            AlbedoTexture = AtlasTexture(),
-            TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
-            TextureRepeat = false,
-            VertexColorUseAsAlbedo = true,
-            Roughness = 0.15f,
-            SpecularMode = BaseMaterial3D.SpecularModeEnum.Disabled,
-            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
-            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
-        };
-        return m;
+        ShaderMaterial material = new() { Shader = new Shader { Code = LitGlassShader } };
+        material.SetShaderParameter("atlas", AtlasTexture());
+        material.SetShaderParameter("sky_light_energy", 1.0f);
+        return material;
     }
 
     /// <summary>
@@ -488,6 +522,7 @@ render_mode cull_back, depth_draw_opaque, specular_disabled, alpha_to_coverage;
 
 uniform sampler2DArray tiles : source_color, filter_nearest;
 uniform vec4 tint = vec4(1.0);   // wet-ground darkening (Weather)
+uniform float sky_light_energy = 1.0;
 
 varying vec2 tile_uv;
 varying float tile_layer;
@@ -499,7 +534,13 @@ void vertex() {
 
 void fragment() {
     vec4 tex = texture(tiles, vec3(fract(tile_uv), tile_layer));
-    ALBEDO = tex.rgb * COLOR.rgb * tint.rgb;
+    float sky = COLOR.r * sky_light_energy;
+    float block = COLOR.g;
+    float shade = COLOR.b;
+    vec3 warm = vec3(1.0, 0.68, 0.38);
+    vec3 illumination = vec3(0.035) + vec3(1.0, 0.98, 0.92) * sky + warm * block * 0.42;
+    ALBEDO = tex.rgb * illumination * shade * tint.rgb;
+    EMISSION = tex.rgb * warm * block * 0.88;
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
     ROUGHNESS = 1.0;
@@ -549,23 +590,33 @@ void fragment() {
         return arr;
     }
 
-    /// <summary>Emissive lava: the atlas tile doubles as the emission map, so it glows in the dark.</summary>
-    public static StandardMaterial3D MakeLavaMaterial()
+    private const string LitLavaShader = @"
+shader_type spatial;
+render_mode cull_back, depth_draw_opaque, specular_disabled;
+
+uniform sampler2D atlas : source_color, filter_nearest, repeat_disable;
+uniform float sky_light_energy = 1.0;
+
+void fragment() {
+    vec4 tex = texture(atlas, UV);
+    float sky = COLOR.r * sky_light_energy;
+    float block = COLOR.g;
+    float shade = COLOR.b;
+    vec3 warm = vec3(1.0, 0.48, 0.12);
+    vec3 illumination = vec3(0.03) + vec3(1.0, 0.94, 0.82) * sky + warm * block * 0.35;
+    ALBEDO = tex.rgb * illumination * shade;
+    EMISSION = tex.rgb * (warm * 0.9 + warm * block * 0.7);
+    ALPHA = tex.a;
+    ROUGHNESS = 1.0;
+}
+";
+
+    public static ShaderMaterial MakeLavaMaterial()
     {
-        StandardMaterial3D m = new()
-        {
-            AlbedoTexture = AtlasTexture(),
-            TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
-            TextureRepeat = false,
-            VertexColorUseAsAlbedo = true,
-            Roughness = 1.0f,
-            SpecularMode = BaseMaterial3D.SpecularModeEnum.Disabled,
-            EmissionEnabled = true,
-            Emission = new Color(1.0f, 0.55f, 0.15f),
-            EmissionTexture = AtlasTexture(),
-            EmissionEnergyMultiplier = 1.2f,
-        };
-        return m;
+        ShaderMaterial material = new() { Shader = new Shader { Code = LitLavaShader } };
+        material.SetShaderParameter("atlas", AtlasTexture());
+        material.SetShaderParameter("sky_light_energy", 1.0f);
+        return material;
     }
 
     /// <summary>Animated water (custom shader); falls back to glass if the shader is gone.</summary>
@@ -582,6 +633,7 @@ void fragment() {
             Shader = shader,
         };
         m.SetShaderParameter("atlas_texture", AtlasTexture());
+        m.SetShaderParameter("sky_light_energy", 1.0f);
         return m;
     }
 

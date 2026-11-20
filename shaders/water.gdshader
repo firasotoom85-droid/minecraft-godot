@@ -11,6 +11,7 @@ uniform float wave_speed : hint_range(0.0, 4.0) = 1.3;
 uniform float alpha_base : hint_range(0.0, 1.0) = 0.82;
 uniform float shore_fade : hint_range(0.1, 8.0) = 2.5;
 uniform float dim : hint_range(0.0, 1.0) = 1.0;
+uniform float sky_light_energy : hint_range(0.0, 1.25) = 1.0;
 uniform float caustic_strength : hint_range(0.0, 2.0) = 0.0;
 
 varying vec3 world_pos;
@@ -37,7 +38,12 @@ void vertex() {
 
 void fragment() {
 	vec4 tex = texture(atlas_texture, UV);
-	vec3 base = tex.rgb * COLOR.rgb;
+	float sky = COLOR.r * sky_light_energy;
+	float block = COLOR.g;
+	float shade = COLOR.b;
+	vec3 warm = vec3(1.0, 0.68, 0.38);
+	vec3 illumination = vec3(0.04) + vec3(1.0, 0.98, 0.92) * sky + warm * block * 0.35;
+	vec3 base = tex.rgb * illumination * shade;
 	// Shoreline fade: how much water sits between this fragment and the
 	// opaque scene behind it.
 	float raw_depth = texture(depth_texture, SCREEN_UV).x;
@@ -49,6 +55,7 @@ void fragment() {
 	float depth_alpha = clamp(thickness / shore_fade, 0.18, 1.0);
 	float fresnel = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 2.0);
 	ALBEDO = base * dim;
+	EMISSION += tex.rgb * warm * block * 0.5;
 	ALPHA = clamp(tex.a * alpha_base * depth_alpha + fresnel * 0.2, 0.0, 1.0);
 	ROUGHNESS = mix(0.12, 0.5, smoothstep(40.0, 120.0, view_depth));
 	// Caustic light webs on the underside of the surface (diver's view).

@@ -17,6 +17,10 @@ public static class ContentTests
         TestAssert.Check(BlockDb.IsDefined(BlockId.Air), "air defined");
         TestAssert.Check(BlockDb.IsDefined(BlockId.Torch), "torch defined");
         TestAssert.Check(BlockDb.DefOf(BlockId.Torch).Light > 0.0f, "torch emits light");
+        TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Torch] > 0, "torch has a voxel emission level");
+        TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Lava] > 0, "lava has a voxel emission level");
+        TestAssert.Equal((byte)15, BlockDb.LightOpacity[(int)BlockId.Stone], "stone blocks voxel light");
+        TestAssert.Equal((byte)0, BlockDb.LightOpacity[(int)BlockId.Glass], "glass transmits voxel light");
         TestAssert.Check(BlockDb.IsCross(BlockId.Torch), "torch uses the cross mesh");
         TestAssert.Check(!BlockDb.IsDefined((BlockId)127), "unused ids stay undefined");
 

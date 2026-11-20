@@ -96,7 +96,11 @@ public partial class VoxelWorld : Node3D
 
     private readonly Dictionary<Vector2I, byte[]> _dataCache = new();
     private readonly Dictionary<Vector2I, Dictionary<int, BlockId>> _edits = new();  // persisted
-    private readonly Dictionary<Vector3I, float> _lightSources = [];  // placed emitters (torches)
+    private readonly Dictionary<Vector3I, byte> _lightSources = [];  // all block emitters, 0..15
+    private readonly HashSet<Vector2I> _sourceScannedChunks = [];
+    private readonly Dictionary<Vector2I, byte[]> _skyLightCache = [];
+    private readonly Dictionary<Vector2I, byte[]> _blockLightCache = [];
+    private readonly Dictionary<Vector2I, VoxelLightData> _voxelLightCache = [];
     private readonly HashSet<Vector3I> _crops = [];  // placed wheat, for growth ticks
     private readonly Lock _mutex = new();           // guards _dataCache, _edits, EditEpoch
     public Lock SnapshotLock { get; } = new();      // serialises edits vs mesher snapshots
@@ -131,6 +135,7 @@ public partial class VoxelWorld : Node3D
     public override void _Ready()
     {
         ResolveWorld();
+        BlockDb.EnsureTables();
 
         // Meshing mode is a static consumed by worker threads; set it before
         // any chunk is built.
@@ -1293,6 +1298,7 @@ public partial class VoxelWorld : Node3D
         {
             if (_dataCache.TryGetValue(cp, out byte[]? cached))
             {
+                RegisterLightSourcesLocked(cp, cached);
                 return cached;
             }
         }
@@ -1302,13 +1308,113 @@ public partial class VoxelWorld : Node3D
         {
             if (_dataCache.TryGetValue(cp, out byte[]? existing))
             {
+                RegisterLightSourcesLocked(cp, existing);
                 return existing;
             }
 
             _dataCache[cp] = data;
+            RegisterLightSourcesLocked(cp, data);
         }
 
         return data;
+    }
+
+    /// <summary>Cache a chunk's emitter positions once, including natural lava and saved edits.</summary>
+    private void RegisterLightSourcesLocked(Vector2I cp, byte[] blocks)
+    {
+        if (!_sourceScannedChunks.Add(cp)) return;
+        int stride = ChunkX * ChunkZ;
+        int ox = cp.X * ChunkX;
+        int oz = cp.Y * ChunkZ;
+        for (int i = 0; i < blocks.Length; i++)
+        {
+            byte emission = BlockDb.LightEmission[blocks[i]];
+            if (emission == 0) continue;
+            int y = i / stride;
+            int rem = i - y * stride;
+            int z = rem / ChunkX;
+            int x = rem - z * ChunkX;
+            _lightSources[new Vector3I(ox + x, y, oz + z)] = emission;
+        }
+    }
+
+    private byte[] SkyLightBase(Vector2I cp)
+    {
+        lock (_mutex)
+        {
+            if (_skyLightCache.TryGetValue(cp, out byte[]? cached)) return cached;
+        }
+        byte[] built = VoxelLighting.BuildSkyLight(ChunkData(cp), ChunkX, Height, ChunkZ);
+        lock (_mutex)
+        {
+            if (_skyLightCache.TryGetValue(cp, out byte[]? existing)) return existing;
+            _skyLightCache[cp] = built;
+            return built;
+        }
+    }
+
+    private byte[] BlockLightBase(Vector2I cp)
+    {
+        lock (_mutex)
+        {
+            if (_blockLightCache.TryGetValue(cp, out byte[]? cached)) return cached;
+        }
+        byte[] built = VoxelLighting.BuildBlockLightForChunk(this, cp, Height);
+        lock (_mutex)
+        {
+            if (_blockLightCache.TryGetValue(cp, out byte[]? existing)) return existing;
+            _blockLightCache[cp] = built;
+            return built;
+        }
+    }
+
+    /// <summary>Packed sky/block lighting snapshot for worker meshing.</summary>
+    public VoxelLightData LightData(Vector2I cp)
+    {
+        lock (SnapshotLock)
+        {
+            lock (_mutex)
+            {
+                if (_voxelLightCache.TryGetValue(cp, out VoxelLightData? cached)) return cached;
+            }
+
+            // Register sources in the full 3x3 halo before solving light.
+            for (int dz = -1; dz <= 1; dz++)
+                for (int dx = -1; dx <= 1; dx++)
+                    _ = ChunkData(cp + new Vector2I(dx, dz));
+
+            byte[] blocks = ChunkData(cp);
+            byte[] localSky = SkyLightBase(cp);
+            byte[] block = BlockLightBase(cp);
+            byte[] west = SkyLightBase(cp + new Vector2I(-1, 0));
+            byte[] east = SkyLightBase(cp + new Vector2I(1, 0));
+            byte[] north = SkyLightBase(cp + new Vector2I(0, -1));
+            byte[] south = SkyLightBase(cp + new Vector2I(0, 1));
+            byte[] sky = VoxelLighting.MergeNeighbourSky(blocks, Height, localSky, west, east, north, south);
+            byte[] packed = new byte[blocks.Length];
+            for (int i = 0; i < packed.Length; i++) packed[i] = VoxelLighting.Pack(sky[i], block[i]);
+
+            VoxelLightData result = new(packed);
+            lock (_mutex)
+            {
+                if (_voxelLightCache.TryGetValue(cp, out VoxelLightData? existing)) return existing;
+                _voxelLightCache[cp] = result;
+            }
+            return result;
+        }
+    }
+
+    // Called while SnapshotLock and _mutex are held by SetBlock.
+    private void InvalidateLightingLocked(Vector2I cp)
+    {
+        for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                Vector2I affected = cp + new Vector2I(dx, dz);
+                _skyLightCache.Remove(affected);
+                _blockLightCache.Remove(affected);
+                _voxelLightCache.Remove(affected);
+            }
     }
 
     // -----------------------------------------------------------------------
@@ -1371,35 +1477,21 @@ public partial class VoxelWorld : Node3D
                 d[i] = id;
                 _dataCache[cp] = c.Blocks;
                 UpdateEditTop(cp, lx, lz, c.Blocks);
+                InvalidateLightingLocked(cp);
                 EditEpoch += 1;
             }
         }
 
         _dirty = true;
 
-        // Remesh off-thread: the edited chunk plus any neighbour the change
-        // touches. Rebuilds are picked up by the worker loops ahead of fresh
-        // streaming, so building keeps the frame smooth.
-        EnqueueRebuild(cp);
-        if (lx == 0)
-        {
-            EnqueueRebuild(cp + new Vector2I(-1, 0));
-        }
-
-        if (lx == ChunkX - 1)
-        {
-            EnqueueRebuild(cp + new Vector2I(1, 0));
-        }
-
-        if (lz == 0)
-        {
-            EnqueueRebuild(cp + new Vector2I(0, -1));
-        }
-
-        if (lz == ChunkZ - 1)
-        {
-            EnqueueRebuild(cp + new Vector2I(0, 1));
-        }
+        // A blocker or emitter can affect every adjacent chunk within the
+        // 14-voxel light radius, including chunks not sharing the edited edge.
+        for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                Vector2I affected = cp + new Vector2I(dx, dz);
+                if (_chunks.ContainsKey(affected)) EnqueueRebuild(affected);
+            }
 
         return true;
     }
@@ -1440,41 +1532,47 @@ public partial class VoxelWorld : Node3D
 
     public void RemoveFurnace(Vector3I pos) => Furnaces.Remove(ContainerKey(pos));
 
-    /// <summary>Placed light emitters within a radius, nearest first.</summary>
+    /// <summary>All registered emitters, nearest first (debug/legacy API).</summary>
     public List<Vector3I> NearestLights(Vector3 pos, int max, float radius = 32.0f)
     {
         List<(Vector3I Pos, float Dist)> found = [];
         float radiusSq = radius * radius;
-        foreach ((Vector3I cell, float _) in _lightSources)
+        lock (_mutex)
         {
-            Vector3 center = new(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f);
-            float dist = center.DistanceSquaredTo(pos);
-            if (dist <= radiusSq)
+            foreach (Vector3I cell in _lightSources.Keys)
             {
-                found.Add((cell, dist));
+                Vector3 center = new(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f);
+                float dist = center.DistanceSquaredTo(pos);
+                if (dist <= radiusSq) found.Add((cell, dist));
             }
         }
-
         found.Sort((a, b) => a.Dist.CompareTo(b.Dist));
         List<Vector3I> result = [];
-        for (int i = 0; i < found.Count && i < max; i++)
-        {
-            result.Add(found[i].Pos);
-        }
+        for (int i = 0; i < found.Count && i < max; i++) result.Add(found[i].Pos);
+        return result;
+    }
 
+    /// <summary>Emitter snapshot covering the halo that can influence one chunk.</summary>
+    public List<VoxelLightSource> NearbyLightSources(int minX, int maxX, int minZ, int maxZ)
+    {
+        List<VoxelLightSource> result = [];
+        lock (_mutex)
+        {
+            foreach ((Vector3I pos, byte level) in _lightSources)
+                if (level > 0 && pos.X >= minX && pos.X <= maxX && pos.Z >= minZ && pos.Z <= maxZ)
+                    result.Add(new VoxelLightSource(pos, level));
+        }
         return result;
     }
 
     private void UpdateLightSource(int x, int y, int z, BlockId id)
     {
         Vector3I cell = new(x, y, z);
-        if (BlockDb.IsDefined(id) && BlockDb.DefOf(id).Light > 0.0f)
+        byte emission = BlockDb.IsDefined(id) ? BlockDb.LightEmission[(int)id] : (byte)0;
+        lock (_mutex)
         {
-            _lightSources[cell] = BlockDb.DefOf(id).Light;
-        }
-        else
-        {
-            _lightSources.Remove(cell);
+            if (emission > 0) _lightSources[cell] = emission;
+            else _lightSources.Remove(cell);
         }
     }
 
@@ -2009,17 +2107,20 @@ public partial class VoxelWorld : Node3D
             }
         }
 
-        // Workers insert into _dataCache while meshing; the stale scan must run
-        // under the same lock or a concurrent insert corrupts the iteration.
+        // Keep a one-chunk data/light halo for boundary propagation. Emitter
+        // registrations outside it are re-discovered from voxel data on reload.
         lock (_mutex)
         {
-            Vector2I[] stale = _dataCache.Keys
-                    .Where(cp => Mathf.Abs(cp.X - pcp.X) > limit || Mathf.Abs(cp.Y - pcp.Y) > limit)
-                    .ToArray();
-            foreach (Vector2I cp in stale)
-            {
-                _dataCache.Remove(cp);
-            }
+            bool Outside(Vector2I cp) => Mathf.Abs(cp.X - pcp.X) > limit + 1 || Mathf.Abs(cp.Y - pcp.Y) > limit + 1;
+            foreach (Vector2I cp in _dataCache.Keys.Where(Outside).ToArray()) _dataCache.Remove(cp);
+            foreach (Vector2I cp in _skyLightCache.Keys.Where(Outside).ToArray()) _skyLightCache.Remove(cp);
+            foreach (Vector2I cp in _blockLightCache.Keys.Where(Outside).ToArray()) _blockLightCache.Remove(cp);
+            foreach (Vector2I cp in _voxelLightCache.Keys.Where(Outside).ToArray()) _voxelLightCache.Remove(cp);
+            foreach (Vector2I cp in _sourceScannedChunks.Where(Outside).ToArray()) _sourceScannedChunks.Remove(cp);
+            foreach (Vector3I pos in _lightSources.Keys.Where(pos =>
+                    Mathf.Abs(Mathf.FloorToInt(pos.X / (float)ChunkX) - pcp.X) > limit + 1
+                    || Mathf.Abs(Mathf.FloorToInt(pos.Z / (float)ChunkZ) - pcp.Y) > limit + 1).ToArray())
+                _lightSources.Remove(pos);
         }
     }
 
@@ -2176,10 +2277,11 @@ public partial class VoxelWorld : Node3D
                     int rem = i % stride;
                     int lz = rem / ChunkX;
                     int lx = rem % ChunkX;
-                    if (BlockDb.DefOf(id).Light > 0.0f)
+                    byte emission = BlockDb.LightEmission[(int)id];
+                    if (emission > 0)
                     {
                         _lightSources[new Vector3I(
-                                cx * ChunkX + lx, y, cz * ChunkZ + lz)] = BlockDb.DefOf(id).Light;
+                                cx * ChunkX + lx, y, cz * ChunkZ + lz)] = emission;
                     }
 
                     if (BlockDb.IsWheat(id))

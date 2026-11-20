@@ -123,7 +123,9 @@ public partial class DayNight : Node
         _skyMat.GroundHorizonColor = horizon;
 
         Godot.Environment env = WorldEnv!.Environment;
-        env.AmbientLightEnergy = (float)((0.25 + day * 0.75) * (1.0 - Cloudiness * 0.3) + flash * 2.0);
+        float skyLightEnergy = (float)(day * (1.0 - Cloudiness * 0.65) + night * 0.10);
+        ChunkMaterials.SetSkyEnergy(skyLightEnergy);
+        env.AmbientLightEnergy = (float)((0.10 + day * 0.90) * (1.0 - Cloudiness * 0.3) + flash * 2.0);
         Color fogColor = horizon;
         double fogDensity = _fogDensityAir * (1.0 + Cloudiness * 1.6);
 

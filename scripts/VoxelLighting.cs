@@ -1,0 +1,357 @@
+using System;
+using System.Collections.Generic;
+using Godot;
+
+namespace Minecraft;
+
+/// <summary>
+/// One packed byte per voxel: sky light in the high nibble and block light in
+/// the low nibble. Each channel ranges from 0 (dark) to 15 (full intensity).
+/// </summary>
+public sealed class VoxelLightData(byte[] packed)
+{
+    public readonly byte[] Packed = packed;
+
+    public static int Index(int x, int y, int z, int height) =>
+        x + z * VoxelWorld.ChunkX + y * VoxelWorld.ChunkX * VoxelWorld.ChunkZ;
+
+    public byte SkyAt(int x, int y, int z, int height) =>
+        (byte)(Packed[Index(x, y, z, height)] >> 4);
+
+    public byte BlockAt(int x, int y, int z, int height) =>
+        (byte)(Packed[Index(x, y, z, height)] & 0x0F);
+}
+
+public readonly record struct VoxelLightSource(Vector3I Position, byte Level);
+
+/// <summary>
+/// CPU voxel-light solver. Lighting is calculated when a chunk is meshed,
+/// cached as compact voxel data, and baked into vertex colours. It does not
+/// allocate scene lights or perform propagation work every frame.
+/// </summary>
+public static class VoxelLighting
+{
+    public const int MaxLevel = 15;
+    public const int BlockLightRadius = 14;
+    private const int RegionSize = VoxelWorld.ChunkX + BlockLightRadius * 2;
+
+    [ThreadStatic]
+    private static Queue<int>? _queueScratch;
+
+    private static Queue<int> RentQueue()
+    {
+        _queueScratch ??= new Queue<int>(4096);
+        _queueScratch.Clear();
+        return _queueScratch;
+    }
+
+    private static int Opacity(byte id) =>
+        id < BlockDb.LightOpacity.Length ? BlockDb.LightOpacity[id] : MaxLevel;
+
+    private static int Index(int x, int y, int z, int width, int depth) =>
+        x + z * width + y * width * depth;
+
+    /// <summary>
+    /// Direct skylight pass followed by a local flood into open caves. Opaque
+    /// blocks stop sun; glass transmits it; water and foliage attenuate it.
+    /// </summary>
+    public static byte[] BuildSkyLight(byte[] blocks, int width, int height, int depth)
+    {
+        BlockDb.EnsureTables();
+        if (blocks.Length != width * height * depth)
+            throw new ArgumentException("Block volume dimensions do not match its data.", nameof(blocks));
+
+        byte[] sky = new byte[blocks.Length];
+        int plane = width * depth;
+
+        for (int z = 0; z < depth; z++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int level = MaxLevel;
+                for (int y = height - 1; y >= 0; y--)
+                {
+                    int i = x + z * width + y * plane;
+                    int opacity = Opacity(blocks[i]);
+                    if (opacity >= MaxLevel)
+                    {
+                        level = 0;
+                        continue;
+                    }
+
+                    level = Math.Max(0, level - opacity);
+                    sky[i] = (byte)level;
+                }
+            }
+        }
+
+        Queue<int> queue = RentQueue();
+        // Only darker neighbours are enqueued, so open columns do not flood
+        // the queue with duplicate level-15 cells.
+        for (int y = 0; y < height; y++)
+        {
+            for (int z = 0; z < depth; z++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int i = Index(x, y, z, width, depth);
+                    int level = sky[i];
+                    if (level <= 1) continue;
+                    SeedSky(blocks, sky, queue, x - 1, y, z, level, width, height, depth);
+                    SeedSky(blocks, sky, queue, x + 1, y, z, level, width, height, depth);
+                    SeedSky(blocks, sky, queue, x, y - 1, z, level, width, height, depth);
+                    SeedSky(blocks, sky, queue, x, y + 1, z, level, width, height, depth);
+                    SeedSky(blocks, sky, queue, x, y, z - 1, level, width, height, depth);
+                    SeedSky(blocks, sky, queue, x, y, z + 1, level, width, height, depth);
+                }
+            }
+        }
+
+        FloodSky(blocks, sky, queue, width, height, depth);
+        return sky;
+    }
+
+    /// <summary>
+    /// Merge sky entering through adjacent chunk borders, then flood it through
+    /// the destination chunk. Neighbours provide local-only maps, preventing
+    /// recursive chunk cache dependencies.
+    /// </summary>
+    public static byte[] MergeNeighbourSky(
+            byte[] blocks, int height, byte[] localSky,
+            byte[]? west, byte[]? east, byte[]? north, byte[]? south)
+    {
+        int width = VoxelWorld.ChunkX;
+        int depth = VoxelWorld.ChunkZ;
+        byte[] sky = (byte[])localSky.Clone();
+        Queue<int> queue = RentQueue();
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int z = 0; z < depth; z++)
+            {
+                if (west != null)
+                    SeedEdge(blocks, sky, queue, Index(0, y, z, width, depth),
+                            west[Index(width - 1, y, z, width, depth)]);
+                if (east != null)
+                    SeedEdge(blocks, sky, queue, Index(width - 1, y, z, width, depth),
+                            east[Index(0, y, z, width, depth)]);
+            }
+
+            for (int x = 0; x < width; x++)
+            {
+                if (north != null)
+                    SeedEdge(blocks, sky, queue, Index(x, y, 0, width, depth),
+                            north[Index(x, y, depth - 1, width, depth)]);
+                if (south != null)
+                    SeedEdge(blocks, sky, queue, Index(x, y, depth - 1, width, depth),
+                            south[Index(x, y, 0, width, depth)]);
+            }
+        }
+
+        FloodSky(blocks, sky, queue, width, height, depth);
+        return sky;
+    }
+
+    private static void SeedEdge(byte[] blocks, byte[] sky, Queue<int> queue, int target, byte source)
+    {
+        int candidate = source - Math.Max(1, Opacity(blocks[target]));
+        if (candidate > sky[target])
+        {
+            sky[target] = (byte)candidate;
+            queue.Enqueue(target);
+        }
+    }
+
+    private static void SeedSky(
+            byte[] blocks, byte[] sky, Queue<int> queue,
+            int x, int y, int z, int source, int width, int height, int depth)
+    {
+        if ((uint)x >= (uint)width || (uint)y >= (uint)height || (uint)z >= (uint)depth)
+            return;
+
+        int target = Index(x, y, z, width, depth);
+        int candidate = source - Math.Max(1, Opacity(blocks[target]));
+        if (candidate > sky[target])
+        {
+            sky[target] = (byte)candidate;
+            queue.Enqueue(target);
+        }
+    }
+
+    private static void FloodSky(
+            byte[] blocks, byte[] sky, Queue<int> queue,
+            int width, int height, int depth)
+    {
+        int plane = width * depth;
+        while (queue.Count > 0)
+        {
+            int i = queue.Dequeue();
+            int level = sky[i];
+            if (level <= 1) continue;
+            int x = i % width;
+            int z = (i / width) % depth;
+            int y = i / plane;
+            if (x > 0) SpreadSky(blocks, sky, queue, i - 1, level);
+            if (x + 1 < width) SpreadSky(blocks, sky, queue, i + 1, level);
+            if (y > 0) SpreadSky(blocks, sky, queue, i - plane, level);
+            if (y + 1 < height) SpreadSky(blocks, sky, queue, i + plane, level);
+            if (z > 0) SpreadSky(blocks, sky, queue, i - width, level);
+            if (z + 1 < depth) SpreadSky(blocks, sky, queue, i + width, level);
+        }
+    }
+
+    private static void SpreadSky(byte[] blocks, byte[] sky, Queue<int> queue, int target, int source)
+    {
+        int candidate = source - Math.Max(1, Opacity(blocks[target]));
+        if (candidate > sky[target])
+        {
+            sky[target] = (byte)candidate;
+            queue.Enqueue(target);
+        }
+    }
+
+    /// <summary>
+    /// Multi-source block-light flood fill. Sources use local coordinates, so
+    /// adjacent chunks can be tested as one volume across their shared border.
+    /// </summary>
+    public static byte[] PropagateBlockLight(
+            byte[] blocks, int width, int height, int depth,
+            IReadOnlyList<VoxelLightSource> sources)
+    {
+        BlockDb.EnsureTables();
+        if (blocks.Length != width * height * depth)
+            throw new ArgumentException("Block volume dimensions do not match its data.", nameof(blocks));
+
+        byte[] light = new byte[blocks.Length];
+        Queue<int> queue = RentQueue();
+        int plane = width * depth;
+
+        foreach (VoxelLightSource source in sources)
+        {
+            Vector3I p = source.Position;
+            if (source.Level == 0 || (uint)p.X >= (uint)width
+                    || (uint)p.Y >= (uint)height || (uint)p.Z >= (uint)depth)
+                continue;
+
+            int i = Index(p.X, p.Y, p.Z, width, depth);
+            if (source.Level > light[i])
+            {
+                light[i] = source.Level;
+                queue.Enqueue(i);
+            }
+        }
+
+        while (queue.Count > 0)
+        {
+            int i = queue.Dequeue();
+            int level = light[i];
+            if (level <= 1) continue;
+            int x = i % width;
+            int z = (i / width) % depth;
+            int y = i / plane;
+            if (x > 0) SpreadBlock(blocks, light, queue, i - 1, level);
+            if (x + 1 < width) SpreadBlock(blocks, light, queue, i + 1, level);
+            if (y > 0) SpreadBlock(blocks, light, queue, i - plane, level);
+            if (y + 1 < height) SpreadBlock(blocks, light, queue, i + plane, level);
+            if (z > 0) SpreadBlock(blocks, light, queue, i - width, level);
+            if (z + 1 < depth) SpreadBlock(blocks, light, queue, i + width, level);
+        }
+
+        return light;
+    }
+
+    private static void SpreadBlock(byte[] blocks, byte[] light, Queue<int> queue, int target, int source)
+    {
+        int candidate = source - Math.Max(1, Opacity(blocks[target]));
+        if (candidate > light[target])
+        {
+            light[target] = (byte)candidate;
+            queue.Enqueue(target);
+        }
+    }
+
+    /// <summary>
+    /// Builds a chunk's block-light map from a 14-cell halo. This includes
+    /// sources and opaque blockers in unloaded neighbour chunks as well.
+    /// </summary>
+    public static byte[] BuildBlockLightForChunk(VoxelWorld world, Vector2I cp, int height)
+    {
+        int width = RegionSize;
+        int depth = RegionSize;
+        int originX = cp.X * VoxelWorld.ChunkX - BlockLightRadius;
+        int originZ = cp.Y * VoxelWorld.ChunkZ - BlockLightRadius;
+        int chunkStride = VoxelWorld.ChunkX * VoxelWorld.ChunkZ;
+
+        byte[][] chunks = new byte[9][];
+        for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
+                chunks[(dz + 1) * 3 + dx + 1] = world.ChunkData(cp + new Vector2I(dx, dz));
+
+        byte[] region = new byte[width * height * depth];
+        for (int z = 0; z < depth; z++)
+        {
+            int zGroup = z < BlockLightRadius ? 0
+                    : z < BlockLightRadius + VoxelWorld.ChunkZ ? 1 : 2;
+            int localZ = z < BlockLightRadius ? z + VoxelWorld.ChunkZ - BlockLightRadius
+                    : z < BlockLightRadius + VoxelWorld.ChunkZ ? z - BlockLightRadius
+                    : z - BlockLightRadius - VoxelWorld.ChunkZ;
+
+            for (int y = 0; y < height; y++)
+            {
+                int dst = (y * depth + z) * width;
+                int src = y * chunkStride + localZ * VoxelWorld.ChunkX;
+                byte[] west = chunks[zGroup * 3];
+                byte[] center = chunks[zGroup * 3 + 1];
+                byte[] east = chunks[zGroup * 3 + 2];
+                Array.Copy(west, src + VoxelWorld.ChunkX - BlockLightRadius, region, dst, BlockLightRadius);
+                Array.Copy(center, src, region, dst + BlockLightRadius, VoxelWorld.ChunkX);
+                Array.Copy(east, src, region, dst + BlockLightRadius + VoxelWorld.ChunkX,
+                        VoxelWorld.ChunkX - BlockLightRadius);
+            }
+        }
+
+        List<VoxelLightSource> nearby = world.NearbyLightSources(
+                originX, originX + width - 1, originZ, originZ + depth - 1);
+        List<VoxelLightSource> localSources = new(nearby.Count);
+        foreach (VoxelLightSource source in nearby)
+        {
+            localSources.Add(new VoxelLightSource(
+                    new Vector3I(source.Position.X - originX, source.Position.Y, source.Position.Z - originZ),
+                    source.Level));
+        }
+
+        byte[] regionLight = PropagateBlockLight(region, width, height, depth, localSources);
+        byte[] result = new byte[VoxelWorld.ChunkX * height * VoxelWorld.ChunkZ];
+        for (int y = 0; y < height; y++)
+        {
+            for (int z = 0; z < VoxelWorld.ChunkZ; z++)
+            {
+                int src = (y * depth + z + BlockLightRadius) * width + BlockLightRadius;
+                int dst = (y * VoxelWorld.ChunkZ + z) * VoxelWorld.ChunkX;
+                Array.Copy(regionLight, src, result, dst, VoxelWorld.ChunkX);
+            }
+        }
+
+        return result;
+    }
+
+    public static byte Pack(byte sky, byte block) =>
+        (byte)((Math.Min(MaxLevel, sky) << 4) | Math.Min(MaxLevel, block));
+
+    /// <summary>Shader channels: sky, warm block emission, and AO/face shade.</summary>
+    public static Color VertexColor(byte packed, float shade) =>
+        new((packed >> 4) / 15.0f, (packed & 0x0F) / 15.0f,
+                Mathf.Clamp(shade, 0.0f, 1.0f), 1.0f);
+
+    /// <summary>Average light from the four voxel samples around a face corner.</summary>
+    public static byte AverageCorner(byte[] lightPad, int i, int du, int dv)
+    {
+        int a = lightPad[i];
+        int b = lightPad[i + du];
+        int c = lightPad[i + dv];
+        int d = lightPad[i + du + dv];
+        int sky = ((a >> 4) + (b >> 4) + (c >> 4) + (d >> 4) + 2) / 4;
+        int block = ((a & 15) + (b & 15) + (c & 15) + (d & 15) + 2) / 4;
+        return Pack((byte)sky, (byte)block);
+    }
+}

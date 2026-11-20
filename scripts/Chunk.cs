@@ -150,20 +150,32 @@ public partial class Chunk : StaticBody3D
 /// </summary>
 public static class ChunkMaterials
 {
-    private static readonly Lazy<StandardMaterial3D> OpaqueLazy = new(BlockDb.MakeOpaqueMaterial);
+    private static readonly Lazy<ShaderMaterial> OpaqueLazy = new(BlockDb.MakeOpaqueMaterial);
     private static readonly Lazy<ShaderMaterial> OpaqueArrayLazy = new(BlockDb.MakeArrayOpaqueMaterial);
-    private static readonly Lazy<StandardMaterial3D> GlassLazy = new(BlockDb.MakeGlassMaterial);
+    private static readonly Lazy<ShaderMaterial> GlassLazy = new(BlockDb.MakeGlassMaterial);
     private static readonly Lazy<Material> WaterLazy = new(BlockDb.MakeWaterMaterial);
-    private static readonly Lazy<StandardMaterial3D> LavaLazy = new(BlockDb.MakeLavaMaterial);
+    private static readonly Lazy<ShaderMaterial> LavaLazy = new(BlockDb.MakeLavaMaterial);
 
     /// <summary>Opaque terrain material for the active meshing mode: the atlas
     /// standard material for per-face meshes, the texture-array shader for
     /// greedy (merged, UV-tiled) meshes.</summary>
     public static Material Opaque => Mesher.Greedy ? OpaqueArrayLazy.Value : OpaqueLazy.Value;
 
-    public static StandardMaterial3D Glass => GlassLazy.Value;
+    public static ShaderMaterial Glass => GlassLazy.Value;
 
     public static Material Water => WaterLazy.Value;
 
-    public static StandardMaterial3D Lava => LavaLazy.Value;
+    public static ShaderMaterial Lava => LavaLazy.Value;
+
+    /// <summary>Adjusts baked skylight response without rebuilding chunk meshes.</summary>
+    public static void SetSkyEnergy(float energy)
+    {
+        energy = Mathf.Clamp(energy, 0.0f, 1.25f);
+        if (OpaqueLazy.IsValueCreated) OpaqueLazy.Value.SetShaderParameter("sky_light_energy", energy);
+        if (OpaqueArrayLazy.IsValueCreated) OpaqueArrayLazy.Value.SetShaderParameter("sky_light_energy", energy);
+        if (GlassLazy.IsValueCreated) GlassLazy.Value.SetShaderParameter("sky_light_energy", energy);
+        if (WaterLazy.IsValueCreated && WaterLazy.Value is ShaderMaterial water)
+            water.SetShaderParameter("sky_light_energy", energy);
+        if (LavaLazy.IsValueCreated) LavaLazy.Value.SetShaderParameter("sky_light_energy", energy);
+    }
 }
