@@ -725,6 +725,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         SlotKind.Container when _container != null => _container.Slots[slot.Index],
         SlotKind.FurnaceInput when _furnace != null => _furnace.Input,
         SlotKind.FurnaceFuel when _furnace != null => _furnace.Fuel,
+        SlotKind.FurnaceOutput when _furnace != null => _furnace.Output,
         _ => ItemStack.Empty,
     };
 
@@ -739,6 +740,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             case SlotKind.Container when _container != null: _container.Slots[slot.Index] = stack; break;
             case SlotKind.FurnaceInput when _furnace != null: _furnace.Input = stack; break;
             case SlotKind.FurnaceFuel when _furnace != null: _furnace.Fuel = stack; break;
+            case SlotKind.FurnaceOutput when _furnace != null: _furnace.Output = stack; break;
         }
     }
 
