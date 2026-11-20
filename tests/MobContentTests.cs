@@ -33,6 +33,17 @@ public static class MobContentTests
         TestAssert.Equal(ItemId.CookedPork, ItemDb.SmeltsTo(ItemId.RawPork), "furnace cooks pork");
         TestAssert.Equal(64, ItemDb.MaxStack(ItemId.Leather), "leather stacks to 64");
 
+        TestAssert.Check(Mobs.IsBabySpawnCellSafe(BlockId.Grass, BlockId.Air, BlockId.Air, BlockId.Air),
+                "newborn spawn accepts solid floor with adult head clearance");
+        TestAssert.Check(!Mobs.IsBabySpawnCellSafe(BlockId.Air, BlockId.Air, BlockId.Air, BlockId.Air),
+                "newborn spawn rejects unsupported air");
+        TestAssert.Check(!Mobs.IsBabySpawnCellSafe(BlockId.Grass, BlockId.Stone, BlockId.Air, BlockId.Air),
+                "newborn spawn rejects a blocked feet cell");
+        TestAssert.Check(!Mobs.IsBabySpawnCellSafe(BlockId.Grass, BlockId.Air, BlockId.Stone, BlockId.Air),
+                "newborn spawn rejects a blocked body cell");
+        TestAssert.Check(!Mobs.IsBabySpawnCellSafe(BlockId.Grass, BlockId.Air, BlockId.Air, BlockId.Stone),
+                "newborn spawn reserves clearance for later growth");
+
         // Wildlife uses the existing food inventory and persisted item ids.
         Sheep sheep = new();
         TestAssert.Check(sheep.IsPassive, "sheep uses passive wildlife behavior");
