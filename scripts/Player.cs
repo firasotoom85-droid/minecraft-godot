@@ -79,6 +79,8 @@ public partial class Player : CharacterBody3D, IDamageable
     private double _jumpBuffer;
     private MeshInstance3D _outline = null!;
     private Node3D _arm = null!;
+    private Sprite3D _heldItemSprite = null!;
+    private int _heldItemId = -1;
     private Vector3 _armBase = Vector3.Zero;
     private double _bobPhase;
     private double _punch;
@@ -230,6 +232,34 @@ public partial class Player : CharacterBody3D, IDamageable
                 Select(Selected + 1);
             }
         }
+        else if (@event is InputEventJoypadButton pad && pad.Pressed)
+        {
+            Input.MouseMode = Input.MouseModeEnum.Hidden;
+            if (pad.IsActionPressed("toggle_fly"))
+            {
+                SetFlying(!Flying);
+            }
+            else if (pad.IsActionPressed("break_block"))
+            {
+                Ray.ForceRaycastUpdate();
+                AttackOrStartMining();
+                _mineTimer = MineRepeat;
+            }
+            else if (pad.IsActionPressed("place_block"))
+            {
+                Ray.ForceRaycastUpdate();
+                PlaceBlock();
+            }
+            else if (pad.IsActionPressed("pick_block"))
+            {
+                Ray.ForceRaycastUpdate();
+                PickBlock();
+            }
+        }
+        else if (@event is InputEventJoypadMotion motion && Mathf.Abs(motion.AxisValue) > 0.25f)
+        {
+            Input.MouseMode = Input.MouseModeEnum.Hidden;
+        }
         else if (@event is InputEventKey key && key.Pressed && !key.Echo)
         {
             if (key.IsActionPressed("toggle_fly"))
@@ -259,6 +289,19 @@ public partial class Player : CharacterBody3D, IDamageable
 
         float dt = (float)delta;
         bool locked = InputLocked || Stats.Dead;
+        if (!locked)
+        {
+            Vector2 look = Input.GetVector("look_left", "look_right", "look_up", "look_down");
+            if (look.LengthSquared() > 0.0001f)
+            {
+                RotateY(-look.X * 2.4f * dt);
+                Vector3 cameraRotation = Camera.Rotation;
+                cameraRotation.X = Mathf.Clamp(cameraRotation.X - look.Y * 2.0f * dt, -1.55f, 1.55f);
+                Camera.Rotation = cameraRotation;
+            }
+        }
+        if (!locked && Input.IsActionJustPressed("hotbar_prev")) Select(Selected - 1);
+        if (!locked && Input.IsActionJustPressed("hotbar_next")) Select(Selected + 1);
         Vector2 inputDir = locked ? Vector2.Zero : Input.GetVector("left", "right", "forward", "back");
         Vector3 direction = (Transform.Basis * new Vector3(inputDir.X, 0, inputDir.Y)).Normalized();
         bool sprintHeld = !locked && Input.IsActionPressed("sprint");
@@ -1525,8 +1568,7 @@ public partial class Player : CharacterBody3D, IDamageable
 
     private void HoldMine(float delta)
     {
-        if (InputLocked || Stats.Dead || Input.MouseMode != Input.MouseModeEnum.Captured
-                || !Input.IsActionPressed("break_block") || World == null)
+        if (InputLocked || Stats.Dead || !Input.IsActionPressed("break_block") || World == null)
         {
             ResetMining();
             _mineTimer = 0.0;
@@ -1801,6 +1843,17 @@ public partial class Player : CharacterBody3D, IDamageable
         _armBase = new Vector3(0.46f, -0.42f, -0.55f);
         _arm.Position = _armBase;
         _arm.Rotation = new Vector3(-0.25f, 0.1f, -0.18f);
+        _heldItemSprite = new Sprite3D
+        {
+            Name = "HeldItem",
+            PixelSize = 0.008f,
+            Position = new Vector3(0.12f, -0.53f, -0.10f),
+            Rotation = new Vector3(0.0f, 0.0f, -0.12f),
+            Billboard = BaseMaterial3D.BillboardModeEnum.Disabled,
+            TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
+            Shaded = false,
+        };
+        _arm.AddChild(_heldItemSprite);
         Camera.AddChild(_arm);
     }
 
@@ -1835,6 +1888,15 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
+        ItemStack held = Inventory.Hotbar[Selected];
+        int heldId = held.IsEmpty ? 0 : (int)held.Id;
+        if (heldId != _heldItemId)
+        {
+            _heldItemId = heldId;
+            _heldItemSprite.Texture = held.IsEmpty ? null : ItemDb.Icon(held.Id);
+            _heldItemSprite.Visible = !held.IsEmpty;
+        }
+
         if (Swimming)
         {
             _swimCameraPhase += delta * (5.0f + Velocity.Length() * 0.35f);
@@ -1842,6 +1904,8 @@ public partial class Player : CharacterBody3D, IDamageable
             _arm.Position = _armBase + new Vector3(stroke * 0.035f, Mathf.Abs(stroke) * 0.025f,
                     -0.045f - Mathf.Abs(stroke) * 0.06f);
             _arm.Rotation = new Vector3(-0.62f + stroke * 0.16f, 0.1f, -0.18f + stroke * 0.1f);
+            _heldItemSprite.Position = new Vector3(0.12f + stroke * 0.035f, -0.53f - Mathf.Abs(stroke) * 0.03f, -0.16f);
+            _heldItemSprite.Rotation = new Vector3(-0.35f + stroke * 0.18f, 0.0f, -0.12f + stroke * 0.2f);
             return;
         }
 
@@ -1862,5 +1926,7 @@ public partial class Player : CharacterBody3D, IDamageable
         float swingF = (float)swing;
         _arm.Position = _armBase + new Vector3(bob * 0.5f, bob - 0.06f * swingF, -0.20f * swingF);
         _arm.Rotation = new Vector3(-0.25f - 0.85f * swingF, 0.1f, -0.18f);
+        _heldItemSprite.Position = new Vector3(0.12f, -0.53f - 0.04f * swingF, -0.10f - 0.12f * swingF);
+        _heldItemSprite.Rotation = new Vector3(-0.12f * swingF, 0.0f, -0.12f - 0.35f * swingF);
     }
 }
