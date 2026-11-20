@@ -513,6 +513,10 @@ public partial class Mobs : Node
         }
     }
 
+    public static bool IsBabySpawnCellSafe(BlockId floor, BlockId feet, BlockId body, BlockId head) =>
+            BlockDb.DefOf(floor).Solid && feet == BlockId.Air
+            && body == BlockId.Air && head == BlockId.Air;
+
     private bool TryFindBabySpawnPosition(Vector3 midpoint, out Vector3 position)
     {
         position = Vector3.Zero;
@@ -535,9 +539,8 @@ public partial class Mobs : Node
             if (!World.HasChunk(chunk) || feetY < 1 || feetY >= World.Height - 2) continue;
 
             BlockId floor = World.GetBlock(x, feetY - 1, z);
-            if (!BlockDb.DefOf(floor).Solid || World.GetBlock(x, feetY, z) != BlockId.Air
-                    || World.GetBlock(x, feetY + 1, z) != BlockId.Air
-                    || World.GetBlock(x, feetY + 2, z) != BlockId.Air) continue;
+            if (!IsBabySpawnCellSafe(floor, World.GetBlock(x, feetY, z),
+                    World.GetBlock(x, feetY + 1, z), World.GetBlock(x, feetY + 2, z))) continue;
 
             Vector3 candidate = new(x + 0.5f, feetY, z + 0.5f);
             bool occupied = false;
