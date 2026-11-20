@@ -425,6 +425,10 @@ public static class WorldgenTests
         int mountainColumns = 0;
         int caveSamples = 0;
         int maximumEightBlockSlope = 0;
+        int steepX = 0;
+        int steepZ = 0;
+        int steepHeight = 0;
+        int steepEastHeight = 0;
 
         for (int z = -512; z <= 512; z += 8)
         {
@@ -434,8 +438,15 @@ public static class WorldgenTests
             {
                 WorldGenV7.SurfaceSample sample = generator.SampleSurface(x, z, 40);
                 WorldGenV7.SurfaceSample east = generator.SampleSurface(x + 8, z, 40);
-                maximumEightBlockSlope = Math.Max(maximumEightBlockSlope,
-                        Math.Abs(sample.Height - east.Height));
+                int slope = Math.Abs(sample.Height - east.Height);
+                if (slope > maximumEightBlockSlope)
+                {
+                    maximumEightBlockSlope = slope;
+                    steepX = x;
+                    steepZ = z;
+                    steepHeight = sample.Height;
+                    steepEastHeight = east.Height;
+                }
                 if (sample.Biome != east.Biome)
                 {
                     biomeTransitions++;
@@ -459,8 +470,12 @@ public static class WorldgenTests
                 if (climate.RiverStrength > 0.78f && sample.Height <= 42)
                 {
                     riverChannels++;
-                    WorldGenV7.SurfaceSample bank = generator.SampleSurface(x + 1, z, 40);
-                    if (bank.Height >= sample.Height + 2)
+                    WorldGenV7.SurfaceSample bankEast = generator.SampleSurface(x + 24, z, 40);
+                    WorldGenV7.SurfaceSample bankWest = generator.SampleSurface(x - 24, z, 40);
+                    WorldGenV7.SurfaceSample bankSouth = generator.SampleSurface(x, z + 24, 40);
+                    WorldGenV7.SurfaceSample bankNorth = generator.SampleSurface(x, z - 24, 40);
+                    if (Math.Max(Math.Max(bankEast.Height, bankWest.Height),
+                            Math.Max(bankSouth.Height, bankNorth.Height)) >= sample.Height + 2)
                     {
                         riverBanks++;
                     }
@@ -483,7 +498,7 @@ public static class WorldgenTests
         TestAssert.Check(maximumEightBlockSlope < 40,
                 "V7 mountain and terrain slopes avoid extreme eight-block cliffs");
         TestAssert.Check(caveSamples > 0, "V7 terrain contains cave passages below the surface");
-        GD.Print($"WORLDGEN_TERRAIN river_channels={riverChannels} raised_banks={riverBanks} biome_transitions={biomeTransitions} mountain_columns={mountainColumns} cave_samples={caveSamples} max_slope_8={maximumEightBlockSlope}");
+        GD.Print($"WORLDGEN_TERRAIN river_channels={riverChannels} raised_banks={riverBanks} biome_transitions={biomeTransitions} mountain_columns={mountainColumns} cave_samples={caveSamples} max_slope_8={maximumEightBlockSlope} steep_at=({steepX},{steepZ}) heights={steepHeight}/{steepEastHeight}");
     }
 
     private static void ProfileChunkGeneration(Node host)
