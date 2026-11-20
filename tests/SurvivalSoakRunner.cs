@@ -92,7 +92,7 @@ public partial class SurvivalSoakRunner : Node
             }
         }
 
-        if (_feedTimer >= 100.0)
+        if (_feedTimer >= 10.0)
         {
             _feedTimer = 0.0;
             FeedHerds();
@@ -185,8 +185,8 @@ public partial class SurvivalSoakRunner : Node
 
     private void FeedHerds()
     {
-        _player.Inventory.Add(ItemId.Wheat, 48);
-        _player.Inventory.Add(ItemId.Seeds, 24);
+        _player.Inventory.Add(ItemId.Wheat, 16);
+        _player.Inventory.Add(ItemId.Seeds, 8);
         int wheatSlot = FindHotbarSlot(ItemId.Wheat);
         int seedSlot = FindHotbarSlot(ItemId.Seeds);
         foreach (Node child in _mobs.GetChildren())
