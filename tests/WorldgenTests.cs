@@ -358,12 +358,132 @@ public static class WorldgenTests
         }
 
         TestAssert.Check(foundStructureSeam,
-                "V7 structure template blocks are clipped consistently across chunk seams");
+                "V7 surface structure templates stamp blocks on both sides of chunk seams");
+
+        // Resolve an underground room near a chunk boundary directly from its
+        // deterministic cell seed, then verify its floor in both generated chunks.
+        bool foundUndergroundSeam = false;
+        for (int cz = 0; cz < 32 && !foundUndergroundSeam; cz++)
+        {
+            for (int cx = 0; cx < 32 && !foundUndergroundSeam; cx++)
+            {
+                if (!world.TryGetUndergroundStructureSiteV7(cx, cz,
+                        out Vector3I site, out int kind, out _))
+                {
+                    continue;
+                }
+
+                int radiusX = kind == 1 ? 5 : 4;
+                int radiusZ = kind == 2 ? 4 : 3;
+                int modX = site.X % 16;
+                int modZ = site.Z % 16;
+                int boundaryX = modX <= 8 ? site.X - modX : site.X + (16 - modX);
+                int boundaryZ = modZ <= 8 ? site.Z - modZ : site.Z + (16 - modZ);
+                BlockId floor = kind == 0 ? BlockId.Brick : BlockId.Cobblestone;
+
+                if (Math.Abs(site.X - boundaryX) <= radiusX)
+                {
+                    int chunkZ = Mathf.FloorToInt(site.Z / 16.0f);
+                    int localZ = site.Z - chunkZ * 16;
+                    byte[] left = world.ChunkData(new Vector2I(boundaryX / 16 - 1, chunkZ));
+                    byte[] right = world.ChunkData(new Vector2I(boundaryX / 16, chunkZ));
+                    BlockId a = (BlockId)left[15 + localZ * 16 + site.Y * 256];
+                    BlockId b = (BlockId)right[localZ * 16 + site.Y * 256];
+                    foundUndergroundSeam = a == floor && b == floor;
+                }
+
+                if (!foundUndergroundSeam && Math.Abs(site.Z - boundaryZ) <= radiusZ)
+                {
+                    int chunkX = Mathf.FloorToInt(site.X / 16.0f);
+                    int localX = site.X - chunkX * 16;
+                    byte[] back = world.ChunkData(new Vector2I(chunkX, boundaryZ / 16 - 1));
+                    byte[] front = world.ChunkData(new Vector2I(chunkX, boundaryZ / 16));
+                    BlockId a = (BlockId)back[localX + 15 * 16 + site.Y * 256];
+                    BlockId b = (BlockId)front[localX + site.Y * 256];
+                    foundUndergroundSeam = a == floor && b == floor;
+                }
+            }
+        }
+
+        TestAssert.Check(foundUndergroundSeam,
+                "V7 underground chambers stamp their floor across chunk seams");
+
+        CheckV7TerrainProfiles();
 
         host.RemoveChild(world);
         world.QueueFree();
         DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
         DirAccess.RemoveAbsolute(dir);
+    }
+
+    private static void CheckV7TerrainProfiles()
+    {
+        WorldGenV7 generator = new(11235813, "normal");
+        int riverChannels = 0;
+        int riverBanks = 0;
+        int biomeTransitions = 0;
+        int mountainColumns = 0;
+        int caveSamples = 0;
+        int maximumEightBlockSlope = 0;
+
+        for (int z = -512; z <= 512; z += 8)
+        {
+            Biome previous = Biome.Plains;
+            bool hasPrevious = false;
+            for (int x = -512; x <= 512; x += 8)
+            {
+                WorldGenV7.SurfaceSample sample = generator.SampleSurface(x, z, 40);
+                WorldGenV7.SurfaceSample east = generator.SampleSurface(x + 8, z, 40);
+                maximumEightBlockSlope = Math.Max(maximumEightBlockSlope,
+                        Math.Abs(sample.Height - east.Height));
+                if (sample.Biome != east.Biome)
+                {
+                    biomeTransitions++;
+                }
+
+                if (hasPrevious && sample.Biome != previous)
+                {
+                    biomeTransitions++;
+                }
+
+                previous = sample.Biome;
+                hasPrevious = true;
+
+                if (sample.Height > 70)
+                {
+                    mountainColumns++;
+                }
+
+                WorldGenV7.ClimateSample climate = generator.ClimateAt(
+                        x, z, sample.Height, includeRivers: true);
+                if (climate.RiverStrength > 0.78f && sample.Height <= 42)
+                {
+                    riverChannels++;
+                    WorldGenV7.SurfaceSample bank = generator.SampleSurface(x + 1, z, 40);
+                    if (bank.Height >= sample.Height + 2)
+                    {
+                        riverBanks++;
+                    }
+                }
+
+                for (int y = Math.Max(4, sample.Height - 28); y < sample.Height - 4; y += 4)
+                {
+                    if (generator.IsCave(x, y, z, sample.Height))
+                    {
+                        caveSamples++;
+                    }
+                }
+            }
+        }
+
+        TestAssert.Check(riverChannels > 0, "V7 terrain contains carved river channels");
+        TestAssert.Check(riverBanks > 0, "V7 rivers have raised bank transitions");
+        TestAssert.Check(biomeTransitions > 100, "V7 biomes transition across sampled terrain");
+        TestAssert.Check(mountainColumns > 0, "V7 terrain contains elevated mountain columns");
+        TestAssert.Check(maximumEightBlockSlope < 40,
+                "V7 mountain and terrain slopes avoid extreme eight-block cliffs");
+        TestAssert.Check(caveSamples > 0, "V7 terrain contains cave passages below the surface");
+        GD.Print($"WORLDGEN_TERRAIN river_channels={riverChannels} raised_banks={riverBanks} biome_transitions={biomeTransitions} mountain_columns={mountainColumns} cave_samples={caveSamples} max_slope_8={maximumEightBlockSlope}");
     }
 
     private static void ProfileChunkGeneration(Node host)
