@@ -31,27 +31,33 @@ public partial class DevConsole : CanvasLayer
         _panel = new PanelContainer
         {
             Visible = false,
-            CustomMinimumSize = new Vector2(620, 0),
+            CustomMinimumSize = new Vector2(660, 0),
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
-        StyleBoxFlat sb = new()
-        {
-            BgColor = new Color(0.03f, 0.04f, 0.06f, 0.92f),
-            BorderColor = new Color(1, 1, 1, 0.18f),
-            ContentMarginLeft = 10,
-            ContentMarginRight = 10,
-            ContentMarginTop = 8,
-            ContentMarginBottom = 8,
-        };
-        sb.SetCornerRadiusAll(8);
-        sb.SetBorderWidthAll(1);
-        _panel.AddThemeStyleboxOverride("panel", sb);
+        _panel.AddThemeStyleboxOverride("panel", MenuSkin.PanelStyle(true));
         _panel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterBottom, Control.LayoutPresetMode.Minsize, 84);
+
+        VBoxContainer consoleLayout = new();
+        consoleLayout.AddThemeConstantOverride("separation", 8);
+        HBoxContainer heading = new();
+        heading.AddThemeConstantOverride("separation", 10);
+        heading.AddChild(MenuSkin.Eyebrow("DEVELOPER CONSOLE"));
+        Label shortcut = new()
+        {
+            Text = "ENTER RUNS   ·   ESC CLOSES",
+            HorizontalAlignment = HorizontalAlignment.Right,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+        };
+        shortcut.AddThemeFontSizeOverride("font_size", 10);
+        shortcut.AddThemeColorOverride("font_color", MenuSkin.Muted);
+        heading.AddChild(shortcut);
+        consoleLayout.AddChild(heading);
 
         _entry = new LineEdit
         {
-            PlaceholderText = "command…  (/help)",
+            PlaceholderText = "Enter a command…   /help for the command list",
         };
+        MenuSkin.StyleInput(_entry);
         _entry.TextSubmitted += text =>
         {
             string result = Run(text);
@@ -72,7 +78,8 @@ public partial class DevConsole : CanvasLayer
                 GetViewport().SetInputAsHandled();
             }
         };
-        _panel.AddChild(_entry);
+        consoleLayout.AddChild(_entry);
+        _panel.AddChild(consoleLayout);
         AddChild(_panel);
     }
 
