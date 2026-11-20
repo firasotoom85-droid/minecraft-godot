@@ -30,9 +30,11 @@ The project is a long-running solo build with an extensive design log in
 - **Block interaction** — material-specific hardness and tool speeds, harvest
   tiers and drops, creative instant mining, ten crack stages, block chips, and
   material-matched procedural breaking and placement sounds.
-- **A living world** — herding sheep, cows, pigs and chickens react to nearby
-  danger, gather in small groups, accept species-appropriate breeding food, and
-  raise young that mature over time. Briarbacks defend birch forests.
+- **A living world** — species-specific sheep, cow, pig and chicken herds use
+  distinct group sizes and spacing, react to danger, graze grass into dirt as
+  hunger rises, and raise young that mature over time. Procedural articulated
+  legs animate their gait; passive animals rest at night and seek overhead
+  shelter during rain and storms. Briarbacks defend birch forests.
 - **Creature combat** — Shades and Rots coordinate detection, Hollows and
   Crystal Wisps telegraph dodgeable ranged shots, Cave Stalkers pounce from
   caves, and rare Dreadwings flank players at night; the Ember Warden remains
@@ -75,6 +77,21 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 `res://tests/TestRunner.tscn`; it exits non-zero on failure. The runner prints
 one line per suite and a final check/failure count. If `GODOT` is unset, the
 script looks on `PATH` and in common install locations.
+
+### Long-duration survival soak
+
+An opt-in integration runner loads the real game scene and exercises multiple
+herds, breeding, hostile encounters, cave fauna, day/night transitions, and
+storm shelter behavior. It logs population/cave encounter counts every minute
+and saves the world at completion. Run a 60-minute soak with:
+
+```bash
+GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 bash scripts/soak-survival.sh 3600
+```
+
+Use a shorter duration such as `300` for a smoke run. The soak is deliberately
+separate from the fast CI unit suite; it must complete with a cave encounter,
+observed juvenile, and live passive population to report PASS.
 
 ## Controls
 
