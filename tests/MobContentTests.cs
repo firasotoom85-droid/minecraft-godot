@@ -32,5 +32,49 @@ public static class MobContentTests
         TestAssert.Equal(ItemId.CookedBeef, ItemDb.CooksTo(ItemId.RawBeef), "campfire cooks beef");
         TestAssert.Equal(ItemId.CookedPork, ItemDb.SmeltsTo(ItemId.RawPork), "furnace cooks pork");
         TestAssert.Equal(64, ItemDb.MaxStack(ItemId.Leather), "leather stacks to 64");
+
+        // Wildlife uses the existing food inventory and persisted item ids.
+        Sheep sheep = new();
+        TestAssert.Check(sheep.IsPassive, "sheep uses passive wildlife behavior");
+        TestAssert.Equal(ItemId.Wheat, sheep.BreedingFood, "sheep breeds with wheat");
+        TestAssert.Check(cow.IsPassive, "cow uses passive wildlife behavior");
+        TestAssert.Equal(ItemId.Wheat, cow.BreedingFood, "cow breeds with wheat");
+        TestAssert.Check(pig.IsPassive, "pig uses passive wildlife behavior");
+        TestAssert.Equal(ItemId.Wheat, pig.BreedingFood, "pig breeds with wheat");
+        TestAssert.Check(chicken.IsPassive, "chicken uses passive wildlife behavior");
+        TestAssert.Equal(ItemId.Seeds, chicken.BreedingFood, "chicken breeds with seeds");
+
+        float adultChickenSpeed = chicken.Speed;
+        chicken.SetBaby(30.0f);
+        TestAssert.Check(chicken.IsBaby, "newborn animal enters juvenile state");
+        TestAssert.Equal(new Vector3(0.65f, 0.65f, 0.65f), chicken.Scale,
+                "juvenile animal has reduced scale");
+        TestAssert.Check(chicken.Speed < adultChickenSpeed,
+                "juvenile animal moves more slowly");
+
+        Briarback briarback = new();
+        TestAssert.Equal("Briarback", briarback.DisplayName, "briarback name");
+        TestAssert.Equal(20.0f, briarback.MaxHealth, "briarback defensive health");
+        TestAssert.Check(briarback.IsPassive, "briarback is a defensive passive creature");
+        TestAssert.Equal(ItemId.None, briarback.BreedingFood,
+                "briarback does not consume livestock breeding feed");
+
+        CaveStalker stalker = new();
+        TestAssert.Equal("Cave Stalker", stalker.DisplayName, "cave stalker name");
+        TestAssert.Equal(11.0f, stalker.MaxHealth, "cave stalker health");
+        TestAssert.Equal(ItemId.RawPork, stalker.Loot[0].Id, "cave stalker has meat loot");
+
+        CrystalWisp wisp = new();
+        TestAssert.Equal("Crystal Wisp", wisp.DisplayName, "crystal wisp name");
+        TestAssert.Equal(9.0f, wisp.MaxHealth, "crystal wisp health");
+        TestAssert.Equal(ItemId.Coal, wisp.Loot[0].Id, "crystal wisp has cave loot");
+
+        Dreadwing dreadwing = new();
+        TestAssert.Equal("Dreadwing", dreadwing.DisplayName, "dreadwing name");
+        TestAssert.Equal(16.0f, dreadwing.MaxHealth, "dreadwing health");
+        TestAssert.Equal(ItemId.Feather, dreadwing.Loot[0].Id, "dreadwing has feather loot");
+
+        TestAssert.Check(rot.Loot.Length > 0, "Rot has a loot table");
+        TestAssert.Check(hollow.Loot.Length > 0, "Hollow has a loot table");
     }
 }
