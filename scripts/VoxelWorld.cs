@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -529,6 +530,11 @@ public partial class VoxelWorld : Node3D
 
     public TreeInfo? GetTreeAt(int tx, int tz)
     {
+        if (IsSky && !IslandAt(tx, tz))
+        {
+            return null;
+        }
+
         int h = SurfaceHeight(tx, tz);
         if (h <= SeaLevel + 1 || h >= Height - 12)
         {
@@ -560,6 +566,11 @@ public partial class VoxelWorld : Node3D
 
     public CactusInfo? GetCactusAt(int tx, int tz)
     {
+        if (IsSky && !IslandAt(tx, tz))
+        {
+            return null;
+        }
+
         int h = SurfaceHeight(tx, tz);
         if (h <= SeaLevel + 1)
         {
@@ -588,12 +599,17 @@ public partial class VoxelWorld : Node3D
         ulong rngSeed = _genVersion <= 1
                 ? (ulong)((uint)GD.Hash(new Vector2I(cx, cz)) ^ 0x1D872B41u)
                 : (ulong)(Hash3(cx, 19532, cz) & 0x7FFFFFFFFFFFFFFFL);
-        RandomNumberGenerator rng = new()
-        {
-            Seed = rngSeed,
-        };
+        // Thread-local generator: the sequence must stay identical, but the
+        // object is pure scratch and is reached ~9 times per generated chunk.
+        RandomNumberGenerator rng = _campfireRng ??= new RandomNumberGenerator();
+        rng.Seed = rngSeed;
         int x = cx * 64 + rng.RandiRange(6, 57);
         int z = cz * 64 + rng.RandiRange(6, 57);
+        if (IsSky && !IslandAt(x, z))
+        {
+            return null;
+        }
+
         int h = SurfaceHeight(x, z);
         if (h <= SeaLevel + 2 || h >= Height - 4)
         {
@@ -609,14 +625,23 @@ public partial class VoxelWorld : Node3D
     }
 
     private readonly Dictionary<long, Vector3I?> _campfireCache = new();
+    [ThreadStatic] private static RandomNumberGenerator? _campfireRng;
 
     /// <summary>Cell-cached campfire site lookup (deterministic per world).</summary>
     private Vector3I? CachedCampfireSite(int cx, int cz)
     {
         long key = ((long)cx << 32) ^ (uint)cz;
-        if (!_campfireCache.TryGetValue(key, out Vector3I? site))
+        lock (_mutex)
         {
-            site = GetCampfireSite(cx, cz);
+            if (_campfireCache.TryGetValue(key, out Vector3I? cached))
+            {
+                return cached;
+            }
+        }
+
+        Vector3I? site = GetCampfireSite(cx, cz);
+        lock (_mutex)
+        {
             _campfireCache[key] = site;
         }
 
@@ -691,6 +716,11 @@ public partial class VoxelWorld : Node3D
         }
         int x = cx * StructureCell + Range(ref rng, 12, StructureCell - 12);
         int z = cz * StructureCell + Range(ref rng, 12, StructureCell - 12);
+        if (IsSky && !IslandAt(x, z))
+        {
+            return null;
+        }
+
         int h = SurfaceHeight(x, z);
         if (h <= SeaLevel + 2 || h >= Height - 14)
         {
@@ -708,9 +738,17 @@ public partial class VoxelWorld : Node3D
     private StructureInfo? CachedStructureSite(int cx, int cz)
     {
         long key = ((long)cx << 32) ^ (uint)cz;
-        if (!_structureCache.TryGetValue(key, out StructureInfo? site))
+        lock (_mutex)
         {
-            site = GetStructureSite(cx, cz);
+            if (_structureCache.TryGetValue(key, out StructureInfo? cached))
+            {
+                return cached;
+            }
+        }
+
+        StructureInfo? site = GetStructureSite(cx, cz);
+        lock (_mutex)
+        {
             _structureCache[key] = site;
         }
 
@@ -992,7 +1030,10 @@ public partial class VoxelWorld : Node3D
             {
                 foreach ((int index, BlockId id) in edits)
                 {
-                    data[index] = (byte)id;
+                    if ((uint)index < (uint)data.Length)
+                    {
+                        data[index] = (byte)id;
+                    }
                 }
             }
         }
@@ -2098,42 +2139,64 @@ public partial class VoxelWorld : Node3D
                 }
 
                 Dictionary<int, BlockId> edits = [];
+                int volume = ChunkX * Height * ChunkZ;
                 foreach ((string index, BlockId id) in inner)
                 {
-                    if (int.TryParse(index, out int i))
+                    if (!int.TryParse(index, out int i))
                     {
-                        if (!BlockDb.IsDefined(id))
-                        {
-                            GD.PushWarning($"minecraft: ignoring unknown block id {(int)id} in {_worldDir}");
-                            continue;
-                        }
+                        continue;
+                    }
 
-                        edits[i] = id;
-                        if (i >= 0 && i < ChunkX * Height * ChunkZ
-                                && BlockDb.IsDefined(id) && BlockDb.DefOf(id).Light > 0.0f)
-                        {
-                            int stride = ChunkX * ChunkZ;
-                            int y = i / stride;
-                            int rem = i % stride;
-                            int lz = rem / ChunkX;
-                            int lx = rem % ChunkX;
-                            _lightSources[new Vector3I(
-                                    cx * ChunkX + lx, y, cz * ChunkZ + lz)] = BlockDb.DefOf(id).Light;
-                        }
+                    if (!BlockDb.IsDefined(id))
+                    {
+                        GD.PushWarning($"minecraft: ignoring unknown block id {(int)id} in {_worldDir}");
+                        continue;
+                    }
 
-                        if (i >= 0 && i < ChunkX * Height * ChunkZ && BlockDb.IsWheat(id))
-                        {
-                            int stride = ChunkX * ChunkZ;
-                            int y = i / stride;
-                            int rem = i % stride;
-                            int lz = rem / ChunkX;
-                            int lx = rem % ChunkX;
-                            _crops.Add(new Vector3I(cx * ChunkX + lx, y, cz * ChunkZ + lz));
-                        }
+                    if (i < 0 || i >= volume)
+                    {
+                        GD.PushWarning($"minecraft: ignoring out-of-range edit index {i} in {_worldDir}");
+                        continue;
+                    }
+
+                    edits[i] = id;
+                    int stride = ChunkX * ChunkZ;
+                    int y = i / stride;
+                    int rem = i % stride;
+                    int lz = rem / ChunkX;
+                    int lx = rem % ChunkX;
+                    if (BlockDb.DefOf(id).Light > 0.0f)
+                    {
+                        _lightSources[new Vector3I(
+                                cx * ChunkX + lx, y, cz * ChunkZ + lz)] = BlockDb.DefOf(id).Light;
+                    }
+
+                    if (BlockDb.IsWheat(id))
+                    {
+                        _crops.Add(new Vector3I(cx * ChunkX + lx, y, cz * ChunkZ + lz));
                     }
                 }
 
                 _edits[new Vector2I(cx, cz)] = edits;
+            }
+        }
+
+        // _editTops is normally maintained by SetBlock only; rebuild it from
+        // the loaded edits so far LOD and the minimap show builds immediately
+        // after a restart.
+        foreach ((Vector2I cp, Dictionary<int, BlockId> edits) in _edits)
+        {
+            if (edits.Count == 0)
+            {
+                continue;
+            }
+
+            byte[] data = GenerateChunkData(cp);
+            int stride = ChunkX * ChunkZ;
+            foreach (int index in edits.Keys)
+            {
+                int rem = index % stride;
+                UpdateEditTop(cp, rem % ChunkX, rem / ChunkX, data);
             }
         }
 

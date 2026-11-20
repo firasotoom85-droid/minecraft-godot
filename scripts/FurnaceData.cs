@@ -19,7 +19,7 @@ public sealed class FurnaceData
     public float BurnMax;
     public float SmeltTime;
 
-    private ItemId _smeltResult = ItemId.None;
+    private ItemId? _smeltResult;
 
     public bool IsBurning => BurnTime > 0.0f;
 
@@ -39,7 +39,9 @@ public sealed class FurnaceData
         bool canAccept = result is { } r && CanAccept(r);
         if (result != _smeltResult)
         {
-            _smeltResult = result ?? ItemId.None;
+            // Keep the null sentinel: comparing null against a non-nullable
+            // ItemId.None is always true and would dirty the world every tick.
+            _smeltResult = result;
             SmeltTime = 0.0f;
             changed = true;
         }
@@ -141,6 +143,6 @@ public sealed class FurnaceData
             }
         }
 
-        _smeltResult = Input.IsEmpty ? ItemId.None : ItemDb.SmeltsTo(Input.Id) ?? ItemId.None;
+        _smeltResult = Input.IsEmpty ? null : ItemDb.SmeltsTo(Input.Id);
     }
 }

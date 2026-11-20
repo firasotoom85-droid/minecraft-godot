@@ -43,5 +43,23 @@ public static class InventoryTests
         Inventory starter = new();
         starter.LoadFrom(null);
         TestAssert.Check(starter.CountOf(ItemId.Grass) == 64, "legacy save gets the starter kit");
+
+        Inventory roomy = new();
+        TestAssert.Check(roomy.CanFit(ItemId.Stone, Inventory.SlotCount * 64), "empty inventory fits full stacks");
+        TestAssert.Check(!roomy.CanFit(ItemId.Stone, Inventory.SlotCount * 64 + 1), "no room past the slot count");
+
+        Inventory partial = new();
+        partial.Set(0, ItemDb.New(ItemId.Stone, 60));
+        TestAssert.Check(partial.CanFit(ItemId.Stone, 68), "partial stack plus empty slots fits");
+
+        Inventory oneGap = new();
+        for (int i = 0; i < Inventory.SlotCount; i++)
+        {
+            oneGap.Set(i, ItemDb.New(ItemId.Dirt, 64));
+        }
+
+        oneGap.Set(Inventory.SlotCount - 1, ItemStack.Empty);
+        TestAssert.Check(oneGap.CanFit(ItemId.WoodPick, 1), "one empty slot fits one tool");
+        TestAssert.Check(!oneGap.CanFit(ItemId.WoodPick, 2), "tools need one empty slot each");
     }
 }

@@ -3,7 +3,7 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>Read-only journal of the curated achievements (J).</summary>
-public partial class AchievementUi : CanvasLayer
+public partial class AchievementUi : CanvasLayer, IModalUi
 {
     private Player _player = null!;
     private VoxelWorld _world = null!;
@@ -16,6 +16,7 @@ public partial class AchievementUi : CanvasLayer
         _player = player;
         _world = world;
         Layer = 12;
+        AddToGroup(UiFocus.ModalGroup);
         Build();
     }
 
@@ -101,8 +102,15 @@ public partial class AchievementUi : CanvasLayer
     {
         _open = false;
         _root.Visible = false;
-        Input.MouseMode = Input.MouseModeEnum.Captured;
-        _player.InputLocked = false;
+        UiFocus.Restore(_player);
+    }
+
+    public void ForceClose()
+    {
+        if (_open)
+        {
+            Close();
+        }
     }
 
     private void Refresh()

@@ -50,6 +50,18 @@ public static class FurnaceTests
         empty.Tick(30.0f);
         TestAssert.Check(empty.Output.IsEmpty, "no fuel means no smelting");
 
+        // Regression: an idle furnace used to compare null against ItemId.None
+        // and report a change on every tick, forcing an autosave forever.
+        FurnaceData idle = new();
+        TestAssert.Check(!idle.Tick(0.1f), "empty furnace does not report a change");
+        TestAssert.Check(!idle.Tick(0.1f), "empty furnace stays quiet on later ticks");
+
+        FurnaceData stoneOnly = new()
+        {
+            Input = new ItemStack(ItemId.Stone, 1, 0),
+        };
+        TestAssert.Check(!stoneOnly.Tick(0.1f), "non-smeltable input does not report a change");
+
         TestAssert.Equal(80.0f, ItemDb.FuelSeconds(ItemId.Coal), "coal is a long fuel");
         TestAssert.Equal(15.0f, ItemDb.FuelSeconds(ItemId.Planks), "planks are a short fuel");
         TestAssert.Equal(0.0f, ItemDb.FuelSeconds(ItemId.Stone), "stone is not fuel");

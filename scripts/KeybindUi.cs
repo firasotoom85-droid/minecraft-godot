@@ -3,11 +3,12 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>Keyboard rebinding panel. Opened from the pause menu.</summary>
-public partial class KeybindUi : CanvasLayer
+public partial class KeybindUi : CanvasLayer, IModalUi
 {
     private Player _player = null!;
     private Control _root = null!;
     private VBoxContainer _rows = null!;
+    private Label _notice = null!;
     private string? _waitingAction;
     private bool _open;
 
@@ -16,6 +17,7 @@ public partial class KeybindUi : CanvasLayer
         _player = player;
         Layer = 15;
         ProcessMode = ProcessModeEnum.Always;
+        AddToGroup(UiFocus.ModalGroup);
         Build();
     }
 
@@ -53,6 +55,13 @@ public partial class KeybindUi : CanvasLayer
         hint.AddThemeFontSizeOverride("font_size", 12);
         hint.AddThemeColorOverride("font_color", new Color(0.70f, 0.78f, 0.88f));
         box.AddChild(hint);
+        _notice = new Label
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        _notice.AddThemeFontSizeOverride("font_size", 12);
+        _notice.AddThemeColorOverride("font_color", new Color(1.0f, 0.66f, 0.55f));
+        box.AddChild(_notice);
         _rows = new VBoxContainer
         {
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
@@ -96,6 +105,7 @@ public partial class KeybindUi : CanvasLayer
     private void WaitFor(string action)
     {
         _waitingAction = action;
+        _notice.Text = "";
         Button? target = _rows.GetNodeOrNull<Button>("Key_" + action);
         if (target != null)
         {
@@ -121,8 +131,14 @@ public partial class KeybindUi : CanvasLayer
             {
                 RefreshButton(action);
             }
+            else if (Keybinds.Conflict(action, key.Keycode) is { } conflict)
+            {
+                _notice.Text = $"{key.Keycode} is already bound to {conflict}";
+                RefreshButton(action);
+            }
             else
             {
+                _notice.Text = "";
                 Keybinds.Rebind(action, key.Keycode);
                 RefreshButton(action);
             }
@@ -177,5 +193,13 @@ public partial class KeybindUi : CanvasLayer
         _open = false;
         _root.Visible = false;
         _waitingAction = null;
+    }
+
+    public void ForceClose()
+    {
+        if (_open)
+        {
+            Close();
+        }
     }
 }

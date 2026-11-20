@@ -39,6 +39,11 @@ public partial class PhotoMode : Node
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        if (GetTree().Paused || PlayerRef is not { } player || player.InputLocked || player.Stats.Dead)
+        {
+            return;
+        }
+
         if (@event is InputEventKey key && key.Pressed && !key.Echo && key.IsActionPressed("photo_mode"))
         {
             Toggle();

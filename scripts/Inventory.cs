@@ -118,6 +118,44 @@ public sealed class Inventory
         return remaining;
     }
 
+    /// <summary>True when <paramref name="count"/> of an item fits in the hotbar/backpack.</summary>
+    public bool CanFit(ItemId id, int count)
+    {
+        if (id == ItemId.None || count <= 0)
+        {
+            return true;
+        }
+
+        int max = ItemDb.MaxStack(id);
+        int space = 0;
+        space += SpaceIn(id, count, max, Hotbar);
+        space += SpaceIn(id, count, max, Backpack);
+        return space >= count;
+    }
+
+    private static int SpaceIn(ItemId id, int count, int max, ItemStack[] slots)
+    {
+        int space = 0;
+        foreach (ItemStack s in slots)
+        {
+            if (s.IsEmpty)
+            {
+                space += max;
+            }
+            else if (s.Id == id)
+            {
+                space += Math.Max(max - s.Count, 0);
+            }
+
+            if (space >= count)
+            {
+                return space;
+            }
+        }
+
+        return space;
+    }
+
     public int CountOf(ItemId id)
     {
         int n = 0;

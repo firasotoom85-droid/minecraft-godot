@@ -132,8 +132,10 @@ public static class Recipes
         int w = maxC - minC + 1;
         foreach (Recipe recipe in All)
         {
-            int rh = recipe.Pattern.Length;
-            int rw = recipe.Pattern.Max(p => p.Length);
+            // Compare content bounds, not raw string lengths: shovel patterns
+            // deliberately leave the side columns empty (".P." / ".S." / ".S.")
+            // and the grid slides to the pattern's own bounding box.
+            (int rr, int rc, int rh, int rw) = Bounds(recipe.Pattern);
             if (rh != h || rw != w)
             {
                 continue;
@@ -144,7 +146,9 @@ public static class Recipes
             {
                 for (int c = 0; c < rw && ok; c++)
                 {
-                    char ch = c < recipe.Pattern[r].Length ? recipe.Pattern[r][c] : '.';
+                    int pr = rr + r;
+                    int pc = rc + c;
+                    char ch = pc < recipe.Pattern[pr].Length ? recipe.Pattern[pr][pc] : '.';
                     ItemStack cell = grid[(minR + r) * size + (minC + c)];
                     if (ch == '.')
                     {
@@ -169,11 +173,15 @@ public static class Recipes
     /// <summary>Consume one item from every pattern cell of a matched recipe.</summary>
     public static void ConsumeFromGrid(ItemStack[] grid, int size, Recipe recipe, int row, int col)
     {
-        for (int r = 0; r < recipe.Pattern.Length; r++)
+        (int rr, int rc, int rh, int rw) = Bounds(recipe.Pattern);
+        for (int r = 0; r < rh; r++)
         {
-            for (int c = 0; c < recipe.Pattern[r].Length; c++)
+            for (int c = 0; c < rw; c++)
             {
-                if (recipe.Pattern[r][c] == '.')
+                int pr = rr + r;
+                int pc = rc + c;
+                char ch = pc < recipe.Pattern[pr].Length ? recipe.Pattern[pr][pc] : '.';
+                if (ch == '.')
                 {
                     continue;
                 }
@@ -182,6 +190,32 @@ public static class Recipes
                 grid[i] = grid[i].Count <= 1 ? ItemStack.Empty : grid[i] with { Count = grid[i].Count - 1 };
             }
         }
+    }
+
+    /// <summary>Content bounds of a pattern, ignoring empty borders.</summary>
+    private static (int Row, int Col, int Height, int Width) Bounds(string[] pattern)
+    {
+        int row0 = pattern.Length;
+        int row1 = -1;
+        int col0 = int.MaxValue;
+        int col1 = -1;
+        for (int r = 0; r < pattern.Length; r++)
+        {
+            for (int c = 0; c < pattern[r].Length; c++)
+            {
+                if (pattern[r][c] == '.')
+                {
+                    continue;
+                }
+
+                row0 = System.Math.Min(row0, r);
+                row1 = System.Math.Max(row1, r);
+                col0 = System.Math.Min(col0, c);
+                col1 = System.Math.Max(col1, c);
+            }
+        }
+
+        return row1 < 0 ? (0, 0, 0, 0) : (row0, col0, row1 - row0 + 1, col1 - col0 + 1);
     }
 
     public static Dictionary<ItemId, int> Ingredients(Recipe recipe)
@@ -210,7 +244,7 @@ public static class Recipes
     /// <summary>One-click craft straight from the inventory (recipe book).</summary>
     public static bool Craft(Recipe recipe, Inventory inv)
     {
-        if (!CanCraft(recipe, inv))
+        if (!CanCraft(recipe, inv) || !inv.CanFit(recipe.Result, recipe.ResultCount))
         {
             return false;
         }
@@ -220,8 +254,7 @@ public static class Recipes
             inv.Consume(id, n);
         }
 
-        inv.Add(recipe.Result, recipe.ResultCount);
-        return true;
+        return inv.Add(recipe.Result, recipe.ResultCount) == 0;
     }
 
     public static string IngredientText(Recipe recipe) =>

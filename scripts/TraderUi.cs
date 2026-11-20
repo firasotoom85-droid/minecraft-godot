@@ -3,7 +3,7 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>Barter panel for the wandering trader. Trades use gold as currency.</summary>
-public partial class TraderUi : CanvasLayer
+public partial class TraderUi : CanvasLayer, IModalUi
 {
     private sealed record Offer(string Label, ItemId Give, int GiveCount, ItemId Get, int GetCount);
 
@@ -27,6 +27,7 @@ public partial class TraderUi : CanvasLayer
         _player = player;
         _hud = hud;
         Layer = 13;
+        AddToGroup(UiFocus.ModalGroup);
         Build();
     }
 
@@ -98,8 +99,15 @@ public partial class TraderUi : CanvasLayer
     {
         _open = false;
         _root.Visible = false;
-        Input.MouseMode = Input.MouseModeEnum.Captured;
-        _player.InputLocked = false;
+        UiFocus.Restore(_player);
+    }
+
+    public void ForceClose()
+    {
+        if (_open)
+        {
+            Close();
+        }
     }
 
     private void Refresh()

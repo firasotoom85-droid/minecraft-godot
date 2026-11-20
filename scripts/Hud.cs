@@ -614,6 +614,9 @@ public partial class Hud : CanvasLayer
 
     private void ShowDeath()
     {
+        // Death owns the screen: close inventory/console/trader/pause first so
+        // their handlers cannot recapture the mouse and hide the Respawn button.
+        UiFocus.CloseAll(this);
         _deathPanel.Visible = true;
         _vignetteStrength = 0.75f;
         Input.MouseMode = Input.MouseModeEnum.Visible;
@@ -797,6 +800,23 @@ public partial class Hud : CanvasLayer
     public override void _UnhandledInput(InputEvent @event)
     {
         if (@event is not InputEventKey key || !key.Pressed || key.Echo)
+        {
+            return;
+        }
+
+        if (_deathPanel.Visible)
+        {
+            // Keyboard fallback: the death screen must never depend on a click.
+            if (key.Keycode is Key.Enter or Key.R)
+            {
+                PlayerRef?.Respawn();
+                GetViewport().SetInputAsHandled();
+            }
+
+            return;
+        }
+
+        if (PlayerRef?.InputLocked == true || PlayerRef?.Stats.Dead == true)
         {
             return;
         }

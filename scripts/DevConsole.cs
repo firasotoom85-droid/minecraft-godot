@@ -25,6 +25,7 @@ public partial class DevConsole : CanvasLayer
         _mobs = mobs;
         _trader = trader;
         Layer = 11;
+        AddToGroup(UiFocus.ModalGroup);
         ProcessMode = ProcessModeEnum.Always;
 
         _panel = new PanelContainer
@@ -123,8 +124,15 @@ public partial class DevConsole : CanvasLayer
         _open = false;
         _panel.Visible = false;
         _entry.ReleaseFocus();
-        Input.MouseMode = Input.MouseModeEnum.Captured;
-        _player.InputLocked = false;
+        UiFocus.Restore(_player);
+    }
+
+    public void ForceClose()
+    {
+        if (_open)
+        {
+            Close();
+        }
     }
 
     /// <summary>Execute one command line; returns the status text for the HUD.</summary>

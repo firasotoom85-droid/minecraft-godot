@@ -31,6 +31,8 @@ public partial class OnboardingSystem : Node
     private bool _sawNight;
     private bool _slept;
     private bool _torchPlaced;
+    private bool _woodBroken;
+    private bool _stoneBroken;
     private double _timer;
 
     public void Setup(VoxelWorld world, Player player, Hud hud)
@@ -46,6 +48,20 @@ public partial class OnboardingSystem : Node
             }
         };
         player.Slept += () => _slept = true;
+        player.BlockBroken += (_, blockId) =>
+        {
+            // Track the actual actions, not inventory contents: the legacy
+            // starter kit hands out logs and cobblestone, which used to mark
+            // "gather wood" and "mine stone" complete before the player moved.
+            if (blockId is (int)BlockId.Log or (int)BlockId.BirchLog)
+            {
+                _woodBroken = true;
+            }
+            else if (blockId == (int)BlockId.Stone)
+            {
+                _stoneBroken = true;
+            }
+        };
 
         _done = world.Flags.ContainsKey("onboard/done");
         while (_step < StepIds.Length && world.Flags.ContainsKey("onboard/" + StepIds[_step]))
@@ -101,11 +117,10 @@ public partial class OnboardingSystem : Node
 
     private bool Complete(int step) => step switch
     {
-        0 => _player!.Inventory.CountOf(ItemId.Log) > 0
-                || _player.Inventory.CountOf(ItemId.BirchLog) > 0,
+        0 => _woodBroken || (_world?.Flags.ContainsKey("onboard/wood") ?? false),
         1 => _player!.Inventory.CountOf(ItemId.CraftingTable) > 0,
         2 => _player!.Inventory.CountOf(ItemId.WoodPick) > 0,
-        3 => _player!.Inventory.CountOf(ItemId.Cobblestone) > 0,
+        3 => _stoneBroken || (_world?.Flags.ContainsKey("onboard/stone") ?? false),
         4 => _torchPlaced || (_world?.Flags.ContainsKey("onboard/torch") ?? false),
         5 => _slept || (_sawNight && !DayNight.IsNight(_world!.TimeOfDay)),
         _ => true,

@@ -6,7 +6,7 @@ namespace Minecraft;
 /// Escape overlay: pauses the tree, resumes it, saves on demand, shares the
 /// settings form with the main menu and can quit back to the menu.
 /// </summary>
-public partial class PauseMenu : CanvasLayer
+public partial class PauseMenu : CanvasLayer, IModalUi
 {
     public const string MenuScene = "res://scenes/main_menu.tscn";
 
@@ -28,6 +28,7 @@ public partial class PauseMenu : CanvasLayer
         _keybinds = keybinds;
         Layer = 10;
         ProcessMode = ProcessModeEnum.Always;
+        AddToGroup(UiFocus.ModalGroup);
 
         _root = new Control
         {
@@ -125,8 +126,15 @@ public partial class PauseMenu : CanvasLayer
         _open = false;
         _root.Visible = false;
         GetTree().Paused = false;
-        Input.MouseMode = Input.MouseModeEnum.Captured;
-        _player.InputLocked = false;
+        UiFocus.Restore(_player);
+    }
+
+    public void ForceClose()
+    {
+        if (_open)
+        {
+            Resume();
+        }
     }
 
     private void SwitchSettings(bool show)

@@ -311,10 +311,39 @@ public static class Mesher
 
     private static readonly int[] AxisStep = [1, PLANE, PX];
 
+    // Worker threads build one mesh at a time, so per-thread scratch buffers
+    // are safe and avoid a large allocation per streamed chunk.
+    [System.ThreadStatic] private static long[]? _keyScratch;
+    [System.ThreadStatic] private static byte[]? _padScratch;
+
+    private static long[] RentKeys(int length)
+    {
+        if (_keyScratch is null || _keyScratch.Length < length)
+        {
+            _keyScratch = new long[length];
+        }
+
+        return _keyScratch;
+    }
+
+    private static byte[] RentPad(int length)
+    {
+        if (_padScratch is null || _padScratch.Length < length)
+        {
+            _padScratch = new byte[length];
+        }
+        else
+        {
+            System.Array.Clear(_padScratch, 0, length);
+        }
+
+        return _padScratch;
+    }
+
     private static void BuildOpaqueGreedy(byte[] pad, int sy, SurfaceData opaque)
     {
         int[] axisSize = [SX, sy, SZ];
-        long[] keys = new long[SX * sy];
+        long[] keys = RentKeys(SX * sy);
         int baseIdx = PLANE + PX + 1;   // padded (1,1,1)
         for (int f = 0; f < 6; f++)
         {
@@ -535,12 +564,12 @@ public static class Mesher
     /// <summary>
     /// Padded copy of the chunk's block array (1-cell shell, y padded with air).
     /// Neighbour data comes from world.ChunkData (built chunk or generated
-    /// cache), so this is plain array reads. Diagonal cells are never read by
-    /// the mesher.
+    /// cache), so this is plain array reads. The buffer is rented from a
+    /// per-thread scratch pool and zeroed first; diagonal cells are left empty.
     /// </summary>
     private static byte[] BuildPadded(VoxelWorld world, Vector2I cp, byte[] data, int sy)
     {
-        byte[] pad = new byte[PX * (sy + 2) * PZ];
+        byte[] pad = RentPad(PX * (sy + 2) * PZ);
         for (int y = 0; y < sy; y++)
         {
             for (int z = 0; z < SZ; z++)
