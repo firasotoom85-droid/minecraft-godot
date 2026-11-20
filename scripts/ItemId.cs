@@ -64,7 +64,7 @@ public enum ToolKind : byte
 }
 
 /// <summary>One stack of items. Durability only matters for tools (Count == 1).</summary>
-public readonly record struct ItemStack(ItemId Id, int Count, int Durability)
+public readonly record struct ItemStack(ItemId Id, int Count, int Durability, int Sharpness = 0, int Protection = 0, int Unbreaking = 0)
 {
     public static readonly ItemStack Empty = new(ItemId.None, 0, 0);
 
