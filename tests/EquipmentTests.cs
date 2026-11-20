@@ -74,6 +74,11 @@ public static class EquipmentTests
         TestAssert.Check(EquipmentProgression.BlocksWithShield(shield, new Godot.Vector3(0, 0, -1), Godot.Vector3.Zero, frontArrow), "shield blocks frontal arrows");
         TestAssert.Check(!EquipmentProgression.BlocksWithShield(shield, new Godot.Vector3(0, 0, -1), Godot.Vector3.Zero, rearArrow), "shield does not block rear arrows");
         TestAssert.Check(!EquipmentProgression.BlocksWithShield(shield, new Godot.Vector3(0, 0, -1), Godot.Vector3.Zero, new DamageInfo(4, DamageKind.Fire)), "shield does not block environmental damage");
+        TestAssert.Equal(3.0f, EquipmentProgression.SharpnessBonus(enchanted.Get(0) with { Sharpness = 3 }), "sharpness III adds three damage");
+        TestAssert.Equal(0.12f, EquipmentProgression.ProtectionBonus(3), "protection III adds twelve percent mitigation");
+        Godot.Vector3 fallingArrow = ArrowProjectile.AdvanceVelocity(new Godot.Vector3(0, 10, 0), 0.5f);
+        TestAssert.Check(fallingArrow.Y < 10.0f, "arrow gravity reduces upward velocity");
+        TestAssert.Check(ArrowProjectile.AdvanceVelocity(Godot.Vector3.Zero, 0.5f).Y < 0.0f, "arrow accelerates downward from rest");
 
 
     }
