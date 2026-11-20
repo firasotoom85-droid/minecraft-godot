@@ -28,6 +28,12 @@ public static class Structures
             case 3:
                 EmberDeep(site, ref rng, put);
                 break;
+            case 4:
+                StoneCircle(site, ref rng, put);
+                break;
+            case 5:
+                OvergrownShrine(site, ref rng, put);
+                break;
             default:
                 Mine(site, ref rng, put);
                 break;
@@ -348,6 +354,94 @@ public static class Structures
                 }
             }
         }
+    }
+
+    /// <summary>A sparse ring of standing stones with a small ore offering.</summary>
+    private static void StoneCircle(VoxelWorld.StructureInfo s, ref uint rng,
+            System.Action<int, int, int, BlockId> put)
+    {
+        for (int dx = -5; dx <= 5; dx++)
+        {
+            for (int dz = -5; dz <= 5; dz++)
+            {
+                int distance = dx * dx + dz * dz;
+                if (distance < 16 || distance > 29 || Range(ref rng, 0, 4) == 0)
+                {
+                    continue;
+                }
+
+                put(s.X + dx, s.Y + 1, s.Z + dz,
+                        Range(ref rng, 0, 3) == 0 ? BlockId.Brick : BlockId.Cobblestone);
+                if (Range(ref rng, 0, 2) == 0)
+                {
+                    int height = Range(ref rng, 1, 3);
+                    for (int dy = 2; dy <= height + 1; dy++)
+                    {
+                        put(s.X + dx, s.Y + dy, s.Z + dz, BlockId.Cobblestone);
+                    }
+                }
+            }
+        }
+
+        put(s.X, s.Y + 1, s.Z, BlockId.Brick);
+        put(s.X, s.Y + 2, s.Z, BlockId.GoldOre);
+        put(s.X, s.Y + 3, s.Z, BlockId.Torch);
+    }
+
+    /// <summary>A broken 9x9 woodland shrine with timber posts and a buried reward.</summary>
+    private static void OvergrownShrine(VoxelWorld.StructureInfo s, ref uint rng,
+            System.Action<int, int, int, BlockId> put)
+    {
+        for (int dx = -4; dx <= 4; dx++)
+        {
+            for (int dz = -4; dz <= 4; dz++)
+            {
+                bool edge = System.Math.Abs(dx) == 4 || System.Math.Abs(dz) == 4;
+                put(s.X + dx, s.Y + 1, s.Z + dz,
+                        edge ? BlockId.Cobblestone : BlockId.Brick);
+                if (!edge || Range(ref rng, 0, 3) == 0)
+                {
+                    continue;
+                }
+
+                int wallHeight = Range(ref rng, 1, 3);
+                for (int dy = 2; dy <= wallHeight + 1; dy++)
+                {
+                    if (Range(ref rng, 0, 4) != 0)
+                    {
+                        put(s.X + dx, s.Y + dy, s.Z + dz, BlockId.Brick);
+                    }
+                }
+            }
+        }
+
+        foreach (int sx in new[] { -3, 3 })
+        {
+            foreach (int sz in new[] { -3, 3 })
+            {
+                for (int dy = 2; dy <= 6; dy++)
+                {
+                    put(s.X + sx, s.Y + dy, s.Z + sz, BlockId.Log);
+                }
+
+                put(s.X + sx, s.Y + 7, s.Z + sz, BlockId.Leaves);
+            }
+        }
+
+        for (int dx = -2; dx <= 2; dx++)
+        {
+            for (int dz = -2; dz <= 2; dz++)
+            {
+                if (Range(ref rng, 0, 2) == 0)
+                {
+                    put(s.X + dx, s.Y + 6, s.Z + dz, BlockId.Leaves);
+                }
+            }
+        }
+
+        put(s.X, s.Y + 2, s.Z, BlockId.GoldOre);
+        put(s.X, s.Y + 3, s.Z, BlockId.DiamondOre);
+        put(s.X, s.Y + 4, s.Z, BlockId.Torch);
     }
 
     // Frozen xorshift helpers (copied from VoxelWorld; never change).
