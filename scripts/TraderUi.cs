@@ -43,7 +43,7 @@ public partial class TraderUi : CanvasLayer, IModalUi
 
         ColorRect dim = new()
         {
-            Color = new Color(0, 0, 0, 0.35f),
+            Color = new Color(0.008f, 0.020f, 0.025f, 0.76f),
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
         dim.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
@@ -55,21 +55,22 @@ public partial class TraderUi : CanvasLayer, IModalUi
         _root.AddChild(center);
 
         VBoxContainer box = new();
-        box.AddThemeConstantOverride("separation", 9);
-        box.AddChild(MenuSkin.Title("WANDERING TRADER", 17));
+        box.AddThemeConstantOverride("separation", 12);
+        box.AddChild(MenuSkin.Eyebrow("TRADING POST"));
+        box.AddChild(MenuSkin.Title("Wandering trader", 26, true));
         Label hint = new()
         {
             Text = "Gold is the currency. Choose a trade:",
             HorizontalAlignment = HorizontalAlignment.Center,
         };
         hint.AddThemeFontSizeOverride("font_size", 12);
-        hint.AddThemeColorOverride("font_color", new Color(0.70f, 0.78f, 0.88f));
+        hint.AddThemeColorOverride("font_color", MenuSkin.Muted);
         box.AddChild(hint);
         _offers = new VBoxContainer();
-        _offers.AddThemeConstantOverride("separation", 6);
+        _offers.AddThemeConstantOverride("separation", 8);
         box.AddChild(_offers);
-        box.AddChild(MenuSkin.MakeButton("Leave", Close, 300));
-        center.AddChild(MenuSkin.Wrap(box, 430));
+        box.AddChild(MenuSkin.MakeButton("LEAVE", Close, 160));
+        center.AddChild(MenuSkin.Wrap(box, 500));
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -119,8 +120,24 @@ public partial class TraderUi : CanvasLayer, IModalUi
 
         foreach (Offer offer in Offers)
         {
-            Button button = MenuSkin.MakeButton(offer.Label, () => TryTrade(offer), 380);
-            _offers.AddChild(button);
+            PanelContainer card = new();
+            card.AddThemeStyleboxOverride("panel", MenuSkin.InsetStyle());
+            HBoxContainer row = new();
+            row.AddThemeConstantOverride("separation", 12);
+            VBoxContainer details = new();
+            details.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+            details.AddThemeConstantOverride("separation", 3);
+            details.AddChild(MenuSkin.Title(offer.Label, 13, true));
+            int have = _player.Inventory.CountOf(offer.Give);
+            details.AddChild(MenuSkin.MutedLabel(
+                    $"REQUIRES  {have}/{offer.GiveCount}  {ItemDb.NameOf(offer.Give)}",
+                    10));
+            row.AddChild(details);
+            Button button = MenuSkin.MakeButton("TRADE", () => TryTrade(offer), 94, primary: true);
+            button.Disabled = have < offer.GiveCount;
+            row.AddChild(button);
+            card.AddChild(row);
+            _offers.AddChild(card);
         }
     }
 
