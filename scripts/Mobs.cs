@@ -176,9 +176,13 @@ public partial class Mobs : Node
             Vector3 away = source.GlobalPosition - player.GlobalPosition;
             away.Y = 0.0f;
             float d2 = away.LengthSquared();
-            if (d2 > 0.001f && d2 < radiusSq)
+            bool offeringFood = source.BreedingFood != ItemId.None
+                    && player.Selected >= 0 && player.Selected < Inventory.HotbarSize
+                    && player.Inventory.Hotbar[player.Selected].Id == source.BreedingFood;
+            float playerRadius = source.IsAlerted ? 16.0f : radius;
+            if (!offeringFood && d2 > 0.001f && d2 < playerRadius * playerRadius)
             {
-                flee += away.Normalized() * (1.0f - Mathf.Sqrt(d2) / radius);
+                flee += away.Normalized() * (1.0f - Mathf.Sqrt(d2) / playerRadius);
             }
         }
 
