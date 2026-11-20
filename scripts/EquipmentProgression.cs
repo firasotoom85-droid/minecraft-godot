@@ -114,7 +114,7 @@ public static class EquipmentProgression
     public static bool TryUpgrade(Inventory inventory, int slot, out string reason)
     {
         reason = "";
-        if ((uint)slot >= Inventory.SlotCount) { reason = "Select an inventory item"; return false; }
+        if ((uint)slot >= Inventory.SaveSlotCount) { reason = "Select an inventory item"; return false; }
         ItemStack source = inventory.Get(slot);
         ItemId target = UpgradeTarget(source.Id);
         ItemId material = UpgradeMaterial(source.Id);
