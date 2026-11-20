@@ -193,6 +193,13 @@ public partial class KeybindUi : CanvasLayer, IModalUi
             return;
         }
 
+        if (_waitingAction == null && @event.IsActionPressed("ui_cancel"))
+        {
+            Close();
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
         if (@event is not InputEventKey key || !key.Pressed || key.Echo) return;
         if (_waitingAction is { } keyboardAction)
         {
@@ -216,7 +223,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
             return;
         }
 
-        if (key.Keycode == Key.Escape || @event.IsActionPressed("ui_cancel"))
+        if (key.Keycode == Key.Escape)
         {
             Close();
             GetViewport().SetInputAsHandled();
