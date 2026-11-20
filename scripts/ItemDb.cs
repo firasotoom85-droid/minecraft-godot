@@ -390,6 +390,9 @@ public static class ItemDb
                     break;
                 case ItemId.Arrow:
                     Rect(img, 6, 15, 20, 2, new Color(0.72f, 0.72f, 0.74f)); Rect(img, 24, 12, 5, 8, new Color(0.78f, 0.78f, 0.80f)); break;
+                case ItemId.LapisLazuli:
+                    PaintBlob(img, new Color(0.12f, 0.30f, 0.86f), new Color(0.06f, 0.14f, 0.52f), 125);
+                    break;
                 case ItemId.Diamond:
                     PaintDiamond(img);
                     break;
