@@ -60,14 +60,17 @@ public partial class AchievementUi : CanvasLayer, IModalUi
             return;
         }
 
-        if (@event is not InputEventKey key || !key.Pressed || key.Echo)
-        {
+        if (@event is InputEventKey key && (!key.Pressed || key.Echo))
             return;
-        }
 
-        if (key.IsActionPressed("journal"))
+        if (@event.IsActionPressed("journal"))
         {
             Toggle();
+            GetViewport().SetInputAsHandled();
+        }
+        else if (_open && @event.IsActionPressed("ui_cancel"))
+        {
+            Close();
             GetViewport().SetInputAsHandled();
         }
         else if (_open && key.Keycode == Key.Escape)
