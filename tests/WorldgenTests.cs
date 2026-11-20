@@ -102,6 +102,34 @@ public static class WorldgenTests
         TestAssert.Equal(Biome.Plains, WorldGenV7.ClassifyBiome(0.0f, 0.0f, 58, 40, 0.0f),
                 "v7 retains ordinary plains");
 
+        // Sky islands used to support caves in generator v5. V7 must keep
+        // carving caves within island slabs rather than disabling them.
+        WorldGenV7 skyGenerator = new(24681357, "sky");
+        bool foundSkyCave = false;
+        for (int z = 0; z <= 256 && !foundSkyCave; z += 8)
+        {
+            for (int x = 0; x <= 256 && !foundSkyCave; x += 8)
+            {
+                if (!skyGenerator.IsIsland(x, z))
+                {
+                    continue;
+                }
+
+                int surface = skyGenerator.SurfaceHeight(x, z, 40);
+                for (int y = Math.Max(4, surface - 24); y <= surface - 5; y++)
+                {
+                    if (skyGenerator.IsCave(x, y, z, surface))
+                    {
+                        foundSkyCave = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        TestAssert.Check(foundSkyCave,
+                "v7 sky preset retains caves inside floating-island slabs");
+
         const int seed = 24681357;
         int[] seeds = WorldStore.DeriveNoiseSeeds(seed);
         string firstDir = $"user://tests/world-v7-order-a-{Time.GetTicksUsec()}";
