@@ -2,6 +2,8 @@ using System.Linq;
 namespace Minecraft;
 public static class EquipmentTests
 {
+    private static int ExperienceAtLevelForTest(int level) => PlayerStats.ExperienceAtLevel(level);
+
     public static void Run()
     {
         TestAssert.Check(ItemDb.WeaponOf(ItemId.WoodSword) is { Damage: 4.0f, Durability: 70 }, "wood sword stats");
@@ -17,5 +19,38 @@ public static class EquipmentTests
             TestAssert.Check(Recipes.All.Any(r=>r.Result==id), $"recipe exists for {id}");
         Inventory mats=new();mats.Add(ItemId.Diamond,1);mats.Add(ItemId.Stick,1);Recipe ds=Recipes.All.First(r=>r.Result==ItemId.DiamondSword);
         TestAssert.Check(!Recipes.CanCraft(ds,mats), "diamond sword requires two diamonds");mats.Add(ItemId.Diamond,1);TestAssert.Check(Recipes.CanCraft(ds,mats), "diamond sword crafts with two diamonds");
+
+        PlayerStats xp = new();
+        xp.AddExperience(ExperienceAtLevelForTest(5));
+        Inventory enchanted = new();
+        enchanted.Add(ItemDb.New(ItemId.WoodSword, 1));
+        enchanted.Add(ItemId.LapisLazuli, 8);
+        TestAssert.Check(EquipmentProgression.TryEnchant(enchanted, 0, xp, Enchantment.Sharpness, 1, out _), "sharpness I enchant applies");
+        TestAssert.Equal(1, enchanted.Get(0).Sharpness, "sharpness level persists in stack");
+        TestAssert.Check(EquipmentProgression.TryEnchant(enchanted, 0, xp, Enchantment.Unbreaking, 1, out _), "unbreaking I enchant applies");
+        TestAssert.Equal(1, enchanted.Get(0).Unbreaking, "unbreaking level stored");
+        enchanted.Add(ItemId.Cobblestone, 2);
+        TestAssert.Check(EquipmentProgression.TryUpgrade(enchanted, 0, out _), "wood sword upgrades to stone");
+        TestAssert.Equal(ItemId.StoneSword, enchanted.Get(0).Id, "upgrade replaces item in same slot");
+        TestAssert.Equal(1, enchanted.Get(0).Sharpness, "upgrade preserves sharpness");
+        TestAssert.Equal(1, enchanted.Get(0).Unbreaking, "upgrade preserves unbreaking");
+        Inventory enchantLoaded = new();
+        enchantLoaded.LoadFrom(enchanted.ToSave());
+        TestAssert.Equal(1, enchantLoaded.Get(0).Sharpness, "enchantments survive inventory save/load");
+        TestAssert.Equal(1, enchantLoaded.Get(0).Unbreaking, "unbreaking survives inventory save/load");
+        ItemStack unbreakingThree = enchanted.Get(0) with { Unbreaking = 3 };
+        TestAssert.Equal(0, EquipmentProgression.DurabilityDamage(unbreakingThree, 0.5f), "unbreaking level III negates roll");
+        TestAssert.Equal(1, EquipmentProgression.DurabilityDamage(unbreakingThree, 0.95f), "unbreaking level III still wears sometimes");
+        Inventory armorEnchant = new();
+        armorEnchant.Set(Inventory.SlotCount, ItemDb.New(ItemId.IronChestplate, 1));
+        armorEnchant.Add(ItemId.LapisLazuli, 1);
+        PlayerStats armorXp = new();
+        armorXp.AddExperience(ExperienceAtLevelForTest(2));
+        TestAssert.Check(EquipmentProgression.TryEnchant(armorEnchant, Inventory.SlotCount, armorXp, Enchantment.Protection, 1, out _), "protection applies to armor slot");
+        TestAssert.Equal(1, armorEnchant.Get(Inventory.SlotCount).Protection, "protection level stored");
+        TestAssert.Check(!EquipmentProgression.TryEnchant(armorEnchant, Inventory.SlotCount, armorXp, Enchantment.Sharpness, 1, out _), "sharpness rejected on armor");
+        TestAssert.Equal(1, EquipmentProgression.Cost(Enchantment.Sharpness, 1).Lapis, "enchant cost has lapis");
+        TestAssert.Equal(3, EquipmentProgression.Cost(Enchantment.Unbreaking, 2).Levels, "unbreaking cost scales by level");
+
     }
 }
