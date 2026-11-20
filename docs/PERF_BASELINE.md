@@ -71,19 +71,19 @@ runner. It is a CPU microbenchmark, not an in-game frame-time measurement.
 
 | Measurement | Result |
 |---|---:|
-| 4,096 separate height + biome samples | 7.20 ms |
-| 4,096 shared surface samples | 3.69 ms |
-| Shared-sample speedup | **1.95×** |
-| Generator v6, 8 chunks | 2.27 ms/chunk |
-| Generator v7, 8 chunks | 4.27 ms/chunk |
-| V7 / v6 generation cost | **1.88×** |
+| 4,096 separate height + biome samples | 7.20–8.32 ms |
+| 4,096 shared surface samples | 3.69–4.34 ms |
+| Shared-sample speedup | **1.92–1.95×** |
+| Generator v6, 8 chunks | 2.27–2.61 ms/chunk |
+| Generator v7, 8 chunks | 4.27–4.65 ms/chunk |
+| V7 / v6 generation cost | **1.78–1.88×** |
 
 V7 performs more work per chunk (additional climate layers, caves, veins,
 biome-specific vegetation and structures), so the 1.83× cost is expected but
 should be checked on target hardware. Reusing one SurfaceSample for height
 and biome avoids almost half of the duplicate column-sampling work.
 
-The same run's terrain-profile scan recorded 4,284 river-channel samples,
+Across both runs, the terrain-profile scan consistently recorded 4,284 river-channel samples,
 3,399 raised-bank samples, 4,862 biome transitions, 1,439 elevated mountain
 columns, 7,755 cave samples, and a maximum 8-block height difference of 38.
 
