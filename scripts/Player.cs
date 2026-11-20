@@ -490,7 +490,7 @@ public partial class Player : CharacterBody3D, IDamageable
     public bool ApplyDamage(in DamageInfo info)
     {
         float amount = info.Amount; ItemStack held=Inventory.Hotbar[Selected];
-        if(held.Id==ItemId.Shield&&info.Kind==DamageKind.Melee&&info.Source!=Vector3.Zero){Vector3 incoming=GlobalPosition-info.Source;incoming.Y=0;Vector3 forward=-GlobalTransform.Basis.Z;forward.Y=0;
+        if (held.Id == ItemId.Shield && (info.Kind is DamageKind.Melee or DamageKind.Projectile) && info.Source != Vector3.Zero){Vector3 incoming=GlobalPosition-info.Source;incoming.Y=0;Vector3 forward=-GlobalTransform.Basis.Z;forward.Y=0;
             if(incoming.LengthSquared()>0.001f&&forward.LengthSquared()>0.001f&&forward.Normalized().Dot(incoming.Normalized())>=0.35f){Inventory.DamageEquipment(Selected);EmitSignal(SignalName.Notice,"Blocked");return false;}}
         // Armor protects against physical/environmental hits, not hunger or drowning.
         if (info.Kind is not (DamageKind.Drown or DamageKind.Starve))
@@ -537,7 +537,8 @@ public partial class Player : CharacterBody3D, IDamageable
         }
     }
 
-    private float ArmorReduction => Mathf.Min(ArmorPoints * 0.04f, 0.80f);
+    private int ProtectionLevels { get { int total = 0; foreach (ItemStack piece in Inventory.Armor) total += piece.Protection; return total; } }
+    private float ArmorReduction => Mathf.Min(ArmorPoints * 0.04f + ProtectionLevels * 0.04f, 0.80f);
 
     /// <summary>Every landed hit wears each equipped piece by one point.</summary>
     private void DamageArmor()
@@ -600,7 +601,7 @@ public partial class Player : CharacterBody3D, IDamageable
     }
 
     /// <summary>Restore persisted player state; null mode keeps the world default.</summary>
-    public void LoadFromSave(string? mode, float health, float hunger, Vector3? respawn)
+    public void LoadFromSave(string? mode, float health, float hunger, Vector3? respawn, int experience = 0)
     {
         if (mode == "survival")
         {
@@ -611,7 +612,7 @@ public partial class Player : CharacterBody3D, IDamageable
             Mode = GameMode.Creative;
         }
 
-        Stats.Load(health, hunger);
+        Stats.Load(health, hunger, experience);
         RespawnPoint = respawn;
     }
 
@@ -720,7 +721,7 @@ public partial class Player : CharacterBody3D, IDamageable
         double cooldown=weapon is { AttackSpeed: > 0 } w?w.AttackSpeed:SwingCooldown; if(now-_lastSwing<cooldown)return;
         if(held.Id==ItemId.Bow){if(!Inventory.Consume(ItemId.Arrow,1)){EmitSignal(SignalName.Notice,"Need arrows to fire");_lastSwing=now;return;}
             Inventory.DamageEquipment(Selected);_lastSwing=now;StartPunch();target.ApplyDamage(new DamageInfo(5,DamageKind.Melee,GlobalPosition,1,0.4f));return;}
-        _lastSwing=now;StartPunch();float damage=weapon?.Damage??(1+(ItemDb.ToolOf(held.Id)?.Tier??0));
+        _lastSwing=now;StartPunch();float damage=(weapon?.Damage??(1+(ItemDb.ToolOf(held.Id)?.Tier??0)))+EquipmentProgression.SharpnessBonus(held);
         bool critical=!IsOnFloor()&&Velocity.Y< -0.1f;if(critical)damage*=1.5f;float knockback=weapon?.Knockback??3;
         bool landed=target.ApplyDamage(new DamageInfo(damage,DamageKind.Melee,GlobalPosition,knockback,1.5f));
         if(landed&&weapon is not null)Inventory.DamageEquipment(Selected);if(landed&&critical)EmitSignal(SignalName.Notice,"Critical hit!");
@@ -1164,10 +1165,35 @@ public partial class Player : CharacterBody3D, IDamageable
         }
     }
 
+    private void FireBow()
+    {
+        if (Inventory.Hotbar[Selected].Id != ItemId.Bow) return;
+        double now = Time.GetTicksMsec() / 1000.0;
+        if (now - _lastSwing < 0.8) return;
+        if (!Inventory.Consume(ItemId.Arrow, 1))
+        {
+            EmitSignal(SignalName.Notice, "Need arrows to fire");
+            return;
+        }
+        _lastSwing = now;
+        Inventory.DamageEquipment(Selected);
+        StartPunch();
+        ArrowProjectile arrow = new();
+        Node parent = GetTree().CurrentScene ?? this;
+        parent.AddChild(arrow);
+        Vector3 direction = -Camera.GlobalTransform.Basis.Z;
+        arrow.Launch(this, Camera.GlobalPosition + direction * 0.65f, direction);
+    }
     public void PlaceBlock()
     {
         if (World == null)
         {
+            return;
+        }
+
+        if (Inventory.Hotbar[Selected].Id == ItemId.Bow)
+        {
+            FireBow();
             return;
         }
 
