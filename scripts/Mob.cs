@@ -34,6 +34,7 @@ public partial class Mob : CharacterBody3D, IDamageable
     protected bool Walking;
     protected double FlashTime;
     protected Vector3 Push;
+    private Vector3 _moveDirection;
     protected float MovementMultiplier = 1.0f;
 
     private MeshInstance3D? _bodyVisual;
