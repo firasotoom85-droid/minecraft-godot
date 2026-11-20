@@ -140,7 +140,7 @@ public partial class InvSlot : Panel
         }
     }
 
-    private void ClearSuppressedClick()
+    public void ClearSuppressedClick()
     {
         _suppressClick = false;
     }
