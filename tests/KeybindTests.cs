@@ -7,6 +7,7 @@ public static class KeybindTests
 {
     public static void Run()
     {
+        GamepadBindings.ResetDefaults();
         HashSet<string> actions = [];
         TestAssert.Check(Keybinds.Bindable.Length > 8, "keybind list is populated");
         foreach ((string action, string label) in Keybinds.Bindable)
