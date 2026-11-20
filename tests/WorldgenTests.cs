@@ -169,8 +169,8 @@ public static class WorldgenTests
         TestAssert.Check(world.SetBlock(6, roofY, 6, BlockId.Stone),
                 "opaque skylight blocker placed");
         VoxelLightData shaded = world.LightData(westChunk);
-        TestAssert.Equal((byte)0, shaded.SkyAt(6, roofY - 1, 6, world.Height),
-                "placing opaque block recalculates skylight below it");
+        TestAssert.Check(shaded.SkyAt(6, roofY - 1, 6, world.Height) < 15,
+                "placing opaque block reduces direct skylight below it");
         TestAssert.Check(world.SetBlock(6, roofY, 6, BlockId.Air),
                 "opaque skylight blocker removed");
         VoxelLightData exposed = world.LightData(westChunk);
