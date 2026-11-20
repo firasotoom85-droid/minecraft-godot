@@ -15,7 +15,7 @@ public static class EquipmentTests
         Inventory loaded = new(); loaded.LoadFrom(inv.ToSave()); TestAssert.Equal(899, loaded.Get(0).Durability, "weapon durability persists");
         foreach(ItemId id in new[]{ItemId.WoodSword,ItemId.StoneSword,ItemId.IronSword,ItemId.DiamondSword,ItemId.Bow,ItemId.Arrow,ItemId.Shield,ItemId.EmberBlade})
             TestAssert.Check(Recipes.All.Any(r=>r.Result==id), $"recipe exists for {id}");
-        Inventory mats=new();mats.Add(ItemId.Diamond,2);mats.Add(ItemId.Stick,1);Recipe ds=Recipes.All.First(r=>r.Result==ItemId.DiamondSword);
-        TestAssert.Check(!Recipes.CanCraft(ds,mats), "diamond sword requires three diamonds");mats.Add(ItemId.Diamond,1);TestAssert.Check(Recipes.CanCraft(ds,mats), "diamond sword crafts with three diamonds");
+        Inventory mats=new();mats.Add(ItemId.Diamond,1);mats.Add(ItemId.Stick,1);Recipe ds=Recipes.All.First(r=>r.Result==ItemId.DiamondSword);
+        TestAssert.Check(!Recipes.CanCraft(ds,mats), "diamond sword requires two diamonds");mats.Add(ItemId.Diamond,1);TestAssert.Check(Recipes.CanCraft(ds,mats), "diamond sword crafts with two diamonds");
     }
 }
