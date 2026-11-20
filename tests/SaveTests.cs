@@ -22,8 +22,19 @@ public static class SaveTests
         Dictionary<string, bool> flags = new() { ["dungeon/ember"] = true };
         WorldSave save = new(WorldStore.WorldFormatVersion, edits, 0.625, containers, flags);
         string path = root + "/world.json";
+
+        PlayerSave emptyHungerSave = new([0.0f, 0.0f, 0.0f], 0, null, "survival", 20.0f, 0.0f);
+        string emptyHungerJson = JsonSerializer.Serialize(emptyHungerSave, WorldStore.Json);
+        PlayerSave? emptyHungerReload = JsonSerializer.Deserialize<PlayerSave>(emptyHungerJson, WorldStore.Json);
+        TestAssert.Equal(0.0f, emptyHungerReload?.Hunger ?? -1.0f,
+                "zero hunger survives player-save serialization");
+        PlayerSave? legacyPlayer = JsonSerializer.Deserialize<PlayerSave>("{\"pos\":[0,0,0]}", WorldStore.Json);
+        TestAssert.Check(legacyPlayer?.Hunger is null,
+                "old player saves distinguish a missing hunger field");
         TestAssert.Check(WorldStore.WriteAtomic(path, JsonSerializer.Serialize(save, WorldStore.Json)),
                 "world save writes atomically");
+        TestAssert.Check(!WorldStore.WriteAtomic(root + "/missing/save.json", "unwritable"),
+                "atomic write reports a missing parent directory instead of claiming success");
 
         WorldSave? loaded = WorldStore.ReadJson<WorldSave>(path, WorldStore.Json);
         TestAssert.Check(loaded is not null, "world save reads back");

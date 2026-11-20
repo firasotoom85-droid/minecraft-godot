@@ -75,7 +75,7 @@ public partial class VoxelWorld : Node3D
     public int SavedSelected;
     public string? SavedMode;            // "survival"/"creative"; null = world default
     public float SavedHealth;            // 0 = unset, full bars
-    public float SavedHunger;
+    public float SavedHunger = -1.0f;
     public Vector3? SavedRespawn;        // campfire anchor, null = world spawn
 
     // Save v3: per-block inventories (chests/furnaces) and one-time world
@@ -124,7 +124,7 @@ public partial class VoxelWorld : Node3D
     private Vector3 _lastPlayerPos;
     private Vector2I _lastPlayerChunk = new(999999, 999999);
     private Vector3 _lastSavedPos = Vector3.Zero;
-    private bool _alive = true;
+    private volatile bool _alive = true;
     private bool _dirty;
     private double _autosaveTimer;
 
@@ -1348,16 +1348,18 @@ public partial class VoxelWorld : Node3D
 
         int lx = x - cp.X * ChunkX;
         int lz = z - cp.Y * ChunkZ;
-        if (!c.SetBlockLocal(lx, y, lz, id))
-        {
-            return false;
-        }
-
-        UpdateLightSource(x, y, z, id);
-        UpdateCropSource(x, y, z, id);
-        int i = lx + lz * ChunkX + y * ChunkX * ChunkZ;
+        int i = lx + lz * ChunkZ + y * ChunkX * ChunkZ;
         lock (SnapshotLock)
         {
+            // Chunk.Blocks is also read by worker meshing. Mutate it while
+            // holding the snapshot lock so payload data and EditEpoch agree.
+            if (!c.SetBlockLocal(lx, y, lz, id))
+            {
+                return false;
+            }
+
+            UpdateLightSource(x, y, z, id);
+            UpdateCropSource(x, y, z, id);
             lock (_mutex)
             {
                 if (!_edits.TryGetValue(cp, out Dictionary<int, BlockId>? d))
@@ -2027,7 +2029,6 @@ public partial class VoxelWorld : Node3D
 
     public void SaveNow()
     {
-        _dirty = false;
         Dictionary<string, Dictionary<string, BlockId>> editsOut = [];
         foreach ((Vector2I cp, Dictionary<int, BlockId> inner) in _edits)
         {
@@ -2079,7 +2080,7 @@ public partial class VoxelWorld : Node3D
                 containers,
                 Flags.Count == 0 ? null : Flags,
                 furnaces);
-        WorldStore.WriteAtomic(
+        bool worldSaved = WorldStore.WriteAtomic(
                 WorldStore.WorldSavePath(_worldDir),
                 JsonSerializer.Serialize(world, WorldStore.Json));
 
@@ -2087,7 +2088,7 @@ public partial class VoxelWorld : Node3D
                 ? []
                 : [Player.GlobalPosition.X, Player.GlobalPosition.Y, Player.GlobalPosition.Z];
         float[]? respawn = Player?.RespawnPoint is { } rp ? [rp.X, rp.Y, rp.Z] : null;
-        WorldStore.WriteAtomic(
+        bool playerSaved = WorldStore.WriteAtomic(
                 WorldStore.PlayerSavePath(_worldDir),
                 JsonSerializer.Serialize(
                         new PlayerSave(
@@ -2100,11 +2101,21 @@ public partial class VoxelWorld : Node3D
                                 respawn),
                         WorldStore.Json));
 
-        _manifest = _manifest with { PlayedUtc = WorldStore.NowUtc() };
-        WorldStore.WriteManifest(_worldDir, _manifest);
-        if (Player != null)
+        WorldManifest updatedManifest = _manifest with { PlayedUtc = WorldStore.NowUtc() };
+        bool manifestSaved = WorldStore.WriteManifest(_worldDir, updatedManifest);
+        if (worldSaved && playerSaved && manifestSaved)
         {
-            _lastSavedPos = Player.GlobalPosition;
+            _manifest = updatedManifest;
+            _dirty = false;
+            if (Player != null)
+            {
+                _lastSavedPos = Player.GlobalPosition;
+            }
+        }
+        else
+        {
+            _dirty = true;
+            GD.PushWarning("minecraft: save incomplete; it will be retried on the next autosave");
         }
     }
 
@@ -2258,7 +2269,7 @@ public partial class VoxelWorld : Node3D
             SavedSelected = player.Selected;
             SavedMode = player.Mode;
             SavedHealth = player.Health;
-            SavedHunger = player.Hunger;
+            SavedHunger = player.Hunger ?? -1.0f;
             if (player.Respawn is { Length: 3 } r)
             {
                 SavedRespawn = new Vector3(r[0], r[1], r[2]);

@@ -43,7 +43,7 @@ public sealed record PlayerSave(
     List<ItemStackSave>? Items = null,
     string? Mode = null,
     float Health = 0.0f,
-    float Hunger = 0.0f,
+    float? Hunger = null,
     float[]? Respawn = null);
 
 /// <summary>One saved inventory slot (0-8 hotbar, 9-35 backpack).</summary>
@@ -112,11 +112,19 @@ public static class WorldStore
     public static WorldManifest? ReadManifest(string dir) =>
         ReadJson<WorldManifest>(ManifestPath(dir), ManifestJson);
 
-    public static void WriteManifest(string dir, WorldManifest manifest)
+    public static bool WriteManifest(string dir, WorldManifest manifest)
     {
-        DirAccess.MakeDirRecursiveAbsolute(dir);
-        using FileAccess? f = FileAccess.Open(ManifestPath(dir), FileAccess.ModeFlags.Write);
-        f?.StoreString(JsonSerializer.Serialize(manifest, ManifestJson));
+        if (!DirAccess.DirExistsAbsolute(dir))
+        {
+            Error mkdir = DirAccess.MakeDirRecursiveAbsolute(dir);
+            if (mkdir != Error.Ok && !DirAccess.DirExistsAbsolute(dir))
+            {
+                GD.PushWarning($"minecraft: could not create world directory {dir} ({mkdir})");
+                return false;
+            }
+        }
+
+        return WriteAtomic(ManifestPath(dir), JsonSerializer.Serialize(manifest, ManifestJson));
     }
 
     /// <summary>Most recently played worlds first.</summary>
@@ -161,8 +169,7 @@ public static class WorldStore
             return false;
         }
 
-        WriteManifest(dir, manifest with { Name = name });
-        return true;
+        return WriteManifest(dir, manifest with { Name = name });
     }
 
     /// <summary>Copy a world folder and give the copy a fresh identity.</summary>
@@ -181,15 +188,22 @@ public static class WorldStore
 
         if (!CopyDirectory(dir, target))
         {
+            Delete(target); // Remove partial copies rather than leave orphaned world folders.
             return null;
         }
 
-        WriteManifest(target, manifest with
+        bool manifestWritten = WriteManifest(target, manifest with
         {
             Name = string.IsNullOrWhiteSpace(name) ? $"{manifest.Name} copy" : name.Trim(),
             CreatedUtc = NowUtc(),
             PlayedUtc = NowUtc(),
         });
+        if (!manifestWritten)
+        {
+            Delete(target);
+            return null;
+        }
+
         return target;
     }
 
@@ -273,7 +287,11 @@ public static class WorldStore
     {
         WorldManifest manifest = new(
                 "My World", LegacyNoiseSeeds[0], 1, LegacyNoiseSeeds, NowUtc(), NowUtc());
-        WriteManifest(dir, manifest);
+        if (!WriteManifest(dir, manifest))
+        {
+            GD.PushWarning($"minecraft: could not write default manifest for {dir}");
+        }
+
         return manifest;
     }
 
@@ -314,45 +332,120 @@ public static class WorldStore
             return;
         }
 
-        WriteManifest(dir, new WorldManifest(
-                "My World", LegacyNoiseSeeds[0], 1, LegacyNoiseSeeds, NowUtc(), NowUtc()));
-        DirAccess.RenameAbsolute(LegacySavePath, LegacySavePath + ".migrated");
+        if (!WriteManifest(dir, new WorldManifest(
+                "My World", LegacyNoiseSeeds[0], 1, LegacyNoiseSeeds, NowUtc(), NowUtc())))
+        {
+            GD.PushWarning("minecraft: legacy migration could not write the manifest; original save left untouched");
+            return;
+        }
+
+        if (DirAccess.RenameAbsolute(LegacySavePath, LegacySavePath + ".migrated") != Error.Ok)
+        {
+            GD.PushWarning("minecraft: legacy save was imported, but the original file could not be archived");
+            return;
+        }
+
         GD.Print($"minecraft: migrated legacy save into {dir}");
     }
 
-    /// <summary>Temp-write, rotate two backups, then rename into place.</summary>
+    /// <summary>
+    /// Write and flush a sibling temp file before rotating backups. Every
+    /// rename is checked; if the final commit fails, restore the previous file.
+    /// </summary>
     public static bool WriteAtomic(string path, string text)
     {
         string tmp = path + ".tmp";
-        using (FileAccess? f = FileAccess.Open(tmp, FileAccess.ModeFlags.Write))
+
+        bool Fail(string reason)
         {
-            if (f == null)
+            if (FileAccess.FileExists(tmp))
             {
-                GD.PushWarning($"minecraft: could not write {tmp}");
-                return false;
+                DirAccess.RemoveAbsolute(tmp);
             }
 
-            f.StoreString(text);
+            GD.PushWarning($"minecraft: atomic write failed for {path}: {reason}");
+            return false;
         }
 
+        Error writeError;
+        using (FileAccess? file = FileAccess.Open(tmp, FileAccess.ModeFlags.Write))
+        {
+            if (file == null)
+            {
+                return Fail($"could not open {tmp}");
+            }
+
+            file.StoreString(text);
+            file.Flush();
+            writeError = file.GetError();
+        }
+
+        if (writeError != Error.Ok)
+        {
+            return Fail($"temporary file write returned {writeError}");
+        }
+
+        bool movedCurrent = false;
+        bool movedBackup = false;
         if (FileAccess.FileExists(path))
         {
             string bak = path + ".bak";
             string bak2 = path + ".bak2";
-            if (FileAccess.FileExists(bak))
+            if (DirAccess.DirExistsAbsolute(bak) || DirAccess.DirExistsAbsolute(bak2))
             {
-                if (FileAccess.FileExists(bak2))
-                {
-                    DirAccess.RemoveAbsolute(bak2);
-                }
-
-                DirAccess.RenameAbsolute(bak, bak2);
+                return Fail("a backup path is occupied by a directory");
             }
 
-            DirAccess.RenameAbsolute(path, bak);
+            if (FileAccess.FileExists(bak2))
+            {
+                Error removeOldest = DirAccess.RemoveAbsolute(bak2);
+                if (removeOldest != Error.Ok)
+                {
+                    return Fail($"could not remove oldest backup ({removeOldest})");
+                }
+            }
+
+            if (FileAccess.FileExists(bak))
+            {
+                Error rotateBackup = DirAccess.RenameAbsolute(bak, bak2);
+                if (rotateBackup != Error.Ok)
+                {
+                    return Fail($"could not rotate first backup ({rotateBackup})");
+                }
+
+                movedBackup = true;
+            }
+
+            Error moveCurrent = DirAccess.RenameAbsolute(path, bak);
+            if (moveCurrent != Error.Ok)
+            {
+                if (movedBackup && FileAccess.FileExists(bak2) && !FileAccess.FileExists(bak))
+                {
+                    DirAccess.RenameAbsolute(bak2, bak);
+                }
+
+                return Fail($"could not preserve current file as backup ({moveCurrent})");
+            }
+
+            movedCurrent = true;
         }
 
-        return DirAccess.RenameAbsolute(tmp, path) == Error.Ok;
+        Error commit = DirAccess.RenameAbsolute(tmp, path);
+        if (commit != Error.Ok)
+        {
+            if (movedCurrent && !FileAccess.FileExists(path) && FileAccess.FileExists(path + ".bak"))
+            {
+                Error restore = DirAccess.RenameAbsolute(path + ".bak", path);
+                if (restore != Error.Ok)
+                {
+                    GD.PushError($"minecraft: could not restore {path} from backup ({restore})");
+                }
+            }
+
+            return Fail($"could not commit temporary file ({commit})");
+        }
+
+        return true;
     }
 
     /// <summary>Parse a JSON file; on corruption fall back to .bak, then .bak2.</summary>

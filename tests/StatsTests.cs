@@ -33,11 +33,36 @@ public static class StatsTests
         loaded.AddHunger(5.0f);
         TestAssert.Equal(15.0f, loaded.Hunger, "hunger adds and clamps");
 
+        PlayerStats emptyHunger = new();
+        emptyHunger.Load(PlayerStats.MaxHealth, 0.0f);
+        TestAssert.Equal(0.0f, emptyHunger.Hunger, "a saved empty hunger bar stays empty");
+        PlayerStats legacyHunger = new();
+        legacyHunger.Load(PlayerStats.MaxHealth, -1.0f);
+        TestAssert.Equal(PlayerStats.MaxHunger, legacyHunger.Hunger,
+                "a missing legacy hunger field defaults to full");
+
         PlayerStats drowning = new();
         drowning.UpdateBreath(11.0, true, GameMode.Survival);
         TestAssert.Equal(0.0f, drowning.Breath, "breath drains underwater");
         TestAssert.Equal(PlayerStats.MaxHealth - 2.0f, drowning.Health, "drowning damages after breath runs out");
         drowning.UpdateBreath(2.0, false, GameMode.Survival);
         TestAssert.Check(drowning.Breath > 0.0f, "breath recovers above water");
+
+        PlayerStats interruptedDive = new();
+        for (int i = 0; i < 108; i++)
+        {
+            interruptedDive.UpdateBreath(0.1, true, GameMode.Survival);
+        }
+
+        TestAssert.Equal(PlayerStats.MaxHealth, interruptedDive.Health,
+                "partial drowning time does not deal damage before a full second at zero breath");
+        interruptedDive.UpdateBreath(0.1, false, GameMode.Survival);
+        for (int i = 0; i < 6; i++)
+        {
+            interruptedDive.UpdateBreath(0.1, true, GameMode.Survival);
+        }
+
+        TestAssert.Equal(PlayerStats.MaxHealth, interruptedDive.Health,
+                "surfacing resets the partial drowning timer before a later dive");
     }
 }
