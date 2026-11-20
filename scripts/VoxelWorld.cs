@@ -1368,41 +1368,113 @@ public partial class VoxelWorld : Node3D
         }
     }
 
-    /// <summary>Packed sky/block lighting snapshot for worker meshing.</summary>
-    public VoxelLightData LightData(Vector2I cp)
+    /// <summary>
+    /// Builds the complete 3x3 meshing light neighbourhood from one shared
+    /// region solve. A 14-voxel halo on each side is sufficient for block-light
+    /// attenuation and prevents nine overlapping per-chunk solves.
+    /// </summary>
+    public VoxelLightData[] LightDataNeighborhood(Vector2I center)
     {
         lock (SnapshotLock)
         {
+            VoxelLightData[] result = new VoxelLightData[9];
+            bool complete = true;
             lock (_mutex)
             {
-                if (_voxelLightCache.TryGetValue(cp, out VoxelLightData? cached)) return cached;
-            }
-
-            // Register sources in the full 3x3 halo before solving light.
-            for (int dz = -1; dz <= 1; dz++)
+                for (int dz = -1; dz <= 1; dz++)
                 for (int dx = -1; dx <= 1; dx++)
-                    _ = ChunkData(cp + new Vector2I(dx, dz));
-
-            byte[] blocks = ChunkData(cp);
-            byte[] localSky = SkyLightBase(cp);
-            byte[] block = BlockLightBase(cp);
-            byte[] west = SkyLightBase(cp + new Vector2I(-1, 0));
-            byte[] east = SkyLightBase(cp + new Vector2I(1, 0));
-            byte[] north = SkyLightBase(cp + new Vector2I(0, -1));
-            byte[] south = SkyLightBase(cp + new Vector2I(0, 1));
-            byte[] sky = VoxelLighting.MergeNeighbourSky(blocks, Height, localSky, west, east, north, south);
-            byte[] packed = new byte[blocks.Length];
-            for (int i = 0; i < packed.Length; i++) packed[i] = VoxelLighting.Pack(sky[i], block[i]);
-
-            VoxelLightData result = new(packed);
-            lock (_mutex)
-            {
-                if (_voxelLightCache.TryGetValue(cp, out VoxelLightData? existing)) return existing;
-                _voxelLightCache[cp] = result;
+                {
+                    int slot = (dz + 1) * 3 + dx + 1;
+                    if (_voxelLightCache.TryGetValue(center + new Vector2I(dx, dz), out VoxelLightData? cached))
+                        result[slot] = cached;
+                    else
+                        complete = false;
+                }
             }
+            if (complete) return result;
+
+            const int halo = VoxelLighting.BlockLightRadius;
+            const int coreWidth = ChunkX * 3;
+            int width = coreWidth + halo * 2;
+            int depth = ChunkZ * 3 + halo * 2;
+            int originX = center.X * ChunkX - halo - ChunkX;
+            int originZ = center.Y * ChunkZ - halo - ChunkZ;
+
+            byte[][] chunks = new byte[25][];
+            for (int dz = -2; dz <= 2; dz++)
+            for (int dx = -2; dx <= 2; dx++)
+                chunks[(dz + 2) * 5 + dx + 2] = ChunkData(center + new Vector2I(dx, dz));
+
+            byte[] region = new byte[width * Height * depth];
+            for (int z = 0; z < depth; z++)
+            {
+                int wz = originZ + z;
+                int cz = Mathf.FloorToInt(wz / (float)ChunkZ);
+                int lz = wz - cz * ChunkZ;
+                for (int x = 0; x < width; x++)
+                {
+                    int wx = originX + x;
+                    int cx = Mathf.FloorToInt(wx / (float)ChunkX);
+                    int lx = wx - cx * ChunkX;
+                    byte[] source = chunks[(cz - center.Y + 2) * 5 + cx - center.X + 2];
+                    int srcColumn = lx + lz * ChunkX;
+                    int dstColumn = x + z * width;
+                    for (int y = 0; y < Height; y++)
+                        region[dstColumn + y * width * depth] = source[srcColumn + y * ChunkX * ChunkZ];
+                }
+            }
+
+            byte[] sky = VoxelLighting.BuildSkyLight(region, width, Height, depth);
+            List<VoxelLightSource> sources = new();
+            int plane = width * depth;
+            for (int i = 0; i < region.Length; i++)
+            {
+                byte emission = BlockDb.LightEmission[region[i]];
+                if (emission == 0) continue;
+                int y = i / plane;
+                int rem = i - y * plane;
+                int z = rem / width;
+                int x = rem - z * width;
+                sources.Add(new VoxelLightSource(new Vector3I(x, y, z), emission));
+            }
+            byte[] block = VoxelLighting.PropagateBlockLight(region, width, Height, depth, sources);
+
+            for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int slot = (dz + 1) * 3 + dx + 1;
+                Vector2I cp = center + new Vector2I(dx, dz);
+                byte[] packed = new byte[ChunkX * Height * ChunkZ];
+                int cropX = halo + ChunkX + dx * ChunkX;
+                int cropZ = halo + ChunkZ + dz * ChunkZ;
+                for (int y = 0; y < Height; y++)
+                for (int z = 0; z < ChunkZ; z++)
+                {
+                    int src = y * plane + (cropZ + z) * width + cropX;
+                    int dst = (y * ChunkZ + z) * ChunkX;
+                    for (int x = 0; x < ChunkX; x++)
+                        packed[dst + x] = VoxelLighting.Pack(sky[src + x], block[src + x]);
+                }
+
+                VoxelLightData data = new(packed);
+                lock (_mutex)
+                {
+                    if (_voxelLightCache.TryGetValue(cp, out VoxelLightData? cached))
+                        result[slot] = cached;
+                    else
+                    {
+                        _voxelLightCache[cp] = data;
+                        result[slot] = data;
+                    }
+                }
+            }
+
             return result;
         }
     }
+
+    /// <summary>Packed sky/block lighting snapshot for one chunk.</summary>
+    public VoxelLightData LightData(Vector2I cp) => LightDataNeighborhood(cp)[4];
 
     // Called while SnapshotLock and _mutex are held by SetBlock.
     private void InvalidateLightingLocked(Vector2I cp)

@@ -648,15 +648,16 @@ public static class Mesher
     private static byte[] BuildLightPadded(VoxelWorld world, Vector2I cp, int sy)
     {
         byte[] pad = RentLightPad(PX * (sy + 2) * PZ);
-        VoxelLightData center = world.LightData(cp);
-        VoxelLightData west = world.LightData(cp + new Vector2I(-1, 0));
-        VoxelLightData east = world.LightData(cp + new Vector2I(1, 0));
-        VoxelLightData north = world.LightData(cp + new Vector2I(0, -1));
-        VoxelLightData south = world.LightData(cp + new Vector2I(0, 1));
-        VoxelLightData northWest = world.LightData(cp + new Vector2I(-1, -1));
-        VoxelLightData northEast = world.LightData(cp + new Vector2I(1, -1));
-        VoxelLightData southWest = world.LightData(cp + new Vector2I(-1, 1));
-        VoxelLightData southEast = world.LightData(cp + new Vector2I(1, 1));
+        VoxelLightData[] neighbourhood = world.LightDataNeighborhood(cp);
+        VoxelLightData center = neighbourhood[4];
+        VoxelLightData west = neighbourhood[3];
+        VoxelLightData east = neighbourhood[5];
+        VoxelLightData north = neighbourhood[1];
+        VoxelLightData south = neighbourhood[7];
+        VoxelLightData northWest = neighbourhood[0];
+        VoxelLightData northEast = neighbourhood[2];
+        VoxelLightData southWest = neighbourhood[6];
+        VoxelLightData southEast = neighbourhood[8];
 
         for (int y = 0; y < sy; y++)
         {
