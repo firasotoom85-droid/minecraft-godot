@@ -157,7 +157,7 @@ public static class SettingsPanel
             ButtonPressed = value,
             FocusMode = Control.FocusModeEnum.All,
         };
-        check.Toggled += setter;
+        check.Toggled += value => setter(value);
         row.AddChild(label);
         row.AddChild(check);
         return row;
