@@ -279,7 +279,7 @@ public static class VoxelLighting
         if ((uint)changedIndex >= (uint)light.Length)
             throw new ArgumentOutOfRangeException(nameof(changedIndex));
 
-        newEmission = (byte)Math.Min(MaxLevel, newEmission);
+        newEmission = (byte)Math.Min(MaxLevel, (int)newEmission);
         byte oldLevel = light[changedIndex];
         if (newEmission >= oldLevel)
         {
