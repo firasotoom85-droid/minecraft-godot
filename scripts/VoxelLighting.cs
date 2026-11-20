@@ -38,6 +38,9 @@ public static class VoxelLighting
     [ThreadStatic]
     private static Queue<int>? _queueScratch;
 
+    [ThreadStatic]
+    private static Queue<(int Index, byte Level)>? _removalQueueScratch;
+
     private static Queue<int> RentQueue()
     {
         _queueScratch ??= new Queue<int>(4096);
@@ -258,6 +261,117 @@ public static class VoxelLighting
         }
 
         return light;
+    }
+
+    /// <summary>
+    /// Applies one emitter change to an existing block-light volume. Removal
+    /// first clears values whose only support was the removed light, then
+    /// re-floods from surviving boundaries and emitters. Addition only visits
+    /// cells whose light level can increase.
+    /// </summary>
+    public static void ApplyIncrementalBlockLight(
+            byte[] blocks, int width, int height, int depth,
+            byte[] light, int changedIndex, byte newEmission)
+    {
+        BlockDb.EnsureTables();
+        if (blocks.Length != width * height * depth || light.Length != blocks.Length)
+            throw new ArgumentException("Block and light volumes must have matching dimensions.");
+        if ((uint)changedIndex >= (uint)light.Length)
+            throw new ArgumentOutOfRangeException(nameof(changedIndex));
+
+        newEmission = (byte)Math.Min(MaxLevel, newEmission);
+        byte oldLevel = light[changedIndex];
+        if (newEmission >= oldLevel)
+        {
+            if (newEmission == oldLevel) return;
+            light[changedIndex] = newEmission;
+            Queue<int> additions = RentQueue();
+            additions.Enqueue(changedIndex);
+            FloodBlockLight(blocks, light, additions, width, height, depth);
+            return;
+        }
+
+        Queue<(int Index, byte Level)> removals = _removalQueueScratch ??= new Queue<(int, byte)>(4096);
+        removals.Clear();
+        Queue<int> relight = RentQueue();
+        light[changedIndex] = 0;
+        removals.Enqueue((changedIndex, oldLevel));
+
+        int plane = width * depth;
+        while (removals.Count > 0)
+        {
+            (int index, byte removedLevel) = removals.Dequeue();
+            int x = index % width;
+            int z = (index / width) % depth;
+            int y = index / plane;
+            if (x > 0) RemoveBlockNeighbour(blocks, light, removals, relight, index - 1, removedLevel);
+            if (x + 1 < width) RemoveBlockNeighbour(blocks, light, removals, relight, index + 1, removedLevel);
+            if (y > 0) RemoveBlockNeighbour(blocks, light, removals, relight, index - plane, removedLevel);
+            if (y + 1 < height) RemoveBlockNeighbour(blocks, light, removals, relight, index + plane, removedLevel);
+            if (z > 0) RemoveBlockNeighbour(blocks, light, removals, relight, index - width, removedLevel);
+            if (z + 1 < depth) RemoveBlockNeighbour(blocks, light, removals, relight, index + width, removedLevel);
+        }
+
+        byte ownEmission = Emission(blocks[changedIndex]);
+        if (ownEmission > 0)
+        {
+            light[changedIndex] = Math.Max(light[changedIndex], ownEmission);
+            relight.Enqueue(changedIndex);
+        }
+
+        FloodBlockLight(blocks, light, relight, width, height, depth);
+    }
+
+    private static byte Emission(byte blockId) =>
+        blockId < BlockDb.LightEmission.Length ? BlockDb.LightEmission[blockId] : (byte)0;
+
+    private static void RemoveBlockNeighbour(
+            byte[] blocks, byte[] light,
+            Queue<(int Index, byte Level)> removals, Queue<int> relight,
+            int target, byte removedLevel)
+    {
+        byte current = light[target];
+        if (current == 0) return;
+
+        byte ownEmission = Emission(blocks[target]);
+        if (ownEmission > 0)
+        {
+            if (ownEmission > current) light[target] = ownEmission;
+            relight.Enqueue(target);
+            return;
+        }
+
+        if (current < removedLevel)
+        {
+            light[target] = 0;
+            removals.Enqueue((target, current));
+        }
+        else
+        {
+            relight.Enqueue(target);
+        }
+    }
+
+    private static void FloodBlockLight(
+            byte[] blocks, byte[] light, Queue<int> queue,
+            int width, int height, int depth)
+    {
+        int plane = width * depth;
+        while (queue.Count > 0)
+        {
+            int i = queue.Dequeue();
+            int level = light[i];
+            if (level <= 1) continue;
+            int x = i % width;
+            int z = (i / width) % depth;
+            int y = i / plane;
+            if (x > 0) SpreadBlock(blocks, light, queue, i - 1, level);
+            if (x + 1 < width) SpreadBlock(blocks, light, queue, i + 1, level);
+            if (y > 0) SpreadBlock(blocks, light, queue, i - plane, level);
+            if (y + 1 < height) SpreadBlock(blocks, light, queue, i + plane, level);
+            if (z > 0) SpreadBlock(blocks, light, queue, i - width, level);
+            if (z + 1 < depth) SpreadBlock(blocks, light, queue, i + width, level);
+        }
     }
 
     private static void SpreadBlock(byte[] blocks, byte[] light, Queue<int> queue, int target, int source)
