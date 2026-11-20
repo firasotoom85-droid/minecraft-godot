@@ -103,6 +103,7 @@ public partial class PauseMenu : CanvasLayer, IModalUi
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        if (@event is InputEventKey { Echo: true }) return;
         if (@event.IsActionPressed("pause"))
         {
             Toggle();
