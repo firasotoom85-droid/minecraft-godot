@@ -91,6 +91,7 @@ public partial class Dreadwing : Mob
             }
 
             Manager?.Puff(GlobalPosition, new Color(0.55f, 0.22f, 0.44f));
+            Manager?.SoundRef?.Play("mobdread", GlobalPosition, 0.9f, -7.0f);
         }
 
         if (_windup > 0.0f)
