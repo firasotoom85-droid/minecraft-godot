@@ -6,6 +6,7 @@ public partial class MobProjectile : Area3D
 {
     private Vector3 _velocity;
     private float _damage;
+    private Vector3 _source;
     private float _life = 4.0f;
     private Mobs? _manager;
     private string _sound = "mobcrystal";
@@ -16,6 +17,7 @@ public partial class MobProjectile : Area3D
     {
         _manager = manager;
         _damage = damage;
+        _source = origin;
         _sound = sound;
         _color = color;
         Vector3 direction = target - origin;
@@ -66,7 +68,7 @@ public partial class MobProjectile : Area3D
         if (body is Player player)
         {
             if (player.ApplyDamage(new DamageInfo(_damage, DamageKind.Projectile,
-                    GlobalPosition, 1.8f, 0.8f)))
+                    _source, 1.8f, 0.8f)))
             {
                 _manager?.Puff(player.GlobalPosition + new Vector3(0, 1.0f, 0), _color);
                 _manager?.SoundRef?.Play(_sound, GlobalPosition, 1.0f, -6.0f);
