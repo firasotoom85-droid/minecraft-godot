@@ -84,7 +84,7 @@ public static class GamepadBindings
         {
             if (other == action) continue;
             foreach (InputEvent inputEvent in InputMap.ActionGetEvents(other))
-                if (inputEvent is InputEventJoypadButton bound && bound.Button == button)
+                if (inputEvent is InputEventJoypadButton bound && bound.ButtonIndex == button)
                     return other;
         }
         return null;
