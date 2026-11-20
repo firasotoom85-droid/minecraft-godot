@@ -522,6 +522,9 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     private void Open(int size)
     {
         _enchantingTableOpen = false;
+        _equipmentList.Visible = false;
+        _recipeList.Visible = true;
+        _paletteList.Visible = false;
         if (_open && size == _craftSize)
         {
             return;
@@ -559,6 +562,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     private void Close()
     {
         _open = false;
+        _enchantingTableOpen = false;
         _root.Visible = false;
         _containerBox.Visible = false;
         _container = null;
