@@ -90,9 +90,10 @@ public partial class PauseMenu : CanvasLayer, IModalUi
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (@event is InputEventKey key && key.Pressed && !key.Echo && key.IsActionPressed("pause"))
+        if (@event.IsActionPressed("pause"))
         {
             Toggle();
+            GetViewport().SetInputAsHandled();
         }
     }
 
@@ -119,6 +120,7 @@ public partial class PauseMenu : CanvasLayer, IModalUi
         Input.MouseMode = Input.MouseModeEnum.Visible;
         _player.InputLocked = true;
         _hud.CloseHelp();
+        UiFocus.FocusFirst(_mainPanel);
     }
 
     private void Resume()
