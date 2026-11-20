@@ -71,7 +71,7 @@ public partial class Dreadwing : Mob
             _repositionCooldown = 6.0;
             Vector3 flat = toPlayer;
             flat.Y = 0.0f;
-            Vector3 side = new(-flat.Z, 0.0f, flat.X).Normalized();
+            Vector3 side = new Vector3(-flat.Z, 0.0f, flat.X).Normalized();
             float sideSign = GD.Randf() < 0.5f ? -1.0f : 1.0f;
             Vector3 candidate = player.GlobalPosition - flat.Normalized() * 8.0f
                     + side * sideSign * 5.0f + new Vector3(0, 4.0f, 0);
