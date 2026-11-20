@@ -476,8 +476,11 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             Kind = kind,
             Index = index,
             CustomMinimumSize = new Vector2(SlotPx, SlotPx),
+            FocusMode = Control.FocusModeEnum.All,
         };
+        slot.AddThemeStyleboxOverride("focus", MenuSkin.SlotStyle(true));
         slot.Clicked += OnSlotClicked;
+        slot.Dropped += OnSlotDropped;
         return slot;
     }
 
@@ -487,22 +490,15 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (GetTree().Paused)
-        {
+        if (GetTree().Paused || @event is InputEventKey { Echo: true })
             return;
-        }
 
-        if (@event is not InputEventKey key || !key.Pressed || key.Echo)
-        {
-            return;
-        }
-
-        if (key.IsActionPressed("inventory"))
+        if (@event.IsActionPressed("inventory"))
         {
             Toggle();
             GetViewport().SetInputAsHandled();
         }
-        else if (_open && key.Keycode == Key.Escape)
+        else if (_open && @event.IsActionPressed("ui_cancel"))
         {
             Close();
             GetViewport().SetInputAsHandled();
@@ -598,6 +594,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         Input.MouseMode = Input.MouseModeEnum.Visible;
         _player.InputLocked = true;
         Refresh();
+        UiFocus.FocusFirst(_backpackSlots[0]);
     }
 
     private void Close()
