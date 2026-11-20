@@ -27,6 +27,8 @@ public partial class InvSlot : Panel
     private Label _count = null!;
     private bool _hovered;
     private bool _hasStack;
+    private bool _dragStarted;
+    private bool _suppressClick;
 
     public event Action<InvSlot, MouseButton>? Clicked;
     public event Action<InvSlot, InvSlot>? Dropped;
@@ -99,12 +101,23 @@ public partial class InvSlot : Panel
     public override Variant _GetDragData(Vector2 atPosition)
     {
         if (!_hasStack) return default;
+        _dragStarted = true;
         Panel preview = new()
         {
             CustomMinimumSize = new Vector2(48, 48),
             MouseFilter = MouseFilterEnum.Ignore,
         };
         preview.AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(true, false));
+        TextureRect icon = new()
+        {
+            Texture = _icon.Texture,
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            TextureFilter = CanvasItem.TextureFilterEnum.Nearest,
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        icon.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect, LayoutPresetMode.Minsize, 5);
+        preview.AddChild(icon);
         SetDragPreview(preview);
         return Variant.From(this);
     }
@@ -117,7 +130,11 @@ public partial class InvSlot : Panel
     public override void _DropData(Vector2 atPosition, Variant data)
     {
         if (data.AsGodotObject() is InvSlot source && source != this)
+        {
+            source._dragStarted = false;
+            _suppressClick = true;
             Dropped?.Invoke(source, this);
+        }
     }
 
     public override void _GuiInput(InputEvent @event)
@@ -125,6 +142,13 @@ public partial class InvSlot : Panel
         // Dispatch on release so Godot can recognize a drag gesture first.
         if (@event is InputEventMouseButton button && !button.Pressed)
         {
+            if (_suppressClick || _dragStarted)
+            {
+                _suppressClick = false;
+                _dragStarted = false;
+                AcceptEvent();
+                return;
+            }
             Clicked?.Invoke(this, button.ButtonIndex);
             AcceptEvent();
         }
