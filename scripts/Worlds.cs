@@ -35,8 +35,7 @@ public sealed record WorldSave(
     Dictionary<string, bool>? Flags = null,
     Dictionary<string, FurnaceSave>? Furnaces = null);
 
-/// <summary>Per-player state. Split from world state so multiplayer code
-/// never has to untangle the two. M2 fields default to "unset" for old saves.</summary>
+/// <summary>Per-player state. Experience is optional and defaults to zero for legacy saves.</summary>
 public sealed record PlayerSave(
     float[] Pos,
     int Selected = 0,
@@ -47,7 +46,7 @@ public sealed record PlayerSave(
     float[]? Respawn = null,
     int Experience = 0);
 
-/// <summary>One saved inventory slot (0-8 hotbar, 9-35 backpack).</summary>
+/// <summary>One saved inventory slot (0-8 hotbar, 9-35 backpack, 36-39 armor).</summary>
 public sealed record ItemStackSave(int Slot, int Id, int Count, int Durability = 0,
     int Sharpness = 0, int Protection = 0, int Unbreaking = 0);
 
