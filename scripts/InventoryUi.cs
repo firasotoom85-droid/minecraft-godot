@@ -132,9 +132,17 @@ public partial class InvSlot : Panel
         if (data.AsGodotObject() is InvSlot source && source != this)
         {
             source._dragStarted = false;
+            source._suppressClick = true;
             _suppressClick = true;
+            source.CallDeferred(nameof(ClearSuppressedClick));
+            CallDeferred(nameof(ClearSuppressedClick));
             Dropped?.Invoke(source, this);
         }
+    }
+
+    private void ClearSuppressedClick()
+    {
+        _suppressClick = false;
     }
 
     public override void _GuiInput(InputEvent @event)
