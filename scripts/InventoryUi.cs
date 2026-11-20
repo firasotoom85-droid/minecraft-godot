@@ -158,6 +158,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     private int _craftSize = 2;
     private ItemStack _cursor = ItemStack.Empty;
     private bool _open;
+    private bool _enchantingTableOpen;
 
     public void Setup(Player player, Hud hud)
     {
@@ -167,6 +168,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         AddToGroup(UiFocus.ModalGroup);
         Build();
         _player.TableUsed += () => Open(3);
+        _player.EnchantingTableUsed += OpenEnchantingTable;
         _player.Inventory.Changed += () =>
         {
             if (_open)
@@ -506,8 +508,20 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         Refresh();
     }
 
+    private void OpenEnchantingTable()
+    {
+        Open(2);
+        _enchantingTableOpen = true;
+        _title.Text = "ENCHANTING TABLE";
+        _containerBox.Visible = false;
+        _furnaceBox.Visible = false;
+        ShowEquipmentTab();
+        Refresh();
+    }
+
     private void Open(int size)
     {
+        _enchantingTableOpen = false;
         if (_open && size == _craftSize)
         {
             return;
@@ -951,6 +965,11 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     private void ShowEquipmentTab()
     {
+        if (!_enchantingTableOpen)
+        {
+            _hud.ShowToast("Use an enchanting table to access this station");
+            return;
+        }
         _recipeList.Visible = false;
         _paletteList.Visible = false;
         _equipmentList.Visible = true;
