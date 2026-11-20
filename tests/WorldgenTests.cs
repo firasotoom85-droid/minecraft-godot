@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Reflection;
 using Godot;
 
 namespace Minecraft;
@@ -35,6 +36,7 @@ public static class WorldgenTests
         DirAccess.RemoveAbsolute(v1Dir);
 
         CheckLightPersistence(host);
+        CheckWorldLightingMutations(host);
         CheckContainerPersistence(host);
 
         string v5Dir = $"user://tests/world-v5-{Time.GetTicksUsec()}";
@@ -108,6 +110,94 @@ public static class WorldgenTests
         host.RemoveChild(world);
         world.QueueFree();
         DirAccess.RemoveAbsolute(WorldStore.WorldSavePath(dir));
+        DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+        DirAccess.RemoveAbsolute(dir);
+    }
+
+    /// <summary>
+    /// Exercises lighting through the real world mutation/cache path rather
+    /// than only testing the standalone flood-fill solver.
+    /// </summary>
+    private static void CheckWorldLightingMutations(Node host)
+    {
+        string dir = $"user://tests/world-light-mutations-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(dir);
+        WorldStore.WriteManifest(dir, new WorldManifest(
+                "Light mutations", 4242, 1, WorldStore.LegacyNoiseSeeds, 0, 0));
+        GameSession.Instance.SelectWorld(dir);
+
+        VoxelWorld world = new();
+        host.AddChild(world);
+        world.BuildPreview(new Vector3(8, 32, 8), 1);
+
+        int y = world.Height - 3;
+        byte torchLevel = BlockDb.LightEmission[(int)BlockId.Torch];
+        Vector2I westChunk = Vector2I.Zero;
+
+        TestAssert.Equal(BlockId.Air, world.GetBlock(8, y, 8),
+                "world-light test location is open air");
+        TestAssert.Check(world.SetBlock(8, y, 8, BlockId.Torch),
+                "world accepts torch placement");
+        VoxelLightData placed = world.LightData(westChunk);
+        TestAssert.Equal(torchLevel, placed.BlockAt(8, y, 8, world.Height),
+                "placed torch retains its emission in world cache");
+        TestAssert.Equal((byte)(torchLevel - 1), placed.BlockAt(9, y, 8, world.Height),
+                "placed torch illuminates adjacent world voxel");
+
+        TestAssert.Check(world.SetBlock(8, y, 8, BlockId.Air),
+                "world accepts torch removal");
+        VoxelLightData removed = world.LightData(westChunk);
+        TestAssert.Equal((byte)0, removed.BlockAt(9, y, 8, world.Height),
+                "torch removal clears stale world block light");
+
+        TestAssert.Check(world.SetBlock(8, y, 8, BlockId.Torch), "first overlapping torch placed");
+        TestAssert.Check(world.SetBlock(12, y, 8, BlockId.Torch), "second overlapping torch placed");
+        TestAssert.Check(world.SetBlock(8, y, 8, BlockId.Air), "first overlapping torch removed");
+        VoxelLightData overlap = world.LightData(westChunk);
+        TestAssert.Equal((byte)(torchLevel - 2), overlap.BlockAt(10, y, 8, world.Height),
+                "overlapping source keeps light after the nearer source is removed");
+        TestAssert.Check(world.SetBlock(12, y, 8, BlockId.Air), "remaining overlapping torch removed");
+
+        TestAssert.Check(world.SetBlock(15, y, 8, BlockId.Torch),
+                "boundary torch placed in western chunk");
+        VoxelLightData[] seam = world.LightDataNeighborhood(Vector2I.Zero);
+        TestAssert.Equal((byte)(torchLevel - 1), seam[5].BlockAt(0, y, 8, world.Height),
+                "world block light crosses x=15/16 chunk boundary");
+        TestAssert.Check(world.SetBlock(15, y, 8, BlockId.Air), "boundary torch removed");
+
+        int roofY = world.Height - 2;
+        TestAssert.Check(world.SetBlock(6, roofY, 6, BlockId.Stone),
+                "opaque skylight blocker placed");
+        VoxelLightData shaded = world.LightData(westChunk);
+        TestAssert.Equal((byte)0, shaded.SkyAt(6, roofY - 1, 6, world.Height),
+                "placing opaque block recalculates skylight below it");
+        TestAssert.Check(world.SetBlock(6, roofY, 6, BlockId.Air),
+                "opaque skylight blocker removed");
+        VoxelLightData exposed = world.LightData(westChunk);
+        TestAssert.Equal((byte)15, exposed.SkyAt(6, roofY - 1, 6, world.Height),
+                "removing opaque block restores direct skylight");
+
+        TestAssert.Check(world.SetBlock(8, y, 8, BlockId.Torch),
+                "persistent torch placed before unload");
+        world.SaveNow();
+        MethodInfo? unload = typeof(VoxelWorld).GetMethod(
+                "UnloadFar", BindingFlags.Instance | BindingFlags.NonPublic);
+        TestAssert.Check(unload is not null, "world exposes its existing unload path to regression test");
+        unload?.Invoke(world, [new Vector2I(100, 100)]);
+        world.BuildPreview(new Vector3(8, 32, 8), 1);
+        VoxelLightData reloaded = world.LightData(westChunk);
+        TestAssert.Equal(torchLevel, reloaded.BlockAt(8, y, 8, world.Height),
+                "reloaded chunk restores saved torch emission");
+        TestAssert.Equal((byte)(torchLevel - 1), reloaded.BlockAt(9, y, 8, world.Height),
+                "reloaded chunk restores propagated block light");
+
+        host.RemoveChild(world);
+        world.QueueFree();
+        foreach (string suffix in new[] { "", ".bak", ".bak2" })
+        {
+            DirAccess.RemoveAbsolute(WorldStore.WorldSavePath(dir) + suffix);
+            DirAccess.RemoveAbsolute(WorldStore.PlayerSavePath(dir) + suffix);
+        }
         DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
         DirAccess.RemoveAbsolute(dir);
     }
