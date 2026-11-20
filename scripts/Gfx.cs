@@ -91,12 +91,15 @@ public partial class Gfx : Node
                 _cooldown = 60.0;
             }
         }
-        else if (_fastTimer >= 45.0 && Current < _ceiling)
+        else if (_fastTimer >= 45.0)
         {
             _slowTimer = 0.0;
             _fastTimer = 0.0;
-            StepPreset(Current + 1, $"quality auto-raised — {Presets[Current + 1].Name}");
-            _cooldown = 90.0;
+            if (Current < _ceiling)
+            {
+                StepPreset(Current + 1, $"quality auto-raised — {Presets[Current + 1].Name}");
+                _cooldown = 90.0;
+            }
         }
     }
 
@@ -163,6 +166,10 @@ public partial class Gfx : Node
             // Order matters: FSR2 rejects supersampled scales and bilinear never
             // cares, so pick the mode first for bilinear and the scale first for
             // FSR2 to avoid a transient invalid combination (engine falls back).
+            // TAA is owned by the preset in both branches: leaving it stale from
+            // a previous preset makes FSR2 run with two temporal filters, and a
+            // later switch back to bilinear would silently disable TAA.
+            vp.UseTaa = p.Taa && !p.Fsr2;
             if (p.Fsr2)
             {
                 vp.Scaling3DScale = p.Scale;
@@ -172,7 +179,6 @@ public partial class Gfx : Node
             {
                 vp.Scaling3DMode = Viewport.Scaling3DModeEnum.Bilinear;
                 vp.Scaling3DScale = p.Scale;
-                vp.UseTaa = p.Taa;
             }
 
             vp.ScreenSpaceAA = p.Fxaa ? Viewport.ScreenSpaceAAEnum.Fxaa : Viewport.ScreenSpaceAAEnum.Disabled;

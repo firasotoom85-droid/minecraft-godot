@@ -52,13 +52,13 @@ public partial class Minimap : Control
 
     public void ZoomIn()
     {
-        _zoom = Mathf.Min(_zoom + 1, ZoomLevels.Length - 1);
+        _zoom = Mathf.Max(_zoom - 1, 0);
         StartRebuild();
     }
 
     public void ZoomOut()
     {
-        _zoom = Mathf.Max(_zoom - 1, 0);
+        _zoom = Mathf.Min(_zoom + 1, ZoomLevels.Length - 1);
         StartRebuild();
     }
 

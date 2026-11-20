@@ -104,7 +104,7 @@ public partial class InvSlot : Panel
 /// matching, a one-click recipe book and a block palette. Click-to-move
 /// stacks through a cursor-held stack; right-click splits or places one.
 /// </summary>
-public partial class InventoryUi : CanvasLayer
+public partial class InventoryUi : CanvasLayer, IModalUi
 {
     private const int SlotPx = 44;
 
@@ -123,6 +123,7 @@ public partial class InventoryUi : CanvasLayer
     private InvSlot _resultSlot = null!;
     private VBoxContainer _recipeList = null!;
     private VBoxContainer _paletteList = null!;
+    private readonly List<(Button Button, Recipe Recipe)> _recipeRows = [];
     private TextureRect _cursorIcon = null!;
     private Label _cursorCount = null!;
 
@@ -145,6 +146,7 @@ public partial class InventoryUi : CanvasLayer
         _player = player;
         _hud = hud;
         Layer = 9;
+        AddToGroup(UiFocus.ModalGroup);
         Build();
         _player.TableUsed += () => Open(3);
         _player.Inventory.Changed += () =>
@@ -215,6 +217,7 @@ public partial class InventoryUi : CanvasLayer
         _cursorCount.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0, 0.9f));
         _cursorCount.AddThemeConstantOverride("outline_size", 4);
         _root.AddChild(_cursorCount);
+        BuildRecipeRows();
     }
 
     private VBoxContainer BuildContainer()
@@ -527,8 +530,15 @@ public partial class InventoryUi : CanvasLayer
         _furnace = null;
         ReturnCraftItems();
         GiveCursorBack();
-        Input.MouseMode = Input.MouseModeEnum.Captured;
-        _player.InputLocked = false;
+        UiFocus.Restore(_player);
+    }
+
+    public void ForceClose()
+    {
+        if (_open)
+        {
+            Close();
+        }
     }
 
     private void ReturnCraftItems()
@@ -748,6 +758,17 @@ public partial class InventoryUi : CanvasLayer
 
     private void CraftFromBook(Recipe recipe)
     {
+        if (!Recipes.CanCraft(recipe, _player.Inventory))
+        {
+            return;
+        }
+
+        if (!_player.Inventory.CanFit(recipe.Result, recipe.ResultCount))
+        {
+            _hud.ShowToast("Inventory full");
+            return;
+        }
+
         if (!Recipes.Craft(recipe, _player.Inventory))
         {
             return;
@@ -814,27 +835,33 @@ public partial class InventoryUi : CanvasLayer
         _furnaceProgress.Value = _furnace.SmeltTime;
     }
 
-    private void RefreshRecipes()
+    private void BuildRecipeRows()
     {
-        foreach (Node child in _recipeList.GetChildren())
-        {
-            child.QueueFree();
-        }
-
         foreach (Recipe recipe in Recipes.All)
         {
-            bool can = Recipes.CanCraft(recipe, _player.Inventory);
             Button row = new()
             {
                 Text = $"{recipe.Name} ×{recipe.ResultCount}\n{Recipes.IngredientText(recipe)}",
-                Disabled = !can,
                 CustomMinimumSize = new Vector2(0, 40),
                 Alignment = HorizontalAlignment.Left,
                 FocusMode = Control.FocusModeEnum.None,
             };
             row.AddThemeFontSizeOverride("font_size", 13);
-            row.Pressed += () => CraftFromBook(recipe);
+            Recipe captured = recipe;
+            row.Pressed += () => CraftFromBook(captured);
             _recipeList.AddChild(row);
+            _recipeRows.Add((row, captured));
+        }
+    }
+
+    private void RefreshRecipes()
+    {
+        // Update the existing rows; rebuilding ~35 buttons on every inventory
+        // change was needless churn while the screen is open.
+        foreach ((Button button, Recipe recipe) in _recipeRows)
+        {
+            button.Disabled = !Recipes.CanCraft(recipe, _player.Inventory)
+                    || !_player.Inventory.CanFit(recipe.Result, recipe.ResultCount);
         }
     }
 

@@ -1,5 +1,10 @@
 # Performance baseline — M5
 
+> **Historical snapshot.** These numbers come from one development laptop, not
+> a CI benchmark. They are not reproducible on a clean machine without the same
+> hardware and a focused window; use the build/test steps in `README.md` for
+> correctness and re-record a baseline when tuning performance.
+
 Recorded 2026-10-21 on the development machine while verifying the M5 content
 capacity and test-harness work.
 

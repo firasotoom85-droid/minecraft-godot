@@ -105,6 +105,25 @@ public static class Keybinds
         return key == Key.None ? "—" : key.ToString();
     }
 
+    /// <summary>Label of another bindable action already using <paramref name="key"/>, or null.</summary>
+    public static string? Conflict(string action, Key key)
+    {
+        if (key == Key.None)
+        {
+            return null;
+        }
+
+        foreach ((string other, string label) in Bindable)
+        {
+            if (other != action && KeyOf(other) == key)
+            {
+                return label;
+            }
+        }
+
+        return null;
+    }
+
     private static void Apply(string action, Key key)
     {
         if (!InputMap.HasAction(action))
