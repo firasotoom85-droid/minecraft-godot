@@ -17,8 +17,8 @@ public partial class GameSession : Node
     {
         Instance = this;
         Settings.Load();
-        Keybinds.Load();
         GamepadBindings.Configure();
+        Keybinds.Load();
         Sound.EnsureBuses();
         Sound.ApplyVolumes();
         ContentValidation.ValidateOrWarn();
