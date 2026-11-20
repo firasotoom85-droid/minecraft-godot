@@ -153,6 +153,7 @@ public sealed class PlayerStats
         if (Dead || mode != GameMode.Survival)
         {
             Breath = MaxBreath;
+            _drownAccum = 0.0;
             return;
         }
 
@@ -175,13 +176,18 @@ public sealed class PlayerStats
                 Changed?.Invoke();
             }
         }
-        else if (Breath < MaxBreath)
+        else
         {
-            float before = Breath;
-            Breath = Mathf.Min(Breath + (float)delta * 4.0f, MaxBreath);
-            if (Mathf.CeilToInt(before) != Mathf.CeilToInt(Breath))
+            // Time spent above water must not carry into the next dive.
+            _drownAccum = 0.0;
+            if (Breath < MaxBreath)
             {
-                Changed?.Invoke();
+                float before = Breath;
+                Breath = Mathf.Min(Breath + (float)delta * 4.0f, MaxBreath);
+                if (Mathf.CeilToInt(before) != Mathf.CeilToInt(Breath))
+                {
+                    Changed?.Invoke();
+                }
             }
         }
     }
@@ -199,11 +205,11 @@ public sealed class PlayerStats
         Respawned?.Invoke();
     }
 
-    /// <summary>Restore persisted values (0 means "unset", gets full bars).</summary>
+    /// <summary>Restore persisted values; a negative hunger sentinel means the field was absent in an old save.</summary>
     public void Load(float health, float hunger)
     {
         Health = health > 0.0f ? Mathf.Clamp(health, 1.0f, MaxHealth) : MaxHealth;
-        Hunger = hunger > 0.0f ? Mathf.Clamp(hunger, 0.0f, MaxHunger) : MaxHunger;
+        Hunger = hunger >= 0.0f ? Mathf.Clamp(hunger, 0.0f, MaxHunger) : MaxHunger;
         Breath = MaxBreath;
         Dead = false;
         Changed?.Invoke();
