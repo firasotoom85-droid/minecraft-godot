@@ -58,10 +58,17 @@ public partial class CrystalWisp : Mob
 
         Vector3 toPlayer = player.GlobalPosition - GlobalPosition;
         float distance = toPlayer.Length();
-        if (distance > 25.0f || !HasLineOfSight(player))
+        if (distance > 25.0f)
         {
             _charge = 0.0f;
             return Vector3.Zero;
+        }
+
+        bool visible = HasLineOfSight(player);
+        if (!visible)
+        {
+            _charge = 0.0f;
+            return distance > 7.0f ? toPlayer : Vector3.Zero;
         }
 
         if (_shotCooldown <= 0.0 && _charge <= 0.0f && distance < 17.0f)
