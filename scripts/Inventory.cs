@@ -52,7 +52,7 @@ public sealed class Inventory
         ItemStack stack = Get(slot);
         int max = ItemDb.ToolOf(stack.Id)?.Durability ?? ItemDb.ArmorOf(stack.Id)?.Durability ?? ItemDb.WeaponOf(stack.Id)?.Durability ?? 0;
         if (stack.IsEmpty || max <= 0) return false;
-        if (EquipmentProgression.DurabilityDamage(stack, GD.Randf()) == 0) return false;
+        if (EquipmentProgression.DurabilityDamage(stack, Godot.GD.Randf()) == 0) return false;
         int durability = stack.Durability - 1; bool broke = durability <= 0;
         Set(slot, broke ? ItemStack.Empty : stack with { Durability = durability }); Changed?.Invoke(); return broke;
     }
