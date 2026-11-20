@@ -2,6 +2,13 @@ using Godot;
 
 namespace Minecraft;
 
+public static class MobProjectileRules
+{
+    public static bool ShouldStopOnTerrain(bool terrainHit) => terrainHit;
+    public static bool ShouldDamagePlayer(bool playerHit, bool terrainHit) =>
+            playerHit && !terrainHit;
+}
+
 public partial class MobProjectile : Area3D
 {
     private Vector3 _velocity;
@@ -62,7 +69,8 @@ public partial class MobProjectile : Area3D
         PhysicsRayQueryParameters3D query = PhysicsRayQueryParameters3D.Create(
                 GlobalPosition, nextPosition, (uint)PhysicsLayer.Terrain);
         query.CollideWithAreas = false;
-        if (GetWorld3D().DirectSpaceState.IntersectRay(query).Count > 0)
+        bool terrainHit = GetWorld3D().DirectSpaceState.IntersectRay(query).Count > 0;
+        if (MobProjectileRules.ShouldStopOnTerrain(terrainHit))
         {
             _manager?.Puff(nextPosition, _color);
             QueueFree();
@@ -74,7 +82,7 @@ public partial class MobProjectile : Area3D
 
     private void OnBodyEntered(Node3D body)
     {
-        if (body is Player player)
+        if (body is Player player && MobProjectileRules.ShouldDamagePlayer(true, false))
         {
             if (player.ApplyDamage(new DamageInfo(_damage, DamageKind.Melee,
                     GlobalPosition, 1.8f, 0.8f)))
