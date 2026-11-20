@@ -46,12 +46,10 @@ public partial class Cow : Wanderer
         {
             AddBox(st, new Vector3(0.07f, 0.26f, 0.07f), new Vector3(sx * 0.26f, 1.38f, -0.84f),
                     new Color(0.88f, 0.84f, 0.72f));
-            AddBox(st, new Vector3(0.16f, 0.56f, 0.16f), new Vector3(sx * 0.30f, 0.30f, -0.45f), hide);
-            AddBox(st, new Vector3(0.16f, 0.56f, 0.16f), new Vector3(sx * 0.30f, 0.30f, 0.45f), hide);
-            AddBox(st, new Vector3(0.10f, 0.48f, 0.10f), new Vector3(sx * 0.32f, 0.24f, -0.05f), hide);
         }
 
         AddBox(st, new Vector3(0.18f, 0.08f, 0.08f), new Vector3(0, 0.62f, 0.50f), patch);
         CommitBody(st);
+        AddAnimatedLegs(hide, 0.56f, 0.16f, 0.30f, 0.45f, 0.58f);
     }
 }
