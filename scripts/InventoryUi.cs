@@ -81,11 +81,13 @@ public partial class InvSlot : Panel
     {
         StyleBoxFlat sb = new()
         {
-            BgColor = selected ? new Color(0.10f, 0.10f, 0.13f, 0.90f) : new Color(0.06f, 0.06f, 0.08f, 0.78f),
-            BorderColor = selected ? new Color(1, 1, 1, 0.95f) : new Color(0.35f, 0.35f, 0.38f, 0.85f),
+            BgColor = selected
+                    ? new Color(0.10f, 0.34f, 0.29f, 0.98f)
+                    : new Color(0.025f, 0.045f, 0.052f, 0.94f),
+            BorderColor = selected ? MenuSkin.AccentBright : new Color(0.48f, 0.62f, 0.60f, 0.40f),
         };
-        sb.SetBorderWidthAll(selected ? 3 : 2);
-        sb.SetCornerRadiusAll(5);
+        sb.SetBorderWidthAll(selected ? 2 : 1);
+        sb.SetCornerRadiusAll(7);
         return sb;
     }
 
@@ -106,7 +108,7 @@ public partial class InvSlot : Panel
 /// </summary>
 public partial class InventoryUi : CanvasLayer, IModalUi
 {
-    private const int SlotPx = 44;
+    private const int SlotPx = 48;
 
     private Player _player = null!;
     private Hud _hud = null!;
@@ -174,7 +176,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
         ColorRect dim = new()
         {
-            Color = new Color(0, 0, 0, 0.35f),
+            Color = new Color(0.005f, 0.018f, 0.022f, 0.58f),
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
         dim.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
@@ -193,10 +195,25 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _furnaceBox = BuildFurnace();
         _furnaceBox.Visible = false;
         box.AddChild(_furnaceBox);
-        _title = MenuSkin.Title("INVENTORY", 18);
-        box.AddChild(_title);
+        HBoxContainer heading = new();
+        heading.AddThemeConstantOverride("separation", 18);
+        _title = MenuSkin.Title("INVENTORY", 22, true);
+        _title.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        heading.AddChild(_title);
+        Label hint = new()
+        {
+            Text = "LEFT CLICK  PICK / PLACE     RIGHT CLICK  SPLIT",
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        hint.AddThemeFontSizeOverride("font_size", 10);
+        hint.AddThemeColorOverride("font_color", MenuSkin.Muted);
+        heading.AddChild(hint);
+        box.AddChild(heading);
         box.AddChild(BuildColumns());
-        center.AddChild(MenuSkin.Wrap(box));
+        PanelContainer inventoryPanel = MenuSkin.Wrap(box);
+        inventoryPanel.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
+        center.AddChild(inventoryPanel);
 
         _cursorIcon = new TextureRect
         {
@@ -224,7 +241,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     {
         VBoxContainer box = new();
         box.AddThemeConstantOverride("separation", 8);
-        box.AddChild(MenuSkin.Title("CHEST", 14));
+        box.AddChild(MenuSkin.Eyebrow("STORAGE"));
+        box.AddChild(MenuSkin.Title("Chest", 17, true));
         _containerGrid = new GridContainer
         {
             Columns = 9,
@@ -245,7 +263,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     {
         VBoxContainer box = new();
         box.AddThemeConstantOverride("separation", 8);
-        box.AddChild(MenuSkin.Title("FURNACE", 14));
+        box.AddChild(MenuSkin.Eyebrow("SMELTING"));
+        box.AddChild(MenuSkin.Title("Furnace", 17, true));
         HBoxContainer row = new();
         row.AddThemeConstantOverride("separation", 10);
         row.AddChild(FurnaceColumn(box, "INPUT", SlotKind.FurnaceInput, 0));
@@ -286,7 +305,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
         VBoxContainer craftCol = new();
         craftCol.AddThemeConstantOverride("separation", 8);
-        craftCol.AddChild(MenuSkin.Title("CRAFT", 14));
+        craftCol.AddChild(MenuSkin.Eyebrow("CRAFTING"));
+        craftCol.AddChild(MenuSkin.Title("Craft", 17, true));
         _craftGrid = new GridContainer
         {
             Columns = _craftSize,
@@ -322,7 +342,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
         VBoxContainer bagCol = new();
         bagCol.AddThemeConstantOverride("separation", 8);
-        bagCol.AddChild(MenuSkin.Title("BACKPACK", 14));
+        bagCol.AddChild(MenuSkin.Eyebrow("INVENTORY"));
+        bagCol.AddChild(MenuSkin.Title("Backpack", 17, true));
         _backpackGrid = new GridContainer
         {
             Columns = 9,
@@ -336,7 +357,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         bagCol.AddChild(_backpackGrid);
-        bagCol.AddChild(MenuSkin.Title("ARMOR", 14));
+        bagCol.AddChild(MenuSkin.Eyebrow("EQUIPMENT"));
         HBoxContainer armorRow = new();
         armorRow.AddThemeConstantOverride("separation", 6);
         for (int i = 0; i < Inventory.ArmorSlots; i++)
@@ -346,7 +367,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         bagCol.AddChild(armorRow);
-        bagCol.AddChild(MenuSkin.Title("HOTBAR", 14));
+        bagCol.AddChild(MenuSkin.Eyebrow("QUICK ACCESS"));
         _hotbarRow = new HBoxContainer();
         _hotbarRow.AddThemeConstantOverride("separation", 6);
         for (int i = 0; i < 9; i++)
@@ -362,12 +383,12 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         sideCol.AddThemeConstantOverride("separation", 8);
         HBoxContainer tabs = new();
         tabs.AddThemeConstantOverride("separation", 8);
-        tabs.AddChild(MenuSkin.MakeButton("Recipes", () => ShowTab(true), 92));
-        tabs.AddChild(MenuSkin.MakeButton("Palette", () => ShowTab(false), 92));
+        tabs.AddChild(MenuSkin.MakeButton("RECIPES", () => ShowTab(true), 106, primary: true));
+        tabs.AddChild(MenuSkin.MakeButton("BLOCKS", () => ShowTab(false), 106));
         sideCol.AddChild(tabs);
         ScrollContainer scroll = new()
         {
-            CustomMinimumSize = new Vector2(320, 340),
+            CustomMinimumSize = new Vector2(275, 365),
             HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
         };
         VBoxContainer scrollBox = new()
@@ -375,12 +396,12 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
         };
         _recipeList = new VBoxContainer();
-        _recipeList.AddThemeConstantOverride("separation", 4);
+        _recipeList.AddThemeConstantOverride("separation", 7);
         _paletteList = new VBoxContainer
         {
             Visible = false,
         };
-        _paletteList.AddThemeConstantOverride("separation", 4);
+        _paletteList.AddThemeConstantOverride("separation", 7);
         scrollBox.AddChild(_recipeList);
         scrollBox.AddChild(_paletteList);
         scroll.AddChild(scrollBox);
@@ -842,11 +863,13 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             Button row = new()
             {
                 Text = $"{recipe.Name} ×{recipe.ResultCount}\n{Recipes.IngredientText(recipe)}",
-                CustomMinimumSize = new Vector2(0, 40),
+                CustomMinimumSize = new Vector2(0, 54),
                 Alignment = HorizontalAlignment.Left,
                 FocusMode = Control.FocusModeEnum.None,
+                AutowrapMode = TextServer.AutowrapMode.WordSmart,
             };
-            row.AddThemeFontSizeOverride("font_size", 13);
+            StyleListButton(row);
+            row.AddThemeFontSizeOverride("font_size", 12);
             Recipe captured = recipe;
             row.Pressed += () => CraftFromBook(captured);
             _recipeList.AddChild(row);
@@ -878,15 +901,31 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             {
                 Text = ItemDb.NameOf(item),
                 Icon = ItemDb.Icon(item),
-                CustomMinimumSize = new Vector2(0, 40),
+                CustomMinimumSize = new Vector2(0, 46),
                 Alignment = HorizontalAlignment.Left,
                 FocusMode = Control.FocusModeEnum.None,
             };
+            StyleListButton(row);
             row.AddThemeFontSizeOverride("font_size", 13);
             ItemId captured = item;
             row.Pressed += () => PaletteGive(captured);
             _paletteList.AddChild(row);
         }
+    }
+
+    private static void StyleListButton(Button button)
+    {
+        button.AddThemeStyleboxOverride("normal", MenuSkin.ButtonStyle(
+                new Color(0.055f, 0.080f, 0.090f, 0.96f), MenuSkin.Border.WithAlpha(0.40f)));
+        button.AddThemeStyleboxOverride("hover", MenuSkin.ButtonStyle(
+                new Color(0.10f, 0.18f, 0.18f, 1.0f), MenuSkin.Accent.WithAlpha(0.65f)));
+        button.AddThemeStyleboxOverride("pressed", MenuSkin.ButtonStyle(
+                new Color(0.08f, 0.29f, 0.25f, 1.0f), MenuSkin.AccentBright));
+        button.AddThemeStyleboxOverride("disabled", MenuSkin.ButtonStyle(
+                MenuSkin.SurfaceInset, MenuSkin.Border.WithAlpha(0.12f)));
+        button.AddThemeColorOverride("font_color", MenuSkin.Text);
+        button.AddThemeColorOverride("font_hover_color", Colors.White);
+        button.AddThemeColorOverride("font_disabled_color", MenuSkin.Muted.WithAlpha(0.38f));
     }
 
     private void ShowTab(bool recipes)
