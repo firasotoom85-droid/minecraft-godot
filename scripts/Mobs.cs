@@ -597,16 +597,14 @@ public partial class Mobs : Node
                 break;
             }
 
-            Vector3 point;
+            Vector3 point = Vector3.Zero;
             bool caveKind = kind is "stalker" or "crystalwisp";
-            if (caveKind && !FindCaveSpawnPoint(4.0f, 10.0f, out point)
-                    && !FindSpawnPoint(6.0f, 14.0f, hostile, out point))
-            {
-                break;
-            }
-
-            if (!caveKind && !FindSpawnPoint(6.0f, 14.0f, hostile, out point,
-                    kind == "briarback" ? Biome.Birch : null))
+            bool found = caveKind
+                    ? FindCaveSpawnPoint(4.0f, 10.0f, out point)
+                            || FindSpawnPoint(6.0f, 14.0f, hostile, out point)
+                    : FindSpawnPoint(6.0f, 14.0f, hostile, out point,
+                            kind == "briarback" ? Biome.Birch : null);
+            if (!found)
             {
                 break;
             }
