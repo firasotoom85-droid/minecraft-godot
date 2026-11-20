@@ -149,6 +149,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     private Hud _hud = null!;
 
     private Control _root = null!;
+    private CenterContainer _center = null!;
     private Label _title = null!;
     private GridContainer _craftGrid = null!;
     private GridContainer _backpackGrid = null!;
@@ -185,6 +186,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         Layer = 9;
         AddToGroup(UiFocus.ModalGroup);
         Build();
+        GetViewport().SizeChanged += ApplyResponsiveScale;
+        ApplyResponsiveScale();
         _player.TableUsed += () => Open(3);
         _player.Inventory.Changed += () =>
         {
@@ -217,10 +220,10 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         dim.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _root.AddChild(dim);
 
-        CenterContainer center = new();
-        center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        center.MouseFilter = Control.MouseFilterEnum.Ignore;
-        _root.AddChild(center);
+        _center = new CenterContainer();
+        _center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _center.MouseFilter = Control.MouseFilterEnum.Ignore;
+        _root.AddChild(_center);
 
         VBoxContainer box = new();
         box.AddThemeConstantOverride("separation", 10);
@@ -233,7 +236,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _title = MenuSkin.Title("INVENTORY", 18);
         box.AddChild(_title);
         box.AddChild(BuildColumns());
-        center.AddChild(MenuSkin.Wrap(box));
+        _center.AddChild(MenuSkin.Wrap(box));
 
         _cursorIcon = new TextureRect
         {
@@ -255,6 +258,16 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _cursorCount.AddThemeConstantOverride("outline_size", 4);
         _root.AddChild(_cursorCount);
         BuildRecipeRows();
+    }
+
+    private void ApplyResponsiveScale()
+    {
+        if (_center == null || !IsInstanceValid(_center)) return;
+        Vector2 viewport = GetViewportRect().Size;
+        if (viewport.X <= 0 || viewport.Y <= 0) return;
+        float scale = Mathf.Clamp(Mathf.Min(viewport.X / 1450.0f, viewport.Y / 900.0f), 0.68f, 1.0f);
+        _center.PivotOffset = viewport * 0.5f;
+        _center.Scale = Vector2.One * scale;
     }
 
     private VBoxContainer BuildContainer()
