@@ -16,8 +16,15 @@ harness.
 The historical baseline and milestone notes below are retained for context. The
 current mob implementation has since advanced:
 
-- Passive herds share voxel-aware steering, obstacle avoidance, player/predator
-  flight, flock cohesion/separation, and movement/idle body animation.
+- Passive herds share voxel-aware steering, obstacle avoidance, threat-source
+  flight, flock cohesion/separation, feeding/breeding, juvenile growth, and
+  movement/idle body animation.
+- Follow-up audit fixes: surface spawns now use the already-correct terrain-top
+  position (no extra one-block lift); Dreadwing windups cancel when terrain
+  blocks sight; hovering/ground steering remains separated; projectiles use a
+  terrain ray check each physics step to prevent fast bolts tunnelling through
+  walls. Dreadwing repositioning now checks chunk availability before querying
+  terrain and its AI safely exits if the world is unavailable.
 - Sheep, cows and pigs accept wheat; chickens accept seeds. Feeding starts a
   timed breeding state, nearby compatible adults produce a juvenile, and young
   creatures mature after a growth period.
@@ -33,10 +40,13 @@ current mob implementation has since advanced:
   added. Existing item IDs, world-generation versions, block mutation paths,
   greedy meshing and chunk streaming were not changed.
 
-**Verification status:** repository edits are committed, but a Godot/.NET build,
-headless test run and in-game performance soak have not yet been run from this
-remote editing session. Those remain required before treating this slice as
-release-verified.
+**Verification status:** repository edits are committed, but the latest
+mob-review revision has not yet completed a clean CI run. Recent Actions runs
+are failing during compilation in unrelated concurrent edits to
+`Mesher.cs`, `VoxelLighting.cs`, and `InventoryUi.cs`; these failures prevent
+the mob revision from reaching the headless tests. The earlier mob baseline
+passed 805 checks, but that result does not verify the follow-up fixes. An
+in-game high-population performance soak also remains outstanding.
 
 ## 1. Current state
 
