@@ -209,6 +209,9 @@ public partial class VoxelWorld : Node3D
         _islandNoise.FractalType = FastNoiseLite.FractalTypeEnum.Fbm;
         _islandNoise.FractalOctaves = 2;
 
+        // V7 owns independent noise resources; legacy noise stays frozen.
+        InitializeWorldGenV7();
+
         _farLod = new FarLod();
         _farLod.Name = "FarLod";
         AddChild(_farLod);
@@ -258,8 +261,25 @@ public partial class VoxelWorld : Node3D
     private int DeriveSeed(uint salt) =>
         unchecked((int)Mix((uint)_noiseSeeds[0], (uint)_noiseSeeds[1], salt, 0x9E3779B9u));
 
+    public (int Height, Biome Biome) SurfaceSampleAt(int wx, int wz)
+    {
+        if (_genVersion >= WorldGenV7.Version)
+        {
+            WorldGenV7.SurfaceSample sample = GeneratorV7.SampleSurface(wx, wz, SeaLevel);
+            return (sample.Height, sample.Biome);
+        }
+
+        int height = SurfaceHeight(wx, wz);
+        return (height, BiomeAt(wx, wz, height));
+    }
+
     public int SurfaceHeight(int wx, int wz)
     {
+        if (_genVersion >= WorldGenV7.Version)
+        {
+            return GeneratorV7.SurfaceHeight(wx, wz, SeaLevel);
+        }
+
         if (_genVersion >= 5)
         {
             // v5: taller worlds (Height 128) with selectable shape presets.
@@ -312,6 +332,11 @@ public partial class VoxelWorld : Node3D
 
     public bool IsCave(int x, int y, int z, int h)
     {
+        if (_genVersion >= WorldGenV7.Version)
+        {
+            return GeneratorV7.IsCave(x, y, z, h);
+        }
+
         if (y <= 1 || _preset == "flat")
         {
             return false;
@@ -361,6 +386,11 @@ public partial class VoxelWorld : Node3D
     /// decorators), which halves the noise work per column.</summary>
     public Biome BiomeAt(int x, int z, int h)
     {
+        if (_genVersion >= WorldGenV7.Version)
+        {
+            return GeneratorV7.BiomeAt(x, z, h, SeaLevel);
+        }
+
         if (_genVersion >= 4)
         {
             // Domain-warped climate: biome edges wander instead of grid-locking,
@@ -452,6 +482,11 @@ public partial class VoxelWorld : Node3D
             return BlockId.Air;
         }
 
+        if (_genVersion >= WorldGenV7.Version)
+        {
+            return BlockAtV7(x, y, z, h, biome);
+        }
+
         if (_preset == "sky")
         {
             // Floating islands: a soft mask decides where land exists, and each
@@ -521,7 +556,9 @@ public partial class VoxelWorld : Node3D
     }
 
     /// <summary>True in sky-preset worlds where floating land exists at (x, z).</summary>
-    public bool IslandAt(int x, int z) => _islandNoise.GetNoise2D(x, z) > 0.05;
+    public bool IslandAt(int x, int z) => _genVersion >= WorldGenV7.Version
+            ? GeneratorV7.IsIsland(x, z)
+            : _islandNoise.GetNoise2D(x, z) > 0.05;
 
     /// <summary>True for the gen v5 floating-islands preset (minimap/LOD skip empty sky).</summary>
     public bool IsSky => _preset == "sky";
@@ -539,6 +576,11 @@ public partial class VoxelWorld : Node3D
 
     public TreeInfo? GetTreeAt(int tx, int tz)
     {
+        if (_genVersion >= WorldGenV7.Version)
+        {
+            return GetTreeAtV7(tx, tz);
+        }
+
         if (IsSky && !IslandAt(tx, tz))
         {
             return null;
@@ -580,13 +622,21 @@ public partial class VoxelWorld : Node3D
             return null;
         }
 
-        int h = SurfaceHeight(tx, tz);
-        if (h <= SeaLevel + 1)
+        int h;
+        Biome biome;
+        if (_genVersion >= WorldGenV7.Version)
         {
-            return null;
+            WorldGenV7.SurfaceSample surface = GeneratorV7.SampleSurface(tx, tz, SeaLevel);
+            h = surface.Height;
+            biome = surface.Biome;
+        }
+        else
+        {
+            h = SurfaceHeight(tx, tz);
+            biome = BiomeAt(tx, tz, h);
         }
 
-        if (BiomeAt(tx, tz, h) != Biome.Desert)
+        if (h <= SeaLevel + 1 || biome != Biome.Desert)
         {
             return null;
         }
@@ -607,7 +657,9 @@ public partial class VoxelWorld : Node3D
         // byte-identical forever; newer worlds use our own frozen integer hash.
         ulong rngSeed = _genVersion <= 1
                 ? (ulong)((uint)GD.Hash(new Vector2I(cx, cz)) ^ 0x1D872B41u)
-                : (ulong)(Hash3(cx, 19532, cz) & 0x7FFFFFFFFFFFFFFFL);
+                : _genVersion >= WorldGenV7.Version
+                        ? GeneratorV7.CoordinateHash(cx, 19532, cz, 0x43414D50u)
+                        : (ulong)(Hash3(cx, 19532, cz) & 0x7FFFFFFFFFFFFFFFL);
         // Thread-local generator: the sequence must stay identical, but the
         // object is pure scratch and is reached ~9 times per generated chunk.
         RandomNumberGenerator rng = _campfireRng ??= new RandomNumberGenerator();
@@ -619,13 +671,21 @@ public partial class VoxelWorld : Node3D
             return null;
         }
 
-        int h = SurfaceHeight(x, z);
-        if (h <= SeaLevel + 2 || h >= Height - 4)
+        int h;
+        Biome biome;
+        if (_genVersion >= WorldGenV7.Version)
         {
-            return null;
+            WorldGenV7.SurfaceSample surface = GeneratorV7.SampleSurface(x, z, SeaLevel);
+            h = surface.Height;
+            biome = surface.Biome;
+        }
+        else
+        {
+            h = SurfaceHeight(x, z);
+            biome = BiomeAt(x, z, h);
         }
 
-        if (BiomeAt(x, z, h) == Biome.Snow)
+        if (h <= SeaLevel + 2 || h >= Height - 4 || biome == Biome.Snow)
         {
             return null;
         }
@@ -706,6 +766,11 @@ public partial class VoxelWorld : Node3D
     /// <summary>Structure site for one cell, or null (kind 0 tower / 1 ruin / 2 mine).</summary>
     public StructureInfo? GetStructureSite(int cx, int cz)
     {
+        if (_genVersion >= WorldGenV7.Version)
+        {
+            return GetStructureSiteV7(cx, cz);
+        }
+
         if (_genVersion < 4)
         {
             return null;
@@ -827,6 +892,11 @@ public partial class VoxelWorld : Node3D
     /// <summary>AIR / LOG / LEAVES that <paramref name="tree"/> contributes at world position (wx, wy, wz).</summary>
     public BlockId TreeBlockFor(TreeInfo tree, int wx, int wy, int wz)
     {
+        if (_genVersion >= WorldGenV7.Version)
+        {
+            return TreeBlockForV7(tree, wx, wy, wz);
+        }
+
         bool birch = tree.Kind == 1;
         BlockId logId = birch ? BlockId.BirchLog : BlockId.Log;
         BlockId leafId = birch ? BlockId.BirchLeaves : BlockId.Leaves;
@@ -893,9 +963,21 @@ public partial class VoxelWorld : Node3D
             {
                 int wx = ox + x;
                 int wz = oz + z;
-                int h = SurfaceHeight(wx, wz);
+                int h;
+                Biome biome;
+                if (_genVersion >= WorldGenV7.Version)
+                {
+                    WorldGenV7.SurfaceSample sample = GeneratorV7.SampleSurface(wx, wz, SeaLevel);
+                    h = sample.Height;
+                    biome = sample.Biome;
+                }
+                else
+                {
+                    h = SurfaceHeight(wx, wz);
+                    biome = BiomeAt(wx, wz, h);
+                }
+
                 bool beach = h <= SeaLevel + 1;
-                Biome biome = BiomeAt(wx, wz, h);
                 int top = Mathf.Max(h, SeaLevel);
                 int baseIdx = x + z * ChunkX;
                 for (int y = 0; y <= top; y++)
@@ -989,6 +1071,10 @@ public partial class VoxelWorld : Node3D
         {
             StampDecorators(data, strideY, ox, oz);
             StampStructures(data, strideY, ox, oz);
+            if (_genVersion >= WorldGenV7.Version)
+            {
+                StampUndergroundStructuresV7(data, strideY, ox, oz);
+            }
         }
 
         // Campfires: one deterministic site per 64x64 cell; only the cells touching
@@ -1057,6 +1143,12 @@ public partial class VoxelWorld : Node3D
 
     private void StampOreVeins(Vector2I cp, byte[] data, int strideY, int ox, int oz)
     {
+        if (_genVersion >= WorldGenV7.Version)
+        {
+            StampOreVeinsV7(cp, data, strideY, ox, oz);
+            return;
+        }
+
         for (int dz = -1; dz <= 1; dz++)
         {
             for (int dx = -1; dx <= 1; dx++)
@@ -1142,6 +1234,12 @@ public partial class VoxelWorld : Node3D
 
     private void StampDecorators(byte[] data, int strideY, int ox, int oz)
     {
+        if (_genVersion >= WorldGenV7.Version)
+        {
+            StampDecoratorsV7(data, strideY, ox, oz);
+            return;
+        }
+
         for (int wz = oz - 2; wz < oz + ChunkZ + 2; wz++)
         {
             for (int wx = ox - 2; wx < ox + ChunkX + 2; wx++)
