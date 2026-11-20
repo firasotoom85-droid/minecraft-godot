@@ -31,6 +31,15 @@ public static class SaveTests
         PlayerSave? legacyPlayer = JsonSerializer.Deserialize<PlayerSave>("{\"pos\":[0,0,0]}", WorldStore.Json);
         TestAssert.Check(legacyPlayer?.Hunger is null,
                 "old player saves distinguish a missing hunger field");
+        PlayerSave progressionSave = new([0.0f, 0.0f, 0.0f], Experience: 245);
+        PlayerSave? progressionReload = JsonSerializer.Deserialize<PlayerSave>(JsonSerializer.Serialize(progressionSave, WorldStore.Json), WorldStore.Json);
+        TestAssert.Equal(245, progressionReload?.Experience ?? -1, "experience survives player-save round-trip");
+        TestAssert.Equal(0, legacyPlayer?.Experience ?? -1, "legacy player save defaults experience to zero");
+        ItemStackSave enchantedSlot = new(0, (int)ItemId.IronSword, 1, 120, Sharpness: 2, Unbreaking: 3);
+        string enchantedJson = JsonSerializer.Serialize(enchantedSlot, WorldStore.Json);
+        ItemStackSave? enchantedReload = JsonSerializer.Deserialize<ItemStackSave>(enchantedJson, WorldStore.Json);
+        TestAssert.Equal(2, enchantedReload?.Sharpness ?? 0, "saved sharpness level round-trips");
+        TestAssert.Equal(3, enchantedReload?.Unbreaking ?? 0, "saved unbreaking level round-trips");
         TestAssert.Check(WorldStore.WriteAtomic(path, JsonSerializer.Serialize(save, WorldStore.Json)),
                 "world save writes atomically");
         TestAssert.Check(!WorldStore.WriteAtomic(root + "/missing/save.json", "unwritable"),
