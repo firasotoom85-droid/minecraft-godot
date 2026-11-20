@@ -78,83 +78,90 @@ public static class BlockDb
 
     /// <summary>
     /// One block's definition; the tiles array is indexed by face (FACE order).
-    /// Hardness is seconds by hand. Tier 0 means "any tool harvests"; Drop None
-    /// means "drop the block's own item". Light is 0..1 for placeable emitters.
+    /// Hardness is the mining resistance used by MiningSeconds. Tool selects the
+    /// preferred mining class; Tier gates drops; Drops disables the own-block
+    /// drop for blocks such as glass and leaves. Light is 0..1 for emitters.
     /// </summary>
     public readonly record struct BlockDef(
         string Name, bool Solid, bool Transparent, int[] Tiles,
         float Hardness = 1.0f, ToolKind Tool = ToolKind.None, int Tier = 0,
-        ItemId Drop = ItemId.None, int DropCount = 1, float Light = 0.0f);
+        ItemId Drop = ItemId.None, int DropCount = 1, float Light = 0.0f, bool Drops = true);
 
     // Face order: +Y, -Y, +X, -X, +Z, -Z  (-1 = no face)
     private static readonly BlockDef[] Defs =
     [
-        new("Air", false, true, [-1, -1, -1, -1, -1, -1], 0.0f),
+        new("Air", false, true, [-1, -1, -1, -1, -1, -1], 0.0f, Drops: false),
         new("Grass Block", true, false, [TGrassTop, TDirt, TGrassSide, TGrassSide, TGrassSide, TGrassSide],
-                0.9f, ToolKind.Shovel),
-        new("Dirt", true, false, [TDirt, TDirt, TDirt, TDirt, TDirt, TDirt], 0.75f, ToolKind.Shovel),
+                0.6f, ToolKind.Shovel),
+        new("Dirt", true, false, [TDirt, TDirt, TDirt, TDirt, TDirt, TDirt], 0.5f, ToolKind.Shovel),
         new("Stone", true, false, [TStone, TStone, TStone, TStone, TStone, TStone],
-                1.2f, ToolKind.Pick, 1),
-        new("Sand", true, false, [TSand, TSand, TSand, TSand, TSand, TSand], 0.7f, ToolKind.Shovel),
+                1.5f, ToolKind.Pick, 1, ItemId.Cobblestone),
+        new("Sand", true, false, [TSand, TSand, TSand, TSand, TSand, TSand], 0.5f, ToolKind.Shovel),
         new("Oak Log", true, false, [TLogTop, TLogTop, TLogSide, TLogSide, TLogSide, TLogSide],
-                1.2f, ToolKind.Axe),
-        new("Oak Leaves", true, false, [TLeaves, TLeaves, TLeaves, TLeaves, TLeaves, TLeaves], 0.3f),
-        new("Water", false, true, [TWater, TWater, TWater, TWater, TWater, TWater], 0.0f),
+                2.0f, ToolKind.Axe),
+        new("Oak Leaves", true, false, [TLeaves, TLeaves, TLeaves, TLeaves, TLeaves, TLeaves],
+                0.2f, ToolKind.Hoe, Drops: false),
+        new("Water", false, true, [TWater, TWater, TWater, TWater, TWater, TWater], 0.0f, Drops: false),
         new("Planks", true, false, [TPlanks, TPlanks, TPlanks, TPlanks, TPlanks, TPlanks],
-                1.0f, ToolKind.Axe),
+                2.0f, ToolKind.Axe),
         new("Cobblestone", true, false, [TCobblestone, TCobblestone, TCobblestone, TCobblestone, TCobblestone, TCobblestone],
-                1.3f, ToolKind.Pick, 1),
+                2.0f, ToolKind.Pick, 1),
         new("Bricks", true, false, [TBrick, TBrick, TBrick, TBrick, TBrick, TBrick],
-                1.3f, ToolKind.Pick, 1),
+                1.5f, ToolKind.Pick, 1),
         new("Coal Ore", true, false, [TCoalOre, TCoalOre, TCoalOre, TCoalOre, TCoalOre, TCoalOre],
-                1.6f, ToolKind.Pick, 1, ItemId.Coal),
+                3.0f, ToolKind.Pick, 1, ItemId.Coal),
         new("Iron Ore", true, false, [TIronOre, TIronOre, TIronOre, TIronOre, TIronOre, TIronOre],
-                2.0f, ToolKind.Pick, 1, ItemId.RawIron),
+                3.0f, ToolKind.Pick, 2, ItemId.RawIron),
         new("Glass", true, true, [TGlass, TGlass, TGlass, TGlass, TGlass, TGlass],
-                0.5f, ToolKind.Pick, 1),
-        new("Bedrock", true, false, [TBedrock, TBedrock, TBedrock, TBedrock, TBedrock, TBedrock], 100000.0f),
+                0.3f, Drops: false),
+        new("Bedrock", true, false, [TBedrock, TBedrock, TBedrock, TBedrock, TBedrock, TBedrock],
+                100000.0f, Drops: false),
         new("Snowy Grass", true, false, [TSnow, TDirt, TSnowSide, TSnowSide, TSnowSide, TSnowSide],
-                0.8f, ToolKind.Shovel),
-        new("Snow Block", true, false, [TSnow, TSnow, TSnow, TSnow, TSnow, TSnow], 0.4f, ToolKind.Shovel),
+                0.6f, ToolKind.Shovel),
+        new("Snow Block", true, false, [TSnow, TSnow, TSnow, TSnow, TSnow, TSnow], 0.2f, ToolKind.Shovel),
         new("Gravel", true, false, [TGravel, TGravel, TGravel, TGravel, TGravel, TGravel],
-                0.8f, ToolKind.Shovel),
+                0.6f, ToolKind.Shovel),
         new("Gold Ore", true, false, [TGoldOre, TGoldOre, TGoldOre, TGoldOre, TGoldOre, TGoldOre],
-                2.2f, ToolKind.Pick, 2, ItemId.RawGold),
+                3.0f, ToolKind.Pick, 3, ItemId.RawGold),
         new("Diamond Ore", true, false, [TDiamondOre, TDiamondOre, TDiamondOre, TDiamondOre, TDiamondOre, TDiamondOre],
-                2.6f, ToolKind.Pick, 3, ItemId.Diamond),
+                3.0f, ToolKind.Pick, 3, ItemId.Diamond),
         new("Birch Log", true, false, [TBirchTop, TBirchTop, TBirchSide, TBirchSide, TBirchSide, TBirchSide],
-                1.2f, ToolKind.Axe),
+                2.0f, ToolKind.Axe),
         new("Birch Leaves", true, false, [TBirchLeaves, TBirchLeaves, TBirchLeaves, TBirchLeaves, TBirchLeaves, TBirchLeaves],
-                0.3f),
-        new("Cactus", true, false, [TCactusTop, TCactusTop, TCactusSide, TCactusSide, TCactusSide, TCactusSide], 0.4f),
+                0.2f, ToolKind.Hoe, Drops: false),
+        new("Cactus", true, false, [TCactusTop, TCactusTop, TCactusSide, TCactusSide, TCactusSide, TCactusSide],
+                0.4f, ToolKind.Axe),
         new("Crafting Table", true, false,
                 [TCraftingTop, TPlanks, TCraftingSide, TCraftingSide, TCraftingSide, TCraftingSide],
-                1.2f, ToolKind.Axe),
+                2.5f, ToolKind.Axe),
         new("Wool", true, false, [TWool, TWool, TWool, TWool, TWool, TWool], 0.8f),
-        new("Lava", false, true, [TLava, TLava, TLava, TLava, TLava, TLava], 0.0f),
-        new("Tall Grass", false, true, [TTallGrass, TTallGrass, TTallGrass, TTallGrass, TTallGrass, TTallGrass], 0.05f),
-        new("Red Flower", false, true, [TFlowerRed, TFlowerRed, TFlowerRed, TFlowerRed, TFlowerRed, TFlowerRed], 0.05f),
+        new("Lava", false, true, [TLava, TLava, TLava, TLava, TLava, TLava], 0.0f, Drops: false),
+        new("Tall Grass", false, true,
+                [TTallGrass, TTallGrass, TTallGrass, TTallGrass, TTallGrass, TTallGrass],
+                0.05f, Drops: false),
+        new("Red Flower", false, true,
+                [TFlowerRed, TFlowerRed, TFlowerRed, TFlowerRed, TFlowerRed, TFlowerRed], 0.05f),
         new("Yellow Flower", false, true,
                 [TFlowerYellow, TFlowerYellow, TFlowerYellow, TFlowerYellow, TFlowerYellow, TFlowerYellow], 0.05f),
         new("Torch", false, true,
                 [TTorch, TTorch, TTorch, TTorch, TTorch, TTorch], 0.05f, Light: 0.9f),
         new("Chest", true, false,
-                [TChest, TChest, TChest, TChest, TChest, TChest], 1.0f, ToolKind.Axe),
+                [TChest, TChest, TChest, TChest, TChest, TChest], 2.5f, ToolKind.Axe),
         new("Furnace", true, false,
-                [TFurnace, TFurnace, TFurnace, TFurnace, TFurnace, TFurnace], 2.0f, ToolKind.Pick, 1),
+                [TFurnace, TFurnace, TFurnace, TFurnace, TFurnace, TFurnace], 3.5f, ToolKind.Pick, 1),
         new("Farmland", true, false,
                 [TFarmlandTop, TDirt, TFarmlandSide, TFarmlandSide, TFarmlandSide, TFarmlandSide],
                 0.6f, ToolKind.Shovel, Drop: ItemId.Dirt),
         new("Wheat Sprout", false, true,
-                [TWheat0, TWheat0, TWheat0, TWheat0, TWheat0, TWheat0], 0.05f),
+                [TWheat0, TWheat0, TWheat0, TWheat0, TWheat0, TWheat0], 0.05f, Drops: false),
         new("Wheat", false, true,
-                [TWheat1, TWheat1, TWheat1, TWheat1, TWheat1, TWheat1], 0.05f),
+                [TWheat1, TWheat1, TWheat1, TWheat1, TWheat1, TWheat1], 0.05f, Drops: false),
         new("Ripe Wheat", false, true,
-                [TWheat2, TWheat2, TWheat2, TWheat2, TWheat2, TWheat2], 0.05f),
+                [TWheat2, TWheat2, TWheat2, TWheat2, TWheat2, TWheat2], 0.05f, Drops: false),
         new("Bed", true, false,
-                [TBedTop, TBedSide, TBedSide, TBedSide, TBedSide, TBedSide], 0.4f),
+                [TBedTop, TBedSide, TBedSide, TBedSide, TBedSide, TBedSide], 0.2f, ToolKind.Axe),
         new("Ladder", false, true,
-                [TLadder, TLadder, TLadder, TLadder, TLadder, TLadder], 0.4f),
+                [TLadder, TLadder, TLadder, TLadder, TLadder, TLadder], 0.4f, ToolKind.Axe),
     ];
 
     // Cube face geometry shared by the mesher. Order: +Y, -Y, +X, -X, +Z, -Z.
@@ -206,6 +213,35 @@ public static class BlockDb
     public static bool IsDefined(BlockId id) => (int)id >= 0 && (int)id < Defs.Length;
 
     public static BlockDef DefOf(BlockId id) => Defs[(int)id];
+
+    /// <summary>Whether the held tool satisfies this block's drop requirement.</summary>
+    public static bool CanHarvest(BlockDef def, ToolInfo? tool) =>
+        def.Tier <= 0
+        || (tool is { } held && held.Kind == def.Tool && held.Tier >= def.Tier);
+
+    /// <summary>
+    /// Mining duration: the matching tool uses hardness × 1.5 / speed;
+    /// a hand or a non-matching tool uses hardness × 5.
+    /// </summary>
+    public static float MiningSeconds(BlockDef def, ToolInfo? tool)
+    {
+        if (def.Hardness <= 0.0f || def.Hardness >= 1000.0f)
+        {
+            return float.PositiveInfinity;
+        }
+
+        if (def.Tool != ToolKind.None && tool is { } held
+                && held.Kind == def.Tool && held.Speed > 0.0f)
+        {
+            return def.Hardness * 1.5f / held.Speed;
+        }
+
+        return def.Hardness * 5.0f;
+    }
+
+    /// <summary>Crack texture stage in the ten-stage breaking animation.</summary>
+    public static int CrackStage(float progress) =>
+        Math.Clamp((int)(Mathf.Clamp(progress, 0.0f, 1.0f) * 10.0f), 0, 9);
 
     public static void EnsureTables()
     {

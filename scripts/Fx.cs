@@ -3,22 +3,25 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>
-/// Block break / place particles: two reusable one-shot GPU particle
+/// Block break / place / mining feedback: reusable one-shot GPU particle
 /// systems, tinted with the actual block tile from the atlas.
 /// </summary>
 public partial class Fx : Node
 {
     public GpuParticles3D BreakParticles = null!;
     public GpuParticles3D PlaceParticles = null!;
+    public GpuParticles3D MiningParticles = null!;
     public GpuParticles3D PuffParticles = null!;
 
     public void Setup(Player player)
     {
         BreakParticles = MakeSystem(24, 3.4f, 0.16f);
         PlaceParticles = MakeSystem(10, 1.6f, 0.22f);
+        MiningParticles = MakeSystem(6, 1.2f, 0.055f);
         PuffParticles = MakeSystem(18, 2.4f, 0.11f);
         player.BlockBroken += OnBroken;
         player.BlockPlaced += OnPlaced;
+        player.MiningTick += OnMiningTick;
         player.Splashed += pos => Puff(pos + new Vector3(0, -0.2f, 0), new Color(0.75f, 0.88f, 1.0f, 0.9f));
         player.Landed += (pos, impact) =>
         {
@@ -71,6 +74,57 @@ public partial class Fx : Node
     {
         QuadMesh quad = (QuadMesh)sys.DrawPass1;
         StandardMaterial3D mat = (StandardMaterial3D)quad.Material;
+        ParticleProcessMaterial particles = (ParticleProcessMaterial)sys.ProcessMaterial;
+        switch (blockId)
+        {
+            case BlockId.Glass:
+                particles.Direction = new Vector3(0.0f, 0.6f, 0.0f);
+                particles.Spread = 82.0f;
+                particles.InitialVelocityMin = 2.0f;
+                particles.InitialVelocityMax = 3.8f;
+                particles.Gravity = new Vector3(0.0f, -13.0f, 0.0f);
+                particles.ScaleMin = 0.045f;
+                particles.ScaleMax = 0.085f;
+                break;
+            case BlockId.Leaves:
+            case BlockId.BirchLeaves:
+            case BlockId.TallGrass:
+            case BlockId.FlowerRed:
+            case BlockId.FlowerYellow:
+            case BlockId.Wheat0:
+            case BlockId.Wheat1:
+            case BlockId.Wheat2:
+                particles.Direction = new Vector3(0.0f, 1.0f, 0.0f);
+                particles.Spread = 75.0f;
+                particles.InitialVelocityMin = 0.45f;
+                particles.InitialVelocityMax = 1.5f;
+                particles.Gravity = new Vector3(0.0f, -2.2f, 0.0f);
+                particles.ScaleMin = 0.055f;
+                particles.ScaleMax = 0.105f;
+                break;
+            case BlockId.Sand:
+            case BlockId.Gravel:
+            case BlockId.Snow:
+            case BlockId.SnowGrass:
+                particles.Direction = new Vector3(0.0f, 1.0f, 0.0f);
+                particles.Spread = 68.0f;
+                particles.InitialVelocityMin = 0.7f;
+                particles.InitialVelocityMax = 2.0f;
+                particles.Gravity = new Vector3(0.0f, -5.0f, 0.0f);
+                particles.ScaleMin = 0.04f;
+                particles.ScaleMax = 0.09f;
+                break;
+            default:
+                particles.Direction = new Vector3(0.0f, 1.0f, 0.0f);
+                particles.Spread = 55.0f;
+                particles.InitialVelocityMin = 1.2f;
+                particles.InitialVelocityMax = 2.8f;
+                particles.Gravity = new Vector3(0.0f, -9.0f, 0.0f);
+                particles.ScaleMin = 0.065f;
+                particles.ScaleMax = 0.13f;
+                break;
+        }
+
         int tile = BlockDb.IconTile(blockId);
         mat.AlbedoTexture = new AtlasTexture
         {
@@ -96,6 +150,11 @@ public partial class Fx : Node
     private void OnBroken(Vector3 pos, int blockId)
     {
         Emit(BreakParticles, pos, (BlockId)blockId);
+    }
+
+    private void OnMiningTick(Vector3 pos, int blockId)
+    {
+        Emit(MiningParticles, pos, (BlockId)blockId);
     }
 
     private void OnPlaced(Vector3 pos, int blockId)

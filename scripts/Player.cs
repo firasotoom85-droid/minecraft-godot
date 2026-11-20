@@ -82,9 +82,11 @@ public partial class Player : CharacterBody3D, IDamageable
     private float _mineProgress;
     private double _mineSoundTimer;
     private Vector3I _mineTarget = new(int.MinValue, 0, 0);
+    private BlockId _mineBlock = BlockId.Air;
+    private int _crackStage = -1;
     private MeshInstance3D _crack = null!;
     private StandardMaterial3D _crackMat = null!;
-    private static readonly System.Lazy<ImageTexture> CrackTextureLazy = new(BuildCrackTexture);
+    private static readonly System.Lazy<ImageTexture[]> CrackTextureLazy = new(BuildCrackTextures);
     private double _lastJumpTap = -10.0;
     private double _stepAccum;
     private bool _wasUnderwater;
@@ -162,8 +164,19 @@ public partial class Player : CharacterBody3D, IDamageable
             camRot.X = Mathf.Clamp(camRot.X - dy * sensitivity, -1.55f, 1.55f);
             Camera.Rotation = camRot;
         }
-        else if (@event is InputEventMouseButton button && button.Pressed)
+        else if (@event is InputEventMouseButton button)
         {
+            if (!button.Pressed)
+            {
+                if (button.IsAction("break_block"))
+                {
+                    ResetMining();
+                    _mineTimer = 0.0;
+                }
+
+                return;
+            }
+
             if (Input.MouseMode != Input.MouseModeEnum.Captured)
             {
                 Input.MouseMode = Input.MouseModeEnum.Captured;
@@ -173,15 +186,18 @@ public partial class Player : CharacterBody3D, IDamageable
 
             if (button.IsActionPressed("break_block"))
             {
+                Ray.ForceRaycastUpdate();
                 AttackOrStartMining();
                 _mineTimer = MineRepeat;
             }
             else if (button.IsActionPressed("place_block"))
             {
+                Ray.ForceRaycastUpdate();
                 PlaceBlock();
             }
             else if (button.IsActionPressed("pick_block"))
             {
+                Ray.ForceRaycastUpdate();
                 PickBlock();
             }
             else if (button.ButtonIndex == MouseButton.WheelUp)
@@ -359,6 +375,7 @@ public partial class Player : CharacterBody3D, IDamageable
             Velocity = Vector3.Zero;
         }
 
+        Ray.ForceRaycastUpdate();
         UpdateOutline();
         UpdateArm(dt);
         HoldMine(dt);
@@ -657,30 +674,40 @@ public partial class Player : CharacterBody3D, IDamageable
     // Block interaction
     // -----------------------------------------------------------------------
 
-    /// <summary>LMB press: swing at a mob, or start/refresh block mining.</summary>
+    /// <summary>LMB press: swing at a mob, or start mining the current block.</summary>
     public void AttackOrStartMining()
     {
         if (World == null || !Ray.IsColliding())
         {
+            ResetMining();
             return;
         }
 
         if (Ray.GetCollider() is IDamageable target)
         {
+            ResetMining();
             Swing(target);
             return;
         }
 
-        Vector3I bp = TargetBlock();
-        BlockId id = World.GetBlock(bp.X, bp.Y, bp.Z);
-        if (id is BlockId.Air or BlockId.Water)
+        if (!TryGetTargetBlock(out Vector3I bp, out BlockId id))
         {
+            ResetMining();
+            return;
+        }
+
+        BlockDb.BlockDef def = BlockDb.DefOf(id);
+        if (Mode == GameMode.Creative)
+        {
+            FinishBreak(bp, id, def, null);
             return;
         }
 
         _mineTarget = bp;
+        _mineBlock = id;
         _mineProgress = 0.0f;
         _mineSoundTimer = 0.0;
+        _crackStage = -1;
         StartPunch();
     }
 
@@ -701,8 +728,29 @@ public partial class Player : CharacterBody3D, IDamageable
 
     public Vector3I TargetBlock()
     {
-        Vector3 p = Ray.GetCollisionPoint() - Ray.GetCollisionNormal() * 0.5f;
+        Vector3 p = Ray.GetCollisionPoint() - Ray.GetCollisionNormal() * 0.01f;
         return new Vector3I(Mathf.FloorToInt(p.X), Mathf.FloorToInt(p.Y), Mathf.FloorToInt(p.Z));
+    }
+
+    private bool TryGetTargetBlock(out Vector3I blockPosition, out BlockId blockId)
+    {
+        blockPosition = new Vector3I(int.MinValue, 0, 0);
+        blockId = BlockId.Air;
+        if (World == null || !Ray.IsColliding() || Ray.GetCollider() is IDamageable)
+        {
+            return false;
+        }
+
+        Vector3 hitPoint = Ray.GetCollisionPoint();
+        float maxReach = Reach + 0.05f;
+        if (Camera.GlobalPosition.DistanceSquaredTo(hitPoint) > maxReach * maxReach)
+        {
+            return false;
+        }
+
+        blockPosition = TargetBlock();
+        blockId = World.GetBlock(blockPosition.X, blockPosition.Y, blockPosition.Z);
+        return blockId is not (BlockId.Air or BlockId.Water);
     }
 
     /// <summary>True when the ray currently rests on a crafting table in reach.</summary>
@@ -1007,13 +1055,19 @@ public partial class Player : CharacterBody3D, IDamageable
     {
         _mineProgress = 0.0f;
         _mineTarget = new Vector3I(int.MinValue, 0, 0);
-        _crack.Visible = false;
+        _mineBlock = BlockId.Air;
+        _crackStage = -1;
+        if (_crack != null)
+        {
+            _crack.Visible = false;
+        }
+
         if (World == null)
         {
             return;
         }
 
-        if (id == BlockId.Chest
+        if (Mode != GameMode.Creative && id == BlockId.Chest
                 && World.TryGetContainer(bp, out Container? chest)
                 && chest is { IsEmpty: false })
         {
@@ -1021,7 +1075,7 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        if (id == BlockId.Furnace
+        if (Mode != GameMode.Creative && id == BlockId.Furnace
                 && World.TryGetFurnace(bp, out FurnaceData? furnace)
                 && furnace is { IsEmpty: false })
         {
@@ -1044,47 +1098,48 @@ public partial class Player : CharacterBody3D, IDamageable
         }
 
         StartPunch();
-        EmitSignal(SignalName.BlockBroken, new Vector3(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f), (int)id);
+        Vector3 center = new(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
+        EmitSignal(SignalName.BlockBroken, center, (int)id);
 
-        // Crop harvests are multi-drop and do not use the single-drop table.
-        if (id == BlockId.Wheat2)
+        // Creative mode is instant and intentionally bypasses survival drops and wear.
+        if (Mode != GameMode.Creative)
         {
-            GiveDrop(ItemId.Wheat, 1 + (int)(GD.Randf() * 3.0f));
-            GiveDrop(ItemId.Seeds, 1 + (int)(GD.Randf() * 2.0f));
-        }
-        else if (id is BlockId.Wheat0 or BlockId.Wheat1)
-        {
-            GiveDrop(ItemId.Seeds, 1);
-        }
-        else if (id == BlockId.TallGrass && GD.Randf() < 0.15f)
-        {
-            GiveDrop(ItemId.Seeds, 1);
-        }
-
-        bool canHarvest = def.Tier == 0
-                || (tool is { } t && t.Kind == def.Tool && t.Tier >= def.Tier);
-        if (canHarvest)
-        {
-            ItemId drop = def.Drop != ItemId.None ? def.Drop : ItemDb.BlockItem(id);
-            if (drop != ItemId.None)
+            if (id == BlockId.Wheat2)
             {
-                int leftover = Inventory.Add(drop, def.DropCount);
-                if (leftover > 0)
+                GiveDrop(ItemId.Wheat, 1 + (int)(GD.Randf() * 3.0f));
+                GiveDrop(ItemId.Seeds, 1 + (int)(GD.Randf() * 2.0f));
+            }
+            else if (id is BlockId.Wheat0 or BlockId.Wheat1)
+            {
+                GiveDrop(ItemId.Seeds, 1);
+            }
+            else if (id == BlockId.TallGrass && GD.Randf() < 0.15f)
+            {
+                GiveDrop(ItemId.Seeds, 1);
+            }
+
+            if (BlockDb.CanHarvest(def, tool) && def.Drops)
+            {
+                ItemId drop = def.Drop != ItemId.None ? def.Drop : ItemDb.BlockItem(id);
+                if (drop != ItemId.None && def.DropCount > 0)
                 {
-                    EmitSignal(SignalName.InventoryFull);
+                    int leftover = Inventory.Add(drop, def.DropCount);
+                    if (leftover > 0)
+                    {
+                        EmitSignal(SignalName.InventoryFull);
+                    }
                 }
             }
 
-            // Leaves sometimes give an apple — the first bite of survival.
             if (id is BlockId.Leaves or BlockId.BirchLeaves && GD.Randf() < 0.06f)
             {
                 Inventory.Add(ItemId.Apple, 1);
             }
-        }
 
-        if (tool is not null)
-        {
-            DamageTool();
+            if (tool is not null)
+            {
+                DamageTool();
+            }
         }
     }
 
@@ -1103,24 +1158,10 @@ public partial class Player : CharacterBody3D, IDamageable
 
     private void DamageTool()
     {
-        ItemStack stack = Inventory.Hotbar[Selected];
-        if (stack.IsEmpty || ItemDb.ToolOf(stack.Id) is null)
+        if (Inventory.DamageTool(Selected))
         {
-            return;
-        }
-
-        int durability = stack.Durability - 1;
-        if (durability <= 0)
-        {
-            Inventory.Hotbar[Selected] = ItemStack.Empty;
             EmitSignal(SignalName.ToolBroke);
         }
-        else
-        {
-            Inventory.Hotbar[Selected] = stack with { Durability = durability };
-        }
-
-        Inventory.RaiseChanged();
     }
 
     public void PlaceBlock()
@@ -1323,16 +1364,22 @@ public partial class Player : CharacterBody3D, IDamageable
     private void HoldMine(float delta)
     {
         if (InputLocked || Stats.Dead || Input.MouseMode != Input.MouseModeEnum.Captured
-                || !Input.IsActionPressed("break_block") || World == null || !Ray.IsColliding())
+                || !Input.IsActionPressed("break_block") || World == null)
         {
             ResetMining();
             _mineTimer = 0.0;
             return;
         }
 
+        if (!Ray.IsColliding())
+        {
+            ResetMining();
+            return;
+        }
+
         if (Ray.GetCollider() is IDamageable target)
         {
-            // Mob under the crosshair: swing on the hold cadence.
+            ResetMining();
             _mineTimer -= delta;
             if (_mineTimer <= 0.0)
             {
@@ -1340,48 +1387,62 @@ public partial class Player : CharacterBody3D, IDamageable
                 Swing(target);
             }
 
-            _crack.Visible = false;
-            _mineProgress = 0.0f;
             return;
         }
 
-        Vector3I bp = TargetBlock();
-        BlockId id = World.GetBlock(bp.X, bp.Y, bp.Z);
-        if (id is BlockId.Air or BlockId.Water)
+        if (!TryGetTargetBlock(out Vector3I bp, out BlockId id))
         {
             ResetMining();
             return;
         }
 
-        if (bp != _mineTarget)
+        if (bp != _mineTarget || id != _mineBlock)
         {
             _mineTarget = bp;
+            _mineBlock = id;
             _mineProgress = 0.0f;
             _mineSoundTimer = 0.0;
+            _crackStage = -1;
+            StartPunch();
         }
 
         BlockDb.BlockDef def = BlockDb.DefOf(id);
-        if (def.Hardness >= 1000.0f)
+        if (Mode == GameMode.Creative)
         {
-            _crack.Visible = false;
+            FinishBreak(bp, id, def, null);
             return;
         }
 
         ItemStack held = Inventory.Hotbar[Selected];
         ToolInfo? tool = ItemDb.ToolOf(held.Id);
-        float speed = tool is { } t && def.Tool == t.Kind ? t.Speed : 1.0f;
-        _mineProgress += (float)delta * speed / def.Hardness;
+        float miningSeconds = BlockDb.MiningSeconds(def, tool);
+        if (!float.IsFinite(miningSeconds) || miningSeconds <= 0.0f)
+        {
+            _crack.Visible = false;
+            return;
+        }
+
+        _mineProgress = Mathf.Min(_mineProgress + (float)delta / miningSeconds, 1.0f);
 
         _mineSoundTimer -= delta;
         if (_mineSoundTimer <= 0.0)
         {
             _mineSoundTimer = 0.25;
-            EmitSignal(SignalName.MiningTick, new Vector3(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f), (int)id);
+            Vector3 center = new(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
+            EmitSignal(SignalName.MiningTick, center, (int)id);
+            StartPunch();
+        }
+
+        int stage = BlockDb.CrackStage(_mineProgress);
+        if (stage != _crackStage)
+        {
+            _crackMat.AlbedoTexture = CrackTextureLazy.Value[stage];
+            _crackStage = stage;
         }
 
         _crack.Visible = true;
         _crack.GlobalPosition = new Vector3(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
-        _crackMat.AlbedoColor = new Color(1, 1, 1, 0.15f + 0.75f * Mathf.Min(_mineProgress, 1.0f));
+        _crackMat.AlbedoColor = new Color(1, 1, 1, 0.9f);
 
         if (_mineProgress >= 1.0f)
         {
@@ -1393,6 +1454,8 @@ public partial class Player : CharacterBody3D, IDamageable
     {
         _mineProgress = 0.0f;
         _mineTarget = new Vector3I(int.MinValue, 0, 0);
+        _mineBlock = BlockId.Air;
+        _crackStage = -1;
         if (_crack != null)
         {
             _crack.Visible = false;
@@ -1467,8 +1530,8 @@ public partial class Player : CharacterBody3D, IDamageable
     {
         _crackMat = new StandardMaterial3D
         {
-            AlbedoTexture = CrackTextureLazy.Value,
-            AlbedoColor = new Color(1, 1, 1, 0),
+            AlbedoTexture = CrackTextureLazy.Value[0],
+            AlbedoColor = new Color(1, 1, 1, 0.9f),
             Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
             ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
             TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
@@ -1477,10 +1540,7 @@ public partial class Player : CharacterBody3D, IDamageable
         _crack = new MeshInstance3D
         {
             Name = "Crack",
-            Mesh = new BoxMesh
-            {
-                Size = new Vector3(1.006f, 1.006f, 1.006f),
-            },
+            Mesh = new BoxMesh { Size = new Vector3(1.006f, 1.006f, 1.006f) },
             MaterialOverride = _crackMat,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
             Visible = false,
@@ -1488,36 +1548,47 @@ public partial class Player : CharacterBody3D, IDamageable
         AddChild(_crack);
     }
 
-    private static ImageTexture BuildCrackTexture()
+    private static ImageTexture[] BuildCrackTextures()
     {
-        const int n = 32;
-        Image img = Image.CreateEmpty(n, n, false, Image.Format.Rgba8);
-        img.Fill(new Color(0, 0, 0, 0));
-        RandomNumberGenerator rng = new()
+        const int stageCount = 10;
+        const int size = 32;
+        ImageTexture[] textures = new ImageTexture[stageCount];
+        for (int stage = 0; stage < stageCount; stage++)
         {
-            Seed = 4242,
-        };
-        for (int line = 0; line < 9; line++)
-        {
-            float x = n / 2.0f + rng.RandfRange(-4.0f, 4.0f);
-            float y = n / 2.0f + rng.RandfRange(-4.0f, 4.0f);
-            float angle = rng.RandfRange(0.0f, Mathf.Tau);
-            for (int step = 0; step < 22; step++)
+            Image img = Image.CreateEmpty(size, size, false, Image.Format.Rgba8);
+            img.Fill(new Color(0, 0, 0, 0));
+            RandomNumberGenerator rng = new() { Seed = 4242 };
+
+            // Each stage preserves earlier fissures and adds new branches.
+            for (int line = 0; line <= stage; line++)
             {
-                angle += rng.RandfRange(-0.5f, 0.5f);
-                x += Mathf.Cos(angle);
-                y += Mathf.Sin(angle);
-                int px = Mathf.Wrap((int)x, 0, n);
-                int py = Mathf.Wrap((int)y, 0, n);
-                img.SetPixel(px, py, new Color(0.05f, 0.05f, 0.05f, 1.0f));
-                if (rng.Randf() < 0.5f)
+                float x = size / 2.0f + rng.RandfRange(-4.0f, 4.0f);
+                float y = size / 2.0f + rng.RandfRange(-4.0f, 4.0f);
+                float angle = rng.RandfRange(0.0f, Mathf.Tau);
+                for (int step = 0; step < 18; step++)
                 {
-                    img.SetPixel(Mathf.Wrap(px + 1, 0, n), py, new Color(0.05f, 0.05f, 0.05f, 1.0f));
+                    angle += rng.RandfRange(-0.5f, 0.5f);
+                    x += Mathf.Cos(angle);
+                    y += Mathf.Sin(angle);
+                    int px = Mathf.Wrap((int)x, 0, size);
+                    int py = Mathf.Wrap((int)y, 0, size);
+                    Color crack = new(0.035f, 0.035f, 0.035f, 1.0f);
+                    img.SetPixel(px, py, crack);
+                    if (rng.Randf() < 0.55f)
+                    {
+                        img.SetPixel(Mathf.Wrap(px + 1, 0, size), py, crack);
+                    }
+                    if (stage >= 6 && step % 5 == 0)
+                    {
+                        img.SetPixel(px, Mathf.Wrap(py + 1, 0, size), crack);
+                    }
                 }
             }
+
+            textures[stage] = ImageTexture.CreateFromImage(img);
         }
 
-        return ImageTexture.CreateFromImage(img);
+        return textures;
     }
 
     private static void AddBox(SurfaceTool st, Vector3 center, Vector3 size, Color col)
@@ -1542,10 +1613,9 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        if (Ray.IsColliding() && Ray.GetCollider() is not Mob)
+        if (TryGetTargetBlock(out Vector3I bp, out _))
         {
-            Vector3 p = Ray.GetCollisionPoint() - Ray.GetCollisionNormal() * 0.5f;
-            _outline.GlobalPosition = new Vector3(Mathf.FloorToInt(p.X) + 0.5f, Mathf.FloorToInt(p.Y) + 0.5f, Mathf.FloorToInt(p.Z) + 0.5f);
+            _outline.GlobalPosition = new Vector3(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
             _outline.Visible = true;
         }
         else

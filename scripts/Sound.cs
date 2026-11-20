@@ -78,10 +78,19 @@ public partial class Sound : Node
     {
         PlayerRef = player;
         _streams["dig"] = SynthDig();
+        _streams["dig_dirt"] = SynthDig();
         _streams["dig_stone"] = SynthDigStone();
         _streams["dig_wood"] = SynthDigWood();
         _streams["dig_sand"] = SynthDigSand();
+        _streams["dig_glass"] = SynthDigGlass();
+        _streams["dig_leaves"] = SynthDigLeaves();
         _streams["place"] = SynthPlace();
+        _streams["place_dirt"] = SynthPlace(170.0f, 0.30f);
+        _streams["place_stone"] = SynthPlace(105.0f, 0.18f);
+        _streams["place_wood"] = SynthPlace(220.0f, 0.12f);
+        _streams["place_sand"] = SynthPlace(145.0f, 0.34f);
+        _streams["place_glass"] = SynthPlace(690.0f, 0.22f);
+        _streams["place_leaves"] = SynthPlace(410.0f, 0.46f);
         _streams["step"] = SynthStep();
         _streams["splash"] = SynthSplash();
         _streams["baa"] = SynthBaa();
@@ -190,15 +199,36 @@ public partial class Sound : Node
         _crickets.VolumeDb = Mathf.Lerp(-60.0f, -27.0f, (float)crickets);
     }
 
-    /// <summary>Material family for dig/step/place sounds.</summary>
+    /// <summary>Material family for dig and step sounds.</summary>
     private static string FamilyFor(BlockId id) => id switch
     {
+        BlockId.Glass => "dig_glass",
+        BlockId.Leaves or BlockId.BirchLeaves or BlockId.TallGrass
+                or BlockId.FlowerRed or BlockId.FlowerYellow or BlockId.Cactus
+                or BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2
+                or BlockId.Torch => "dig_leaves",
         BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.CoalOre
                 or BlockId.IronOre or BlockId.GoldOre or BlockId.DiamondOre
-                or BlockId.Bedrock or BlockId.Glass => "dig_stone",
-        BlockId.Log or BlockId.BirchLog or BlockId.Planks or BlockId.CraftingTable => "dig_wood",
-        BlockId.Sand or BlockId.Gravel => "dig_sand",
+                or BlockId.Bedrock or BlockId.Furnace => "dig_stone",
+        BlockId.Log or BlockId.BirchLog or BlockId.Planks or BlockId.CraftingTable
+                or BlockId.Chest or BlockId.Bed or BlockId.Ladder => "dig_wood",
+        BlockId.Sand or BlockId.Gravel or BlockId.Snow => "dig_sand",
         _ => "dig_dirt",
+    };
+
+    private static string PlaceFamilyFor(BlockId id) => id switch
+    {
+        BlockId.Glass => "place_glass",
+        BlockId.Leaves or BlockId.BirchLeaves or BlockId.TallGrass
+                or BlockId.FlowerRed or BlockId.FlowerYellow or BlockId.Cactus
+                or BlockId.Torch => "place_leaves",
+        BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.CoalOre
+                or BlockId.IronOre or BlockId.GoldOre or BlockId.DiamondOre
+                or BlockId.Bedrock or BlockId.Furnace => "place_stone",
+        BlockId.Log or BlockId.BirchLog or BlockId.Planks or BlockId.CraftingTable
+                or BlockId.Chest or BlockId.Bed or BlockId.Ladder => "place_wood",
+        BlockId.Sand or BlockId.Gravel or BlockId.Snow => "place_sand",
+        _ => "place_dirt",
     };
 
     private void OnMiningTick(Vector3 pos, int id)
@@ -265,7 +295,9 @@ public partial class Sound : Node
     {
         BlockId.Dirt or BlockId.Grass or BlockId.Sand or BlockId.Gravel
                 or BlockId.Snow or BlockId.SnowGrass => 1.25f,
-        BlockId.Leaves or BlockId.BirchLeaves => 1.45f,
+        BlockId.Leaves or BlockId.BirchLeaves or BlockId.TallGrass
+                or BlockId.FlowerRed or BlockId.FlowerYellow => 1.45f,
+        BlockId.Glass => 1.35f,
         BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.CoalOre
                 or BlockId.IronOre or BlockId.GoldOre or BlockId.DiamondOre or BlockId.Bedrock => 0.75f,
         _ => 1.0f,
@@ -278,7 +310,8 @@ public partial class Sound : Node
 
     private void OnPlaced(Vector3 pos, int id)
     {
-        Play("place", pos, PitchFor((BlockId)id), -2.0f);
+        BlockId blockId = (BlockId)id;
+        Play(PlaceFamilyFor(blockId), pos, PitchFor(blockId), -2.0f);
     }
 
     private void OnStepped(Vector3 pos, int id)
@@ -336,7 +369,7 @@ public partial class Sound : Node
         return MakeWav(outFrames);
     }
 
-    private static AudioStreamWav SynthPlace()
+    private static AudioStreamWav SynthPlace(float baseFrequency = 230.0f, float noiseAmount = 0.15f)
     {
         int n = (int)(SampleRate * 0.1);
         float[] outFrames = new float[n];
@@ -344,16 +377,56 @@ public partial class Sound : Node
         {
             Seed = 2002,
         };
+        double phase = 0.0;
         for (int i = 0; i < n; i++)
         {
             double t = (double)i / n;
             double env = System.Math.Pow(1.0 - t, 3.0);
-            double freq = 230.0 - 110.0 * t;
-            double tone = System.Math.Sin(System.Math.Tau * freq * ((double)i / SampleRate));
-            outFrames[i] = (float)((tone * 0.8 + rng.RandfRange(-1.0f, 1.0f) * 0.15) * env * 0.9);
+            double freq = baseFrequency * (1.0 - 0.48 * t);
+            phase += System.Math.Tau * freq / SampleRate;
+            double tone = System.Math.Sin(phase);
+            double noise = rng.RandfRange(-1.0f, 1.0f) * noiseAmount;
+            outFrames[i] = (float)((tone * (1.0 - noiseAmount * 0.45) + noise) * env * 0.9);
         }
 
         return MakeWav(outFrames);
+    }
+
+    private static AudioStreamWav SynthDigGlass()
+    {
+        int n = (int)(SampleRate * 0.16);
+        float[] frames = new float[n];
+        RandomNumberGenerator rng = new() { Seed = 6106 };
+        double phase = 0.0;
+        for (int i = 0; i < n; i++)
+        {
+            double t = (double)i / n;
+            double env = System.Math.Pow(1.0 - t, 3.5);
+            double frequency = 1150.0 - 620.0 * t;
+            phase += System.Math.Tau * frequency / SampleRate;
+            double click = System.Math.Sin(phase) * 0.52
+                    + System.Math.Sin(phase * 2.7) * 0.14;
+            frames[i] = (float)((click + rng.RandfRange(-1.0f, 1.0f) * 0.14) * env);
+        }
+
+        return MakeWav(frames);
+    }
+
+    private static AudioStreamWav SynthDigLeaves()
+    {
+        int n = (int)(SampleRate * 0.18);
+        float[] frames = new float[n];
+        RandomNumberGenerator rng = new() { Seed = 6206 };
+        double lowPass = 0.0;
+        for (int i = 0; i < n; i++)
+        {
+            double t = (double)i / n;
+            double env = System.Math.Pow(1.0 - t, 1.8);
+            lowPass = lowPass * 0.62 + rng.RandfRange(-1.0f, 1.0f) * 0.38;
+            frames[i] = (float)(lowPass * env * 0.9);
+        }
+
+        return MakeWav(frames);
     }
 
     private static AudioStreamWav SynthStep()

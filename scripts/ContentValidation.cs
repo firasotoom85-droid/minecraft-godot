@@ -39,6 +39,26 @@ public static class ContentValidation
                 errors.Add($"block {id}: empty name");
             }
 
+            if (!float.IsFinite(def.Hardness) || def.Hardness < 0.0f)
+            {
+                errors.Add($"block {id}: invalid hardness {def.Hardness}");
+            }
+
+            if (def.Tier < 0 || def.Tier > 4)
+            {
+                errors.Add($"block {id}: invalid harvest tier {def.Tier}");
+            }
+
+            if (def.Tier > 0 && def.Tool == ToolKind.None)
+            {
+                errors.Add($"block {id}: harvest tier requires a tool class");
+            }
+
+            if (def.DropCount < 0)
+            {
+                errors.Add($"block {id}: negative drop count {def.DropCount}");
+            }
+
             for (int face = 0; face < def.Tiles.Length; face++)
             {
                 int tile = def.Tiles[face];

@@ -42,6 +42,30 @@ public sealed class Inventory
 
     public void RaiseChanged() => Changed?.Invoke();
 
+    /// <summary>
+    /// Consume one durability point from a tool in an inventory slot.
+    /// Returns true only when the tool breaks and its slot is cleared.
+    /// </summary>
+    public bool DamageTool(int slot)
+    {
+        if ((uint)slot >= SlotCount)
+        {
+            return false;
+        }
+
+        ItemStack stack = Get(slot);
+        if (stack.IsEmpty || ItemDb.ToolOf(stack.Id) is null)
+        {
+            return false;
+        }
+
+        int durability = stack.Durability - 1;
+        bool broke = durability <= 0;
+        Set(slot, broke ? ItemStack.Empty : stack with { Durability = durability });
+        Changed?.Invoke();
+        return broke;
+    }
+
     /// <summary>Add a stack, preserving durability (tools). Returns leftover count.</summary>
     public int Add(ItemStack stack)
     {

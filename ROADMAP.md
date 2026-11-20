@@ -681,3 +681,28 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   - **Not yet verified:** `dotnet build -c Debug`, `scripts/verify.sh`, and a
     live multi-night/cave/animal breeding/performance soak must pass on the
     Godot 4.7.2 .NET runtime.
+
+
+---
+
+## 12. Block interaction and mining upgrade — 2026-11-20
+
+- Centralized mining duration, harvest-tier checks, and ten crack-stage
+  selection in `BlockDb`; every defined block now has explicit resistance,
+  preferred tool class, and drop behavior.
+- Survival harvest rules distinguish stone/cobblestone and ore tiers. Glass,
+  leaves, plants, and bedrock no longer produce incorrect block-item drops;
+  existing crop and rare leaf-drop paths are retained.
+- The existing `Player` mining loop validates the ray target and reach each
+  physics frame, resets on target changes and mouse release, and uses the
+  existing `VoxelWorld.SetBlock` mutation path and interaction signals.
+- Creative mode breaks instantly and skips survival drops and tool wear.
+  Survival durability changes are owned by `Inventory.DamageTool`.
+- The existing crack overlay switches through ten deterministic textures.
+  Mining ticks emit small material-profiled chips, and the procedural audio
+  system selects distinct dirt, stone, wood, sand, glass, and foliage
+  breaking/placement sounds.
+- Added `MiningTests` for tool speeds, harvest tiers, drops, crack progression,
+  hardness validity, and tool durability. Persisted block/item IDs,
+  world-generation versions, chunk streaming, greedy meshing, and save formats
+  are unchanged.

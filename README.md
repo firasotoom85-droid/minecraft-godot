@@ -20,6 +20,9 @@ The project is a long-running solo build with an extensive design log in
   share codes and per-world seeds.
 - **Survival** — health, hunger, breath, drowning, fall damage, softcore
   respawn, armor, tools with durability, fishing, farming, and cooking.
+- **Block interaction** — material-specific hardness and tool speeds, harvest
+  tiers and drops, creative instant mining, ten crack stages, block chips, and
+  material-matched procedural breaking and placement sounds.
 - **A living world** — herding sheep, cows, pigs and chickens react to nearby
   danger, gather in small groups, accept species-appropriate breeding food, and
   raise young that mature over time. Briarbacks defend birch forests.
@@ -74,7 +77,7 @@ script looks on `PATH` and in common install locations.
 | `Space` | Jump / swim up / climb (double-tap to fly in creative) |
 | `Shift` | Sprint / dive |
 | Mouse | Look |
-| Left mouse | Mine / attack (hold to keep) |
+| Left mouse | Mine / attack (hold to keep; release or change target to cancel) |
 | Right mouse | Place / use / eat / cook / rest / tame |
 | Middle mouse | Pick block |
 | `1`–`9`, mouse wheel | Select hotbar slot |
