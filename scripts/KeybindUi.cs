@@ -216,7 +216,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
             return;
         }
 
-        if (key.Keycode == Key.Escape)
+        if (key.Keycode == Key.Escape || @event.IsActionPressed("ui_cancel"))
         {
             Close();
             GetViewport().SetInputAsHandled();
