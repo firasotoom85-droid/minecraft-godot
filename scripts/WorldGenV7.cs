@@ -145,11 +145,13 @@ public sealed class WorldGenV7
                 terrainHeight -= swampMask * 3.2f;
             }
 
-            if (land > 0.45f && climate.RiverStrength > 0.25f)
+            if (land > 0.45f && climate.RiverStrength > 0.20f)
             {
                 float channelFloor = seaLevel - 1.0f
                         + (1.0f - climate.RiverStrength) * 2.0f;
-                terrainHeight = Math.Min(terrainHeight, channelFloor);
+                float channelHeight = Math.Min(terrainHeight, channelFloor);
+                float riverBlend = SmoothStep(0.20f, 1.0f, climate.RiverStrength);
+                terrainHeight = Mathf.Lerp(terrainHeight, channelHeight, riverBlend);
             }
 
             height = Mathf.Clamp(Mathf.RoundToInt(terrainHeight), 4, 118);
