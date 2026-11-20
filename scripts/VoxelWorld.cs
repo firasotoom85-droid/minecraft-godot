@@ -76,6 +76,7 @@ public partial class VoxelWorld : Node3D
     public string? SavedMode;            // "survival"/"creative"; null = world default
     public float SavedHealth;            // 0 = unset, full bars
     public float SavedHunger = -1.0f;
+    public int SavedExperience;
     public Vector3? SavedRespawn;        // campfire anchor, null = world spawn
 
     // Save v3: per-block inventories (chests/furnaces) and one-time world
@@ -2098,7 +2099,8 @@ public partial class VoxelWorld : Node3D
                                 Player?.SaveMode,
                                 Player?.Stats.Health ?? 0.0f,
                                 Player?.Stats.Hunger ?? 0.0f,
-                                respawn),
+                                respawn,
+                                Player?.Stats.Experience ?? 0),
                         WorldStore.Json));
 
         WorldManifest updatedManifest = _manifest with { PlayedUtc = WorldStore.NowUtc() };
@@ -2270,6 +2272,7 @@ public partial class VoxelWorld : Node3D
             SavedMode = player.Mode;
             SavedHealth = player.Health;
             SavedHunger = player.Hunger ?? -1.0f;
+            SavedExperience = player.Experience;
             if (player.Respawn is { Length: 3 } r)
             {
                 SavedRespawn = new Vector3(r[0], r[1], r[2]);
