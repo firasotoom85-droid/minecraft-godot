@@ -72,7 +72,7 @@ public partial class CaveStalker : Mob
             return Vector3.Zero;
         }
 
-        if (!HasLineOfSight(player))
+        if (!CanDetectPlayer(5.0f) || !HasLineOfSight(player))
         {
             _windup = 0.0f;
             if (TryGetRememberedTarget(out Vector3 lastSeen))
