@@ -755,7 +755,7 @@ public partial class Mobs : Node
                 if (herdMate != mob && herdMate.GlobalPosition.DistanceSquaredTo(
                         mob.GlobalPosition) < 10.0f * 10.0f)
                 {
-                    herdMate.SetAlerted(5.0f);
+                    herdMate.SetAlerted(5.0f, info.Source);
                 }
             }
         }
