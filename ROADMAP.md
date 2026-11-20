@@ -798,9 +798,10 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   opacity edits, and saved emitter restoration after chunk unload/reload.
 - No persisted IDs, save formats, world-generation versions, meshing rules or
   chunk-streaming policies were changed.
-- **Verification:** pending the final CI run for this follow-up; run the
-  Godot 4.7.2 .NET build and headless suite before considering the change
-  complete.
+- **CI verification:** commit `8530e46` passed the Godot 4.7.2 .NET build
+  with **0 warnings / 0 errors** and the headless suite with **1,028 checks,
+  0 failures**. This run includes the pooled incremental region buffers and
+  world-level unload/reload regressions.
 
 
 - **2026-11-20 — Mob ecology medium/low-priority implementation.**
