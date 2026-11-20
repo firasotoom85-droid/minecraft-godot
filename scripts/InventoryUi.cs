@@ -653,6 +653,13 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     private void OnSlotClicked(InvSlot slot, MouseButton button)
     {
+        if (button == MouseButton.Left && Input.IsKeyPressed(Key.Shift) && TransferSlotToInventory(slot))
+        {
+            _player.Inventory.RaiseChanged();
+            Refresh();
+            return;
+        }
+
         switch (slot.Kind)
         {
             case SlotKind.Result:
@@ -698,6 +705,97 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         _player.Inventory.RaiseChanged();
+    }
+
+    private bool TransferSlotToInventory(InvSlot slot)
+    {
+        if (slot.Kind is SlotKind.Backpack or SlotKind.Hotbar or SlotKind.Armor or SlotKind.Result)
+            return false;
+
+        ItemStack stack = ReadSlot(slot);
+        if (stack.IsEmpty) return false;
+        int leftover = _player.Inventory.Add(stack);
+        int moved = stack.Count - leftover;
+        if (moved <= 0) return false;
+        WriteSlot(slot, leftover <= 0 ? ItemStack.Empty : stack with { Count = leftover });
+        return true;
+    }
+
+    private ItemStack ReadSlot(InvSlot slot) => slot.Kind switch
+    {
+        SlotKind.Craft => _craft[slot.Index],
+        SlotKind.Backpack => _player.Inventory.Backpack[slot.Index],
+        SlotKind.Hotbar => _player.Inventory.Hotbar[slot.Index],
+        SlotKind.Armor => _player.Inventory.Armor[slot.Index],
+        SlotKind.Container when _container != null => _container.Slots[slot.Index],
+        SlotKind.FurnaceInput when _furnace != null => _furnace.Input,
+        SlotKind.FurnaceFuel when _furnace != null => _furnace.Fuel,
+        SlotKind.FurnaceOutput when _furnace != null => _furnace.Output,
+        _ => ItemStack.Empty,
+    };
+
+    private void WriteSlot(InvSlot slot, ItemStack stack)
+    {
+        switch (slot.Kind)
+        {
+            case SlotKind.Craft: _craft[slot.Index] = stack; break;
+            case SlotKind.Backpack: _player.Inventory.Backpack[slot.Index] = stack; break;
+            case SlotKind.Hotbar: _player.Inventory.Hotbar[slot.Index] = stack; break;
+            case SlotKind.Armor: _player.Inventory.Armor[slot.Index] = stack; break;
+            case SlotKind.Container when _container != null: _container.Slots[slot.Index] = stack; break;
+            case SlotKind.FurnaceInput when _furnace != null: _furnace.Input = stack; break;
+            case SlotKind.FurnaceFuel when _furnace != null: _furnace.Fuel = stack; break;
+            case SlotKind.FurnaceOutput when _furnace != null: _furnace.Output = stack; break;
+        }
+    }
+
+    private void OnSlotDropped(InvSlot source, InvSlot target)
+    {
+        if (!_cursor.IsEmpty || source.Kind == SlotKind.Result
+                || target.Kind is SlotKind.Result or SlotKind.FurnaceOutput)
+            return;
+        if (source.Kind == target.Kind && source.Index == target.Index)
+            return;
+
+        ItemStack moving = ReadSlot(source);
+        ItemStack destination = ReadSlot(target);
+        if (moving.IsEmpty) return;
+
+        if (target.Kind == SlotKind.Armor
+                && (ItemDb.ArmorOf(moving.Id) is not { } armor || armor.Slot != target.Index || moving.Count != 1))
+            return;
+        if (source.Kind == SlotKind.Armor && !destination.IsEmpty
+                && (ItemDb.ArmorOf(destination.Id) is not { } swappedArmor
+                        || swappedArmor.Slot != source.Index || destination.Count != 1))
+            return;
+
+        if (destination.IsEmpty)
+        {
+            WriteSlot(target, moving);
+            WriteSlot(source, ItemStack.Empty);
+        }
+        else if (destination.Id == moving.Id && destination.Count < ItemDb.MaxStack(destination.Id))
+        {
+            int amount = Math.Min(ItemDb.MaxStack(destination.Id) - destination.Count, moving.Count);
+            WriteSlot(target, destination with { Count = destination.Count + amount });
+            WriteSlot(source, moving.Count == amount ? ItemStack.Empty : moving with { Count = moving.Count - amount });
+        }
+        else
+        {
+            if (target.Kind == SlotKind.Armor
+                    && (ItemDb.ArmorOf(moving.Id) is not { } incoming
+                            || incoming.Slot != target.Index || moving.Count != 1))
+                return;
+            if (source.Kind == SlotKind.Armor
+                    && (ItemDb.ArmorOf(destination.Id) is not { } outgoing
+                            || outgoing.Slot != source.Index || destination.Count != 1))
+                return;
+            WriteSlot(target, moving);
+            WriteSlot(source, destination);
+        }
+
+        _player.Inventory.RaiseChanged();
+        Refresh();
     }
 
     private void ClickStack(ref ItemStack slot, MouseButton button)
