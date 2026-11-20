@@ -141,7 +141,7 @@ public partial class Wanderer : Mob
         if (World == null) return false;
         int baseX = Mathf.FloorToInt(GlobalPosition.X);
         int baseZ = Mathf.FloorToInt(GlobalPosition.Z);
-        int baseY = Mathf.FloorToInt(GlobalPosition.Y - 0.1f);
+        int baseY = Mathf.FloorToInt(GlobalPosition.Y);
         foreach (Vector2I offset in GrazingOffsets)
         {
             int x = baseX + offset.X;
