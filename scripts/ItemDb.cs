@@ -118,7 +118,7 @@ public static class ItemDb
             ItemId.RawFish => "Raw Fish",
             ItemId.CookedFish => "Cooked Fish",
             ItemId.WoodSword => "Wooden Sword", ItemId.StoneSword => "Stone Sword", ItemId.IronSword => "Iron Sword", ItemId.DiamondSword => "Diamond Sword",
-            ItemId.Bow => "Bow", ItemId.Arrow => "Arrow", ItemId.Shield => "Shield", ItemId.EmberBlade => "Ember Blade",
+            ItemId.Bow => "Bow", ItemId.Arrow => "Arrow", ItemId.Shield => "Shield", ItemId.EmberBlade => "Ember Blade", ItemId.LapisLazuli => "Lapis Lazuli",
             _ => id.ToString(),
         };
     }
@@ -226,7 +226,7 @@ public static class ItemDb
         ItemId.WoodSword => "Fast starter weapon; limited durability.", ItemId.StoneSword => "Reliable cave weapon with improved stopping force.",
         ItemId.IronSword => "Durable blade forged from smelted iron.", ItemId.DiamondSword => "Rare, powerful blade for deep expeditions.",
         ItemId.EmberBlade => "A Warden-forged end-game blade.", ItemId.Bow => "Ranged weapon; consumes one arrow per shot.",
-        ItemId.Arrow => "Bow ammunition crafted from gravel, sticks and feathers.", ItemId.Shield => "Blocks frontal melee hits while held; blocking wears it.",
+        ItemId.Arrow => "Bow ammunition crafted from gravel, sticks and feathers.", ItemId.Shield => "Blocks frontal melee and ranged hits while held; blocking wears it.", ItemId.LapisLazuli => "A blue mineral used to power enchantments.",
         _ => id.ToString(),
     };
     public static int MaxStack(ItemId id) =>
