@@ -140,9 +140,15 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         _waitingAction = action;
         _waitingForGamepad = true;
         _ignoreNextGamepadEvent = true;
+        CallDeferred(nameof(ClearGamepadActivationGuard));
         _notice.Text = "Press a controller button…";
         Button? target = _rows.GetNodeOrNull<Button>("Pad_" + action);
         if (target != null) target.Text = "Press button…";
+    }
+
+    private void ClearGamepadActivationGuard()
+    {
+        _ignoreNextGamepadEvent = false;
     }
 
     public override void _UnhandledInput(InputEvent @event)
