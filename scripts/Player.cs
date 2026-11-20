@@ -240,7 +240,7 @@ public partial class Player : CharacterBody3D, IDamageable
 
         float dt = (float)delta;
         bool locked = InputLocked || Stats.Dead;
-        if (!locked && Input.MouseMode != Input.MouseModeEnum.Captured)
+        if (!locked)
         {
             Vector2 look = Input.GetVector("look_left", "look_right", "look_up", "look_down");
             if (look.LengthSquared() > 0.0001f)
