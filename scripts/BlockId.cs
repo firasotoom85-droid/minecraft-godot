@@ -48,4 +48,5 @@ public enum BlockId : byte
     Wheat2 = 35,
     Bed = 36,
     Ladder = 37,
+    EnchantingTable = 38,
 }
