@@ -47,6 +47,8 @@ public partial class Mob : CharacterBody3D, IDamageable
     private float _loveTime;
     private float _breedCooldown;
     private float _growthTime;
+    private Vector3 _rememberedTarget;
+    private float _rememberedTargetTime;
 
     public bool Dead => Health <= 0.0f;
     public bool IsAlerted => _alertTime > 0.0f;
@@ -173,6 +175,19 @@ public partial class Mob : CharacterBody3D, IDamageable
     {
         SetAlerted(seconds);
         _alertSource = sourcePosition;
+    }
+
+    /// <summary>Remember a last-seen target briefly so hostiles can navigate around corners.</summary>
+    protected void RememberTarget(Vector3 position, float seconds = 3.5f)
+    {
+        _rememberedTarget = position;
+        _rememberedTargetTime = Mathf.Max(_rememberedTargetTime, seconds);
+    }
+
+    protected bool TryGetRememberedTarget(out Vector3 position)
+    {
+        position = _rememberedTarget;
+        return _rememberedTargetTime > 0.0f;
     }
 
     /// <summary>Subclass hook for the Signalled event (tame/stay/follow/love).</summary>
@@ -390,6 +405,7 @@ public partial class Mob : CharacterBody3D, IDamageable
     {
         _animationTime += dt;
         _alertTime = Mathf.Max(0.0f, _alertTime - dt);
+        _rememberedTargetTime = Mathf.Max(0.0f, _rememberedTargetTime - dt);
         if (_alertTime <= 0.0f)
         {
             _alertSource = Vector3.Zero;
