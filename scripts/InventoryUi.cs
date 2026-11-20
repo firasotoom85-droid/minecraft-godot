@@ -125,6 +125,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     private InvSlot _resultSlot = null!;
     private VBoxContainer _recipeList = null!;
     private VBoxContainer _paletteList = null!;
+    private Button _recipesTab = null!;
+    private Button _paletteTab = null!;
     private readonly List<(Button Button, Recipe Recipe)> _recipeRows = [];
     private TextureRect _cursorIcon = null!;
     private Label _cursorCount = null!;
@@ -383,8 +385,10 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         sideCol.AddThemeConstantOverride("separation", 8);
         HBoxContainer tabs = new();
         tabs.AddThemeConstantOverride("separation", 8);
-        tabs.AddChild(MenuSkin.MakeButton("RECIPES", () => ShowTab(true), 106, primary: true));
-        tabs.AddChild(MenuSkin.MakeButton("BLOCKS", () => ShowTab(false), 106));
+        _recipesTab = MenuSkin.MakeButton("RECIPES", () => ShowTab(true), 106);
+        _paletteTab = MenuSkin.MakeButton("BLOCKS", () => ShowTab(false), 106);
+        tabs.AddChild(_recipesTab);
+        tabs.AddChild(_paletteTab);
         sideCol.AddChild(tabs);
         ScrollContainer scroll = new()
         {
@@ -841,6 +845,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
                         : ItemStack.Empty,
                 false);
         RefreshRecipes();
+        StyleTab(_recipesTab, _recipeList.Visible);
+        StyleTab(_paletteTab, _paletteList.Visible);
     }
 
     private void RefreshFurnace()
@@ -866,7 +872,6 @@ public partial class InventoryUi : CanvasLayer, IModalUi
                 CustomMinimumSize = new Vector2(0, 54),
                 Alignment = HorizontalAlignment.Left,
                 FocusMode = Control.FocusModeEnum.None,
-                AutowrapMode = TextServer.AutowrapMode.WordSmart,
             };
             StyleListButton(row);
             row.AddThemeFontSizeOverride("font_size", 12);
@@ -913,6 +918,16 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
     }
 
+    private static void StyleTab(Button button, bool active)
+    {
+        Color fill = active ? new Color(0.10f, 0.34f, 0.29f, 0.98f) : MenuSkin.SurfaceRaised;
+        Color stroke = active ? MenuSkin.AccentBright : MenuSkin.Border;
+        button.AddThemeStyleboxOverride("normal", MenuSkin.ButtonStyle(fill, stroke));
+        button.AddThemeStyleboxOverride("hover", MenuSkin.ButtonStyle(
+                new Color(0.14f, 0.42f, 0.36f, 1.0f), MenuSkin.AccentBright));
+        button.AddThemeColorOverride("font_color", MenuSkin.Text);
+    }
+
     private static void StyleListButton(Button button)
     {
         button.AddThemeStyleboxOverride("normal", MenuSkin.ButtonStyle(
@@ -930,6 +945,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     private void ShowTab(bool recipes)
     {
+        StyleTab(_recipesTab, recipes);
+        StyleTab(_paletteTab, !recipes);
         _recipeList.Visible = recipes;
         _paletteList.Visible = !recipes;
         if (!recipes && _paletteList.GetChildCount() == 0)
