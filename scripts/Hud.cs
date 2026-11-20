@@ -206,13 +206,26 @@ public partial class Hud : CanvasLayer
 
     private void BuildBottom(Control root)
     {
+        PanelContainer backing = new()
+        {
+            Name = "BottomHudPanel",
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        StyleBoxFlat backingStyle = MenuSkin.PanelStyle();
+        backingStyle.ContentMarginLeft = 12;
+        backingStyle.ContentMarginRight = 12;
+        backingStyle.ContentMarginTop = 10;
+        backingStyle.ContentMarginBottom = 10;
+        backing.AddThemeStyleboxOverride("panel", backingStyle);
+
         VBoxContainer stack = new()
         {
             Name = "BottomStack",
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        stack.AddThemeConstantOverride("separation", 3);
-        root.AddChild(stack);
+        stack.AddThemeConstantOverride("separation", 5);
+        backing.AddChild(stack);
+        root.AddChild(backing);
         BuildSurvivalBars(stack);
 
         HBoxContainer hotbar = new()
@@ -267,9 +280,9 @@ public partial class Hud : CanvasLayer
             slot.AddChild(num);
         }
 
-        // Centre only after the slots exist, so the minimum size is known and the
-        // row is truly centred (presetting an empty container offsets it).
-        stack.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterBottom, Control.LayoutPresetMode.Minsize, 14);
+        // Centre only after the slots exist so the panel takes its final size.
+        backing.SetAnchorsAndOffsetsPreset(
+                Control.LayoutPreset.CenterBottom, Control.LayoutPresetMode.Minsize, 14);
 
         _heldLabel = new Label
         {
@@ -366,11 +379,13 @@ public partial class Hud : CanvasLayer
     {
         StyleBoxFlat sb = new()
         {
-            BgColor = selected ? new Color(0.10f, 0.10f, 0.13f, 0.80f) : new Color(0.06f, 0.06f, 0.08f, 0.62f),
-            BorderColor = selected ? new Color(1, 1, 1, 0.95f) : new Color(0.35f, 0.35f, 0.38f, 0.85f),
+            BgColor = selected
+                    ? new Color(0.10f, 0.33f, 0.28f, 0.98f)
+                    : new Color(0.025f, 0.045f, 0.052f, 0.84f),
+            BorderColor = selected ? MenuSkin.AccentBright : new Color(0.52f, 0.66f, 0.64f, 0.42f),
         };
-        sb.SetBorderWidthAll(selected ? 3 : 2);
-        sb.SetCornerRadiusAll(6);
+        sb.SetBorderWidthAll(selected ? 2 : 1);
+        sb.SetCornerRadiusAll(7);
         return sb;
     }
 
@@ -750,17 +765,12 @@ public partial class Hud : CanvasLayer
         {
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        StyleBoxFlat sb = new()
-        {
-            BgColor = new Color(0.04f, 0.05f, 0.07f, 0.72f),
-            BorderColor = new Color(1, 1, 1, 0.12f),
-            ContentMarginLeft = 12,
-            ContentMarginRight = 12,
-            ContentMarginTop = 8,
-            ContentMarginBottom = 8,
-        };
+        StyleBoxFlat sb = MenuSkin.PanelStyle();
         sb.SetCornerRadiusAll((int)corner);
-        sb.SetBorderWidthAll(1);
+        sb.ContentMarginLeft = 12;
+        sb.ContentMarginRight = 12;
+        sb.ContentMarginTop = 9;
+        sb.ContentMarginBottom = 9;
         pc.AddThemeStyleboxOverride("panel", sb);
         return pc;
     }
