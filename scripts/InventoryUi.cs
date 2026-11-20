@@ -1002,7 +1002,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     {
         if (_equipmentStatus == null) return;
         ItemStack selected = _player.Inventory.Hotbar[_player.Selected];
-        _equipmentStatus.Text = $"XP Level {_player.Stats.ExperienceLevel} · Lapis {_player.Inventory.CountOf(ItemId.LapisLazuli)}\\nSelected: {(selected.IsEmpty ? "Empty" : ItemDb.NameOf(selected.Id))}";
+        _equipmentStatus.Text = $"XP Level {_player.Stats.ExperienceLevel} · Lapis {_player.Inventory.CountOf(ItemId.LapisLazuli)}\nSelected: {(selected.IsEmpty ? "Empty" : ItemDb.NameOf(selected.Id))}";
     }
     public override void _Process(double delta)
     {
