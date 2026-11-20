@@ -239,7 +239,7 @@ public sealed class WorldGenV7
 
     public bool IsCave(int x, int y, int z, int surfaceHeight)
     {
-        if (_preset is "flat" or "sky" || y <= 3 || y >= surfaceHeight - 4)
+        if (_preset == "flat" || y <= 3 || y >= surfaceHeight - 4)
         {
             return false;
         }
@@ -747,14 +747,25 @@ public partial class VoxelWorld
 
                 int x = cx * UndergroundStructureCell + Range(ref rng, 18, 109);
                 int z = cz * UndergroundStructureCell + Range(ref rng, 18, 109);
-                int surface = SurfaceHeight(x, z);
-                int maxY = Math.Min(43, surface - 18);
-                if (maxY < 12)
+                // Sky worlds contain 26-block-thick floating islands. Keep
+                // chambers inside that island slab and never create detached
+                // rooms in the empty space beneath an island.
+                if (IsSky && !GeneratorV7.IsIsland(x, z))
                 {
                     continue;
                 }
 
-                int y = Range(ref rng, 10, maxY);
+                int surface = SurfaceHeight(x, z);
+                int minY = IsSky ? Math.Max(4, surface - 24) : 10;
+                int maxY = IsSky
+                        ? Math.Min(Height - 6, surface - 18)
+                        : Math.Min(43, surface - 18);
+                if (maxY < minY || (!IsSky && maxY < 12))
+                {
+                    continue;
+                }
+
+                int y = Range(ref rng, minY, maxY);
                 int kind = Range(ref rng, 0, 2);
                 StampUndergroundSiteV7(x, y, z, kind, ref rng, data, strideY, ox, oz);
             }
