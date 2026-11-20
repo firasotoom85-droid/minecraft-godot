@@ -73,14 +73,17 @@ public static class WorldgenTests
 
     private static void CheckLegacyGoldenHashes(Node host)
     {
-        (int Version, int Seed, Vector2I Chunk)[] anchors =
+        (int Version, int Seed, Vector2I Chunk, string Hash)[] anchors =
         [
-            (3, 314159, new Vector2I(3, -2)),
-            (5, 271828, new Vector2I(-4, 1)),
-            (6, 1618033, new Vector2I(5, 6)),
+            (3, 314159, new Vector2I(3, -2),
+                    "55fa46edd0746091208552eb3d33811d7a8006253240e3052f0d471e4bb3981c"),
+            (5, 271828, new Vector2I(-4, 1),
+                    "283e0cac321253b8d7518e82a35b663d8a428e8ac39872fbb2649d2a6600d30f"),
+            (6, 1618033, new Vector2I(5, 6),
+                    "808c6e83b40e7f7b476caba9e3fd0a97fb3b0d563db9c0015a9b57b232af95ee"),
         ];
 
-        foreach ((int version, int seed, Vector2I chunk) in anchors)
+        foreach ((int version, int seed, Vector2I chunk, string expectedHash) in anchors)
         {
             string dir = $"user://tests/world-v{version}-golden-{Time.GetTicksUsec()}";
             DirAccess.MakeDirRecursiveAbsolute(dir);
@@ -93,7 +96,8 @@ public static class WorldgenTests
             host.AddChild(world);
             byte[] bytes = world.ChunkData(chunk);
             string hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-            GD.Print($"WORLDGEN_GOLDEN version={version} seed={seed} chunk={chunk} sha256={hash}");
+            TestAssert.Equal(expectedHash, hash,
+                    $"generator v{version} golden chunk hash remains byte-identical");
             TestAssert.Equal(version >= 5 ? 128 : 64, world.Height,
                     $"legacy v{version} keeps its original world height");
 
@@ -201,42 +205,54 @@ public static class WorldgenTests
         VoxelWorld world = new();
         host.AddChild(world);
 
-        // A tree rooted just beside x=16 must stamp the same canopy into both
-        // chunks, regardless of which chunk is generated first.
+        // Search multiple chunk seams and biome regions for a tree whose
+        // canopy reaches both adjacent chunks. Compare actual generated voxels.
         bool foundCrossChunkTree = false;
-        for (int z = 2; z < 14 && !foundCrossChunkTree; z++)
+        for (int chunkZ = -8; chunkZ <= 8 && !foundCrossChunkTree; chunkZ++)
         {
-            for (int x = 12; x <= 19 && !foundCrossChunkTree; x++)
+            for (int chunkX = -8; chunkX <= 8 && !foundCrossChunkTree; chunkX++)
             {
-                if (world.GetTreeAt(x, z) is not { } tree)
+                int boundaryX = chunkX * VoxelWorld.ChunkX;
+                int originZ = chunkZ * VoxelWorld.ChunkZ;
+                for (int z = originZ + 2; z < originZ + VoxelWorld.ChunkZ - 2
+                        && !foundCrossChunkTree; z++)
                 {
-                    continue;
-                }
-
-                for (int y = tree.Base; y < tree.Base + tree.Trunk + 2; y++)
-                {
-                    BlockId leftExpected = world.TreeBlockFor(tree, 15, y, z);
-                    BlockId rightExpected = world.TreeBlockFor(tree, 16, y, z);
-                    if (leftExpected == BlockId.Air || rightExpected == BlockId.Air)
+                    for (int x = boundaryX - 2; x <= boundaryX + 1
+                            && !foundCrossChunkTree; x++)
                     {
-                        continue;
-                    }
+                        if (world.GetTreeAt(x, z) is not { } tree)
+                        {
+                            continue;
+                        }
 
-                    byte[] left = world.ChunkData(Vector2I.Zero);
-                    byte[] right = world.ChunkData(new Vector2I(1, 0));
-                    TestAssert.Equal(leftExpected,
-                            (BlockId)left[15 + z * VoxelWorld.ChunkX + y * VoxelWorld.ChunkX * VoxelWorld.ChunkZ],
-                            "tree canopy stamps correctly into the chunk left of a seam");
-                    TestAssert.Equal(rightExpected,
-                            (BlockId)right[z * VoxelWorld.ChunkX + y * VoxelWorld.ChunkX * VoxelWorld.ChunkZ],
-                            "tree canopy stamps correctly into the chunk right of a seam");
-                    foundCrossChunkTree = true;
-                    break;
+                        byte[] left = world.ChunkData(new Vector2I(chunkX - 1, chunkZ));
+                        byte[] right = world.ChunkData(new Vector2I(chunkX, chunkZ));
+                        int localZ = z - originZ;
+                        for (int y = tree.Base; y < tree.Base + tree.Trunk + 2; y++)
+                        {
+                            BlockId leftExpected = world.TreeBlockFor(tree, boundaryX - 1, y, z);
+                            BlockId rightExpected = world.TreeBlockFor(tree, boundaryX, y, z);
+                            if (leftExpected == BlockId.Air || rightExpected == BlockId.Air)
+                            {
+                                continue;
+                            }
+
+                            int leftIndex = 15 + localZ * 16 + y * 256;
+                            int rightIndex = localZ * 16 + y * 256;
+                            if ((BlockId)left[leftIndex] == leftExpected
+                                    && (BlockId)right[rightIndex] == rightExpected)
+                            {
+                                foundCrossChunkTree = true;
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        TestAssert.Check(foundCrossChunkTree, "V7 generated a tree canopy crossing a chunk seam");
+        TestAssert.Check(foundCrossChunkTree,
+                "V7 tree canopies stamp correctly across chunk seams");
 
         // Search a compact set of neighbouring chunks for a same-material ore
         // continuation crossing the seam. This exercises the neighbour-cell
