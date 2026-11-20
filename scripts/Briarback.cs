@@ -65,7 +65,7 @@ public partial class Briarback : Wanderer
         _attackCooldown -= delta;
         if (_rageTime > 0.0f && Manager?.PlayerRef is { } player && !player.Stats.Dead)
         {
-            Vector3 toPlayer = _provokedFrom - GlobalPosition;
+            Vector3 toPlayer = player.GlobalPosition - GlobalPosition;
             toPlayer.Y = 0.0f;
             float distance = toPlayer.Length();
             if (distance < 2.0f)
