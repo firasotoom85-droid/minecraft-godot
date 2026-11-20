@@ -257,6 +257,18 @@ public partial class VoxelWorld : Node3D
     private int DeriveSeed(uint salt) =>
         unchecked((int)Mix((uint)_noiseSeeds[0], (uint)_noiseSeeds[1], salt, 0x9E3779B9u));
 
+    public (int Height, Biome Biome) SurfaceSampleAt(int wx, int wz)
+    {
+        if (_genVersion >= WorldGenV7.Version)
+        {
+            WorldGenV7.SurfaceSample sample = GeneratorV7.SampleSurface(wx, wz, SeaLevel);
+            return (sample.Height, sample.Biome);
+        }
+
+        int height = SurfaceHeight(wx, wz);
+        return (height, BiomeAt(wx, wz, height));
+    }
+
     public int SurfaceHeight(int wx, int wz)
     {
         if (_genVersion >= WorldGenV7.Version)
