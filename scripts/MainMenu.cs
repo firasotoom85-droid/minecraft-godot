@@ -325,6 +325,7 @@ public partial class MainMenu : Control
         _typeOption.AddItem("Flat world", 1);
         _typeOption.AddItem("Amplified mountains", 2);
         _typeOption.AddItem("Sky islands", 3);
+        _typeOption.Selected = 0;
         MenuSkin.StyleInput(_typeOption);
         box.AddChild(Field("WORLD GENERATION", _typeOption));
 
