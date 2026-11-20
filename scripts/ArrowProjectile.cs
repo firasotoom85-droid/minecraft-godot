@@ -90,6 +90,28 @@ public partial class ArrowProjectile : Area3D
     {
         if (_spent) return;
         _spent = true;
+        Node scene = GetTree().CurrentScene ?? GetParent();
+        if (scene != null)
+        {
+            Color color = hit ? new Color(1.0f, 0.42f, 0.16f) : new Color(0.72f, 0.62f, 0.42f);
+            StandardMaterial3D flashMaterial = new()
+            {
+                AlbedoColor = color,
+                EmissionEnabled = true,
+                Emission = color,
+                EmissionEnergyMultiplier = 1.6f,
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            };
+            MeshInstance3D flash = new()
+            {
+                Mesh = new SphereMesh { Radius = 0.10f, Height = 0.20f },
+                MaterialOverride = flashMaterial,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            };
+            scene.AddChild(flash);
+            flash.GlobalPosition = point;
+            GetTree().CreateTimer(0.18).Timeout += flash.QueueFree;
+        }
         if (hit && _owner != null)
             _owner.EmitSignal(Player.SignalName.Notice, "Arrow hit");
         else if (_owner != null)
