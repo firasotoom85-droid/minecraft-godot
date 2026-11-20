@@ -91,50 +91,74 @@ public sealed class WorldGenV7
         return unchecked((int)value);
     }
 
-    public int SurfaceHeight(int x, int z, int seaLevel)
+    public int SurfaceHeight(int x, int z, int seaLevel) =>
+            SampleSurface(x, z, seaLevel).Height;
+
+    /// <summary>
+    /// Samples a column once for both terrain height and biome selection.
+    /// The chunk builder uses this to avoid evaluating the domain warp and
+    /// temperature/moisture layers twice for every surface column.
+    /// </summary>
+    public SurfaceSample SampleSurface(int x, int z, int seaLevel)
     {
+        int climateReferenceHeight = seaLevel + 12;
+        ClimateSample climate = ClimateAt(x, z, climateReferenceHeight);
+
+        int height;
         if (_preset == "flat")
         {
-            return seaLevel + 4;
+            height = seaLevel + 4;
         }
-
-        if (_preset == "sky")
+        else if (_preset == "sky")
         {
             float baseNoise = _hills.GetNoise2D(x, z);
             float peaks = 1.0f - Math.Abs(_ridge.GetNoise2D(x, z));
-            return Mathf.Clamp(Mathf.RoundToInt(78.0f + baseNoise * 7.0f
+            height = Mathf.Clamp(Mathf.RoundToInt(78.0f + baseNoise * 7.0f
                     + peaks * 13.0f), 52, 116);
+            climate = ClimateAt(x, z, height, includeRivers: false);
         }
-
-        ClimateSample climate = ClimateAt(x, z, seaLevel + 12);
-        float land = SmoothStep(-0.42f, -0.04f, climate.Continentalness);
-        float erosion = _erosion.GetNoise2D(x, z);
-        float hills = _hills.GetNoise2D(x, z);
-        float range = _mountainRange.GetNoise2D(x, z);
-        float ridges = 1.0f - Math.Abs(_ridge.GetNoise2D(x, z));
-        float mountainMask = SmoothStep(0.02f, 0.50f, range);
-        float mountainPeaks = ridges * ridges * (0.45f + 0.55f * ridges);
-
-        float height = seaLevel - 28.0f + land * 41.0f;
-        height += hills * (2.5f + land * 4.0f);
-        height += erosion * (1.8f + land * 2.0f);
-        float mountainScale = _preset == "amplified" ? 1.62f : 1.0f;
-        height += mountainMask * (13.0f + mountainPeaks * 28.0f) * mountainScale;
-
-        float swampMask = SmoothStep(0.25f, 0.58f, climate.Moisture)
-                * (1.0f - SmoothStep(0.12f, 0.46f, climate.Continentalness));
-        if (climate.Temperature > -0.12f)
+        else
         {
-            height -= swampMask * 3.2f;
+            float land = SmoothStep(-0.42f, -0.04f, climate.Continentalness);
+            float erosion = _erosion.GetNoise2D(x, z);
+            float hills = _hills.GetNoise2D(x, z);
+            float range = _mountainRange.GetNoise2D(x, z);
+            float ridges = 1.0f - Math.Abs(_ridge.GetNoise2D(x, z));
+            float mountainMask = SmoothStep(0.02f, 0.50f, range);
+            float mountainPeaks = ridges * ridges * (0.45f + 0.55f * ridges);
+
+            float terrainHeight = seaLevel - 28.0f + land * 41.0f;
+            terrainHeight += hills * (2.5f + land * 4.0f);
+            terrainHeight += erosion * (1.8f + land * 2.0f);
+            float mountainScale = _preset == "amplified" ? 1.62f : 1.0f;
+            terrainHeight += mountainMask * (13.0f + mountainPeaks * 28.0f) * mountainScale;
+
+            float swampMask = SmoothStep(0.25f, 0.58f, climate.Moisture)
+                    * (1.0f - SmoothStep(0.12f, 0.46f, climate.Continentalness));
+            if (climate.Temperature > -0.12f)
+            {
+                terrainHeight -= swampMask * 3.2f;
+            }
+
+            if (land > 0.45f && climate.RiverStrength > 0.25f)
+            {
+                float channelFloor = seaLevel - 1.0f
+                        + (1.0f - climate.RiverStrength) * 2.0f;
+                terrainHeight = Math.Min(terrainHeight, channelFloor);
+            }
+
+            height = Mathf.Clamp(Mathf.RoundToInt(terrainHeight), 4, 118);
         }
 
-        if (land > 0.45f && climate.RiverStrength > 0.25f)
-        {
-            float channelFloor = seaLevel - 1.0f + (1.0f - climate.RiverStrength) * 2.0f;
-            height = Math.Min(height, channelFloor);
-        }
-
-        return Mathf.Clamp(Mathf.RoundToInt(height), 4, 118);
+        // ClimateAt applied altitude cooling at the reference height. Adjust
+        // it to the actual surface without resampling temperature noise.
+        float temperature = climate.Temperature
+                - Math.Max(0, height - 40) * 0.0085f
+                + Math.Max(0, climateReferenceHeight - 40) * 0.0085f;
+        float plains = _plainsVariation.GetNoise2D(x, z);
+        Biome biome = ClassifyBiome(temperature, climate.Moisture,
+                height, seaLevel, plains);
+        return new SurfaceSample(height, biome);
     }
 
     public ClimateSample ClimateAt(int x, int z, int height, bool includeRivers = true)
@@ -151,13 +175,8 @@ public sealed class WorldGenV7
                 includeRivers ? RiverStrength(x, z) : 0.0f);
     }
 
-    public Biome BiomeAt(int x, int z, int height, int seaLevel)
-    {
-        ClimateSample climate = ClimateAt(x, z, height, includeRivers: false);
-        float plains = _plainsVariation.GetNoise2D(x, z);
-        return ClassifyBiome(climate.Temperature, climate.Moisture,
-                height, seaLevel, plains);
-    }
+    public Biome BiomeAt(int x, int z, int height, int seaLevel) =>
+            SampleSurface(x, z, seaLevel).Biome;
 
     /// <summary>Pure classification function, also used by focused biome tests.</summary>
     public static Biome ClassifyBiome(float temperature, float moisture,
@@ -338,6 +357,8 @@ public sealed class WorldGenV7
         float Moisture,
         float Continentalness,
         float RiverStrength);
+
+    public readonly record struct SurfaceSample(int Height, Biome Biome);
 }
 
 /// <summary>V7-specific block stamping and decoration. Legacy versions never enter these paths.</summary>
