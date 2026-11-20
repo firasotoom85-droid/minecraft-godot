@@ -68,6 +68,7 @@ public partial class CrystalWisp : Mob
         {
             _charge = 0.62f;
             Manager?.Puff(GlobalPosition + new Vector3(0, 0.65f, 0), new Color(0.42f, 0.90f, 1.0f));
+            Manager?.SoundRef?.Play("mobcrystal", GlobalPosition, 0.88f, -11.0f);
         }
 
         if (_charge > 0.0f)
