@@ -717,7 +717,7 @@ public partial class Player : CharacterBody3D, IDamageable
     private void Swing(IDamageable target)
     {
         double now=Time.GetTicksMsec()/1000.0; ItemStack held=Inventory.Hotbar[Selected]; WeaponInfo? weapon=ItemDb.WeaponOf(held.Id);
-        float cooldown=weapon is { AttackSpeed: > 0 } w?w.AttackSpeed:SwingCooldown; if(now-_lastSwing<cooldown)return;
+        double cooldown=weapon is { AttackSpeed: > 0 } w?w.AttackSpeed:SwingCooldown; if(now-_lastSwing<cooldown)return;
         if(held.Id==ItemId.Bow){if(!Inventory.Consume(ItemId.Arrow,1)){EmitSignal(SignalName.Notice,"Need arrows to fire");_lastSwing=now;return;}
             Inventory.DamageEquipment(Selected);_lastSwing=now;StartPunch();target.ApplyDamage(new DamageInfo(5,DamageKind.Melee,GlobalPosition,1,0.4f));return;}
         _lastSwing=now;StartPunch();float damage=weapon?.Damage??(1+(ItemDb.ToolOf(held.Id)?.Tier??0));
