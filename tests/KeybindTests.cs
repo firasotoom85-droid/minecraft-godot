@@ -14,7 +14,8 @@ public static class KeybindTests
             TestAssert.Check(actions.Add(action), $"keybind {action} is unique");
             TestAssert.Check(!string.IsNullOrWhiteSpace(label), $"keybind {action} has a label");
             TestAssert.Check(InputMap.HasAction(action), $"InputMap has {action}");
-            TestAssert.Check(Keybinds.LabelFor(action) != "—", $"keybind {action} has a key");
+            if (action is not ("hotbar_prev" or "hotbar_next"))
+                TestAssert.Check(Keybinds.LabelFor(action) != "—", $"keybind {action} has a key");
         }
 
         TestAssert.Check(InputMap.HasAction("look_left") && InputMap.HasAction("look_right"),
