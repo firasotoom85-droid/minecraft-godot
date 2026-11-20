@@ -59,6 +59,7 @@ public static class MobContentTests
         TestAssert.Check(!MobCombatRules.CanBeginTelegraph(0.0f, 6.0f, 8.5f, false),
                 "pounce telegraph requires clear line of sight");
 
+        Sheep sheep = new();
         Mobs.HerdProfile chickenHerd = Mobs.HerdProfile.For(chicken);
         Mobs.HerdProfile cowHerd = Mobs.HerdProfile.For(cow);
         TestAssert.Check(chickenHerd.Minimum > cowHerd.Minimum
@@ -99,7 +100,6 @@ public static class MobContentTests
                 "non-player overlap cannot take projectile damage");
 
         // Wildlife uses the existing food inventory and persisted item ids.
-        Sheep sheep = new();
         TestAssert.Check(sheep.IsPassive, "sheep uses passive wildlife behavior");
         TestAssert.Equal(ItemId.Wheat, sheep.BreedingFood, "sheep breeds with wheat");
         TestAssert.Check(cow.IsPassive, "cow uses passive wildlife behavior");
