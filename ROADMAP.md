@@ -801,3 +801,28 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - **Verification:** pending the final CI run for this follow-up; run the
   Godot 4.7.2 .NET build and headless suite before considering the change
   complete.
+
+
+- **2026-11-20 — Mob ecology medium/low-priority implementation.**
+  - Species profiles now produce distinct flock sizes, spacing and cohesion:
+    chickens form larger, tighter flocks; sheep use stronger cohesion; cattle
+    and pigs form smaller groups.
+  - Passive animals have a slowly draining hunger meter and seek nearby grass
+    or snowy grass. Grazing commits the existing grass-to-dirt mutation through
+    `VoxelWorld.SetBlock` and restores hunger.
+  - Sheep, cows, pigs and chickens now use separate pivoted leg meshes with
+    alternating gait animation instead of relying only on body bobbing.
+  - Cave Stalkers, Crystal Wisps and Hollows sample cached voxel sky/block
+    light on their AI tick and use species-specific detection thresholds.
+  - Projectile impact gates now explicitly distinguish terrain termination
+    from player damage; tests cover terrain stops and blocked-through-wall hits.
+  - Passive animals rest at night and seek nearby roofed positions during rain
+    and storms, while threat response takes priority.
+  - Added an opt-in real-scene survival soak runner and
+    `bash scripts/soak-survival.sh 3600`. It loads the main scene, seeds herds
+    and hostile mobs, feeds adults to exercise breeding, alternates cave/surface
+    and day/night conditions, and reports population/cave/juvenile observations.
+  - **Verification pending:** CI build/test for the latest ecology changes and
+    an actual 60-minute Godot 4.7.2 .NET soak have not yet completed. The soak
+    must be run on a machine with Godot .NET installed; the fast unit suite
+    does not substitute for it.
