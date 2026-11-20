@@ -127,6 +127,17 @@ public partial class MainMenu : Control
         _center.Scale = Vector2.One * scale;
     }
 
+    public override void _UnhandledInput(InputEvent @event)
+    {
+        if (@event is InputEventKey { Echo: true }) return;
+        if (@event.IsActionPressed("ui_cancel")
+                && (_worldsPanel.Visible || _newWorldPanel.Visible || _settingsPanel.Visible || _managePanel.Visible))
+        {
+            ShowMain();
+            GetViewport().SetInputAsHandled();
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Panels
     // -----------------------------------------------------------------------
