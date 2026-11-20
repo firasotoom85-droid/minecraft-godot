@@ -124,13 +124,14 @@ public partial class Shade : Mob
             Vector3 toPlayer = player.GlobalPosition - GlobalPosition;
             toPlayer.Y = 0.0f;
             float d = toPlayer.Length();
-            if (d < ChaseRadius && (IsAlerted || HasLineOfSight(player)))
+            bool visible = HasLineOfSight(player);
+            if (d < ChaseRadius && (IsAlerted || visible))
             {
                 Manager?.AlertHostiles(GlobalPosition, 10.0f, 6.0f);
                 _attackCd -= delta;
                 if (d < AttackRange)
                 {
-                    if (_attackCd <= 0.0)
+                    if (_attackCd <= 0.0 && visible)
                     {
                         _attackCd = AttackCooldown;
                         float damage = Settings.Difficulty == Settings.DifficultyHard ? 3.0f : 2.0f;
@@ -142,7 +143,7 @@ public partial class Shade : Mob
                         }
                     }
 
-                    return toPlayer.Normalized() * 0.2f;   // press in, don't overshoot
+                    return visible ? toPlayer.Normalized() * 0.2f : toPlayer;   // no hits through walls
                 }
 
                 return toPlayer;
