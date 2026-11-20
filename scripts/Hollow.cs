@@ -88,13 +88,21 @@ public partial class Hollow : Mob
             Vector3 toPlayer = player.GlobalPosition - GlobalPosition;
             toPlayer.Y = 0.0f;
             float d = toPlayer.Length();
-            if (d < SightRadius && (IsAlerted || HasLineOfSight(player)))
+            bool visible = HasLineOfSight(player);
+            if (d < SightRadius && (IsAlerted || visible))
             {
                 Manager?.AlertHostiles(GlobalPosition, 12.0f, 7.0f);
                 _shotCd -= delta;
                 if (_charge > 0.0f)
                 {
-                    _charge -= (float)delta;
+                    if (!visible)
+                    {
+                        _charge = 0.0f;
+                    }
+                    else
+                    {
+                        _charge -= (float)delta;
+                    }
                     if (_charge <= 0.0f)
                     {
                         _shotCd = ShotCooldown;
@@ -104,12 +112,17 @@ public partial class Hollow : Mob
                                 new Color(0.70f, 0.86f, 0.94f), 7.5f, "mobchitter");
                     }
                 }
-                else if (_shotCd <= 0.0 && d <= KeepMax)
+                else if (visible && _shotCd <= 0.0 && d <= KeepMax)
                 {
                     _charge = 0.48f;
                     Manager?.Puff(GlobalPosition + new Vector3(0, 1.45f, 0),
                             new Color(0.55f, 0.82f, 0.94f));
                     Manager?.SoundRef?.Play("mobchitter", GlobalPosition, 0.9f, -10.0f);
+                }
+
+                if (!visible)
+                {
+                    return toPlayer;
                 }
 
                 if (d < KeepMin)
