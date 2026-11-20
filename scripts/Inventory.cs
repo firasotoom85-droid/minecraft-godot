@@ -46,6 +46,15 @@ public sealed class Inventory
     /// Consume one durability point from a tool in an inventory slot.
     /// Returns true only when the tool breaks and its slot is cleared.
     /// </summary>
+    public bool DamageEquipment(int slot)
+    {
+        if ((uint)slot >= SlotCount) return false;
+        ItemStack stack = Get(slot);
+        int max = ItemDb.ToolOf(stack.Id)?.Durability ?? ItemDb.ArmorOf(stack.Id)?.Durability ?? ItemDb.WeaponOf(stack.Id)?.Durability ?? 0;
+        if (stack.IsEmpty || max <= 0) return false;
+        int durability = stack.Durability - 1; bool broke = durability <= 0;
+        Set(slot, broke ? ItemStack.Empty : stack with { Durability = durability }); Changed?.Invoke(); return broke;
+    }
     public bool DamageTool(int slot)
     {
         if ((uint)slot >= SlotCount)
@@ -54,7 +63,7 @@ public sealed class Inventory
         }
 
         ItemStack stack = Get(slot);
-        if (stack.IsEmpty || ItemDb.ToolOf(stack.Id) is null)
+        if (stack.IsEmpty || (ItemDb.ToolOf(stack.Id) is null && ItemDb.WeaponOf(stack.Id) is null))
         {
             return false;
         }
