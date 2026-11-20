@@ -271,6 +271,27 @@ public partial class Mob : CharacterBody3D, IDamageable
     /// <summary>Subclass steering: desired horizontal movement direction (may be zero).</summary>
     protected virtual Vector3 Think(double delta) => Vector3.Zero;
 
+    public static bool CanDetectAtLight(byte skyLight, byte blockLight, byte threshold) =>
+            Mathf.Max(skyLight, blockLight) <= threshold;
+
+    /// <summary>Sample cached voxel light at the creature's feet; called only on AI ticks.</summary>
+    protected bool CanDetectPlayer(float maximumLight)
+    {
+        if (World == null) return false;
+        int x = Mathf.FloorToInt(GlobalPosition.X);
+        int y = Mathf.Clamp(Mathf.FloorToInt(GlobalPosition.Y + 0.8f), 0, World.Height - 1);
+        int z = Mathf.FloorToInt(GlobalPosition.Z);
+        Vector2I chunk = new(Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX),
+                Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ));
+        if (!World.HasChunk(chunk)) return false;
+        VoxelLightData light = World.LightData(chunk);
+        int localX = ((x % VoxelWorld.ChunkX) + VoxelWorld.ChunkX) % VoxelWorld.ChunkX;
+        int localZ = ((z % VoxelWorld.ChunkZ) + VoxelWorld.ChunkZ) % VoxelWorld.ChunkZ;
+        byte sky = light.SkyAt(localX, y, localZ, World.Height);
+        byte block = light.BlockAt(localX, y, localZ, World.Height);
+        return CanDetectAtLight(sky, block, (byte)Mathf.Clamp(Mathf.RoundToInt(maximumLight), 0, 15));
+    }
+
     /// <summary>Shared terrain-only line of sight; callers invoke it on the AI tick, not every frame.</summary>
     protected bool HasLineOfSight(Node3D target)
     {
