@@ -160,10 +160,11 @@ public sealed class PlayerStats
         if (underwater)
         {
             float before = Breath;
-            Breath = Mathf.Max(Breath - (float)delta, 0.0f);
+            double elapsed = System.Math.Max(delta, 0.0);
+            Breath = Mathf.Max(Breath - (float)elapsed, 0.0f);
             if (Breath <= 0.0f)
             {
-                _drownAccum += delta;
+                _drownAccum += System.Math.Max(elapsed - before, 0.0);
                 if (_drownAccum >= 1.0)
                 {
                     _drownAccum = 0.0;

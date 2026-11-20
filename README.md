@@ -100,6 +100,22 @@ script looks on `PATH` and in common install locations.
 
 Bindings are rebindable from **Esc → Controls**.
 
+## Fluid behavior
+
+Source water remains full-height. Water spreads downward and outward through
+seven progressively shallower flowing levels. Falling columns form continuous
+waterfalls; unsupported flow recedes, solid terrain blocks propagation, and
+plants/torches are displaced. Water touching lava converts the lava to the
+existing cobblestone reaction block; lava itself remains static, viscous, and
+damaging rather than behaving like water.
+
+The fixed-step simulator examines a small window of already-streamed chunks
+around the player and commits at most six edits per tick through
+`VoxelWorld.SetBlock`. It does not generate chunks, alter terrain generation,
+or scan the world. Swimming uses buoyancy and smooth acceleration: Space swims
+up, Shift dives, shallow water slows wading, and head submersion controls breath
+loss. Breath recovers above water; mining is slower while fully submerged.
+
 ## Project layout
 
 | Path | Contents |

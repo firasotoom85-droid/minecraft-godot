@@ -379,10 +379,10 @@ public partial class Mob : CharacterBody3D, IDamageable
         BlockId floor = World.GetBlock(x, feetY, z);
         BlockId lower = World.GetBlock(x, feetY + 1, z);
         BlockId upper = World.GetBlock(x, feetY + 2, z);
-        water = lower == BlockId.Water || floor == BlockId.Water;
-        gap = floor == BlockId.Air || floor == BlockId.Water;
-        bool wall = lower is not (BlockId.Air or BlockId.Water)
-                || upper is not (BlockId.Air or BlockId.Water);
+        water = BlockDb.IsWater(lower) || BlockDb.IsWater(floor);
+        gap = floor == BlockId.Air || BlockDb.IsWater(floor);
+        bool wall = (lower != BlockId.Air && !BlockDb.IsWater(lower))
+                || (upper != BlockId.Air && !BlockDb.IsWater(upper));
         return water || gap || wall;
     }
 

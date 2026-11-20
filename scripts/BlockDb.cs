@@ -162,6 +162,13 @@ public static class BlockDb
                 [TBedTop, TBedSide, TBedSide, TBedSide, TBedSide, TBedSide], 0.2f, ToolKind.Axe),
         new("Ladder", false, true,
                 [TLadder, TLadder, TLadder, TLadder, TLadder, TLadder], 0.4f, ToolKind.Axe),
+        new("Flowing Water 1", false, true, [TWater, TWater, TWater, TWater, TWater, TWater], 0.0f, Drops: false),
+        new("Flowing Water 2", false, true, [TWater, TWater, TWater, TWater, TWater, TWater], 0.0f, Drops: false),
+        new("Flowing Water 3", false, true, [TWater, TWater, TWater, TWater, TWater, TWater], 0.0f, Drops: false),
+        new("Flowing Water 4", false, true, [TWater, TWater, TWater, TWater, TWater, TWater], 0.0f, Drops: false),
+        new("Flowing Water 5", false, true, [TWater, TWater, TWater, TWater, TWater, TWater], 0.0f, Drops: false),
+        new("Flowing Water 6", false, true, [TWater, TWater, TWater, TWater, TWater, TWater], 0.0f, Drops: false),
+        new("Flowing Water 7", false, true, [TWater, TWater, TWater, TWater, TWater, TWater], 0.0f, Drops: false),
     ];
 
     // Cube face geometry shared by the mesher. Order: +Y, -Y, +X, -X, +Z, -Z.
@@ -393,12 +400,29 @@ public static class BlockDb
 
     public static bool IsTransparent(BlockId id) => Defs[(int)id].Transparent;
 
+    public static int WaterLevel(BlockId id)
+    {
+        if (id == BlockId.Water) return 0;
+        int level = (int)id - (int)BlockId.FlowingWater1 + 1;
+        return level is >= 1 and <= 7 ? level : -1;
+    }
+
+    public static bool IsWater(BlockId id) => WaterLevel(id) >= 0;
+
+    public static float WaterHeight(BlockId id)
+    {
+        int level = WaterLevel(id);
+        return level < 0 ? 0.0f : 1.0f - level / 8.0f;
+    }
+
     /// <summary>
     /// Whether the face of <paramref name="selfId"/> towards <paramref name="neighborId"/> must be drawn.
     /// Foliage/foliage faces are kept so alpha-cutout canopies look full.
     /// </summary>
     public static bool RenderFace(BlockId selfId, BlockId neighborId)
     {
+        if (IsWater(selfId) && IsWater(neighborId)) return false;
+
         if (neighborId == BlockId.Air)
         {
             return true;

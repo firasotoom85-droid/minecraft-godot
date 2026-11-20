@@ -379,7 +379,7 @@ public partial class Mobs : Node
             BlockId above = World.GetBlock(x, y + 1, z);
             BlockId floor = World.GetBlock(x, y - 1, z);
             if (here != BlockId.Air || above != BlockId.Air
-                    || floor is BlockId.Air or BlockId.Water or BlockId.Lava)
+                    || floor == BlockId.Air || floor == BlockId.Lava || BlockDb.IsWater(floor))
             {
                 continue;
             }

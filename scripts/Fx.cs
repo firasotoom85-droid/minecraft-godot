@@ -26,6 +26,8 @@ public partial class Fx : Node
         player.BlockPlaced += OnPlaced;
         player.MiningTick += OnMiningTick;
         player.Splashed += pos => Puff(pos + new Vector3(0, -0.2f, 0), new Color(0.75f, 0.88f, 1.0f, 0.9f));
+        player.SwimStroke += pos => Bubbles(pos - new Vector3(0, 0.25f, 0));
+        player.LavaEntered += pos => Puff(pos, new Color(1.0f, 0.42f, 0.12f, 0.95f));
         player.Landed += (pos, impact) =>
         {
             float k = Mathf.Clamp(impact * 0.06f, 0.0f, 0.5f);
@@ -199,7 +201,11 @@ public partial class Fx : Node
     }
 
     /// <summary>Plain coloured one-shot puff (mob hit sparks, hearts, smoke…).</summary>
-    public void Puff(Vector3 pos, Color color)
+    public void Puff(Vector3 pos, Color color) => EmitPuff(pos, color, new Vector3(0, -9.0f, 0));
+
+    private void Bubbles(Vector3 pos) => EmitPuff(pos, new Color(0.55f, 0.82f, 1.0f, 0.8f), new Vector3(0, 2.8f, 0));
+
+    private void EmitPuff(Vector3 pos, Color color, Vector3 gravity)
     {
         QuadMesh quad = (QuadMesh)PuffParticles.DrawPass1;
         StandardMaterial3D mat = (StandardMaterial3D)quad.Material;
@@ -207,10 +213,11 @@ public partial class Fx : Node
         Gradient ramp = new();
         ramp.SetColor(0, color.WithAlpha(1.0f));
         ramp.SetColor(1, color.WithAlpha(0.0f));
-        ((ParticleProcessMaterial)PuffParticles.ProcessMaterial).ColorRamp = new GradientTexture1D
-        {
-            Gradient = ramp,
-        };
+        ParticleProcessMaterial process = (ParticleProcessMaterial)PuffParticles.ProcessMaterial;
+        process.ColorRamp = new GradientTexture1D { Gradient = ramp };
+        process.Gravity = gravity;
+        process.InitialVelocityMin = gravity.Y > 0.0f ? 0.25f : 1.0f;
+        process.InitialVelocityMax = gravity.Y > 0.0f ? 0.9f : 3.6f;
         PuffParticles.GlobalPosition = pos;
         PuffParticles.Restart();
         PuffParticles.Emitting = true;

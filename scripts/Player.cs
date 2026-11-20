@@ -34,6 +34,8 @@ public partial class Player : CharacterBody3D, IDamageable
     [Signal] public delegate void BlockPlacedEventHandler(Vector3 pos, int blockId);
     [Signal] public delegate void SteppedEventHandler(Vector3 pos, int blockId);
     [Signal] public delegate void SplashedEventHandler(Vector3 pos);
+    [Signal] public delegate void SwimStrokeEventHandler(Vector3 pos);
+    [Signal] public delegate void LavaEnteredEventHandler(Vector3 pos);
     [Signal] public delegate void MiningTickEventHandler(Vector3 pos, int blockId);
     [Signal] public delegate void ToolBrokeEventHandler();
     [Signal] public delegate void InventoryFullEventHandler();
@@ -57,6 +59,8 @@ public partial class Player : CharacterBody3D, IDamageable
     public VoxelWorld? World;
     public bool Flying;
     public bool Underwater;
+    public bool InWater;
+    public bool InLava;
     public bool Swimming;
     public bool Climbing;
     public int Selected;
@@ -89,7 +93,15 @@ public partial class Player : CharacterBody3D, IDamageable
     private static readonly System.Lazy<ImageTexture[]> CrackTextureLazy = new(BuildCrackTextures);
     private double _lastJumpTap = -10.0;
     private double _stepAccum;
-    private bool _wasUnderwater;
+    private bool _wasInWater;
+    private bool _wasInLava;
+    private bool _wasSwimming;
+    private double _swimStrokeTimer;
+    private float _waterViewBlend;
+    private float _airFogDensity;
+    private Color _airFogColor;
+    private Godot.Environment? _underwaterEnvironment;
+    private float _swimCameraPhase;
     private double _lastSwing = -10.0;
     private double _lastEat = -10.0;
     private double _lastRest = -10.0;
@@ -101,6 +113,15 @@ public partial class Player : CharacterBody3D, IDamageable
     private enum FishingState { Idle, Waiting, Biting }
     private FishingState _fishingState;
     private double _fishingTimer;
+
+    public void SetWaterEnvironment(Godot.Environment environment)
+    {
+        _underwaterEnvironment = (Godot.Environment)environment.Duplicate();
+        _airFogDensity = environment.FogDensity;
+        _airFogColor = environment.FogLightColor;
+        _underwaterEnvironment.FogEnabled = true;
+        _underwaterEnvironment.VolumetricFogEnabled = false;
+    }
 
     public override void _Ready()
     {
@@ -240,10 +261,20 @@ public partial class Player : CharacterBody3D, IDamageable
         bool locked = InputLocked || Stats.Dead;
         Vector2 inputDir = locked ? Vector2.Zero : Input.GetVector("left", "right", "forward", "back");
         Vector3 direction = (Transform.Basis * new Vector3(inputDir.X, 0, inputDir.Y)).Normalized();
-        bool sprinting = !locked && Input.IsActionPressed("sprint");
+        bool sprintHeld = !locked && Input.IsActionPressed("sprint");
         Climbing = !Flying && (IsLadderAt(GlobalPosition + new Vector3(0, 1.0f, 0))
                 || IsLadderAt(GlobalPosition + new Vector3(0, 0.2f, 0)));
-        Swimming = !Flying && !Climbing && IsWaterAt(GlobalPosition + new Vector3(0, 0.2f, 0));
+        bool feetWet = IsWaterAt(GlobalPosition + new Vector3(0, 0.2f, 0));
+        bool torsoWet = IsWaterAt(GlobalPosition + new Vector3(0, 0.9f, 0));
+        bool headWet = IsWaterAt(Camera.GlobalPosition);
+        float immersion = WaterPhysics.Immersion(feetWet, torsoWet, headWet);
+        InWater = immersion > 0.0f;
+        Underwater = headWet;
+        InLava = IsLavaAt(GlobalPosition + new Vector3(0, 0.2f, 0))
+                || IsLavaAt(GlobalPosition + new Vector3(0, 0.9f, 0))
+                || IsLavaAt(Camera.GlobalPosition);
+        Swimming = !Flying && !Climbing && !InLava && WaterPhysics.ShouldSwim(immersion);
+        bool sprinting = sprintHeld && !Swimming && !InLava && !Climbing;
         float speed = sprinting ? SprintSpeed : WalkSpeed;
         Stats.Update(delta, sprinting, (sprinting || inputDir != Vector2.Zero) && !Flying, Mode);
 
@@ -308,28 +339,27 @@ public partial class Player : CharacterBody3D, IDamageable
             }
             else if (Swimming)
             {
-                // Buoyancy rather than gravity: the player floats toward the
-                // surface, Space swims up and Sprint dives. A small sink rate
-                // prevents walking along the water floor.
-                speed = sprinting ? 4.4f : 3.2f;
-                float targetY = -1.2f;
-                if (!locked && Input.IsActionPressed("jump"))
-                {
-                    targetY = 3.8f;
-                }
-                else if (sprinting)
-                {
-                    targetY = -3.0f;
-                }
-
-                velocity.Y = Mathf.MoveToward(velocity.Y, targetY, 12.0f * dt);
-                velocity.X = direction.X * speed;
-                velocity.Z = direction.Z * speed;
+                speed = WaterPhysics.HorizontalSpeed;
+                velocity = WaterPhysics.Step(velocity, direction, immersion,
+                        !locked && Input.IsActionPressed("jump"), sprintHeld, dt);
+                _coyote = 0.0;
+                _jumpBuffer = 0.0;
+            }
+            else if (InLava)
+            {
+                speed = 1.55f;
+                float targetY = !locked && Input.IsActionPressed("jump") ? 2.0f : -1.1f;
+                velocity.X = Mathf.MoveToward(velocity.X, direction.X * speed, 5.0f * dt);
+                velocity.Z = Mathf.MoveToward(velocity.Z, direction.Z * speed, 5.0f * dt);
+                velocity.Y = Mathf.MoveToward(velocity.Y, targetY, 4.0f * dt);
                 _coyote = 0.0;
                 _jumpBuffer = 0.0;
             }
             else
             {
+                if (_wasSwimming) velocity.Y = Mathf.Clamp(velocity.Y, -2.0f, 2.0f);
+                if (InWater) speed *= 0.78f;
+
                 if (IsOnFloor())
                 {
                     _coyote = CoyoteTime;
@@ -337,7 +367,7 @@ public partial class Player : CharacterBody3D, IDamageable
                 else
                 {
                     _coyote = System.Math.Max(_coyote - delta, 0.0);
-                    velocity.Y -= (float)(Gravity * delta);
+                    velocity.Y -= (float)(Gravity * delta * (InWater ? 0.35 : 1.0));
                 }
 
                 if (!locked && Input.IsActionJustPressed("jump"))
@@ -368,6 +398,17 @@ public partial class Player : CharacterBody3D, IDamageable
                 Mathf.MoveToward(_push.Z, 0.0f, dt * 10.0f));
         Velocity = velocity;
         MoveAndSlide();
+        if (Swimming && (inputDir != Vector2.Zero || Mathf.Abs(Velocity.Y) > 1.0f))
+        {
+            _swimStrokeTimer -= delta;
+            if (_swimStrokeTimer <= 0.0)
+            {
+                _swimStrokeTimer = 0.52;
+                EmitSignal(SignalName.SwimStroke, Camera.GlobalPosition);
+            }
+        }
+        else _swimStrokeTimer = 0.0;
+        _wasSwimming = Swimming;
         // Safety net: never let the player fall out of the world (trimesh slips).
         if (GlobalPosition.Y < -8.0f)
         {
@@ -384,13 +425,35 @@ public partial class Player : CharacterBody3D, IDamageable
         UpdateCameraFeel(dt, sprinting, direction);
 
         float baseFov = Settings.Fov;
-        float targetFov = sprinting && !Flying && direction != Vector3.Zero ? baseFov + 5.0f : baseFov;
+        float targetFov = sprinting && !Flying && !Swimming && direction != Vector3.Zero ? baseFov + 5.0f : baseFov;
         Camera.Fov = Mathf.Lerp(Camera.Fov, targetFov, 8.0f * dt);
     }
 
-    private bool IsWaterAt(Vector3 p) =>
-        World != null && World.GetBlock(
-                Mathf.FloorToInt(p.X), Mathf.FloorToInt(p.Y), Mathf.FloorToInt(p.Z)) == BlockId.Water;
+    private bool IsWaterAt(Vector3 p)
+    {
+        if (World == null) return false;
+        int x = Mathf.FloorToInt(p.X);
+        int y = Mathf.FloorToInt(p.Y);
+        int z = Mathf.FloorToInt(p.Z);
+        BlockId id = World.GetBlock(x, y, z);
+        if (!BlockDb.IsWater(id)) return false;
+        bool fallingColumn = BlockDb.IsWater(World.GetBlock(x, y + 1, z));
+        float surface = fallingColumn ? 1.0f : BlockDb.WaterHeight(id);
+        return p.Y - y < surface;
+    }
+
+    private bool IsLavaAt(Vector3 p) => World != null
+            && World.GetBlock(Mathf.FloorToInt(p.X), Mathf.FloorToInt(p.Y), Mathf.FloorToInt(p.Z)) == BlockId.Lava;
+
+    private void UpdateWaterCamera(double delta)
+    {
+        if (_underwaterEnvironment == null || Camera == null) return;
+        float dt = (float)System.Math.Clamp(delta, 0.0, 0.1);
+        _waterViewBlend = Mathf.MoveToward(_waterViewBlend, Underwater ? 1.0f : 0.0f, dt * 2.2f);
+        _underwaterEnvironment.FogDensity = Mathf.Lerp(_airFogDensity, 0.035f, _waterViewBlend);
+        _underwaterEnvironment.FogLightColor = _airFogColor.Lerp(new Color(0.025f, 0.13f, 0.25f), _waterViewBlend);
+        Camera.Environment = _waterViewBlend > 0.001f ? _underwaterEnvironment : null;
+    }
 
     private bool IsLadderAt(Vector3 p) =>
         World != null && World.GetBlock(
@@ -400,6 +463,15 @@ public partial class Player : CharacterBody3D, IDamageable
     private void UpdateCameraFeel(float dt, bool sprinting, Vector3 direction)
     {
         bool walking = IsOnFloor() && !Flying && !Swimming && !Climbing && direction != Vector3.Zero && !Stats.Dead;
+        if (Swimming)
+        {
+            float sway = Settings.HeadBob ? Mathf.Sin(_swimCameraPhase * 0.55f) * 0.018f : 0.0f;
+            _landKick = Mathf.MoveToward(_landKick, 0.0f, dt * 5.0f);
+            Camera.Position = new Vector3(Mathf.Sin(_swimCameraPhase * 0.3f) * 0.012f,
+                    1.62f + sway - _landKick, 0.0f);
+            return;
+        }
+
         _camBob = walking
                 ? _camBob + dt * (sprinting ? 11.5f : 8.5f)
                 : Mathf.MoveToward(_camBob, 0.0f, dt * 7.0f);
@@ -422,21 +494,19 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        Vector3 p = Camera.GlobalPosition;
-        bool under = World.GetBlock(Mathf.FloorToInt(p.X), Mathf.FloorToInt(p.Y), Mathf.FloorToInt(p.Z)) == BlockId.Water;
+        bool under = IsWaterAt(Camera.GlobalPosition);
         Underwater = under;
-        if (under && !_wasUnderwater)
-        {
-            EmitSignal(SignalName.Splashed, Camera.GlobalPosition);
-        }
-
-        _wasUnderwater = under;
+        InWater = IsWaterAt(GlobalPosition + new Vector3(0, 0.2f, 0))
+                || IsWaterAt(GlobalPosition + new Vector3(0, 0.9f, 0)) || under;
+        if (InWater && !_wasInWater) EmitSignal(SignalName.Splashed, Camera.GlobalPosition);
+        _wasInWater = InWater;
         Stats.UpdateBreath(delta, under, Mode);
+        UpdateWaterCamera(delta);
 
-        // Lava hurts (creative refuses at the damage pipeline).
-        Vector3 feet = GlobalPosition + new Vector3(0, 0.2f, 0);
-        bool inLava = World.GetBlock(Mathf.FloorToInt(feet.X), Mathf.FloorToInt(feet.Y),
-                Mathf.FloorToInt(feet.Z)) == BlockId.Lava;
+        bool inLava = IsLavaAt(GlobalPosition + new Vector3(0, 0.2f, 0))
+                || IsLavaAt(GlobalPosition + new Vector3(0, 0.9f, 0))
+                || IsLavaAt(Camera.GlobalPosition);
+        if (inLava && !_wasInLava) EmitSignal(SignalName.LavaEntered, GlobalPosition);
         if (inLava)
         {
             _lavaTimer -= delta;
@@ -446,10 +516,9 @@ public partial class Player : CharacterBody3D, IDamageable
                 ApplyDamage(new DamageInfo(4.0f, DamageKind.Fire));
             }
         }
-        else
-        {
-            _lavaTimer = 0.0;
-        }
+        else _lavaTimer = 0.0;
+        _wasInLava = inLava;
+        InLava = inLava;
 
         // Fishing state: bite window, then escape.
         if (_fishingState != FishingState.Idle)
@@ -662,7 +731,7 @@ public partial class Player : CharacterBody3D, IDamageable
                         Mathf.FloorToInt(GlobalPosition.X),
                         Mathf.FloorToInt(GlobalPosition.Y - 0.5f),
                         Mathf.FloorToInt(GlobalPosition.Z));
-                if (below != BlockId.Water)
+                if (!BlockDb.IsWater(below))
                 {
                     Stats.ApplyDamage(Mathf.Floor(fallen - 3.0f), Mode);
                 }
@@ -800,7 +869,7 @@ public partial class Player : CharacterBody3D, IDamageable
         {
             float exitDistance = Mathf.Min(nextX, Mathf.Min(nextY, nextZ));
             BlockId current = World!.GetBlock(x, y, z);
-            if (current is not (BlockId.Air or BlockId.Water or BlockId.Lava))
+            if (current != BlockId.Air && !BlockDb.IsWater(current) && current != BlockId.Lava)
             {
                 if (!BlockDb.IsCross(current)
                         || BlockDb.RayIntersectsCross(
@@ -1352,7 +1421,8 @@ public partial class Player : CharacterBody3D, IDamageable
         int bx = Mathf.FloorToInt(p.X);
         int by = Mathf.FloorToInt(p.Y);
         int bz = Mathf.FloorToInt(p.Z);
-        if (World.GetBlock(bx, by, bz) is not (BlockId.Air or BlockId.Water))
+        BlockId existing = World.GetBlock(bx, by, bz);
+        if (existing != BlockId.Air && !BlockDb.IsWater(existing))
         {
             return;
         }
@@ -1389,7 +1459,7 @@ public partial class Player : CharacterBody3D, IDamageable
 
         Vector3I bp = TargetBlock();
         BlockId id = World.GetBlock(bp.X, bp.Y, bp.Z);
-        if (id is BlockId.Air or BlockId.Water or BlockId.Bedrock)
+        if (id == BlockId.Air || BlockDb.IsWater(id) || id == BlockId.Bedrock)
         {
             return;
         }
@@ -1505,7 +1575,8 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        _mineProgress = Mathf.Min(_mineProgress + (float)delta / miningSeconds, 1.0f);
+        _mineProgress = Mathf.Min(_mineProgress + (float)delta / miningSeconds
+                * WaterPhysics.MiningSpeedMultiplier(Underwater), 1.0f);
 
         _mineSoundTimer -= delta;
         if (_mineSoundTimer <= 0.0)
@@ -1761,6 +1832,16 @@ public partial class Player : CharacterBody3D, IDamageable
     {
         if (_arm == null)
         {
+            return;
+        }
+
+        if (Swimming)
+        {
+            _swimCameraPhase += delta * (5.0f + Velocity.Length() * 0.35f);
+            float stroke = Mathf.Sin(_swimCameraPhase);
+            _arm.Position = _armBase + new Vector3(stroke * 0.035f, Mathf.Abs(stroke) * 0.025f,
+                    -0.045f - Mathf.Abs(stroke) * 0.06f);
+            _arm.Rotation = new Vector3(-0.62f + stroke * 0.16f, 0.1f, -0.18f + stroke * 0.1f);
             return;
         }
 

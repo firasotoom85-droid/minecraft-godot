@@ -48,6 +48,25 @@ public static class StatsTests
         drowning.UpdateBreath(2.0, false, GameMode.Survival);
         TestAssert.Check(drowning.Breath > 0.0f, "breath recovers above water");
 
+        PlayerStats exactBreath = new();
+        exactBreath.UpdateBreath(10.0, true, GameMode.Survival);
+        TestAssert.Equal(PlayerStats.MaxHealth, exactBreath.Health, "zero breath does not immediately apply drowning damage");
+        exactBreath.UpdateBreath(0.75, true, GameMode.Survival);
+        TestAssert.Equal(PlayerStats.MaxHealth, exactBreath.Health, "drowning waits one second after air is gone");
+        exactBreath.UpdateBreath(0.25, true, GameMode.Survival);
+        TestAssert.Equal(PlayerStats.MaxHealth - 2.0f, exactBreath.Health, "one full second without air causes drowning damage");
+        exactBreath.UpdateBreath(2.5, false, GameMode.Survival);
+        TestAssert.Equal(PlayerStats.MaxBreath, exactBreath.Breath, "breath fully recovers after surfacing");
+
+        PlayerStats creativeBreath = new();
+        creativeBreath.UpdateBreath(20.0, true, GameMode.Creative);
+        TestAssert.Equal(PlayerStats.MaxBreath, creativeBreath.Breath, "creative mode does not lose breath");
+
+        PlayerStats fatalDrowning = new();
+        fatalDrowning.Load(2.0f, PlayerStats.MaxHunger);
+        fatalDrowning.UpdateBreath(11.0, true, GameMode.Survival);
+        TestAssert.Check(fatalDrowning.Dead, "drowning can still kill after air and delay are exhausted");
+
         PlayerStats interruptedDive = new();
         for (int i = 0; i < 108; i++)
         {

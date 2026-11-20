@@ -1493,6 +1493,21 @@ public partial class VoxelWorld : Node3D
     // Block access
     // -----------------------------------------------------------------------
 
+    /// <summary>Reads an already-streamed chunk without generating chunk data.</summary>
+    public bool TryGetLoadedBlock(int x, int y, int z, out BlockId id)
+    {
+        id = BlockId.Air;
+        if (y < 0 || y >= Height) return false;
+        Vector2I cp = new(Mathf.FloorToInt(x / (float)ChunkX), Mathf.FloorToInt(z / (float)ChunkZ));
+        if (!_chunks.TryGetValue(cp, out Chunk? chunk)) return false;
+        int lx = x - cp.X * ChunkX;
+        int lz = z - cp.Y * ChunkZ;
+        int index = Chunk.Index(lx, y, lz);
+        if (index < 0 || index >= chunk.Blocks.Length) return false;
+        lock (SnapshotLock) id = (BlockId)chunk.Blocks[index];
+        return true;
+    }
+
     public BlockId GetBlock(int x, int y, int z)
     {
         if (y < 0 || y >= Height)
@@ -1679,7 +1694,7 @@ public partial class VoxelWorld : Node3D
         for (int y = Height - 1; y >= 1; y--)
         {
             BlockId id = (BlockId)blocks[col + y * ChunkX * ChunkZ];
-            if (id != BlockId.Air && id != BlockId.Water && !BlockDb.IsCross(id)
+            if (id != BlockId.Air && !BlockDb.IsWater(id) && !BlockDb.IsCross(id)
                     && id != BlockId.Leaves && id != BlockId.BirchLeaves)
             {
                 top = y;

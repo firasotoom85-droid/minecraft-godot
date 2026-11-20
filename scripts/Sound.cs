@@ -68,6 +68,7 @@ public partial class Sound : Node
     private AudioEffectLowPassFilter _muffle = null!;
     private int _masterBus = -1;
     private bool _muffled;
+    private float _muffleBlend;
 
     /// <summary>Set by Main after the world/weather exist (ambience scheduling).</summary>
     public Player? PlayerRef;
@@ -151,7 +152,7 @@ public partial class Sound : Node
         _masterBus = AudioServer.GetBusIndex("Master");
         _muffle = new AudioEffectLowPassFilter
         {
-            CutoffHz = 650.0f,
+            CutoffHz = 18000.0f,
         };
         AudioServer.AddBusEffect(_masterBus, _muffle, 0);
         AudioServer.SetBusEffectEnabled(_masterBus, 0, false);
@@ -160,6 +161,8 @@ public partial class Sound : Node
         player.BlockPlaced += OnPlaced;
         player.Stepped += OnStepped;
         player.Splashed += OnSplashed;
+        player.SwimStroke += pos => Play("splash", pos, 0.78f, -13.0f);
+        player.LavaEntered += pos => Play("sizzle", pos, 0.82f, -5.0f);
         player.MiningTick += OnMiningTick;
         player.Stats.Damaged += _ => Play("hurt", player.GlobalPosition, 1.0f, -2.0f);
         player.Ate += () => Play("eat", player.GlobalPosition, 1.0f, -6.0f);
@@ -178,9 +181,12 @@ public partial class Sound : Node
         }
 
         bool under = PlayerRef.Underwater;
-        if (under != _muffled)
+        _muffleBlend = Mathf.MoveToward(_muffleBlend, under ? 1.0f : 0.0f, (float)delta * 3.0f);
+        _muffle.CutoffHz = Mathf.Lerp(18000.0f, 650.0f, _muffleBlend);
+        bool muffled = _muffleBlend > 0.001f;
+        if (muffled != _muffled)
         {
-            _muffled = under;
+            _muffled = muffled;
             AudioServer.SetBusEffectEnabled(_masterBus, 0, _muffled);
         }
 

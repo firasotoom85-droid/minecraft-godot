@@ -48,4 +48,13 @@ public enum BlockId : byte
     Wheat2 = 35,
     Bed = 36,
     Ladder = 37,
+
+    // Flowing water levels. Persisted IDs are append-only.
+    FlowingWater1 = 38,
+    FlowingWater2 = 39,
+    FlowingWater3 = 40,
+    FlowingWater4 = 41,
+    FlowingWater5 = 42,
+    FlowingWater6 = 43,
+    FlowingWater7 = 44,
 }

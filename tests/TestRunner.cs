@@ -28,6 +28,7 @@ public partial class TestRunner : Node
         RunSuite("keybinds", KeybindTests.Run);
         RunSuite("recipes", RecipeTests.Run);
         RunSuite("stats", StatsTests.Run);
+        RunSuite("fluids", FluidTests.Run);
         RunSuite("save", SaveTests.Run);
         RunSuite("worldgen", () => WorldgenTests.Run(this));
         GD.Print($"minecraft tests: {TestAssert.Checks} checks, {TestAssert.Failures} failures");

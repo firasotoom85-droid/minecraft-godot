@@ -860,10 +860,11 @@ public partial class Hud : CanvasLayer
             return;
         }
 
-        float waterAlpha = PlayerRef.Underwater
-                ? System.Math.Min(_waterOverlay.Color.A + (float)delta * 3.0f, 0.38f)
-                : System.Math.Max(_waterOverlay.Color.A - (float)delta * 3.0f, 0.0f);
-        _waterOverlay.Color = _waterOverlay.Color.WithAlpha(waterAlpha);
+        float targetLiquidAlpha = PlayerRef.Underwater ? 0.38f : PlayerRef.InLava ? 0.28f : 0.0f;
+        float liquidAlpha = Mathf.MoveToward(_waterOverlay.Color.A, targetLiquidAlpha, (float)delta * 3.0f);
+        _waterOverlay.Color = PlayerRef.InLava
+                ? new Color(0.72f, 0.16f, 0.035f, liquidAlpha)
+                : new Color(0.10f, 0.30f, 0.65f, liquidAlpha);
 
         // Damage vignette: fades out, pulses while near death, dims while dead.
         _vignetteStrength = System.Math.Max(_vignetteStrength - (float)delta * 1.3f, 0.0f);

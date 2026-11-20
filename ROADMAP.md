@@ -201,9 +201,12 @@ recorded.
   light propagation yet.
 - *Stretch (only if v1 looks bad):* voxel block-light nibble baked into vertex
   colors. This is an L-sized change; do not start it unless review demands.
-- **Swimming**: buoyancy, Space = up, Sprint = down, slower movement,
-  underwater fog/overlay, slower mining, exit-water assist. Keep drowning and
-  lava damage.
+- **Swimming and voxel fluids (implemented)**: buoyancy, Space = up, Shift =
+  dive, immersion-aware movement, underwater fog/audio/particles, slower
+  submerged mining, head-based breath/drowning, and distinct lava drag/damage.
+  Seven deterministic flow levels spread through loaded caves and terrain with
+  a fixed-step update budget; all mutations go through `SetBlock` and existing
+  worlds retain their original generator version.
 - **Ladder**: climbable block, no orientation needed.
 - **Done when:** a cave can be lit and navigated; the player can swim up from
   10 m; FPS stays within 3% of baseline.

@@ -36,6 +36,7 @@ public partial class Main : Node3D
     private AchievementSystem _achievementSystem = null!;
     private AchievementUi _achievementUi = null!;
     private OnboardingSystem _onboarding = null!;
+    private FluidSystem _fluids = null!;
 
     public override void _Ready()
     {
@@ -46,6 +47,7 @@ public partial class Main : Node3D
         _sun = GetNode<DirectionalLight3D>("Sun");
 
         SetupEnvironment();
+        _player.SetWaterEnvironment(_worldEnv.Environment);
         _world.Player = _player;
         _player.World = _world;
         _player.Position = _world.SavedPlayerPos ?? _world.FindSpawn();
@@ -143,6 +145,8 @@ public partial class Main : Node3D
         _hud.Mobs = _mobs;
         _hud.Weather = _weather;
         _world.SetupInitial();
+        _fluids = AddSystem(new FluidSystem());
+        _fluids.Setup(_world, _player);
         _hud.Bind(_player);
         _hud.ShowToast($"{_gfx.CurrentPreset.Name} quality  ·  F6 change  ·  H help  ·  F3 info");
     }

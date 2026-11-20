@@ -215,13 +215,12 @@ public static class Mesher
 
                     int baseIdx = (int)id * 6;
                     bool isTrans = BlockDb.TransMask[(int)id] == 1;
-                    bool greedyHere = Greedy && !isTrans && id != BlockId.Water && id != BlockId.Lava;
-                    SurfaceData surf = id switch
-                    {
-                        BlockId.Water => water,
-                        BlockId.Lava => lava,
-                        _ => isTrans ? glass : opaque,
-                    };
+                    bool isWater = BlockDb.IsWater(id);
+                    bool greedyHere = Greedy && !isTrans && !isWater && id != BlockId.Lava;
+                    SurfaceData surf = isWater ? water : id == BlockId.Lava ? lava : isTrans ? glass : opaque;
+                    float waterTop = isWater ? BlockDb.WaterHeight(id) : 1.0f;
+                    if (isWater && BlockDb.IsWater((BlockId)pad[i + FaceOff[0]]))
+                        waterTop = 1.0f;
 
                     Vector3 b = new(x - 1, y - 1, z - 1);
                     for (int f = 0; f < 6; f++)
@@ -232,11 +231,20 @@ public static class Mesher
                             continue;
                         }
 
-                        int nb = pad[i + FaceOff[f]];
-                        if (BlockDb.Render[(int)id * BlockDb.BlockCount + nb] == 0)
+                        int neighborIndex = i + FaceOff[f];
+                        int nb = pad[neighborIndex];
+                        bool renderFace = BlockDb.Render[(int)id * BlockDb.BlockCount + nb] == 1;
+                        float waterBase = 0.0f;
+                        if (isWater && BlockDb.IsWater((BlockId)nb))
                         {
-                            continue;
+                            renderFace = false;
+                            if (f >= 2)
+                            {
+                                waterBase = WaterSurfaceHeight(pad, neighborIndex);
+                                renderFace = waterTop > waterBase;
+                            }
                         }
+                        if (!renderFace) continue;
 
                         int vi = f * 4;
                         if (greedyHere)
@@ -278,7 +286,10 @@ public static class Mesher
                         Vector3 normal = BlockDb.FaceNormals[f];
                         foreach (int t in TriOrder)
                         {
-                            surf.Vertex.Add(b + BlockDb.FaceVerts[vi + t]);
+                            Vector3 vertex = BlockDb.FaceVerts[vi + t];
+                            if (isWater)
+                                vertex.Y = f >= 2 ? waterBase + vertex.Y * (waterTop - waterBase) : vertex.Y * waterTop;
+                            surf.Vertex.Add(b + vertex);
                             surf.Normal.Add(normal);
                             surf.Color.Add(VoxelLighting.VertexColor(cornerLight[t], kk[t]));
                             surf.Uv.Add(BlockDb.UvLut[ui + t]);
@@ -299,6 +310,13 @@ public static class Mesher
         }
 
         return new MeshPayload(opaque, glass, water, lava, collision, epoch);
+    }
+
+    private static float WaterSurfaceHeight(byte[] pad, int index)
+    {
+        BlockId id = (BlockId)pad[index];
+        if (!BlockDb.IsWater(id)) return 0.0f;
+        return BlockDb.IsWater((BlockId)pad[index + FaceOff[0]]) ? 1.0f : BlockDb.WaterHeight(id);
     }
 
     // -----------------------------------------------------------------------
@@ -450,7 +468,7 @@ public static class Mesher
             return 0L;
         }
 
-        if (BlockDb.TransMask[(int)id] == 1 || id == BlockId.Water || id == BlockId.Lava)
+        if (BlockDb.TransMask[(int)id] == 1 || BlockDb.IsWater(id) || id == BlockId.Lava)
         {
             return 0L;   // non-opaque surfaces keep the per-face path
         }
