@@ -64,7 +64,7 @@ public partial class CrystalWisp : Mob
             return Vector3.Zero;
         }
 
-        bool visible = HasLineOfSight(player);
+        bool visible = CanDetectPlayer(8.0f) && HasLineOfSight(player);
         if (!visible)
         {
             _charge = 0.0f;
