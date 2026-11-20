@@ -731,7 +731,9 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - Added Sharpness, Protection, and Unbreaking levels I–III with escalating
   experience-level/lapis costs. Enchantments affect melee damage, armor
   mitigation, and durability wear respectively.
-- Added an inventory Enchant / Upgrade panel. Supported swords, iron armor,
+- Added a craftable Enchanting Table block (four diamonds, four iron ingots,
+  and an Ember Core); right-click opens the dedicated Enchant / Upgrade panel.
+  Supported swords, iron armor,
   and iron tools can be upgraded one tier while preserving durability ratio
   and enchantments. The selected hotbar item is the current target.
 - Player bow use now spawns a ballistic arrow with gravity and swept collision;
