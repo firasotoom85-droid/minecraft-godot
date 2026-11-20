@@ -93,7 +93,12 @@ public static class EquipmentProgression
     public static ItemId UpgradeTarget(ItemId id) => id switch
     {
         ItemId.WoodSword => ItemId.StoneSword, ItemId.StoneSword => ItemId.IronSword,
-        ItemId.IronSword => ItemId.DiamondSword, ItemId.IronHelmet => ItemId.DiamondHelmet,
+        ItemId.IronSword => ItemId.DiamondSword,
+        ItemId.WoodPick => ItemId.StonePick, ItemId.WoodAxe => ItemId.StoneAxe,
+        ItemId.WoodShovel => ItemId.StoneShovel, ItemId.WoodHoe => ItemId.StoneHoe,
+        ItemId.StonePick => ItemId.IronPick, ItemId.StoneAxe => ItemId.IronAxe,
+        ItemId.StoneShovel => ItemId.IronShovel, ItemId.StoneHoe => ItemId.IronHoe,
+        ItemId.IronHelmet => ItemId.DiamondHelmet,
         ItemId.IronChestplate => ItemId.DiamondChestplate, ItemId.IronLegs => ItemId.DiamondLegs,
         ItemId.IronBoots => ItemId.DiamondBoots, ItemId.IronPick => ItemId.DiamondPick,
         ItemId.IronAxe => ItemId.DiamondAxe, ItemId.IronShovel => ItemId.DiamondShovel,
@@ -102,14 +107,16 @@ public static class EquipmentProgression
 
     public static ItemId UpgradeMaterial(ItemId id) => id switch
     {
-        ItemId.WoodSword => ItemId.Cobblestone,
-        ItemId.StoneSword => ItemId.IronIngot, ItemId.IronSword => ItemId.Diamond,
+        ItemId.WoodSword or ItemId.WoodPick or ItemId.WoodAxe or ItemId.WoodShovel or ItemId.WoodHoe => ItemId.Cobblestone,
+        ItemId.StoneSword or ItemId.StonePick or ItemId.StoneAxe or ItemId.StoneShovel or ItemId.StoneHoe => ItemId.IronIngot,
+        ItemId.IronSword => ItemId.Diamond,
         ItemId.IronHelmet or ItemId.IronChestplate or ItemId.IronLegs or ItemId.IronBoots
             or ItemId.IronPick or ItemId.IronAxe or ItemId.IronShovel or ItemId.IronHoe => ItemId.Diamond,
         _ => ItemId.None,
     };
 
-    public static int UpgradeMaterialCount(ItemId id) => id is ItemId.WoodSword or ItemId.StoneSword or ItemId.IronSword ? 2 : 1;
+    public static int UpgradeMaterialCount(ItemId id) => id is ItemId.WoodSword or ItemId.StoneSword or ItemId.IronSword
+        or ItemId.WoodPick or ItemId.WoodAxe or ItemId.StonePick or ItemId.StoneAxe or ItemId.IronPick or ItemId.IronAxe ? 2 : 1;
 
     public static bool TryUpgrade(Inventory inventory, int slot, out string reason)
     {
