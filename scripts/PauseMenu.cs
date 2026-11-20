@@ -109,6 +109,11 @@ public partial class PauseMenu : CanvasLayer, IModalUi
             Toggle();
             GetViewport().SetInputAsHandled();
         }
+        else if (_open && @event.IsActionPressed("ui_cancel"))
+        {
+            Resume();
+            GetViewport().SetInputAsHandled();
+        }
     }
 
     public void Toggle()
