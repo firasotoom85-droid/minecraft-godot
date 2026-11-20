@@ -626,3 +626,23 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 	changed the scale to 512 m and the larger map rendered.
   - **Not measured:** frame-time hitch before/after the sliced rebuild.
   - **Next:** music + release engineering.
+
+
+- **2026-11-20 — WorldGen V7 (climate and exploration upgrade).**
+  - New worlds use generator version 7; versions 1–6 retain their existing
+    generation branches, heights, seed derivation, structure draw sequences,
+    and saved manifest versions.
+  - Added temperature/moisture biome classification for dense forests, taiga,
+    jungles, swamps, oceans, beaches, mountains, flower plains and meadows.
+  - Added continent/coast shaping, domain-warped climate boundaries, ridged
+    mountain ranges, connected river channels, cave tunnels/chambers, aquifers,
+    magma pockets, elevation/biome-aware ore frequency, biome-specific trees
+    and ground details.
+  - Added rare V7 stone-circle and overgrown-shrine surface structures, plus
+    deterministic underground chambers with ore rewards.
+  - All new noise layers are seeded from the world seed with fixed salts and
+    configured once. Generation is coordinate-derived and read-only during
+    chunk work, independent of chunk request order.
+  - Added classifier and cross-order chunk-hash regression tests; retained the
+    existing v1 SHA-256 anchor test.
+  - **Verification status:** pending CI build and headless test run.

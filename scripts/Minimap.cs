@@ -34,6 +34,12 @@ public partial class Minimap : Control
     private Color _sand = new(0.86f, 0.81f, 0.61f);
     private Color _grass = new(0.34f, 0.56f, 0.24f);
     private Color _birch = new(0.48f, 0.68f, 0.30f);
+    private Color _denseForest = new(0.17f, 0.39f, 0.19f);
+    private Color _taiga = new(0.31f, 0.47f, 0.40f);
+    private Color _jungle = new(0.14f, 0.48f, 0.22f);
+    private Color _swamp = new(0.37f, 0.43f, 0.25f);
+    private Color _flowerPlains = new(0.54f, 0.66f, 0.29f);
+    private Color _meadow = new(0.55f, 0.68f, 0.37f);
     private Color _snow = new(0.88f, 0.92f, 0.97f);
     private Color _shallow = new(0.20f, 0.48f, 0.72f);
     private Color _deep = new(0.08f, 0.22f, 0.48f);
@@ -176,9 +182,16 @@ public partial class Minimap : Control
                 {
                     c = World.BiomeAt(wx, wz, h) switch
                     {
-                        Biome.Desert => _sand,
+                        Biome.Desert or Biome.Beach => _sand,
                         Biome.Snow => _snow,
                         Biome.Birch => _birch,
+                        Biome.DenseForest => _denseForest,
+                        Biome.Taiga => _taiga,
+                        Biome.Jungle => _jungle,
+                        Biome.Swamp => _swamp,
+                        Biome.Mountain => _stone,
+                        Biome.FlowerPlains => _flowerPlains,
+                        Biome.Meadow => _meadow,
                         _ => _grass,
                     };
                     float lift = Mathf.Clamp((h - sea) / 20.0f, 0.0f, 1.0f);

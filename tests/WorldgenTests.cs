@@ -62,6 +62,91 @@ public static class WorldgenTests
         v5.QueueFree();
         DirAccess.RemoveAbsolute(v5Dir + "/manifest.json");
         DirAccess.RemoveAbsolute(v5Dir);
+
+        CheckV7Determinism(host);
+    }
+
+
+    /// <summary>
+    /// New climate categories and independently generated chunks must not depend
+    /// on request order, thread scheduling, or previously generated neighbours.
+    /// </summary>
+    private static void CheckV7Determinism(Node host)
+    {
+        TestAssert.Equal(WorldGenV7.Version, WorldStore.CurrentGenVersion,
+                "new worlds select worldgen v7");
+        TestAssert.Equal(Biome.Ocean, WorldGenV7.ClassifyBiome(0.0f, 0.0f, 30, 40, 0.0f),
+                "v7 classifies oceans");
+        TestAssert.Equal(Biome.Beach, WorldGenV7.ClassifyBiome(0.0f, 0.0f, 41, 40, 0.0f),
+                "v7 classifies beaches");
+        TestAssert.Equal(Biome.Snow, WorldGenV7.ClassifyBiome(-0.7f, 0.0f, 62, 40, 0.0f),
+                "v7 classifies cold regions");
+        TestAssert.Equal(Biome.Mountain, WorldGenV7.ClassifyBiome(0.1f, 0.0f, 76, 40, 0.0f),
+                "v7 classifies mountain regions");
+        TestAssert.Equal(Biome.Desert, WorldGenV7.ClassifyBiome(0.5f, -0.5f, 58, 40, 0.0f),
+                "v7 classifies deserts");
+        TestAssert.Equal(Biome.Jungle, WorldGenV7.ClassifyBiome(0.5f, 0.6f, 58, 40, 0.0f),
+                "v7 classifies jungles");
+        TestAssert.Equal(Biome.Swamp, WorldGenV7.ClassifyBiome(0.0f, 0.6f, 48, 40, 0.0f),
+                "v7 classifies swamps");
+        TestAssert.Equal(Biome.Taiga, WorldGenV7.ClassifyBiome(-0.3f, 0.2f, 58, 40, 0.0f),
+                "v7 classifies taiga");
+        TestAssert.Equal(Biome.DenseForest, WorldGenV7.ClassifyBiome(0.1f, 0.3f, 58, 40, 0.0f),
+                "v7 classifies dense forests");
+        TestAssert.Equal(Biome.FlowerPlains, WorldGenV7.ClassifyBiome(0.0f, 0.0f, 58, 40, 0.6f),
+                "v7 classifies flower plains");
+        TestAssert.Equal(Biome.Meadow, WorldGenV7.ClassifyBiome(0.0f, 0.0f, 58, 40, -0.6f),
+                "v7 classifies meadows");
+        TestAssert.Equal(Biome.Plains, WorldGenV7.ClassifyBiome(0.0f, 0.0f, 58, 40, 0.0f),
+                "v7 retains ordinary plains");
+
+        const int seed = 24681357;
+        int[] seeds = WorldStore.DeriveNoiseSeeds(seed);
+        string firstDir = $"user://tests/world-v7-order-a-{Time.GetTicksUsec()}";
+        string secondDir = $"user://tests/world-v7-order-b-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(firstDir);
+        DirAccess.MakeDirRecursiveAbsolute(secondDir);
+        WorldStore.WriteManifest(firstDir, new WorldManifest(
+                "V7 order A", seed, WorldGenV7.Version, seeds, 0, 0, "survival", "normal"));
+        WorldStore.WriteManifest(secondDir, new WorldManifest(
+                "V7 order B", seed, WorldGenV7.Version, seeds, 0, 0, "survival", "normal"));
+
+        Vector2I[] positions = [new(-3, 2), new(2, -4), new(-1, -1)];
+        string[] firstHashes = new string[positions.Length];
+        GameSession.Instance.SelectWorld(firstDir);
+        VoxelWorld first = new();
+        host.AddChild(first);
+        TestAssert.Equal(128, first.Height, "v7 retains 128-block world height");
+        TestAssert.Equal(40, first.SeaLevel, "v7 retains sea level 40");
+        int sampleHeight = first.SurfaceHeight(-913, 1721);
+        TestAssert.Equal(sampleHeight, first.SurfaceHeight(-913, 1721),
+                "v7 surface height is stable for repeated coordinate queries");
+        for (int i = 0; i < positions.Length; i++)
+        {
+            firstHashes[i] = Convert.ToHexString(SHA256.HashData(first.ChunkData(positions[i])));
+        }
+
+        host.RemoveChild(first);
+        first.QueueFree();
+
+        GameSession.Instance.SelectWorld(secondDir);
+        VoxelWorld second = new();
+        host.AddChild(second);
+        for (int i = positions.Length - 1; i >= 0; i--)
+        {
+            string hash = Convert.ToHexString(SHA256.HashData(second.ChunkData(positions[i])));
+            TestAssert.Equal(firstHashes[i], hash,
+                    $"v7 chunk {positions[i]} is invariant under reversed generation order");
+        }
+
+        host.RemoveChild(second);
+        second.QueueFree();
+
+        foreach (string dir in new[] { firstDir, secondDir })
+        {
+            DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+            DirAccess.RemoveAbsolute(dir);
+        }
     }
 
     /// <summary>A saved torch edit must repopulate the light registry on load.</summary>

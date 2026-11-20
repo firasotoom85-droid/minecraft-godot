@@ -11,9 +11,10 @@ The project is a long-running solo build with an extensive design log in
 
 ## Highlights
 
-- **Infinite streaming voxel world** — 16×128×16 chunks, 4 biomes, rivers,
-  caves, lava, ores, trees, and deterministic structures (towers, ruins, mines,
-  and the Ember Deep dungeon).
+- **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
+  temperature/moisture climate maps, continental coastlines, river valleys,
+  mountain ranges, multi-shape caves, depth-aware ores, biome-specific trees,
+  and deterministic surface and underground structures.
 - **Greedy meshing** — merged coplanar quads cut triangle count roughly in half;
   per-face meshing remains available for comparison.
 - **World presets** — normal, flat, amplified, and floating sky islands, with
@@ -26,7 +27,8 @@ The project is a long-running solo build with an extensive design log in
   key rebinding, accessibility toggles, photo mode, dev console, and an
   automatic quality governor.
 - **Deterministic saves** — per-world folders, atomic writes, rotating backups,
-  and byte-parity anchors so old worlds never change under new worldgen.
+  and generator-version isolation. WorldGen V7 powers new worlds while all
+  version 1–6 terrain and the v1 anchor hash remain unchanged.
 
 ## Requirements
 
@@ -109,7 +111,8 @@ Each world lives in `user://worlds/<id>/`:
 
 Writes are atomic (temp file + rename) and keep two rotating backups. Old
 worlds remain loadable: block/item ids are append-only and worldgen changes are
-gated behind generator versions.
+gated behind generator versions. New worlds use WorldGen V7; existing manifests
+continue to use their original generator version.
 
 ## License
 
