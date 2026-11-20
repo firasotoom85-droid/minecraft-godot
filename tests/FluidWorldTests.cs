@@ -40,6 +40,8 @@ public static class FluidWorldTests
                 "a single source produces a flowing, non-source neighbour");
 
         // x=32 is in chunk 2, which the preview above deliberately does not load.
+        world.SetBlock(30, 49, 1, BlockId.Stone);
+        world.SetBlock(31, 49, 1, BlockId.Stone);
         world.SetBlock(30, 50, 1, BlockId.FlowingWater6);
         world.SetBlock(31, 50, 1, BlockId.FlowingWater7);
         fluids.SimulateForTests(world, new Vector3(25, 50, 2));
