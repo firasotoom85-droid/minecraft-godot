@@ -768,38 +768,56 @@ public partial class VoxelWorld
         {
             for (int cx = minCellX; cx <= maxCellX; cx++)
             {
-                uint rng = Mix((uint)_noiseSeeds[2], unchecked((uint)cx),
-                        unchecked((uint)cz), 0x554E4437u);
-                if (Range(ref rng, 0, 10) != 0)
+                if (!TryGetUndergroundStructureSiteV7(cx, cz,
+                        out Vector3I site, out int kind, out uint rng))
                 {
                     continue;
                 }
 
-                int x = cx * UndergroundStructureCell + Range(ref rng, 18, 109);
-                int z = cz * UndergroundStructureCell + Range(ref rng, 18, 109);
-                // Sky worlds contain 26-block-thick floating islands. Keep
-                // chambers inside that island slab and never create detached
-                // rooms in the empty space beneath an island.
-                if (IsSky && !GeneratorV7.IsIsland(x, z))
-                {
-                    continue;
-                }
-
-                int surface = SurfaceHeight(x, z);
-                int minY = IsSky ? Math.Max(4, surface - 24) : 10;
-                int maxY = IsSky
-                        ? Math.Min(Height - 6, surface - 18)
-                        : Math.Min(43, surface - 18);
-                if (maxY < minY || (!IsSky && maxY < 12))
-                {
-                    continue;
-                }
-
-                int y = Range(ref rng, minY, maxY);
-                int kind = Range(ref rng, 0, 2);
-                StampUndergroundSiteV7(x, y, z, kind, ref rng, data, strideY, ox, oz);
+                StampUndergroundSiteV7(site.X, site.Y, site.Z, kind,
+                        ref rng, data, strideY, ox, oz);
             }
         }
+    }
+
+    /// <summary>
+    /// Resolves the immutable site and post-selection random state for one
+    /// underground cell. Exposed internally so chunk-seam tests can target a
+    /// known structure without relying on probabilistic world scans.
+    /// </summary>
+    internal bool TryGetUndergroundStructureSiteV7(int cx, int cz,
+            out Vector3I site, out int kind, out uint rng)
+    {
+        rng = Mix((uint)_noiseSeeds[2], unchecked((uint)cx),
+                unchecked((uint)cz), 0x554E4437u);
+        site = default;
+        kind = 0;
+        if (Range(ref rng, 0, 10) != 0)
+        {
+            return false;
+        }
+
+        int x = cx * UndergroundStructureCell + Range(ref rng, 18, 109);
+        int z = cz * UndergroundStructureCell + Range(ref rng, 18, 109);
+        if (IsSky && !GeneratorV7.IsIsland(x, z))
+        {
+            return false;
+        }
+
+        int surface = SurfaceHeight(x, z);
+        int minY = IsSky ? Math.Max(4, surface - 24) : 10;
+        int maxY = IsSky
+                ? Math.Min(Height - 6, surface - 18)
+                : Math.Min(43, surface - 18);
+        if (maxY < minY || (!IsSky && maxY < 12))
+        {
+            return false;
+        }
+
+        int y = Range(ref rng, minY, maxY);
+        kind = Range(ref rng, 0, 2);
+        site = new Vector3I(x, y, z);
+        return true;
     }
 
     private void StampUndergroundSiteV7(int x, int y, int z, int kind, ref uint rng,
