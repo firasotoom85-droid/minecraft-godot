@@ -126,12 +126,15 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         }
     }
 
+    private Button? FindBindingButton(string prefix, string action) =>
+        _rows.FindChild(prefix + action, true, false) as Button;
+
     private void WaitFor(string action)
     {
         _waitingAction = action;
         _waitingForGamepad = false;
         _notice.Text = "";
-        Button? target = _rows.GetNodeOrNull<Button>("Key_" + action);
+        Button? target = FindBindingButton("Key_", action);
         if (target != null)
         {
             target.Text = "Press a key…";
@@ -145,7 +148,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         _ignoreNextGamepadEvent = true;
         CallDeferred(nameof(ClearGamepadActivationGuard));
         _notice.Text = "Press a controller button…";
-        Button? target = _rows.GetNodeOrNull<Button>("Pad_" + action);
+        Button? target = FindBindingButton("Pad_", action);
         if (target != null) target.Text = "Press button…";
     }
 
@@ -235,13 +238,13 @@ public partial class KeybindUi : CanvasLayer, IModalUi
 
     private void RefreshPadButton(string action)
     {
-        Button? target = _rows.GetNodeOrNull<Button>("Pad_" + action);
+        Button? target = FindBindingButton("Pad_", action);
         if (target != null) target.Text = GamepadBindings.LabelFor(action);
     }
 
     private void RefreshButton(string action)
     {
-        Button? target = _rows.GetNodeOrNull<Button>("Key_" + action);
+        Button? target = FindBindingButton("Key_", action);
         if (target != null)
         {
             target.Text = Keybinds.LabelFor(action);
