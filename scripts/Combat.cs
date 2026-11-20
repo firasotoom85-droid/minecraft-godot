@@ -7,6 +7,7 @@ public enum DamageKind : byte
 {
     Generic,
     Melee,
+    Projectile,
     Fall,
     Drown,
     Starve,
