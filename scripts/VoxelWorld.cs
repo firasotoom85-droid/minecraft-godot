@@ -629,7 +629,9 @@ public partial class VoxelWorld : Node3D
         // byte-identical forever; newer worlds use our own frozen integer hash.
         ulong rngSeed = _genVersion <= 1
                 ? (ulong)((uint)GD.Hash(new Vector2I(cx, cz)) ^ 0x1D872B41u)
-                : (ulong)(Hash3(cx, 19532, cz) & 0x7FFFFFFFFFFFFFFFL);
+                : _genVersion >= WorldGenV7.Version
+                        ? GeneratorV7.CoordinateHash(cx, 19532, cz, 0x43414D50u)
+                        : (ulong)(Hash3(cx, 19532, cz) & 0x7FFFFFFFFFFFFFFFL);
         // Thread-local generator: the sequence must stay identical, but the
         // object is pure scratch and is reached ~9 times per generated chunk.
         RandomNumberGenerator rng = _campfireRng ??= new RandomNumberGenerator();

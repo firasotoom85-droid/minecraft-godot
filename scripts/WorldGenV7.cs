@@ -115,7 +115,7 @@ public sealed class WorldGenV7
         float mountainMask = SmoothStep(0.02f, 0.50f, range);
         float mountainPeaks = ridges * ridges * (0.45f + 0.55f * ridges);
 
-        float height = seaLevel - 13.0f + land * 27.0f;
+        float height = seaLevel - 28.0f + land * 41.0f;
         height += hills * (2.5f + land * 4.0f);
         height += erosion * (1.8f + land * 2.0f);
         float mountainScale = _preset == "amplified" ? 1.62f : 1.0f;
@@ -134,7 +134,7 @@ public sealed class WorldGenV7
             height = Math.Min(height, channelFloor);
         }
 
-        return Mathf.Clamp(Mathf.RoundToInt(height), 18, 118);
+        return Mathf.Clamp(Mathf.RoundToInt(height), 4, 118);
     }
 
     public ClimateSample ClimateAt(int x, int z, int height, bool includeRivers = true)
