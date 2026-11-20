@@ -423,24 +423,21 @@ public partial class Mobs : Node
             return; // dry sand flats do not support the ordinary grazing herds
         }
 
-        Mob prototype;
-        if (biome == Biome.Snow)
-        {
-            prototype = new Sheep();
-        }
-        else if (biome == Biome.Birch && _rng.Randf() < 0.18f)
+        if (biome == Biome.Birch && _rng.Randf() < 0.18f)
         {
             SpawnMob(new Briarback(), point, 1.0f, false);
             return;
         }
 
-        prototype = _rng.RandiRange(0, 9) switch
-        {
-            < 3 => new Sheep(),
-            < 6 => new Cow(),
-            < 8 => new Pig(),
-            _ => new Chicken(),
-        };
+        Mob prototype = biome == Biome.Snow
+                ? new Sheep()
+                : _rng.RandiRange(0, 9) switch
+                {
+                    < 3 => new Sheep(),
+                    < 6 => new Cow(),
+                    < 8 => new Pig(),
+                    _ => new Chicken(),
+                };
 
         int groupSize = _rng.RandiRange(1, 2);
         for (int i = 0; i < groupSize && _passive.Count < PassiveTarget; i++)
@@ -536,6 +533,7 @@ public partial class Mobs : Node
         int x = Mathf.FloorToInt(point.X);
         int z = Mathf.FloorToInt(point.Z);
         Biome biome = World.BiomeAt(x, z, World.SurfaceHeight(x, z));
+        int cap = Settings.Difficulty == Settings.DifficultyHard ? 10 : 7;
         int roll = _rng.RandiRange(0, 99);
 
         // Keep the rare flier to one active encounter at a time.
