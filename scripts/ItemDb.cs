@@ -227,7 +227,7 @@ public static class ItemDb
         ItemId.WoodSword => "Fast starter weapon; limited durability.", ItemId.StoneSword => "Reliable cave weapon with improved stopping force.",
         ItemId.IronSword => "Durable blade forged from smelted iron.", ItemId.DiamondSword => "Rare, powerful blade for deep expeditions.",
         ItemId.EmberBlade => "A Warden-forged end-game blade.", ItemId.Bow => "Ranged weapon; consumes one arrow per shot.",
-        ItemId.Arrow => "Bow ammunition crafted from gravel, sticks and feathers.", ItemId.Shield => "Blocks frontal melee and ranged hits while held; blocking wears it.", ItemId.LapisLazuli => "A blue mineral used to power enchantments.",
+        ItemId.Arrow => "Bow ammunition crafted from gravel, sticks and feathers.", ItemId.Shield => "Blocks frontal melee and ranged hits while held; blocking wears it.", ItemId.LapisLazuli => "A blue mineral used to power enchantments.", ItemId.EnchantingTable => "A crafted station for enchanting and upgrading equipment.",
         _ => id.ToString(),
     };
     public static int MaxStack(ItemId id) =>
