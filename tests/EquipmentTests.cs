@@ -51,6 +51,13 @@ public static class EquipmentTests
         TestAssert.Check(!EquipmentProgression.TryEnchant(armorEnchant, Inventory.SlotCount, armorXp, Enchantment.Sharpness, 1, out _), "sharpness rejected on armor");
         TestAssert.Equal(1, EquipmentProgression.Cost(Enchantment.Sharpness, 1).Lapis, "enchant cost has lapis");
         TestAssert.Equal(3, EquipmentProgression.Cost(Enchantment.Unbreaking, 2).Levels, "unbreaking cost scales by level");
+        ItemStack shield = ItemDb.New(ItemId.Shield, 1);
+        DamageInfo frontArrow = new(4, DamageKind.Projectile, new Godot.Vector3(0, 0, -3));
+        DamageInfo rearArrow = new(4, DamageKind.Projectile, new Godot.Vector3(0, 0, 3));
+        TestAssert.Check(EquipmentProgression.BlocksWithShield(shield, new Godot.Vector3(0, 0, -1), Godot.Vector3.Zero, frontArrow), "shield blocks frontal arrows");
+        TestAssert.Check(!EquipmentProgression.BlocksWithShield(shield, new Godot.Vector3(0, 0, -1), Godot.Vector3.Zero, rearArrow), "shield does not block rear arrows");
+        TestAssert.Check(!EquipmentProgression.BlocksWithShield(shield, new Godot.Vector3(0, 0, -1), Godot.Vector3.Zero, new DamageInfo(4, DamageKind.Fire)), "shield does not block environmental damage");
+
 
     }
 }
