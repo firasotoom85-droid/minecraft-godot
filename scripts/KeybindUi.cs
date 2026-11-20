@@ -238,6 +238,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         foreach ((string action, _) in Keybinds.Bindable) RefreshPadButton(action);
         Input.MouseMode = Input.MouseModeEnum.Visible;
         _player.InputLocked = true;
+        UiFocus.FocusFirst(_rows);
     }
 
     private void Close()
