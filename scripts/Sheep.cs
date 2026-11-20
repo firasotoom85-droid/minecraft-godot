@@ -40,16 +40,8 @@ public partial class Sheep : Wanderer
         AddBox(st, new Vector3(0.85f, 0.72f, 1.1f), new Vector3(0, 0.78f, 0.05f), new Color(0.93f, 0.92f, 0.89f));
         AddBox(st, new Vector3(0.42f, 0.42f, 0.34f), new Vector3(0, 1.02f, -0.66f), new Color(0.93f, 0.92f, 0.89f));
         AddBox(st, new Vector3(0.44f, 0.26f, 0.16f), new Vector3(0, 0.98f, -0.86f), new Color(0.75f, 0.66f, 0.60f));
-        foreach (float sx in new[] { -1.0f, 1.0f })
-        {
-            foreach (float sz in new[] { -1.0f, 1.0f })
-            {
-                AddBox(st, new Vector3(0.16f, 0.5f, 0.16f), new Vector3(sx * 0.26f, 0.25f, sz * 0.34f),
-                        new Color(0.30f, 0.28f, 0.27f));
-            }
-        }
-
         CommitBody(st);
+        AddAnimatedLegs(new Color(0.30f, 0.28f, 0.27f), 0.5f, 0.16f, 0.26f, 0.34f, 0.50f);
     }
 
     /// <summary>Wheat is the breeding food; otherwise the original tame/stay/follow controls remain.</summary>
