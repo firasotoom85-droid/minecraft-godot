@@ -66,9 +66,16 @@ public partial class CaveStalker : Mob
         Vector3 toPlayer = player.GlobalPosition - GlobalPosition;
         toPlayer.Y = 0.0f;
         float distance = toPlayer.Length();
-        if (distance > 22.0f || !HasLineOfSight(player))
+        if (distance > 22.0f)
         {
+            _windup = 0.0f;
             return Vector3.Zero;
+        }
+
+        if (!HasLineOfSight(player))
+        {
+            _windup = 0.0f;
+            return toPlayer;
         }
 
         if (distance < 1.85f && _attackCooldown <= 0.0)
