@@ -1414,6 +1414,17 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
+        if (Inventory.Hotbar[Selected].Id == ItemId.Bow)
+        {
+            _mineTimer -= delta;
+            if (_mineTimer <= 0.0)
+            {
+                _mineTimer = 0.8;
+                FireBow();
+            }
+            return;
+        }
+
         if (Ray.GetCollider() is IDamageable target)
         {
             ResetMining();
