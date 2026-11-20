@@ -21,6 +21,18 @@ public partial class Wanderer : Mob
             return threat;
         }
 
+        if (IsAlerted && Manager?.PlayerRef is { } alarmSource)
+        {
+            Vector3 away = GlobalPosition - alarmSource.GlobalPosition;
+            away.Y = 0.0f;
+            if (away.LengthSquared() > 0.01f)
+            {
+                Walking = true;
+                Dir = away.Normalized();
+                return Dir;
+            }
+        }
+
         Timer -= delta;
         if (Timer <= 0.0)
         {
