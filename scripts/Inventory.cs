@@ -56,25 +56,7 @@ public sealed class Inventory
         int durability = stack.Durability - 1; bool broke = durability <= 0;
         Set(slot, broke ? ItemStack.Empty : stack with { Durability = durability }); Changed?.Invoke(); return broke;
     }
-    public bool DamageTool(int slot)
-    {
-        if ((uint)slot >= SlotCount)
-        {
-            return false;
-        }
-
-        ItemStack stack = Get(slot);
-        if (stack.IsEmpty || (ItemDb.ToolOf(stack.Id) is null && ItemDb.WeaponOf(stack.Id) is null))
-        {
-            return false;
-        }
-
-        int durability = stack.Durability - 1;
-        bool broke = durability <= 0;
-        Set(slot, broke ? ItemStack.Empty : stack with { Durability = durability });
-        Changed?.Invoke();
-        return broke;
-    }
+    public bool DamageTool(int slot) => DamageEquipment(slot);
 
     /// <summary>Add a stack, preserving durability (tools). Returns leftover count.</summary>
     public int Add(ItemStack stack)
