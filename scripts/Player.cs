@@ -543,8 +543,15 @@ public partial class Player : CharacterBody3D, IDamageable
         }
     }
 
-    private int ProtectionLevels { get { int total = 0; foreach (ItemStack piece in Inventory.Armor) total += piece.Protection; return total; } }
-    private float ArmorReduction => Mathf.Min(ArmorPoints * 0.04f + EquipmentProgression.ProtectionBonus(ProtectionLevels), 0.80f);
+    private float ArmorReduction
+    {
+        get
+        {
+            float remaining = 1.0f - Mathf.Clamp(ArmorPoints * 0.04f, 0.0f, 0.80f);
+            foreach (ItemStack piece in Inventory.Armor) remaining *= EquipmentProgression.ProtectionMultiplier(piece);
+            return 1.0f - remaining;
+        }
+    }
 
     /// <summary>Every landed hit wears each equipped piece by one point.</summary>
     private void DamageArmor()
