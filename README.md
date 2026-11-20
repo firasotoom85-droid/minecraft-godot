@@ -11,9 +11,11 @@ The project is a long-running solo build with an extensive design log in
 
 ## Highlights
 
-- **Infinite streaming voxel world** — 16×128×16 chunks, 4 biomes, rivers,
-  caves, lava, ores, trees, and deterministic structures (towers, ruins, mines,
-  and the Ember Deep dungeon).
+- **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
+  climate-shaped continents, smooth river valleys, mountain ranges, multi-form
+  caves, aquifers, magma pockets, depth-aware ore veins, biome-specific trees,
+  surface ruins and underground chambers. New worlds use generator V7; older
+  generator versions retain their frozen terrain rules and golden chunk hashes.
 - **Greedy meshing** — merged coplanar quads cut triangle count roughly in half;
   per-face meshing remains available for comparison. Vertex-light and AO samples
   are part of the merge key, preserving lighting boundaries.
