@@ -71,12 +71,12 @@ runner. It is a CPU microbenchmark, not an in-game frame-time measurement.
 
 | Measurement | Result |
 |---|---:|
-| 4,096 separate height + biome samples | 10.84 ms |
-| 4,096 shared surface samples | 5.74 ms |
-| Shared-sample speedup | **1.89×** |
-| Generator v6, 8 chunks | 3.25 ms/chunk |
-| Generator v7, 8 chunks | 5.91 ms/chunk |
-| V7 / v6 generation cost | **1.82×** |
+| 4,096 separate height + biome samples | 7.20 ms |
+| 4,096 shared surface samples | 3.69 ms |
+| Shared-sample speedup | **1.95×** |
+| Generator v6, 8 chunks | 2.27 ms/chunk |
+| Generator v7, 8 chunks | 4.27 ms/chunk |
+| V7 / v6 generation cost | **1.88×** |
 
 V7 performs more work per chunk (additional climate layers, caves, veins,
 biome-specific vegetation and structures), so the 1.83× cost is expected but
