@@ -14,6 +14,9 @@ public partial class KeybindUi : CanvasLayer, IModalUi
     private bool _waitingForGamepad;
     private bool _ignoreNextGamepadEvent;
     private bool _open;
+    private Control? _previousFocus;
+
+    public bool IsOpen => _open;
 
     public void Setup(Player player)
     {
@@ -263,6 +266,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
 
     public void Open()
     {
+        _previousFocus = GetViewport().GuiGetFocusOwner() as Control;
         _open = true;
         _root.Visible = true;
         _waitingAction = null;
@@ -280,6 +284,9 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         _open = false;
         _root.Visible = false;
         _waitingAction = null;
+        if (_previousFocus != null && IsInstanceValid(_previousFocus))
+            _previousFocus.GrabFocus();
+        _previousFocus = null;
     }
 
     public void ForceClose()
