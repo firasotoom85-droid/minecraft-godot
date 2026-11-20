@@ -87,7 +87,7 @@ public partial class CaveStalker : Mob
 
         RememberTarget(player.GlobalPosition);
 
-        if (distance < 1.85f && _attackCooldown <= 0.0)
+        if (distance < 1.85f && MobCombatRules.CanAttack((float)_attackCooldown, true))
         {
             _attackCooldown = 1.15;
             if (player.ApplyDamage(new DamageInfo(3.0f, DamageKind.Melee,
@@ -114,7 +114,7 @@ public partial class CaveStalker : Mob
             return Vector3.Zero;
         }
 
-        if (distance < 8.5f && _pounceCooldown <= 0.0)
+        if (MobCombatRules.CanBeginTelegraph((float)_pounceCooldown, distance, 8.5f, true))
         {
             _windup = 0.52f;
             Manager?.Puff(GlobalPosition + new Vector3(0, 0.65f, 0),
