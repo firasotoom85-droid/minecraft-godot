@@ -62,6 +62,8 @@ public partial class AchievementUi : CanvasLayer, IModalUi
 
         if (@event is InputEventKey key && (!key.Pressed || key.Echo))
             return;
+        if (!_open && _player.InputLocked)
+            return;
 
         if (@event.IsActionPressed("journal"))
         {
