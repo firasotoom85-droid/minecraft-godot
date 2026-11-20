@@ -498,7 +498,9 @@ public static class WorldgenTests
         TestAssert.Check(maximumEightBlockSlope < 40,
                 "V7 mountain and terrain slopes avoid extreme eight-block cliffs");
         TestAssert.Check(caveSamples > 0, "V7 terrain contains cave passages below the surface");
-        GD.Print($"WORLDGEN_TERRAIN river_channels={riverChannels} raised_banks={riverBanks} biome_transitions={biomeTransitions} mountain_columns={mountainColumns} cave_samples={caveSamples} max_slope_8={maximumEightBlockSlope} steep_at=({steepX},{steepZ}) heights={steepHeight}/{steepEastHeight}");
+        WorldGenV7.ClimateSample steepClimate = generator.ClimateAt(steepX, steepZ, steepHeight);
+        WorldGenV7.ClimateSample eastClimate = generator.ClimateAt(steepX + 8, steepZ, steepEastHeight);
+        GD.Print($"WORLDGEN_TERRAIN river_channels={riverChannels} raised_banks={riverBanks} biome_transitions={biomeTransitions} mountain_columns={mountainColumns} cave_samples={caveSamples} max_slope_8={maximumEightBlockSlope} steep_at=({steepX},{steepZ}) heights={steepHeight}/{steepEastHeight} river={steepClimate.RiverStrength:F2}/{eastClimate.RiverStrength:F2} land={steepClimate.Continentalness:F2}/{eastClimate.Continentalness:F2}");
     }
 
     private static void ProfileChunkGeneration(Node host)
