@@ -40,9 +40,12 @@ The project is a long-running solo build with an extensive design log in
   caves, and rare Dreadwings flank players at night; the Ember Warden remains
   the arena boss. A wandering trader, weather, lightning and ambient life
   complete the ecosystem.
+- **Interface** — shared pixel-art menu, HUD, inventory, chest and furnace styling; viewport-aware panel scaling; slot hover feedback and tooltips; drag-and-drop and Shift-click stack movement.
+- **First-person presentation** — selected-item icon viewmodel with swing animation, layered onto the existing arm, swimming strokes, head bob and landing response.
+- **Controller support** — left-stick movement, right-stick look, gamepad actions for mining/placing, hotbar cycling, inventory, pause, map and journal, with persistent button rebinding.
 - **Quality of life** — minimap with zoom and waypoints, achievements journal,
-  key rebinding, accessibility toggles, photo mode, dev console, and an
-  automatic quality governor.
+  keyboard/controller rebinding, accessibility toggles, photo mode, dev console,
+  and an automatic quality governor.
 - **Deterministic saves** — per-world folders, atomic writes, rotating backups,
   and byte-parity anchors so old worlds never change under new worldgen.
 
@@ -117,7 +120,11 @@ observed juvenile, and live passive population to report PASS.
 | `F9` | Mute sounds |
 | `/` | Dev console |
 
-Bindings are rebindable from **Esc → Controls**.
+Bindings are rebindable from **Esc → Controls**. Keyboard and controller buttons are configured separately and persist in `user://keybinds.cfg` and `user://gamepad.cfg`.
+
+**Controller defaults:** left stick moves, right stick looks, A jumps, B toggles creative flight, left/right shoulder place/mine, right-stick click picks a block, Y opens inventory, Start pauses, D-pad left/right cycles the hotbar, and D-pad up/down opens the map/journal.
+
+Inventory supports click-to-pick/place, right-click half-stack splitting, Shift-click quick transfer, and drag-and-drop between player, chest, crafting and furnace slots.
 
 ## Fluid behavior
 
