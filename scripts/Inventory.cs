@@ -52,6 +52,7 @@ public sealed class Inventory
         ItemStack stack = Get(slot);
         int max = ItemDb.ToolOf(stack.Id)?.Durability ?? ItemDb.ArmorOf(stack.Id)?.Durability ?? ItemDb.WeaponOf(stack.Id)?.Durability ?? 0;
         if (stack.IsEmpty || max <= 0) return false;
+        if (EquipmentProgression.DurabilityDamage(stack, GD.Randf()) == 0) return false;
         int durability = stack.Durability - 1; bool broke = durability <= 0;
         Set(slot, broke ? ItemStack.Empty : stack with { Durability = durability }); Changed?.Invoke(); return broke;
     }
@@ -294,7 +295,7 @@ public sealed class Inventory
             ItemStack s = Get(i);
             if (!s.IsEmpty)
             {
-                list.Add(new ItemStackSave(i, (int)s.Id, s.Count, s.Durability));
+                list.Add(new ItemStackSave(i, (int)s.Id, s.Count, s.Durability, s.Sharpness, s.Protection, s.Unbreaking));
             }
         }
 
@@ -318,7 +319,7 @@ public sealed class Inventory
             {
                 if (s.Slot >= 0 && s.Slot < SaveSlotCount && s.Count > 0)
                 {
-                    Set(s.Slot, new ItemStack((ItemId)s.Id, s.Count, s.Durability));
+                    Set(s.Slot, new ItemStack((ItemId)s.Id, s.Count, s.Durability, s.Sharpness, s.Protection, s.Unbreaking));
                 }
             }
         }
