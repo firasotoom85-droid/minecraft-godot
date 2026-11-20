@@ -17,6 +17,24 @@ public static class KeybindTests
             TestAssert.Check(Keybinds.LabelFor(action) != "—", $"keybind {action} has a key");
         }
 
+        TestAssert.Check(InputMap.HasAction("look_left") && InputMap.HasAction("look_right"),
+                "controller look actions are registered");
+        TestAssert.Check(InputMap.HasAction("hotbar_prev") && InputMap.HasAction("hotbar_next"),
+                "controller hotbar cycling actions are registered");
+        TestAssert.Equal("A", GamepadBindings.LabelFor("jump"), "jump has the default controller button");
+        TestAssert.Equal("RightShoulder", GamepadBindings.LabelFor("break_block"),
+                "mining has the default controller button");
+        TestAssert.Equal("DpadLeft", GamepadBindings.LabelFor("hotbar_prev"),
+                "hotbar previous is mapped to the D-pad");
+        TestAssert.Check(GamepadBindings.Conflict("jump", JoyButton.A) == null,
+                "default controller bindings do not conflict");
+
+        // Keyboard rebinding must not erase the additive controller event.
+        Keybinds.Rebind("jump", Key.Space);
+        TestAssert.Equal("A", GamepadBindings.LabelFor("jump"),
+                "keyboard rebinding preserves the controller binding");
+        Keybinds.ResetDefaults();
+
         TestAssert.Check(Settings.ShowHints, "hints default on");
         TestAssert.Check(Settings.HeadBob, "head bob default on");
     }
