@@ -129,6 +129,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     private InvSlot _resultSlot = null!;
     private VBoxContainer _recipeList = null!;
     private VBoxContainer _paletteList = null!;
+    private VBoxContainer _equipmentList = null!;
+    private Label _equipmentStatus = null!;
     private readonly List<(Button Button, Recipe Recipe)> _recipeRows = [];
     private TextureRect _cursorIcon = null!;
     private Label _cursorCount = null!;
@@ -370,6 +372,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         tabs.AddThemeConstantOverride("separation", 8);
         tabs.AddChild(MenuSkin.MakeButton("Recipes", () => ShowTab(true), 92));
         tabs.AddChild(MenuSkin.MakeButton("Palette", () => ShowTab(false), 92));
+        tabs.AddChild(MenuSkin.MakeButton("Enchant / Upgrade", ShowEquipmentTab, 142));
         sideCol.AddChild(tabs);
         ScrollContainer scroll = new()
         {
@@ -389,6 +392,9 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _paletteList.AddThemeConstantOverride("separation", 4);
         scrollBox.AddChild(_recipeList);
         scrollBox.AddChild(_paletteList);
+        _equipmentList = BuildEquipmentPanel();
+        _equipmentList.Visible = false;
+        scrollBox.AddChild(_equipmentList);
         scroll.AddChild(scrollBox);
         sideCol.AddChild(scroll);
         row.AddChild(sideCol);
@@ -826,6 +832,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
                         : ItemStack.Empty,
                 false);
         RefreshRecipes();
+        RefreshEquipment();
     }
 
     private void RefreshFurnace()
@@ -899,12 +906,71 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     {
         _recipeList.Visible = recipes;
         _paletteList.Visible = !recipes;
+        _equipmentList.Visible = false;
         if (!recipes && _paletteList.GetChildCount() == 0)
         {
             BuildPalette();
         }
     }
 
+    private VBoxContainer BuildEquipmentPanel()
+    {
+        VBoxContainer panel = new();
+        panel.AddThemeConstantOverride("separation", 6);
+        panel.AddChild(MenuSkin.Title("ENCHANTING", 14));
+        _equipmentStatus = new Label { Text = "Select equipment in hotbar · Lapis Lazuli powers enchantments" };
+        _equipmentStatus.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        panel.AddChild(_equipmentStatus);
+        foreach (Enchantment enchantment in new[] { Enchantment.Sharpness, Enchantment.Protection, Enchantment.Unbreaking })
+        {
+            for (int level = 1; level <= 3; level++)
+            {
+                Enchantment captured = enchantment;
+                int capturedLevel = level;
+                Button button = new() { Text = $"{enchantment} {level} · {EquipmentProgression.Cost(enchantment, level).Levels} levels + {EquipmentProgression.Cost(enchantment, level).Lapis} lapis", CustomMinimumSize = new Vector2(0, 34), Alignment = HorizontalAlignment.Left };
+                button.Pressed += () => ApplyEnchantment(captured, capturedLevel);
+                panel.AddChild(button);
+            }
+        }
+        panel.AddChild(MenuSkin.Title("UPGRADE", 14));
+        Button upgrade = new() { Text = "Upgrade selected equipment", CustomMinimumSize = new Vector2(0, 38) };
+        upgrade.Pressed += UpgradeSelectedEquipment;
+        panel.AddChild(upgrade);
+        return panel;
+    }
+
+    private void ShowEquipmentTab()
+    {
+        _recipeList.Visible = false;
+        _paletteList.Visible = false;
+        _equipmentList.Visible = true;
+        RefreshEquipment();
+    }
+
+    private int EquipmentTargetSlot() => _player.Selected;
+
+    private void ApplyEnchantment(Enchantment enchantment, int level)
+    {
+        bool applied = EquipmentProgression.TryEnchant(_player.Inventory, EquipmentTargetSlot(), _player.Stats, enchantment, level, out string reason);
+        _hud.ShowToast(reason);
+        RefreshEquipment();
+        if (applied) _player.Inventory.RaiseChanged();
+    }
+
+    private void UpgradeSelectedEquipment()
+    {
+        bool upgraded = EquipmentProgression.TryUpgrade(_player.Inventory, EquipmentTargetSlot(), out string reason);
+        _hud.ShowToast(reason);
+        RefreshEquipment();
+        if (upgraded) _player.Inventory.RaiseChanged();
+    }
+
+    private void RefreshEquipment()
+    {
+        if (_equipmentStatus == null) return;
+        ItemStack selected = _player.Inventory.Hotbar[_player.Selected];
+        _equipmentStatus.Text = $"XP Level {_player.Stats.ExperienceLevel} · Lapis {_player.Inventory.CountOf(ItemId.LapisLazuli)}\\nSelected: {(selected.IsEmpty ? "Empty" : ItemDb.NameOf(selected.Id))}";
+    }
     public override void _Process(double delta)
     {
         if (!_open)
