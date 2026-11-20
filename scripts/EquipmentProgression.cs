@@ -75,6 +75,16 @@ public static class EquipmentProgression
         return roll < (float)unbreaking / (unbreaking + 1) ? 0 : 1;
     }
 
+    public static bool BlocksWithShield(ItemStack held, Vector3 forward, Vector3 playerPosition, in DamageInfo info)
+    {
+        if (held.Id != ItemId.Shield || info.Kind is not (DamageKind.Melee or DamageKind.Projectile) || info.Source == Vector3.Zero) return false;
+        Vector3 incoming = playerPosition - info.Source;
+        incoming.Y = 0.0f;
+        forward.Y = 0.0f;
+        return incoming.LengthSquared() > 0.001f && forward.LengthSquared() > 0.001f
+            && forward.Normalized().Dot(incoming.Normalized()) >= 0.35f;
+    }
+
     public static float ProtectionMultiplier(ItemStack stack) =>
         1.0f - Mathf.Clamp(stack.Protection, 0, 3) * 0.04f;
 
