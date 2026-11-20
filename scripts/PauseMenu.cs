@@ -15,6 +15,7 @@ public partial class PauseMenu : CanvasLayer, IModalUi
     private Player _player = null!;
     private KeybindUi _keybinds = null!;
     private Control _root = null!;
+    private CenterContainer _center = null!;
     private PanelContainer _mainPanel = null!;
     private PanelContainer _settingsPanel = null!;
     private Label _status = null!;
@@ -46,10 +47,11 @@ public partial class PauseMenu : CanvasLayer, IModalUi
         dim.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _root.AddChild(dim);
 
-        CenterContainer center = new();
-        center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        center.MouseFilter = Control.MouseFilterEnum.Ignore;
-        _root.AddChild(center);
+        _center = new CenterContainer();
+        _center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _center.MouseFilter = Control.MouseFilterEnum.Ignore;
+        _root.AddChild(_center);
+        GetViewport().SizeChanged += ApplyResponsiveScale;
 
         VBoxContainer box = new();
         box.AddThemeConstantOverride("separation", 10);
@@ -83,16 +85,34 @@ public partial class PauseMenu : CanvasLayer, IModalUi
         settingsBox.AddChild(MenuSkin.MakeButton("Back", () => SwitchSettings(false), 0));
         _settingsPanel = MenuSkin.Wrap(settingsBox);
 
-        center.AddChild(_mainPanel);
-        center.AddChild(_settingsPanel);
+        _center.AddChild(_mainPanel);
+        _center.AddChild(_settingsPanel);
+        ApplyResponsiveScale();
         _settingsPanel.Visible = false;
+    }
+
+    private void ApplyResponsiveScale()
+    {
+        if (_center == null || !IsInstanceValid(_center)) return;
+        Vector2 viewport = GetViewportRect().Size;
+        if (viewport.X <= 0 || viewport.Y <= 0) return;
+        float scale = Mathf.Clamp(Mathf.Min(viewport.X / 1450.0f, viewport.Y / 900.0f), 0.68f, 1.0f);
+        _center.PivotOffset = viewport * 0.5f;
+        _center.Scale = Vector2.One * scale;
     }
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (@event is InputEventKey key && key.Pressed && !key.Echo && key.IsActionPressed("pause"))
+        if (@event is InputEventKey { Echo: true }) return;
+        if (@event.IsActionPressed("pause"))
         {
             Toggle();
+            GetViewport().SetInputAsHandled();
+        }
+        else if (_open && !_keybinds.IsOpen && @event.IsActionPressed("ui_cancel"))
+        {
+            Resume();
+            GetViewport().SetInputAsHandled();
         }
     }
 
@@ -119,6 +139,7 @@ public partial class PauseMenu : CanvasLayer, IModalUi
         Input.MouseMode = Input.MouseModeEnum.Visible;
         _player.InputLocked = true;
         _hud.CloseHelp();
+        UiFocus.FocusFirst(_mainPanel);
     }
 
     private void Resume()
