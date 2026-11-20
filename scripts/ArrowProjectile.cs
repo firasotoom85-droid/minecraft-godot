@@ -45,6 +45,8 @@ public partial class ArrowProjectile : Area3D
         LookAt(origin + _velocity, Vector3.Up);
     }
 
+    public static Vector3 AdvanceVelocity(Vector3 velocity, float delta) => velocity + Vector3.Down * (9.8f * delta);
+
     public override void _PhysicsProcess(double delta)
     {
         if (_spent) return;
@@ -52,7 +54,7 @@ public partial class ArrowProjectile : Area3D
         if (_life <= 0.0f) { Impact(GlobalPosition, false); return; }
 
         float dt = (float)delta;
-        _velocity += Vector3.Down * (9.8f * dt);
+        _velocity = AdvanceVelocity(_velocity, dt);
         Vector3 step = _velocity * dt;
         _sweep.TargetPosition = ToLocal(GlobalPosition + step);
         _sweep.ForceRaycastUpdate();
