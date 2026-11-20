@@ -799,48 +799,32 @@ public partial class Hud : CanvasLayer
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (@event is not InputEventKey key || !key.Pressed || key.Echo)
-        {
+        if (@event is InputEventKey key && (!key.Pressed || key.Echo))
             return;
-        }
 
         if (_deathPanel.Visible)
         {
-            // Keyboard fallback: the death screen must never depend on a click.
-            if (key.Keycode is Key.Enter or Key.R)
+            if (@event.IsActionPressed("ui_accept") || (@event is InputEventKey deathKey && deathKey.Keycode == Key.R))
             {
                 PlayerRef?.Respawn();
                 GetViewport().SetInputAsHandled();
             }
-
             return;
         }
 
         if (PlayerRef?.InputLocked == true || PlayerRef?.Stats.Dead == true)
-        {
             return;
-        }
 
-        if (key.IsActionPressed("toggle_info"))
-        {
+        if (@event.IsActionPressed("toggle_info"))
             _infoPanel.Visible = !_infoPanel.Visible;
-        }
-        else if (key.IsActionPressed("toggle_help"))
-        {
+        else if (@event.IsActionPressed("toggle_help"))
             _helpPanel.Visible = !_helpPanel.Visible;
-        }
-        else if (key.IsActionPressed("toggle_map"))
-        {
+        else if (@event.IsActionPressed("toggle_map"))
             _mapPanel.Visible = !_mapPanel.Visible;
-        }
-        else if (key.IsActionPressed("map_zoom_in"))
-        {
+        else if (@event.IsActionPressed("map_zoom_in"))
             _minimap.ZoomIn();
-        }
-        else if (key.IsActionPressed("map_zoom_out"))
-        {
+        else if (@event.IsActionPressed("map_zoom_out"))
             _minimap.ZoomOut();
-        }
     }
 
     // -----------------------------------------------------------------------
