@@ -51,6 +51,16 @@ public static class EquipmentTests
         TestAssert.Check(!EquipmentProgression.TryEnchant(armorEnchant, Inventory.SlotCount, armorXp, Enchantment.Sharpness, 1, out _), "sharpness rejected on armor");
         TestAssert.Equal(1, EquipmentProgression.Cost(Enchantment.Sharpness, 1).Lapis, "enchant cost has lapis");
         TestAssert.Equal(3, EquipmentProgression.Cost(Enchantment.Unbreaking, 2).Levels, "unbreaking cost scales by level");
+        PlayerStats levelTest = new();
+        levelTest.AddExperience(PlayerStats.ExperienceAtLevel(5));
+        TestAssert.Equal(5, levelTest.ExperienceLevel, "experience points convert to levels");
+        TestAssert.Check(levelTest.TrySpendLevels(2), "experience levels can be spent");
+        TestAssert.Equal(3, levelTest.ExperienceLevel, "spending levels preserves remaining level progress");
+        Inventory armorUpgrade = new();
+        armorUpgrade.Set(Inventory.SlotCount, ItemDb.New(ItemId.IronHelmet, 1));
+        armorUpgrade.Add(ItemId.Diamond, 1);
+        TestAssert.Check(EquipmentProgression.TryUpgrade(armorUpgrade, Inventory.SlotCount, out _), "iron armor upgrades from armor row");
+        TestAssert.Equal(ItemId.DiamondHelmet, armorUpgrade.Get(Inventory.SlotCount).Id, "armor upgrade result is diamond helmet");
         ItemStack shield = ItemDb.New(ItemId.Shield, 1);
         DamageInfo frontArrow = new(4, DamageKind.Projectile, new Godot.Vector3(0, 0, -3));
         DamageInfo rearArrow = new(4, DamageKind.Projectile, new Godot.Vector3(0, 0, 3));
