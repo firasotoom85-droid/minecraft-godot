@@ -4,14 +4,13 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>
-/// Population manager: a handful of passive animals around the player, and
-/// hostile night/storm spawns (shades, rot packs, hollow archers). Routes
-/// deaths into loot, and exposes spawn/clear helpers for the dev console and
-/// respawn safety.
+/// Population and ecology director. It owns bounded populations, biome/cave
+/// spawning, herd relationships, breeding, hostile alerts and transient shots.
+/// AI is local to each mob; this manager performs only small nearby scans.
 /// </summary>
 public partial class Mobs : Node
 {
-    private const int PassiveTarget = 9;
+    private const int PassiveTarget = 10;
     private const float PassiveSpawnMin = 18.0f;
     private const float PassiveSpawnMax = 40.0f;
     private const float PassiveDespawn = 120.0f;
@@ -31,7 +30,6 @@ public partial class Mobs : Node
     public int PassiveCount => _passive.Count;
     public int HostileCount => _hostiles.Count;
 
-    /// <summary>Live boss hook for the dungeon HUD/dev spawns.</summary>
     public EmberWarden? ActiveWarden
     {
         get
@@ -47,10 +45,12 @@ public partial class Mobs : Node
             return null;
         }
     }
+
     public bool IsStorm => WeatherRef?.Current == Weather.State.Storm;
 
     private double _timer = 1.5;
     private double _hostileTimer = 8.0;
+    private double _breedingTimer = 2.0;
     private readonly RandomNumberGenerator _rng = new();
 
     public void Setup(VoxelWorld world, Player player, Fx fx, Sound sound, Weather weather)
@@ -76,6 +76,7 @@ public partial class Mobs : Node
         _passive.RemoveAll(mob => DespawnFar(mob, pos, PassiveDespawn));
         _hostiles.RemoveAll(mob => DespawnFar(mob, pos, HostileDespawn));
 
+        bool dark = DayNight.IsNight(World.TimeOfDay) || IsStorm;
         if (Settings.Difficulty == Settings.DifficultyPeaceful && _hostiles.Count > 0)
         {
             foreach (Mob mob in _hostiles)
@@ -86,28 +87,68 @@ public partial class Mobs : Node
 
             _hostiles.Clear();
         }
+        else if (!dark)
+        {
+            // Surface-only hostiles retreat at dawn. Cave fauna and the
+            // dungeon boss are not affected by the surface day/night cycle.
+            foreach (Mob mob in _hostiles)
+            {
+                if (mob is EmberWarden or CaveStalker or CrystalWisp or Dreadwing
+                        || IsUnderground(mob.GlobalPosition))
+                {
+                    continue;
+                }
+
+                Puff(mob.GlobalPosition + new Vector3(0, 1.0f, 0), new Color(0.28f, 0.24f, 0.36f));
+                mob.QueueFree();
+            }
+
+            _hostiles.RemoveAll(mob => !IsInstanceValid(mob));
+        }
 
         _timer -= delta;
         if (_timer <= 0.0)
         {
-            _timer = 2.0;
+            _timer = 2.5;
             if (_passive.Count < PassiveTarget)
             {
-                SpawnPassive();
+                SpawnPassiveGroup();
             }
+        }
+
+        _breedingTimer -= delta;
+        if (_breedingTimer <= 0.0)
+        {
+            _breedingTimer = 2.0;
+            TryBreedPassives();
         }
 
         _hostileTimer -= delta;
         if (_hostileTimer <= 0.0)
         {
-            _hostileTimer = IsStorm ? 2.5 : 5.0;
-            bool dark = DayNight.IsNight(World.TimeOfDay) || IsStorm;
+            _hostileTimer = IsStorm ? 2.8 : 5.5;
             int cap = Settings.Difficulty == Settings.DifficultyHard ? 10 : 7;
-            if (Settings.Difficulty != Settings.DifficultyPeaceful && dark && _hostiles.Count < cap)
+            if (Settings.Difficulty != Settings.DifficultyPeaceful && _hostiles.Count < cap)
             {
-                SpawnHostile();
+                bool underground = IsUnderground(PlayerRef.GlobalPosition);
+                if (dark || underground)
+                {
+                    SpawnHostile(dark);
+                }
             }
         }
+    }
+
+    private bool IsUnderground(Vector3 position)
+    {
+        if (World == null)
+        {
+            return false;
+        }
+
+        int x = Mathf.FloorToInt(position.X);
+        int z = Mathf.FloorToInt(position.Z);
+        return position.Y < World.SurfaceHeight(x, z) - 6.0f;
     }
 
     private bool DespawnFar(Mob mob, Vector3 playerPos, float radius)
@@ -122,27 +163,157 @@ public partial class Mobs : Node
     }
 
     // -----------------------------------------------------------------------
-    // Spawning
+    // Shared local perception: herd cohesion, flight response and alerts.
     // -----------------------------------------------------------------------
 
-    private bool FindSpawnPoint(float min, float max, bool avoidFires, out Vector3 point)
+    public Vector3 FleeDirection(Mob source, float radius)
     {
-        point = Vector3.Zero;
-        Vector3 basePos = PlayerRef!.GlobalPosition;
-        for (int attempt = 0; attempt < 16; attempt++)
+        Vector3 flee = Vector3.Zero;
+        float radiusSq = radius * radius;
+
+        if (PlayerRef is { Stats.Dead: false } player)
         {
-            float ang = _rng.Randf() * Mathf.Tau;
-            float dist = _rng.RandfRange(min, max);
-            int x = Mathf.FloorToInt(basePos.X + Mathf.Cos(ang) * dist);
-            int z = Mathf.FloorToInt(basePos.Z + Mathf.Sin(ang) * dist);
-            int h = World!.SurfaceHeight(x, z);
-            if (h <= World.SeaLevel + 1)
+            Vector3 away = source.GlobalPosition - player.GlobalPosition;
+            away.Y = 0.0f;
+            float d2 = away.LengthSquared();
+            if (d2 > 0.001f && d2 < radiusSq)
+            {
+                flee += away.Normalized() * (1.0f - Mathf.Sqrt(d2) / radius);
+            }
+        }
+
+        foreach (Mob threat in _hostiles)
+        {
+            if (!IsInstanceValid(threat) || threat.Dead || threat == source)
             {
                 continue;
             }
 
-            Vector2I cp = new(Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX), Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ));
+            Vector3 away = source.GlobalPosition - threat.GlobalPosition;
+            away.Y = 0.0f;
+            float d2 = away.LengthSquared();
+            if (d2 > 0.001f && d2 < radiusSq)
+            {
+                flee += away.Normalized() * (1.0f - Mathf.Sqrt(d2) / radius) * 1.4f;
+            }
+        }
+
+        return flee.LengthSquared() > 0.01f ? flee.Normalized() : Vector3.Zero;
+    }
+
+    public Vector3 HerdDirection(Mob source, float radius)
+    {
+        Vector3 centre = Vector3.Zero;
+        Vector3 separation = Vector3.Zero;
+        int neighbours = 0;
+        float radiusSq = radius * radius;
+
+        foreach (Mob other in _passive)
+        {
+            if (!IsInstanceValid(other) || other == source || other.Dead
+                    || other.GetType() != source.GetType())
+            {
+                continue;
+            }
+
+            Vector3 offset = other.GlobalPosition - source.GlobalPosition;
+            offset.Y = 0.0f;
+            float d2 = offset.LengthSquared();
+            if (d2 < 0.001f || d2 > radiusSq)
+            {
+                continue;
+            }
+
+            centre += other.GlobalPosition;
+            neighbours++;
+            if (d2 < 2.8f * 2.8f)
+            {
+                separation -= offset.Normalized() * (1.0f - Mathf.Sqrt(d2) / 2.8f);
+            }
+        }
+
+        if (neighbours == 0)
+        {
+            return Vector3.Zero;
+        }
+
+        Vector3 cohesion = centre / neighbours - source.GlobalPosition;
+        cohesion.Y = 0.0f;
+        return cohesion.Normalized() * 0.55f + separation * 1.2f;
+    }
+
+    public void AlertHostiles(Vector3 position, float radius, float seconds = 8.0f)
+    {
+        float radiusSq = radius * radius;
+        foreach (Mob mob in _hostiles)
+        {
+            if (IsInstanceValid(mob) && !mob.Dead
+                    && mob.GlobalPosition.DistanceSquaredTo(position) <= radiusSq)
+            {
+                mob.SetAlerted(seconds);
+            }
+        }
+    }
+
+    public int HostilesNear<T>(Vector3 position, float radius) where T : Mob
+    {
+        int count = 0;
+        float radiusSq = radius * radius;
+        foreach (Mob mob in _hostiles)
+        {
+            if (mob is T && IsInstanceValid(mob) && !mob.Dead
+                    && mob.GlobalPosition.DistanceSquaredTo(position) <= radiusSq)
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    public void FireProjectile(Vector3 origin, Vector3 target, float damage,
+            Color color, float speed, string sound)
+    {
+        MobProjectile projectile = new();
+        AddChild(projectile);
+        projectile.Setup(this, origin, target, damage, color, speed, sound);
+    }
+
+    // -----------------------------------------------------------------------
+    // Spawning
+    // -----------------------------------------------------------------------
+
+    private bool FindSpawnPoint(float min, float max, bool avoidFires,
+            out Vector3 point, Biome? requiredBiome = null)
+    {
+        point = Vector3.Zero;
+        if (World == null || PlayerRef == null)
+        {
+            return false;
+        }
+
+        Vector3 basePos = PlayerRef.GlobalPosition;
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            float angle = _rng.Randf() * Mathf.Tau;
+            float distance = _rng.RandfRange(min, max);
+            int x = Mathf.FloorToInt(basePos.X + Mathf.Cos(angle) * distance);
+            int z = Mathf.FloorToInt(basePos.Z + Mathf.Sin(angle) * distance);
+            int h = World.SurfaceHeight(x, z);
+            if (h <= World.SeaLevel + 1 || h >= World.Height - 4)
+            {
+                continue;
+            }
+
+            Vector2I cp = new(Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX),
+                    Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ));
             if (!World.HasChunk(cp))
+            {
+                continue;
+            }
+
+            Biome biome = World.BiomeAt(x, z, h);
+            if (requiredBiome.HasValue && biome != requiredBiome.Value)
             {
                 continue;
             }
@@ -164,6 +335,58 @@ public partial class Mobs : Node
         return false;
     }
 
+    private bool FindCaveSpawnPoint(float min, float max, out Vector3 point)
+    {
+        point = Vector3.Zero;
+        if (World == null || PlayerRef == null || !IsUnderground(PlayerRef.GlobalPosition))
+        {
+            return false;
+        }
+
+        Vector3 basePos = PlayerRef.GlobalPosition;
+        for (int attempt = 0; attempt < 24; attempt++)
+        {
+            float angle = _rng.Randf() * Mathf.Tau;
+            float distance = _rng.RandfRange(min, max);
+            int x = Mathf.FloorToInt(basePos.X + Mathf.Cos(angle) * distance);
+            int z = Mathf.FloorToInt(basePos.Z + Mathf.Sin(angle) * distance);
+            Vector2I cp = new(Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX),
+                    Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ));
+            if (!World.HasChunk(cp))
+            {
+                continue;
+            }
+
+            int surface = World.SurfaceHeight(x, z);
+            int y = Mathf.Clamp(Mathf.FloorToInt(basePos.Y + _rng.RandfRange(-3.0f, 3.0f)),
+                    5, World.Height - 4);
+            if (y >= surface - 5 || !World.IsCave(x, y, z, surface))
+            {
+                continue;
+            }
+
+            BlockId here = World.GetBlock(x, y, z);
+            BlockId above = World.GetBlock(x, y + 1, z);
+            BlockId floor = World.GetBlock(x, y - 1, z);
+            if (here != BlockId.Air || above != BlockId.Air
+                    || floor is BlockId.Air or BlockId.Water or BlockId.Lava)
+            {
+                continue;
+            }
+
+            Vector3 candidate = new(x + 0.5f, y + 0.05f, z + 0.5f);
+            if (World.NearestCampfire(candidate, FireSafety) != null)
+            {
+                continue;
+            }
+
+            point = candidate;
+            return true;
+        }
+
+        return false;
+    }
+
     private void SpawnMob(Mob mob, Vector3 point, float yOffset, bool hostile)
     {
         AddChild(mob);
@@ -176,47 +399,157 @@ public partial class Mobs : Node
         (hostile ? _hostiles : _passive).Add(mob);
     }
 
-    private void SpawnPassive()
+    private void SpawnPassiveGroup()
     {
+        if (World == null || PlayerRef == null)
+        {
+            return;
+        }
+
         if (!FindSpawnPoint(PassiveSpawnMin, PassiveSpawnMax, false, out Vector3 point))
         {
             return;
         }
 
-        Mob mob = _rng.RandiRange(0, 9) switch
+        int x = Mathf.FloorToInt(point.X);
+        int z = Mathf.FloorToInt(point.Z);
+        Biome biome = World.BiomeAt(x, z, World.SurfaceHeight(x, z));
+        Mob prototype;
+        if (biome == Biome.Birch && _rng.Randf() < 0.18f)
+        {
+            SpawnMob(new Briarback(), point, 1.0f, false);
+            return;
+        }
+
+        prototype = _rng.RandiRange(0, 9) switch
         {
             < 3 => new Sheep(),
             < 6 => new Cow(),
             < 8 => new Pig(),
             _ => new Chicken(),
         };
-        SpawnMob(mob, point, 1.0f, false);
+
+        int groupSize = _rng.RandiRange(1, 2);
+        for (int i = 0; i < groupSize && _passive.Count < PassiveTarget; i++)
+        {
+            Vector3 spawn = point;
+            if (i > 0)
+            {
+                float angle = _rng.Randf() * Mathf.Tau;
+                spawn += new Vector3(Mathf.Cos(angle) * 1.7f, 0, Mathf.Sin(angle) * 1.7f);
+            }
+
+            Mob animal = i == 0 ? prototype : CreatePassive(prototype);
+            SpawnMob(animal, spawn, 1.0f, false);
+        }
     }
 
-    private void SpawnHostile()
+    private static Mob CreatePassive(Mob prototype) => prototype switch
     {
-        int roll = _rng.RandiRange(0, 9);
-        if (roll < 5)
+        Sheep => new Sheep(),
+        Cow => new Cow(),
+        Pig => new Pig(),
+        Chicken => new Chicken(),
+        _ => new Sheep(),
+    };
+
+    private void TryBreedPassives()
+    {
+        if (_passive.Count < 2 || _passive.Count >= PassiveTarget)
         {
-            if (FindSpawnPoint(HostileSpawnMin, HostileSpawnMax, true, out Vector3 point))
+            return;
+        }
+
+        for (int i = 0; i < _passive.Count; i++)
+        {
+            Mob first = _passive[i];
+            if (!IsInstanceValid(first) || first.Dead || !first.InLove || first.IsBaby)
             {
-                SpawnMob(new Shade(), point, 1.2f, true);
+                continue;
+            }
+
+            for (int j = i + 1; j < _passive.Count; j++)
+            {
+                Mob second = _passive[j];
+                if (!IsInstanceValid(second) || !first.CanBreedWith(second)
+                        || first.GlobalPosition.DistanceSquaredTo(second.GlobalPosition) > 9.0f)
+                {
+                    continue;
+                }
+
+                Vector3 childPosition = (first.GlobalPosition + second.GlobalPosition) * 0.5f;
+                childPosition.Y = Mathf.Max(first.GlobalPosition.Y, second.GlobalPosition.Y);
+                Mob baby = CreatePassive(first);
+                first.MarkBred();
+                second.MarkBred();
+                SpawnMob(baby, childPosition, 0.0f, false);
+                baby.SetBaby();
+                Puff(childPosition + new Vector3(0, 1.0f, 0), new Color(1.0f, 0.55f, 0.72f));
+                SoundRef?.Play("mobgrowl", childPosition, 1.35f, -8.0f);
+                PlayerRef?.EmitSignal(Player.SignalName.Notice, $"A baby {baby.DisplayName} was born");
+                return;
             }
         }
-        else if (roll < 8)
+    }
+
+    private void SpawnHostile(bool surfaceDark)
+    {
+        if (World == null || PlayerRef == null)
+        {
+            return;
+        }
+
+        bool underground = IsUnderground(PlayerRef.GlobalPosition);
+        if (underground && FindCaveSpawnPoint(HostileSpawnMin * 0.45f,
+                HostileSpawnMax * 0.45f, out Vector3 cavePoint))
+        {
+            int caveRoll = _rng.RandiRange(0, 9);
+            Mob caveMob = caveRoll switch
+            {
+                < 4 => new CaveStalker(),
+                < 7 => new CrystalWisp(),
+                _ => new Hollow(),
+            };
+            SpawnMob(caveMob, cavePoint, 0.0f, true);
+            return;
+        }
+
+        if (!surfaceDark || !FindSpawnPoint(HostileSpawnMin, HostileSpawnMax,
+                true, out Vector3 point))
+        {
+            return;
+        }
+
+        int x = Mathf.FloorToInt(point.X);
+        int z = Mathf.FloorToInt(point.Z);
+        Biome biome = World.BiomeAt(x, z, World.SurfaceHeight(x, z));
+        int roll = _rng.RandiRange(0, 99);
+
+        // Rare night ambusher: low population pressure and a long cooldown via
+        // its next successful encounter being governed by the same cap.
+        if (!IsStorm && roll < 4 && _hostiles.Count < 7)
+        {
+            SpawnMob(new Dreadwing(), point, 3.2f, true);
+        }
+        else if (biome == Biome.Birch && roll < 38)
         {
             int count = _rng.RandiRange(2, 3);
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < count && _hostiles.Count < 10; i++)
             {
-                if (!FindSpawnPoint(HostileSpawnMin, HostileSpawnMax, true, out Vector3 point))
+                if (!FindSpawnPoint(HostileSpawnMin, HostileSpawnMax,
+                        true, out Vector3 packPoint, Biome.Birch))
                 {
                     break;
                 }
 
-                SpawnMob(new Rot(), point, 1.2f, true);
+                SpawnMob(new Rot(), packPoint, 1.2f, true);
             }
         }
-        else if (FindSpawnPoint(HostileSpawnMin, HostileSpawnMax, true, out Vector3 point))
+        else if (roll < 68 || IsStorm)
+        {
+            SpawnMob(new Shade(), point, 1.2f, true);
+        }
+        else
         {
             SpawnMob(new Hollow(), point, 1.2f, true);
         }
@@ -225,19 +558,31 @@ public partial class Mobs : Node
     /// <summary>Dev-console helper: spawn n mobs close to the player.</summary>
     public int SpawnNear(bool shade, int count) => SpawnKind(shade ? "shade" : "sheep", count);
 
-    /// <summary>Dev-console helper for every released mob type.</summary>
+    /// <summary>Dev-console helper for every supported creature type.</summary>
     public int SpawnKind(string kind, int count)
     {
-        bool hostile = kind is "shade" or "rot" or "hollow" or "warden";
+        bool hostile = kind is "shade" or "rot" or "hollow" or "warden"
+                or "stalker" or "briarback" or "crystalwisp" or "dreadwing";
         int spawned = 0;
         for (int i = 0; i < count; i++)
         {
-            if (kind is not ("shade" or "rot" or "hollow" or "warden" or "sheep" or "cow" or "pig" or "chicken"))
+            if (kind is not ("shade" or "rot" or "hollow" or "warden"
+                    or "stalker" or "briarback" or "crystalwisp" or "dreadwing"
+                    or "sheep" or "cow" or "pig" or "chicken"))
             {
                 break;
             }
 
-            if (!FindSpawnPoint(6.0f, 14.0f, hostile, out Vector3 point))
+            Vector3 point;
+            bool caveKind = kind is "stalker" or "crystalwisp";
+            if (caveKind && !FindCaveSpawnPoint(4.0f, 10.0f, out point)
+                    && !FindSpawnPoint(6.0f, 14.0f, hostile, out point))
+            {
+                break;
+            }
+
+            if (!caveKind && !FindSpawnPoint(6.0f, 14.0f, hostile, out point,
+                    kind == "briarback" ? Biome.Birch : null))
             {
                 break;
             }
@@ -248,13 +593,24 @@ public partial class Mobs : Node
                 "rot" => new Rot(),
                 "hollow" => new Hollow(),
                 "warden" => new EmberWarden(),
+                "stalker" => new CaveStalker(),
+                "briarback" => new Briarback(),
+                "crystalwisp" => new CrystalWisp(),
+                "dreadwing" => new Dreadwing(),
                 "cow" => new Cow(),
                 "pig" => new Pig(),
                 "chicken" => new Chicken(),
                 _ => new Sheep(),
             };
-            SpawnMob(mob, point, hostile ? 1.2f : 1.0f, hostile);
-            spawned += 1;
+            SpawnMob(mob, point, kind switch
+            {
+                "stalker" or "crystalwisp" => 0.0f,
+                "dreadwing" => 3.2f,
+                "briarback" or "sheep" or "cow" or "pig" or "chicken" => 1.0f,
+                "warden" => 0.2f,
+                _ => 1.2f,
+            }, hostile);
+            spawned++;
         }
 
         return spawned;
@@ -273,8 +629,9 @@ public partial class Mobs : Node
     {
         for (int i = 0; i < count; i++)
         {
-            float ang = i * Mathf.Tau / Mathf.Max(count, 1);
-            Vector3 point = center + new Vector3(Mathf.Cos(ang) * 2.5f, 1.0f, Mathf.Sin(ang) * 2.5f);
+            float angle = i * Mathf.Tau / Mathf.Max(count, 1);
+            Vector3 point = center + new Vector3(Mathf.Cos(angle) * 2.5f, 1.0f,
+                    Mathf.Sin(angle) * 2.5f);
             SpawnMob(new Shade(), point, 0.0f, true);
         }
     }
@@ -289,7 +646,8 @@ public partial class Mobs : Node
                 continue;
             }
 
-            Puff(mob.GlobalPosition + new Vector3(0, 1.0f, 0), new Color(0.30f, 0.26f, 0.38f));
+            Puff(mob.GlobalPosition + new Vector3(0, 1.0f, 0),
+                    new Color(0.30f, 0.26f, 0.38f));
             mob.QueueFree();
         }
 
@@ -297,15 +655,25 @@ public partial class Mobs : Node
     }
 
     // -----------------------------------------------------------------------
-    // Feedback + loot
+    // Feedback and loot.
     // -----------------------------------------------------------------------
 
     private void OnMobDied(Mob mob)
     {
         Vector3 pos = mob.GlobalPosition + new Vector3(0, 0.7f, 0);
-        bool passive = mob is Sheep or Cow or Pig or Chicken;
-        Puff(pos, passive ? new Color(0.90f, 0.88f, 0.84f) : new Color(0.28f, 0.24f, 0.36f));
-        SoundRef?.Play(passive ? "baa" : "mobdie", pos, passive ? 1.0f : 0.9f, -2.0f);
+        bool passive = mob.IsPassive;
+        Puff(pos, passive ? new Color(0.90f, 0.88f, 0.84f)
+                : new Color(0.28f, 0.24f, 0.36f));
+        string sound = mob switch
+        {
+            Briarback => "mobgrowl",
+            CaveStalker => "mobchitter",
+            CrystalWisp => "mobcrystal",
+            Dreadwing => "mobdread",
+            Sheep => "baa",
+            _ => "mobdie",
+        };
+        SoundRef?.Play(sound, pos, passive ? 1.0f : 0.9f, -2.0f);
 
         if (PlayerRef == null || mob.Loot.Length == 0)
         {
@@ -320,11 +688,17 @@ public partial class Mobs : Node
             }
 
             int count = _rng.RandiRange(min, max);
+            if (count <= 0)
+            {
+                continue;
+            }
+
             int leftover = PlayerRef.Inventory.Add(id, count);
             int gained = count - leftover;
             if (gained > 0)
             {
-                PlayerRef.EmitSignal(Player.SignalName.Notice, $"+{gained} {ItemDb.NameOf(id)}");
+                PlayerRef.EmitSignal(Player.SignalName.Notice,
+                        $"+{gained} {ItemDb.NameOf(id)}");
             }
 
             if (leftover > 0)
@@ -336,11 +710,35 @@ public partial class Mobs : Node
 
     private void OnMobHurt(Mob mob, DamageInfo info)
     {
-        if (_rng.Randf() < 0.6f)
+        if (_rng.Randf() > 0.65f)
         {
-            bool sheep = mob is Sheep;
-            SoundRef?.Play(sheep ? "baa" : "mobhurt", mob.GlobalPosition + new Vector3(0, 1.0f, 0), 1.0f, -4.0f);
+            return;
         }
+
+        string sound = mob switch
+        {
+            Briarback => "mobgrowl",
+            CaveStalker => "mobchitter",
+            CrystalWisp => "mobcrystal",
+            Dreadwing => "mobdread",
+            Sheep => "baa",
+            _ => "mobhurt",
+        };
+        SoundRef?.Play(sound, mob.GlobalPosition + new Vector3(0, 1.0f, 0),
+                1.0f, -4.0f);
+        if (mob.IsPassive)
+        {
+            foreach (Mob herdMate in _passive)
+            {
+                if (herdMate != mob && herdMate.GlobalPosition.DistanceSquaredTo(
+                        mob.GlobalPosition) < 10.0f * 10.0f)
+                {
+                    herdMate.SetAlerted(5.0f);
+                }
+            }
+        }
+
+        AlertHostiles(mob.GlobalPosition, 10.0f, 6.0f);
     }
 
     private void OnSignalled(Mob mob, string kind)
@@ -358,12 +756,16 @@ public partial class Mobs : Node
             case "follow":
                 Puff(pos, new Color(0.60f, 0.95f, 0.60f));
                 break;
+            case "love":
+                Puff(pos, new Color(1.0f, 0.45f, 0.68f));
+                SoundRef?.Play("mobgrowl", pos, 1.35f, -10.0f);
+                break;
         }
     }
 
-    /// <summary>Public particle shortcut for mobs (smoke, hearts, poofs).</summary>
     public void Puff(Vector3 pos, Color color) => FxRef?.Puff(pos, color);
 
-    /// <summary>Small swing feedback when a mob connects a hit.</summary>
-    public void Lunge(Mob mob) => SoundRef?.Play("dig", mob.GlobalPosition + new Vector3(0, 1.2f, 0), 0.55f, -14.0f);
+    public void Lunge(Mob mob) =>
+            SoundRef?.Play("dig", mob.GlobalPosition + new Vector3(0, 1.2f, 0),
+                    0.55f, -14.0f);
 }
