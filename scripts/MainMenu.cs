@@ -4,12 +4,13 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>
-/// Main menu: Play (world select / create), Settings, Quit. Built in code,
-/// matching the in-game HUD's hand-rolled style.
+/// Main menu built as a responsive navigation rail and a spacious content
+/// stage over the live voxel-world backdrop.
 /// </summary>
 public partial class MainMenu : Control
 {
     private VBoxContainer _buttons = null!;
+    private PanelContainer _heroPanel = null!;
     private PanelContainer _worldsPanel = null!;
     private PanelContainer _newWorldPanel = null!;
     private PanelContainer _settingsPanel = null!;
@@ -20,6 +21,7 @@ public partial class MainMenu : Control
     private LineEdit _renameEdit = null!;
     private Label _manageTitle = null!;
     private Label _manageStatus = null!;
+    private Label _pageTitle = null!;
     private ConfirmationDialog _deleteDialog = null!;
     private string _manageDir = "";
     private OptionButton _typeOption = null!;
@@ -32,14 +34,15 @@ public partial class MainMenu : Control
         };
         AddChild(backdrop);
 
-        ColorRect bg = new()
+        ColorRect shade = new()
         {
-            Color = new Color(0.02f, 0.04f, 0.07f, 0.26f),
+            Color = new Color(0.012f, 0.025f, 0.032f, 0.55f),
+            MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        bg.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        AddChild(bg);
+        shade.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        AddChild(shade);
 
-        GradientTexture2D vignetteTex = new()
+        GradientTexture2D vignetteTexture = new()
         {
             Width = 2,
             Height = 256,
@@ -49,16 +52,16 @@ public partial class MainMenu : Control
             {
                 Colors =
                 [
-                    new Color(0, 0, 0, 0.58f),
-                    new Color(0, 0, 0, 0.02f),
-                    new Color(0, 0, 0, 0.42f),
+                    new Color(0, 0, 0, 0.62f),
+                    new Color(0, 0, 0, 0.12f),
+                    new Color(0, 0, 0, 0.56f),
                 ],
                 Offsets = [0.0f, 0.52f, 1.0f],
             },
         };
         TextureRect vignette = new()
         {
-            Texture = vignetteTex,
+            Texture = vignetteTexture,
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.Scale,
             MouseFilter = Control.MouseFilterEnum.Ignore,
@@ -66,158 +69,348 @@ public partial class MainMenu : Control
         vignette.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(vignette);
 
-        CenterContainer center = new();
-        center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        AddChild(center);
+        MarginContainer shell = new();
+        shell.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        shell.AddThemeConstantOverride("margin_left", 42);
+        shell.AddThemeConstantOverride("margin_right", 42);
+        shell.AddThemeConstantOverride("margin_top", 34);
+        shell.AddThemeConstantOverride("margin_bottom", 30);
+        AddChild(shell);
 
-        VBoxContainer stack = new();
-        stack.AddThemeConstantOverride("separation", 14);
-        center.AddChild(stack);
+        HBoxContainer layout = new();
+        layout.AddThemeConstantOverride("separation", 34);
+        shell.AddChild(layout);
 
-        Label title = new()
+        BuildNavigation(layout);
+        BuildContent(layout);
+        ShowMain();
+    }
+
+    private void BuildNavigation(HBoxContainer layout)
+    {
+        VBoxContainer rail = new()
         {
-            Text = "MINECRAFT",
-            HorizontalAlignment = HorizontalAlignment.Center,
+            CustomMinimumSize = new Vector2(286, 0),
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
         };
-        title.AddThemeFontSizeOverride("font_size", 64);
-        title.AddThemeColorOverride("font_color", new Color(0.95f, 0.97f, 1.0f));
-        title.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0, 0.7f));
-        title.AddThemeConstantOverride("outline_size", 10);
-        stack.AddChild(title);
+        rail.AddThemeConstantOverride("separation", 12);
+        layout.AddChild(rail);
 
-        Label subtitle = new()
+        PanelContainer brandMark = new();
+        brandMark.AddThemeStyleboxOverride("panel", MenuSkin.PanelStyle(true));
+        HBoxContainer brandRow = new();
+        brandRow.AddThemeConstantOverride("separation", 12);
+        Label mark = new()
         {
-            Text = "godot edition",
+            Text = "M",
+            CustomMinimumSize = new Vector2(48, 48),
             HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
         };
-        subtitle.AddThemeFontSizeOverride("font_size", 15);
-        subtitle.AddThemeColorOverride("font_color", new Color(0.7f, 0.78f, 0.9f, 0.7f));
-        stack.AddChild(subtitle);
+        mark.AddThemeFontSizeOverride("font_size", 30);
+        mark.AddThemeColorOverride("font_color", MenuSkin.AccentBright);
+        PanelContainer iconTile = new();
+        iconTile.AddThemeStyleboxOverride("panel", MenuSkin.ButtonStyle(
+                new Color(0.10f, 0.31f, 0.27f), MenuSkin.Accent.WithAlpha(0.70f)));
+        iconTile.AddChild(mark);
+        brandRow.AddChild(iconTile);
 
-        stack.AddChild(new Control { CustomMinimumSize = new Vector2(0, 26) });
+        VBoxContainer brandText = new();
+        brandText.AddThemeConstantOverride("separation", 1);
+        brandText.AddChild(MenuSkin.Title("MINECRAFT", 19, true));
+        brandText.AddChild(MenuSkin.MutedLabel("GODOT EDITION", 10));
+        brandRow.AddChild(brandText);
+        brandMark.AddChild(brandRow);
+        rail.AddChild(brandMark);
 
+        rail.AddChild(new Control { CustomMinimumSize = new Vector2(0, 22) });
+        rail.AddChild(MenuSkin.Eyebrow("Your next world starts here"));
+        Label headline = MenuSkin.Title("BUILD YOUR\nOWN WORLD.", 34, true);
+        headline.AddThemeConstantOverride("line_spacing", -4);
+        rail.AddChild(headline);
+        Label intro = MenuSkin.MutedLabel(
+                "Explore wild terrain, shape the landscape, and make a place worth coming back to.",
+                14);
+        intro.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        rail.AddChild(intro);
+
+        rail.AddChild(new HSeparator());
         _buttons = new VBoxContainer();
-        _buttons.AddThemeConstantOverride("separation", 10);
-        _buttons.AddChild(MenuSkin.MakeButton("Play", ShowWorlds));
-        _buttons.AddChild(MenuSkin.MakeButton("Settings", ShowSettings));
-        _buttons.AddChild(MenuSkin.MakeButton("Quit", () => GetTree().Quit()));
-        stack.AddChild(_buttons);
+        _buttons.AddThemeConstantOverride("separation", 9);
+        _buttons.AddChild(MenuSkin.MakeButton("EXPLORE WORLDS", ShowWorlds, 0, primary: true));
+        _buttons.AddChild(MenuSkin.MakeButton("CREATE NEW WORLD", ShowNewWorld, 0));
+        _buttons.AddChild(MenuSkin.MakeButton("SETTINGS", ShowSettings, 0));
+        _buttons.AddChild(MenuSkin.MakeButton("QUIT GAME", () => GetTree().Quit(), 0));
+        rail.AddChild(_buttons);
 
+        Control spacer = new()
+        {
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+        };
+        rail.AddChild(spacer);
+
+        PanelContainer footer = new();
+        footer.AddThemeStyleboxOverride("panel", MenuSkin.InsetStyle());
+        VBoxContainer footerContent = new();
+        footerContent.AddThemeConstantOverride("separation", 4);
+        footerContent.AddChild(MenuSkin.Eyebrow("WORLD SYSTEMS"));
+        footerContent.AddChild(MenuSkin.MutedLabel("Procedural terrain  ·  Survival  ·  Creative", 11));
+        footerContent.AddChild(MenuSkin.MutedLabel("GODOT / VOXEL SANDBOX", 10));
+        footer.AddChild(footerContent);
+        rail.AddChild(footer);
+    }
+
+    private void BuildContent(HBoxContainer layout)
+    {
+        VBoxContainer stage = new()
+        {
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+        };
+        stage.AddThemeConstantOverride("separation", 14);
+        layout.AddChild(stage);
+
+        HBoxContainer topBar = new();
+        topBar.AddThemeConstantOverride("separation", 12);
+        _pageTitle = MenuSkin.Eyebrow("MAIN MENU");
+        _pageTitle.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        topBar.AddChild(_pageTitle);
+        Label buildTag = new()
+        {
+            Text = "VOXEL SURVIVAL / 01",
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        buildTag.AddThemeFontSizeOverride("font_size", 10);
+        buildTag.AddThemeColorOverride("font_color", MenuSkin.Muted);
+        topBar.AddChild(buildTag);
+        stage.AddChild(topBar);
+        stage.AddChild(new HSeparator());
+
+        _heroPanel = BuildHero();
         _worldsPanel = BuildWorlds();
         _newWorldPanel = BuildNewWorld();
         _settingsPanel = BuildSettings();
         _managePanel = BuildManage();
-        stack.AddChild(_worldsPanel);
-        stack.AddChild(_newWorldPanel);
-        stack.AddChild(_settingsPanel);
-        stack.AddChild(_managePanel);
-        ShowMain();
+
+        stage.AddChild(_heroPanel);
+        stage.AddChild(_worldsPanel);
+        stage.AddChild(_newWorldPanel);
+        stage.AddChild(_settingsPanel);
+        stage.AddChild(_managePanel);
     }
 
-    // -----------------------------------------------------------------------
-    // Panels
-    // -----------------------------------------------------------------------
+    private PanelContainer BuildHero()
+    {
+        VBoxContainer box = new();
+        box.AddThemeConstantOverride("separation", 18);
+        box.AddChild(MenuSkin.Eyebrow("A LIVING, BREATHING SANDBOX"));
+
+        Label title = MenuSkin.Title("Every block has\na story.", 46, true);
+        title.AddThemeConstantOverride("line_spacing", -5);
+        box.AddChild(title);
+
+        Label description = MenuSkin.MutedLabel(
+                "Start with a quiet valley. Follow the rivers, dig below the surface, build a shelter, and turn an untouched seed into your own world.",
+                16);
+        description.CustomMinimumSize = new Vector2(0, 62);
+        box.AddChild(description);
+
+        HBoxContainer features = new();
+        features.AddThemeConstantOverride("separation", 10);
+        features.AddChild(FeatureCard("01", "EXPLORE", "Biomes, caves and distant horizons"));
+        features.AddChild(FeatureCard("02", "CREATE", "Build, craft and shape the land"));
+        features.AddChild(FeatureCard("03", "SURVIVE", "Make it through the changing nights"));
+        box.AddChild(features);
+
+        Control spacer = new()
+        {
+            CustomMinimumSize = new Vector2(0, 10),
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+        };
+        box.AddChild(spacer);
+        HBoxContainer actions = new();
+        actions.AddThemeConstantOverride("separation", 10);
+        actions.AddChild(MenuSkin.MakeButton("CHOOSE A WORLD", ShowWorlds, 210, primary: true));
+        actions.AddChild(MenuSkin.MakeButton("CREATE WORLD", ShowNewWorld, 170));
+        box.AddChild(actions);
+
+        PanelContainer panel = MenuSkin.Wrap(box);
+        panel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        panel.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
+        return panel;
+    }
+
+    private static PanelContainer FeatureCard(string number, string title, string detail)
+    {
+        PanelContainer panel = new();
+        panel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        panel.AddThemeStyleboxOverride("panel", MenuSkin.InsetStyle());
+        VBoxContainer content = new();
+        content.AddThemeConstantOverride("separation", 5);
+        Label index = new()
+        {
+            Text = number,
+        };
+        index.AddThemeFontSizeOverride("font_size", 11);
+        index.AddThemeColorOverride("font_color", MenuSkin.AccentBright);
+        content.AddChild(index);
+        content.AddChild(MenuSkin.Title(title, 14, true));
+        content.AddChild(MenuSkin.MutedLabel(detail, 11));
+        panel.AddChild(content);
+        return panel;
+    }
 
     private PanelContainer BuildWorlds()
     {
         VBoxContainer box = new();
-        box.AddThemeConstantOverride("separation", 10);
-        box.AddChild(MenuSkin.Title("SELECT WORLD"));
+        box.AddThemeConstantOverride("separation", 14);
+        box.AddChild(MenuSkin.Eyebrow("YOUR SAVED WORLDS"));
+        box.AddChild(MenuSkin.Title("Choose where to continue.", 28, true));
 
         ScrollContainer scroll = new()
         {
-            CustomMinimumSize = new Vector2(540, 250),
+            CustomMinimumSize = new Vector2(0, 420),
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
             HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
         };
         _worldList = new VBoxContainer
         {
-            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
         };
-        _worldList.AddThemeConstantOverride("separation", 6);
+        _worldList.AddThemeConstantOverride("separation", 9);
         scroll.AddChild(_worldList);
         box.AddChild(scroll);
 
-        HBoxContainer row = new();
-        row.AddThemeConstantOverride("separation", 10);
-        row.AddChild(MenuSkin.MakeButton("New world", ShowNewWorld, 0));
-        row.AddChild(MenuSkin.MakeButton("Back", ShowMain, 0));
-        box.AddChild(row);
-        return MenuSkin.Wrap(box);
+        HBoxContainer actions = new();
+        actions.AddThemeConstantOverride("separation", 10);
+        actions.AddChild(MenuSkin.MakeButton("NEW WORLD", ShowNewWorld, 180, primary: true));
+        actions.AddChild(MenuSkin.MakeButton("BACK", ShowMain, 120));
+        box.AddChild(actions);
+
+        PanelContainer panel = MenuSkin.Wrap(box);
+        panel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        panel.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
+        return panel;
     }
 
     private PanelContainer BuildNewWorld()
     {
         VBoxContainer box = new();
-        box.AddThemeConstantOverride("separation", 10);
-        box.AddChild(MenuSkin.Title("NEW WORLD"));
+        box.AddThemeConstantOverride("separation", 14);
+        box.AddChild(MenuSkin.Eyebrow("CREATE A NEW SAVE"));
+        box.AddChild(MenuSkin.Title("Give your world a name.", 28, true));
 
         _nameEdit = new LineEdit
         {
-            PlaceholderText = "world name",
+            PlaceholderText = "World name",
             Text = "New World",
-            CustomMinimumSize = new Vector2(540, 0),
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
         };
-        box.AddChild(_nameEdit);
+        MenuSkin.StyleInput(_nameEdit);
+        box.AddChild(Field("WORLD NAME", _nameEdit));
+
         _seedEdit = new LineEdit
         {
-            PlaceholderText = "seed or share code  (e.g. 1337 or 1337·amplified)",
-            CustomMinimumSize = new Vector2(540, 0),
+            PlaceholderText = "Optional seed or share code (e.g. 1337 · amplified)",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
         };
-        box.AddChild(_seedEdit);
+        MenuSkin.StyleInput(_seedEdit);
+        box.AddChild(Field("WORLD SEED / SHARE CODE", _seedEdit));
 
         _typeOption = new OptionButton
         {
-            CustomMinimumSize = new Vector2(540, 0),
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
         };
         _typeOption.AddItem("Normal world", 0);
         _typeOption.AddItem("Flat world", 1);
-        _typeOption.AddItem("Amplified — tall mountains", 2);
+        _typeOption.AddItem("Amplified mountains", 2);
         _typeOption.AddItem("Sky islands", 3);
-        box.AddChild(_typeOption);
+        MenuSkin.StyleInput(_typeOption);
+        box.AddChild(Field("WORLD GENERATION", _typeOption));
 
-        HBoxContainer row = new();
-        row.AddThemeConstantOverride("separation", 10);
-        row.AddChild(MenuSkin.MakeButton("Create", CreateWorld, 0));
-        row.AddChild(MenuSkin.MakeButton("Back", ShowMain, 0));
-        box.AddChild(row);
-        return MenuSkin.Wrap(box);
+        PanelContainer note = new();
+        note.AddThemeStyleboxOverride("panel", MenuSkin.InsetStyle());
+        note.AddChild(MenuSkin.MutedLabel(
+                "A blank seed creates a random world. You can share a world by copying its seed and generation type.",
+                12));
+        box.AddChild(note);
+
+        Control spacer = new() { SizeFlagsVertical = Control.SizeFlags.ExpandFill };
+        box.AddChild(spacer);
+        HBoxContainer actions = new();
+        actions.AddThemeConstantOverride("separation", 10);
+        actions.AddChild(MenuSkin.MakeButton("CREATE WORLD", CreateWorld, 190, primary: true));
+        actions.AddChild(MenuSkin.MakeButton("BACK", ShowMain, 120));
+        box.AddChild(actions);
+
+        PanelContainer panel = MenuSkin.Wrap(box);
+        panel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        panel.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
+        return panel;
+    }
+
+    private static VBoxContainer Field(string label, Control input)
+    {
+        VBoxContainer field = new();
+        field.AddThemeConstantOverride("separation", 6);
+        field.AddChild(MenuSkin.Eyebrow(label));
+        field.AddChild(input);
+        return field;
     }
 
     private PanelContainer BuildSettings()
     {
         VBoxContainer box = new();
-        box.AddThemeConstantOverride("separation", 10);
-        box.AddChild(MenuSkin.Title("SETTINGS"));
-        box.AddChild(SettingsPanel.Build(Sound.ApplyVolumes));
-        box.AddChild(MenuSkin.MakeButton("Back", ShowMain, 0));
-        return MenuSkin.Wrap(box);
+        box.AddThemeConstantOverride("separation", 12);
+        box.AddChild(MenuSkin.Eyebrow("MAKE IT YOURS"));
+        box.AddChild(MenuSkin.Title("Settings", 28, true));
+
+        ScrollContainer scroll = new()
+        {
+            CustomMinimumSize = new Vector2(0, 470),
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+        };
+        scroll.AddChild(SettingsPanel.Build(Sound.ApplyVolumes));
+        box.AddChild(scroll);
+        box.AddChild(MenuSkin.MakeButton("BACK", ShowMain, 120));
+
+        PanelContainer panel = MenuSkin.Wrap(box);
+        panel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        panel.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
+        return panel;
     }
 
     private PanelContainer BuildManage()
     {
         VBoxContainer box = new();
-        box.AddThemeConstantOverride("separation", 10);
-        _manageTitle = MenuSkin.Title("MANAGE WORLD", 16);
+        box.AddThemeConstantOverride("separation", 14);
+        box.AddChild(MenuSkin.Eyebrow("WORLD MANAGEMENT"));
+        _manageTitle = MenuSkin.Title("Manage world", 28, true);
         box.AddChild(_manageTitle);
+
         _renameEdit = new LineEdit
         {
-            PlaceholderText = "world name",
-            CustomMinimumSize = new Vector2(540, 0),
+            PlaceholderText = "World name",
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
         };
-        box.AddChild(_renameEdit);
-        HBoxContainer row = new();
-        row.AddThemeConstantOverride("separation", 10);
-        row.AddChild(MenuSkin.MakeButton("Rename", RenameWorld, 0));
-        row.AddChild(MenuSkin.MakeButton("Duplicate", DuplicateWorld, 0));
-        row.AddChild(MenuSkin.MakeButton("Delete", ConfirmDelete, 0));
-        box.AddChild(row);
-        _manageStatus = new Label
-        {
-            HorizontalAlignment = HorizontalAlignment.Center,
-        };
+        MenuSkin.StyleInput(_renameEdit);
+        box.AddChild(Field("RENAME WORLD", _renameEdit));
+
+        HBoxContainer actions = new();
+        actions.AddThemeConstantOverride("separation", 10);
+        actions.AddChild(MenuSkin.MakeButton("RENAME", RenameWorld, 130, primary: true));
+        actions.AddChild(MenuSkin.MakeButton("DUPLICATE", DuplicateWorld, 150));
+        actions.AddChild(MenuSkin.MakeButton("DELETE", ConfirmDelete, 120, danger: true));
+        box.AddChild(actions);
+
+        _manageStatus = new Label();
         _manageStatus.AddThemeFontSizeOverride("font_size", 13);
+        _manageStatus.AddThemeColorOverride("font_color", MenuSkin.AccentBright);
         box.AddChild(_manageStatus);
-        box.AddChild(MenuSkin.MakeButton("Back", () => { RefreshWorlds(); ShowWorlds(); }, 0));
+        Control spacer = new() { SizeFlagsVertical = Control.SizeFlags.ExpandFill };
+        box.AddChild(spacer);
+        box.AddChild(MenuSkin.MakeButton("BACK TO WORLDS", () => { RefreshWorlds(); ShowWorlds(); }, 190));
 
         _deleteDialog = new ConfirmationDialog
         {
@@ -226,12 +419,13 @@ public partial class MainMenu : Control
         };
         _deleteDialog.Confirmed += DeleteWorld;
         AddChild(_deleteDialog);
-        return MenuSkin.Wrap(box);
-    }
+        _deleteDialog.AddThemeStyleboxOverride("panel", MenuSkin.PanelStyle(true));
 
-    // -----------------------------------------------------------------------
-    // Actions
-    // -----------------------------------------------------------------------
+        PanelContainer panel = MenuSkin.Wrap(box);
+        panel.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        panel.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
+        return panel;
+    }
 
     private void RefreshWorlds()
     {
@@ -243,64 +437,69 @@ public partial class MainMenu : Control
         var worlds = WorldStore.List();
         if (worlds.Count == 0)
         {
-            Label none = new()
-            {
-                Text = "no worlds yet — create one",
-                HorizontalAlignment = HorizontalAlignment.Center,
-            };
-            none.AddThemeColorOverride("font_color", new Color(0.7f, 0.78f, 0.9f, 0.7f));
-            _worldList.AddChild(none);
+            PanelContainer empty = new();
+            empty.AddThemeStyleboxOverride("panel", MenuSkin.InsetStyle());
+            VBoxContainer content = new();
+            content.AddThemeConstantOverride("separation", 6);
+            content.AddChild(MenuSkin.Title("No worlds yet", 20, true));
+            content.AddChild(MenuSkin.MutedLabel("Create a world to begin your first adventure.", 13));
+            empty.AddChild(content);
+            _worldList.AddChild(empty);
             return;
         }
 
         foreach ((string dir, WorldManifest manifest) in worlds)
         {
             string played = Time.GetDatetimeStringFromUnixTime(manifest.PlayedUtc, true);
-            string presetTag = manifest.Preset is { Length: > 0 } pr ? $"   ·   {pr}" : "";
+            string preset = manifest.Preset is { Length: > 0 } pr ? pr : "normal";
+            PanelContainer card = new();
+            card.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+            card.AddThemeStyleboxOverride("panel", MenuSkin.InsetStyle());
+
             HBoxContainer row = new();
-            row.AddThemeConstantOverride("separation", 6);
-            Button entry = MenuSkin.MakeButton(
-                    $"{manifest.Name}   ·   seed {manifest.Seed}{presetTag}   ·   gen v{manifest.GenVersion}   ·   {played}",
-                    () => StartWorld(dir),
-                    0);
-            entry.Alignment = HorizontalAlignment.Left;
-            entry.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-            row.AddChild(entry);
-            row.AddChild(MenuSkin.MakeButton("Manage", () => ShowManage(dir, manifest), 92));
-            _worldList.AddChild(row);
+            row.AddThemeConstantOverride("separation", 14);
+            VBoxContainer details = new();
+            details.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+            details.AddThemeConstantOverride("separation", 4);
+            details.AddChild(MenuSkin.Title(manifest.Name, 17, true));
+            details.AddChild(MenuSkin.MutedLabel(
+                    $"SEED {manifest.Seed}   ·   {preset.ToUpperInvariant()}   ·   GEN V{manifest.GenVersion}",
+                    10));
+            details.AddChild(MenuSkin.MutedLabel($"Last played  {played}", 11));
+            row.AddChild(details);
+            row.AddChild(MenuSkin.MakeButton("PLAY", () => StartWorld(dir), 104, primary: true));
+            row.AddChild(MenuSkin.MakeButton("MANAGE", () => ShowManage(dir, manifest), 112));
+            card.AddChild(row);
+            _worldList.AddChild(card);
         }
     }
 
     private void ShowManage(string dir, WorldManifest manifest)
     {
         _manageDir = dir;
-        _manageTitle.Text = $"MANAGE — {manifest.Name}";
+        _manageTitle.Text = manifest.Name;
         _renameEdit.Text = manifest.Name;
         _manageStatus.Text = "";
-        _buttons.Visible = false;
-        _worldsPanel.Visible = false;
-        _newWorldPanel.Visible = false;
-        _settingsPanel.Visible = false;
-        _managePanel.Visible = true;
+        SetPage("MANAGE WORLD", _managePanel);
     }
 
     private void RenameWorld()
     {
         if (WorldStore.Rename(_manageDir, _renameEdit.Text))
         {
-            _manageStatus.Text = "Renamed.";
-            _manageTitle.Text = $"MANAGE — {_renameEdit.Text.Trim()}";
+            _manageStatus.Text = "World renamed.";
+            _manageTitle.Text = _renameEdit.Text.Trim();
         }
         else
         {
-            _manageStatus.Text = "Enter a name.";
+            _manageStatus.Text = "Enter a valid world name.";
         }
     }
 
     private void DuplicateWorld()
     {
         string? copy = WorldStore.Duplicate(_manageDir);
-        _manageStatus.Text = copy is null ? "Could not duplicate world." : "Copy created.";
+        _manageStatus.Text = copy is null ? "Could not duplicate world." : "World copy created.";
     }
 
     private void ConfirmDelete()
@@ -313,7 +512,6 @@ public partial class MainMenu : Control
     {
         if (WorldStore.Delete(_manageDir))
         {
-            _manageStatus.Text = "World deleted.";
             RefreshWorlds();
             ShowWorlds();
         }
@@ -369,45 +567,35 @@ public partial class MainMenu : Control
         GetTree().ChangeSceneToFile("res://scenes/main.tscn");
     }
 
-    // -----------------------------------------------------------------------
-    // Panel switching
-    // -----------------------------------------------------------------------
+    private void SetPage(string title, Control active)
+    {
+        _pageTitle.Text = title;
+        _heroPanel.Visible = false;
+        _worldsPanel.Visible = active == _worldsPanel;
+        _newWorldPanel.Visible = active == _newWorldPanel;
+        _settingsPanel.Visible = active == _settingsPanel;
+        _managePanel.Visible = active == _managePanel;
+    }
 
     private void ShowMain()
     {
-        _buttons.Visible = true;
-        _worldsPanel.Visible = false;
-        _newWorldPanel.Visible = false;
-        _settingsPanel.Visible = false;
-        _managePanel.Visible = false;
+        SetPage("MAIN MENU", _heroPanel);
     }
 
     private void ShowWorlds()
     {
         RefreshWorlds();
-        _buttons.Visible = false;
-        _worldsPanel.Visible = true;
-        _newWorldPanel.Visible = false;
-        _settingsPanel.Visible = false;
-        _managePanel.Visible = false;
+        SetPage("WORLD SELECT", _worldsPanel);
     }
 
     private void ShowNewWorld()
     {
         _seedEdit.Text = "";
-        _buttons.Visible = false;
-        _worldsPanel.Visible = false;
-        _newWorldPanel.Visible = true;
-        _settingsPanel.Visible = false;
-        _managePanel.Visible = false;
+        SetPage("CREATE WORLD", _newWorldPanel);
     }
 
     private void ShowSettings()
     {
-        _buttons.Visible = false;
-        _worldsPanel.Visible = false;
-        _newWorldPanel.Visible = false;
-        _settingsPanel.Visible = true;
-        _managePanel.Visible = false;
+        SetPage("SETTINGS", _settingsPanel);
     }
 }
