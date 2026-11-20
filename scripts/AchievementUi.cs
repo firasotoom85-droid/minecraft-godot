@@ -68,6 +68,11 @@ public partial class AchievementUi : CanvasLayer, IModalUi
             Toggle();
             GetViewport().SetInputAsHandled();
         }
+        else if (_open && @event.IsActionPressed("ui_cancel"))
+        {
+            Close();
+            GetViewport().SetInputAsHandled();
+        }
         else if (_open && key.Keycode == Key.Escape)
         {
             Close();
