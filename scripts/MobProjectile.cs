@@ -65,7 +65,7 @@ public partial class MobProjectile : Area3D
     {
         if (body is Player player)
         {
-            if (player.ApplyDamage(new DamageInfo(_damage, DamageKind.Melee,
+            if (player.ApplyDamage(new DamageInfo(_damage, DamageKind.Projectile,
                     GlobalPosition, 1.8f, 0.8f)))
             {
                 _manager?.Puff(player.GlobalPosition + new Vector3(0, 1.0f, 0), _color);
