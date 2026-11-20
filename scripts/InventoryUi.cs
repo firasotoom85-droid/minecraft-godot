@@ -705,6 +705,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         SlotKind.Craft => _craft[slot.Index],
         SlotKind.Backpack => _player.Inventory.Backpack[slot.Index],
         SlotKind.Hotbar => _player.Inventory.Hotbar[slot.Index],
+        SlotKind.Armor => _player.Inventory.Armor[slot.Index],
         SlotKind.Container when _container != null => _container.Slots[slot.Index],
         SlotKind.FurnaceInput when _furnace != null => _furnace.Input,
         SlotKind.FurnaceFuel when _furnace != null => _furnace.Fuel,
@@ -718,6 +719,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             case SlotKind.Craft: _craft[slot.Index] = stack; break;
             case SlotKind.Backpack: _player.Inventory.Backpack[slot.Index] = stack; break;
             case SlotKind.Hotbar: _player.Inventory.Hotbar[slot.Index] = stack; break;
+            case SlotKind.Armor: _player.Inventory.Armor[slot.Index] = stack; break;
             case SlotKind.Container when _container != null: _container.Slots[slot.Index] = stack; break;
             case SlotKind.FurnaceInput when _furnace != null: _furnace.Input = stack; break;
             case SlotKind.FurnaceFuel when _furnace != null: _furnace.Fuel = stack; break;
