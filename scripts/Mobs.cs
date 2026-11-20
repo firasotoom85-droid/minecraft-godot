@@ -493,8 +493,13 @@ public partial class Mobs : Node
                     continue;
                 }
 
-                Vector3 childPosition = (first.GlobalPosition + second.GlobalPosition) * 0.5f;
-                childPosition.Y = Mathf.Max(first.GlobalPosition.Y, second.GlobalPosition.Y);
+                Vector3 midpoint = (first.GlobalPosition + second.GlobalPosition) * 0.5f;
+                midpoint.Y = Mathf.Max(first.GlobalPosition.Y, second.GlobalPosition.Y);
+                if (!TryFindBabySpawnPosition(midpoint, out Vector3 childPosition))
+                {
+                    continue;
+                }
+
                 Mob baby = CreatePassive(first);
                 first.MarkBred();
                 second.MarkBred();
@@ -506,6 +511,54 @@ public partial class Mobs : Node
                 return;
             }
         }
+    }
+
+    private bool TryFindBabySpawnPosition(Vector3 midpoint, out Vector3 position)
+    {
+        position = Vector3.Zero;
+        if (World == null) return false;
+
+        // Require an intact floor and two clear voxels above it. Search a small
+        // deterministic footprint around the parents before consuming love state.
+        Vector2[] offsets =
+        [
+            Vector2.Zero, new(0.45f, 0), new(-0.45f, 0), new(0, 0.45f), new(0, -0.45f),
+            new(0.65f, 0.65f), new(-0.65f, 0.65f), new(0.65f, -0.65f), new(-0.65f, -0.65f),
+        ];
+        foreach (Vector2 offset in offsets)
+        {
+            int x = Mathf.FloorToInt(midpoint.X + offset.X);
+            int z = Mathf.FloorToInt(midpoint.Z + offset.Y);
+            int feetY = Mathf.FloorToInt(midpoint.Y);
+            Vector2I chunk = new(Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX),
+                    Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ));
+            if (!World.HasChunk(chunk) || feetY < 1 || feetY >= World.Height - 2) continue;
+
+            BlockId floor = World.GetBlock(x, feetY - 1, z);
+            if (!BlockDb.DefOf(floor).Solid || World.GetBlock(x, feetY, z) != BlockId.Air
+                    || World.GetBlock(x, feetY + 1, z) != BlockId.Air
+                    || World.GetBlock(x, feetY + 2, z) != BlockId.Air) continue;
+
+            Vector3 candidate = new(x + 0.5f, feetY, z + 0.5f);
+            bool occupied = false;
+            foreach (Mob other in _passive)
+            {
+                if (IsInstanceValid(other) && !other.Dead
+                        && other.GlobalPosition.DistanceSquaredTo(candidate) < 1.0f)
+                {
+                    occupied = true;
+                    break;
+                }
+            }
+
+            if (!occupied)
+            {
+                position = candidate;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void SpawnHostile(bool surfaceDark)
