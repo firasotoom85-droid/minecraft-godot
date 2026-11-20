@@ -46,7 +46,12 @@ public partial class Dreadwing : Mob
 
     protected override Vector3 Think(double delta)
     {
-        if (World != null && !DayNight.IsNight(World.TimeOfDay) && !(Manager?.IsStorm ?? false))
+        if (World == null)
+        {
+            return Vector3.Zero;
+        }
+
+        if (!DayNight.IsNight(World.TimeOfDay) && !(Manager?.IsStorm ?? false))
         {
             Die();
             return Vector3.Zero;
