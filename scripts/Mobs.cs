@@ -445,19 +445,33 @@ public partial class Mobs : Node
                     _ => new Chicken(),
                 };
 
-        int groupSize = _rng.RandiRange(1, 2);
+        HerdProfile herd = HerdProfile.For(prototype);
+        int groupSize = _rng.RandiRange(herd.Minimum, herd.Maximum);
+        groupSize = Mathf.Min(groupSize, PassiveTarget - _passive.Count);
         for (int i = 0; i < groupSize && _passive.Count < PassiveTarget; i++)
         {
             Vector3 spawn = point;
             if (i > 0)
             {
                 float angle = _rng.Randf() * Mathf.Tau;
-                spawn += new Vector3(Mathf.Cos(angle) * 1.7f, 0, Mathf.Sin(angle) * 1.7f);
+                spawn += new Vector3(Mathf.Cos(angle) * herd.Spacing, 0, Mathf.Sin(angle) * herd.Spacing);
             }
 
             Mob animal = i == 0 ? prototype : CreatePassive(prototype);
             SpawnMob(animal, spawn, 0.0f, false);
         }
+    }
+
+    public readonly record struct HerdProfile(int Minimum, int Maximum, float Spacing, float Cohesion)
+    {
+        public static HerdProfile For(Mob species) => species switch
+        {
+            Chicken => new(3, 5, 1.15f, 0.50f),
+            Sheep => new(2, 4, 1.65f, 0.38f),
+            Cow => new(2, 3, 2.10f, 0.30f),
+            Pig => new(2, 3, 1.80f, 0.34f),
+            _ => new(1, 2, 1.70f, 0.30f),
+        };
     }
 
     private static Mob CreatePassive(Mob prototype) => prototype switch
