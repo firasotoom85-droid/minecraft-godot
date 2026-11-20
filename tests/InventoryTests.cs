@@ -18,6 +18,9 @@ public static class InventoryTests
         TestAssert.Equal(58, inv.CountOf(ItemId.Stone), "consume leaves remainder");
         TestAssert.Check(!inv.Consume(ItemId.Stone, 100), "short consume refuses");
         TestAssert.Equal(58, inv.CountOf(ItemId.Stone), "failed consume changes nothing");
+        TestAssert.Check(!inv.Consume(ItemId.Stone, -1), "negative consume count is rejected");
+        TestAssert.Check(inv.Consume(ItemId.Stone, 0), "zero consume is a successful no-op");
+        TestAssert.Equal(58, inv.CountOf(ItemId.Stone), "invalid and no-op consumes preserve inventory");
 
         Inventory tools = new();
         TestAssert.Equal(0, tools.Add(ItemId.WoodPick, 1), "tool enters inventory");
