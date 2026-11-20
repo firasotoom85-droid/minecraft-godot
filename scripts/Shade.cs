@@ -123,8 +123,9 @@ public partial class Shade : Mob
             Vector3 toPlayer = player.GlobalPosition - GlobalPosition;
             toPlayer.Y = 0.0f;
             float d = toPlayer.Length();
-            if (d < ChaseRadius)
+            if (d < ChaseRadius && (IsAlerted || HasLineOfSight(player)))
             {
+                Manager?.AlertHostiles(GlobalPosition, 10.0f, 6.0f);
                 _attackCd -= delta;
                 if (d < AttackRange)
                 {
