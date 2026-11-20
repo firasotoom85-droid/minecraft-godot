@@ -46,7 +46,7 @@ public static class EquipmentProgression
             Enchantment enchantment, int level, out string reason)
     {
         reason = "";
-        if ((uint)slot >= Inventory.SlotCount) { reason = "Select an inventory item"; return false; }
+        if ((uint)slot >= Inventory.SaveSlotCount) { reason = "Select an inventory item"; return false; }
         ItemStack stack = inventory.Get(slot);
         if (stack.IsEmpty || !CanEnchant(stack.Id, enchantment)) { reason = "This item cannot receive that enchantment"; return false; }
         int current = LevelOf(stack, enchantment);
@@ -93,13 +93,13 @@ public static class EquipmentProgression
     public static ItemId UpgradeMaterial(ItemId id) => id switch
     {
         ItemId.WoodSword => ItemId.Cobblestone,
-        ItemId.StoneSword or ItemId.IronSword => ItemId.IronIngot,
+        ItemId.StoneSword => ItemId.IronIngot, ItemId.IronSword => ItemId.Diamond,
         ItemId.IronHelmet or ItemId.IronChestplate or ItemId.IronLegs or ItemId.IronBoots
             or ItemId.IronPick or ItemId.IronAxe or ItemId.IronShovel or ItemId.IronHoe => ItemId.Diamond,
         _ => ItemId.None,
     };
 
-    public static int UpgradeMaterialCount(ItemId id) => id == ItemId.WoodSword ? 2 : id == ItemId.StoneSword ? 2 : 1;
+    public static int UpgradeMaterialCount(ItemId id) => id is ItemId.WoodSword or ItemId.StoneSword or ItemId.IronSword ? 2 : 1;
 
     public static bool TryUpgrade(Inventory inventory, int slot, out string reason)
     {
