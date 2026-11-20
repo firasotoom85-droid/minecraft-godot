@@ -48,6 +48,14 @@ and CPU/frame-time profiling has not been performed.
 
 ## 1. Current state
 
+### Survival equipment increment — 2026-11-20
+
+- Appended persisted IDs for tiered swords, bow, arrows, shield and Ember Blade.
+- Added weapon damage, cadence, durability and knockback metadata, procedural pixel-art icons and item descriptions.
+- Added crafting recipes for swords, bow, arrows, shield and the Ember Blade using the rare Ember Core.
+- Melee uses weapon stats and airborne critical hits; bow attacks consume arrows; held shields block frontal melee attacks and wear on a block.
+- Existing inventory durability serialization applies to weapons without changing old save formats.
+
 ### Already built
 
 `PLAN.md` records M0–M4b as complete, and the corresponding code exists:
