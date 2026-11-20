@@ -25,12 +25,16 @@ public partial class Wanderer : Mob
     public static float RestoreHunger(float hunger, float amount) =>
             Mathf.Clamp(hunger + amount, 0.0f, 100.0f);
 
+    public static float MovementMultiplierForHunger(float hunger) =>
+            hunger < 20.0f ? 0.72f : hunger < 40.0f ? 0.88f : 1.0f;
+
     public static bool IsGrazeable(BlockId block) =>
             block is BlockId.Grass or BlockId.SnowGrass;
 
     protected override Vector3 Think(double delta)
     {
         Hunger = DrainHunger(Hunger, (float)delta);
+        MovementMultiplier = MovementMultiplierForHunger(Hunger);
         IsResting = false;
 
         // Threat response always wins over feeding and rest.
