@@ -63,6 +63,11 @@ public static class EquipmentTests
         armorUpgrade.Add(ItemId.Diamond, 1);
         TestAssert.Check(EquipmentProgression.TryUpgrade(armorUpgrade, Inventory.SlotCount, out _), "iron armor upgrades from armor row");
         TestAssert.Equal(ItemId.DiamondHelmet, armorUpgrade.Get(Inventory.SlotCount).Id, "armor upgrade result is diamond helmet");
+        Inventory toolUpgrade = new();
+        toolUpgrade.Add(ItemDb.New(ItemId.WoodPick, 1));
+        toolUpgrade.Add(ItemId.Cobblestone, 2);
+        TestAssert.Check(EquipmentProgression.TryUpgrade(toolUpgrade, 0, out _), "wood pick upgrades to stone");
+        TestAssert.Equal(ItemId.StonePick, toolUpgrade.Get(0).Id, "tool upgrade advances one tier");
         ItemStack shield = ItemDb.New(ItemId.Shield, 1);
         DamageInfo frontArrow = new(4, DamageKind.Projectile, new Godot.Vector3(0, 0, -3));
         DamageInfo rearArrow = new(4, DamageKind.Projectile, new Godot.Vector3(0, 0, 3));
