@@ -131,7 +131,7 @@ public partial class Shade : Mob
                 _attackCd -= delta;
                 if (d < AttackRange)
                 {
-                    if (_attackCd <= 0.0 && visible)
+                    if (MobCombatRules.CanAttack((float)_attackCd, visible))
                     {
                         _attackCd = AttackCooldown;
                         float damage = Settings.Difficulty == Settings.DifficultyHard ? 3.0f : 2.0f;
