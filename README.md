@@ -164,3 +164,8 @@ gated behind generator versions.
 
 [MIT](LICENSE). Third-party assets and the bundled editor addon keep their own
 licenses; see [`addons/godot_ai/LICENSE`](addons/godot_ai/LICENSE).
+
+
+## Fluid simulation update
+
+Water uses a deduplicated active-cell queue with bounded per-tick work rather than rescanning the local volume every tick. Unloaded chunk neighbours are treated as unknown rather than air; source blocks are periodically rescheduled, and successful world block edits wake nearby fluid cells. Two horizontal sources over a solid floor can regenerate a source. All fluid changes still pass through `VoxelWorld.SetBlock`. Swimming buoyancy respects floor/ceiling contacts. Underwater and lava fog use separate blended environments, and underwater low-pass filtering is limited to SFX/ambient buses so master/UI audio remains clear.

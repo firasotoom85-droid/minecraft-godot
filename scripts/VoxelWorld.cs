@@ -71,6 +71,9 @@ public partial class VoxelWorld : Node3D
     private readonly Dictionary<Vector2I, Chunk> _chunks = new();  // built nodes
     public Player? Player;
 
+    /// <summary>Raised after a successful main-thread block mutation.</summary>
+    public event Action<Vector3I>? BlockChanged;
+
     public Vector3? SavedPlayerPos;      // from the save file
     public List<ItemStackSave>? SavedInventory;   // null = pre-items save, gets the starter kit
     public int SavedSelected;
@@ -1694,6 +1697,7 @@ public partial class VoxelWorld : Node3D
         }
 
         _dirty = true;
+        BlockChanged?.Invoke(new Vector3I(x, y, z));
 
         // A blocker or emitter can affect every adjacent chunk within the
         // 14-voxel light radius, including chunks not sharing the edited edge.

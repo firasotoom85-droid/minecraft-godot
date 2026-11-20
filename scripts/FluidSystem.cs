@@ -1,41 +1,51 @@
+using System.Collections.Generic;
 using Godot;
 
 namespace Minecraft;
 
 /// <summary>
-/// Low-cost deterministic water propagation around the player. It reads only
-/// streamed chunks and commits at most six edits per tick through SetBlock.
-/// The fixed window, reused buffers and bounded interval avoid world scans,
-/// chunk generation, worker contention and per-cell allocations.
+/// Deterministic, event-driven fluid updates over loaded world cells.
+/// Unknown (unloaded) neighbours are never treated as air, and all edits go
+/// through VoxelWorld.SetBlock so saves, lighting and meshing stay coherent.
 /// </summary>
 public partial class FluidSystem : Node
 {
-    private const int Radius = 7;
-    private const int Width = Radius * 2 + 1;
-    private const int Depth = Width;
-    private const int Below = 8;
-    private const int Above = 8;
-    private const int Height = Below + Above + 1;
-    private const int Plane = Width * Depth;
-    private const int CellCount = Plane * Height;
+    private const int DiscoveryRadius = 7;
+    private const int DiscoveryBelow = 8;
+    private const int DiscoveryAbove = 8;
+    private const int MaxActiveCellsPerTick = 96;
     private const int MaxEditsPerTick = 6;
     private const double TickInterval = 0.28;
 
-    private readonly BlockId[] _current = new BlockId[CellCount];
-    private readonly BlockId[] _next = new BlockId[CellCount];
-    private readonly bool[] _loaded = new bool[CellCount];
-
+    private readonly Queue<Vector3I> _active = new();
+    private readonly HashSet<Vector3I> _queued = [];
+    private readonly HashSet<Vector3I> _sources = [];
     private VoxelWorld? _world;
     private Player? _player;
     private double _accumulator;
-    private int _originX;
-    private int _originY;
-    private int _originZ;
+    private Vector2I _lastDiscoveryChunk = new(int.MinValue, int.MinValue);
+    private int _lastDiscoveryYBand = int.MinValue;
+    private int _sourcePulse;
 
     public void Setup(VoxelWorld world, Player player)
     {
-        _world = world;
+        AttachWorld(world);
         _player = player;
+    }
+
+    private void AttachWorld(VoxelWorld world)
+    {
+        if (ReferenceEquals(_world, world)) return;
+        if (_world != null) _world.BlockChanged -= OnWorldBlockChanged;
+        _world = world;
+        _world.BlockChanged += OnWorldBlockChanged;
+    }
+
+    private void OnWorldBlockChanged(Vector3I position) => EnqueueWithNeighbours(position);
+
+    public override void _ExitTree()
+    {
+        if (_world != null) _world.BlockChanged -= OnWorldBlockChanged;
     }
 
     public override void _Process(double delta)
@@ -44,131 +54,269 @@ public partial class FluidSystem : Node
         _accumulator += System.Math.Min(delta, 0.5);
         if (_accumulator < TickInterval) return;
         _accumulator = 0.0;
-        Simulate();
-    }
 
-    private void Simulate()
-    {
-        _originX = Mathf.FloorToInt(_player!.GlobalPosition.X) - Radius;
-        _originY = Mathf.FloorToInt(_player.GlobalPosition.Y) - Below;
-        _originZ = Mathf.FloorToInt(_player.GlobalPosition.Z) - Radius;
-
-        for (int y = 0; y < Height; y++)
-        for (int z = 0; z < Depth; z++)
-        for (int x = 0; x < Width; x++)
+        Vector3 position = _player.GlobalPosition;
+        Vector2I chunk = new(
+                Mathf.FloorToInt(position.X / VoxelWorld.ChunkX),
+                Mathf.FloorToInt(position.Z / VoxelWorld.ChunkZ));
+        int yBand = Mathf.FloorToInt(position.Y / 8.0f);
+        if (chunk != _lastDiscoveryChunk || yBand != _lastDiscoveryYBand)
         {
-            int i = Index(x, y, z);
-            bool loaded = _world!.TryGetLoadedBlock(_originX + x, _originY + y,
-                    _originZ + z, out BlockId id);
-            _loaded[i] = loaded;
-            _current[i] = loaded ? id : BlockId.Air;
-            _next[i] = _current[i];
+            _lastDiscoveryChunk = chunk;
+            _lastDiscoveryYBand = yBand;
+            DiscoverLoadedWater(position);
         }
 
-        // Top-down, deterministic z/x ordering resolves competing flow proposals.
-        for (int y = Height - 1; y >= 0; y--)
-        for (int z = 0; z < Depth; z++)
-        for (int x = 0; x < Width; x++)
+        if (++_sourcePulse >= 4)
         {
-            int i = Index(x, y, z);
-            int level = BlockDb.WaterLevel(_current[i]);
-            if (level < 0) continue;
+            _sourcePulse = 0;
+            foreach (Vector3I source in _sources) Enqueue(source);
+        }
+        ProcessActiveCells(MaxActiveCellsPerTick, MaxEditsPerTick);
+    }
 
-            if (level > 0)
+    private void DiscoverLoadedWater(Vector3 center)
+    {
+        if (_world == null) return;
+        int ox = Mathf.FloorToInt(center.X) - DiscoveryRadius;
+        int oy = Mathf.FloorToInt(center.Y) - DiscoveryBelow;
+        int oz = Mathf.FloorToInt(center.Z) - DiscoveryRadius;
+        for (int y = 0; y < DiscoveryBelow + DiscoveryAbove + 1; y++)
+        for (int z = 0; z < DiscoveryRadius * 2 + 1; z++)
+        for (int x = 0; x < DiscoveryRadius * 2 + 1; x++)
+        {
+            int wx = ox + x;
+            int wy = oy + y;
+            int wz = oz + z;
+            if (!_world.TryGetLoadedBlock(wx, wy, wz, out BlockId id)
+                    || !BlockDb.IsWater(id)) continue;
+            Vector3I cell = new(wx, wy, wz);
+            if (BlockDb.WaterLevel(id) == 0) _sources.Add(cell);
+            EnqueueWithNeighbours(cell);
+        }
+    }
+
+    private void ProcessActiveCells(int budget, int editBudget)
+    {
+        if (_world == null) return;
+        int processed = 0;
+        int edits = 0;
+        while (processed < budget && edits < editBudget && _active.Count > 0)
+        {
+            Vector3I cell = _active.Dequeue();
+            _queued.Remove(cell);
+            processed++;
+            if (!_world.TryGetLoadedBlock(cell.X, cell.Y, cell.Z, out BlockId id)
+                    || !BlockDb.IsWater(id))
             {
-                int desired = FluidRules.ResolveFlowLevel(
-                        WaterLevelAt(x, y + 1, z),
-                        WaterLevelAt(x, y, z - 1),
-                        WaterLevelAt(x, y, z + 1),
-                        WaterLevelAt(x + 1, y, z),
-                        WaterLevelAt(x - 1, y, z));
-                if (desired < 0)
-                {
-                    _next[i] = BlockId.Air;
-                    continue;
-                }
-                level = desired;
-                _next[i] = FluidRules.BlockForLevel(level);
+                _sources.Remove(cell);
+                continue;
             }
 
-            ReactWithLava(x, y, z);
-            if (y > 0) OfferWater(x, y - 1, z, 1);
-            int horizontalLevel = FluidRules.NextHorizontalLevel(level);
-            if (horizontalLevel >= 0)
+            int level = BlockDb.WaterLevel(id);
+            if (level == 0)
             {
-                OfferWater(x - 1, y, z, horizontalLevel);
-                OfferWater(x + 1, y, z, horizontalLevel);
-                OfferWater(x, y, z - 1, horizontalLevel);
-                OfferWater(x, y, z + 1, horizontalLevel);
+                _sources.Add(cell);
+                edits += ReactAdjacentLava(cell);
+                edits += SpreadFromSource(cell);
+                continue;
             }
+
+            _sources.Remove(cell);
+            edits += ReactAdjacentLava(cell);
+            edits += UpdateFlowingCell(cell, level);
+        }
+    }
+
+    private int SpreadFromSource(Vector3I cell)
+    {
+        if (_world == null) return 0;
+        Vector3I below = cell + Vector3I.Down;
+        if (!TryGetLoaded(below, out BlockId belowId)) return 0;
+        if (belowId == BlockId.Lava) return ReactAt(below);
+        if (FluidRules.CanFlowInto(belowId)) return TryPlaceFlow(below, 1);
+
+        int edits = 0;
+        edits += OfferHorizontal(cell, Vector3I.Left, 1);
+        edits += OfferHorizontal(cell, Vector3I.Right, 1);
+        edits += OfferHorizontal(cell, new Vector3I(0, 0, -1), 1);
+        edits += OfferHorizontal(cell, new Vector3I(0, 0, 1), 1);
+        return edits;
+    }
+
+    private int UpdateFlowingCell(Vector3I cell, int level)
+    {
+        if (_world == null) return 0;
+        Vector3I below = cell + Vector3I.Down;
+        if (!TryGetLoaded(below, out BlockId belowId)) return 0;
+        if (belowId == BlockId.Lava) return ReactAt(below);
+        if (FluidRules.CanFlowInto(belowId)) return TryPlaceFlow(below, 1);
+
+        int best = -1;
+        bool unknownNeighbour = false;
+        AccumulateSupport(cell + Vector3I.Up, ref best, ref unknownNeighbour);
+        AccumulateSupport(cell + Vector3I.Left, ref best, ref unknownNeighbour);
+        AccumulateSupport(cell + Vector3I.Right, ref best, ref unknownNeighbour);
+        AccumulateSupport(cell + new Vector3I(0, 0, -1), ref best, ref unknownNeighbour);
+        AccumulateSupport(cell + new Vector3I(0, 0, 1), ref best, ref unknownNeighbour);
+
+        if (best < 0)
+        {
+            if (unknownNeighbour) return 0;
+            if (_world.SetBlock(cell.X, cell.Y, cell.Z, BlockId.Air))
+            {
+                EnqueueWithNeighbours(cell);
+                return 1;
+            }
+            return 0;
+        }
+
+        int desired = best + 1;
+        if (desired > FluidRules.MaxFlowLevel)
+        {
+            if (unknownNeighbour) return 0;
+            if (_world.SetBlock(cell.X, cell.Y, cell.Z, BlockId.Air))
+            {
+                EnqueueWithNeighbours(cell);
+                return 1;
+            }
+            return 0;
         }
 
         int edits = 0;
-        for (int y = 0; y < Height && edits < MaxEditsPerTick; y++)
+        BlockId desiredBlock = FluidRules.BlockForLevel(desired);
+        if (desiredBlock != FluidRules.BlockForLevel(level)
+                && _world.SetBlock(cell.X, cell.Y, cell.Z, desiredBlock))
         {
-            int worldY = _originY + y;
-            if (worldY <= 0 || worldY >= _world!.Height) continue;
-            for (int z = 0; z < Depth && edits < MaxEditsPerTick; z++)
-            for (int x = 0; x < Width && edits < MaxEditsPerTick; x++)
-            {
-                int i = Index(x, y, z);
-                if (!_loaded[i] || _next[i] == _current[i]) continue;
-                if (_world.SetBlock(_originX + x, worldY, _originZ + z, _next[i])) edits++;
-            }
+            edits++;
+            EnqueueWithNeighbours(cell);
         }
+
+        edits += OfferHorizontal(cell, Vector3I.Left, desired + 1);
+        edits += OfferHorizontal(cell, Vector3I.Right, desired + 1);
+        edits += OfferHorizontal(cell, new Vector3I(0, 0, -1), desired + 1);
+        edits += OfferHorizontal(cell, new Vector3I(0, 0, 1), desired + 1);
+        return edits;
     }
 
-    private int WaterLevelAt(int x, int y, int z)
+    private void AccumulateSupport(Vector3I position, ref int best, ref bool unknown)
     {
-        if (x < 0 || x >= Width || y < 0 || y >= Height || z < 0 || z >= Depth) return -1;
-        int i = Index(x, y, z);
-        return _loaded[i] ? BlockDb.WaterLevel(_current[i]) : -1;
-    }
-
-    private void OfferWater(int x, int y, int z, int level)
-    {
-        if (level is < 1 or > FluidRules.MaxFlowLevel
-                || x < 0 || x >= Width || y < 0 || y >= Height || z < 0 || z >= Depth) return;
-        int i = Index(x, y, z);
-        if (!_loaded[i]) return;
-
-        BlockId existing = _current[i];
-        if (existing == BlockId.Lava)
+        if (!TryGetLoaded(position, out BlockId id))
         {
-            _next[i] = FluidRules.ReactWithWater(existing);
+            unknown = true;
             return;
         }
+        int level = BlockDb.WaterLevel(id);
+        if (level >= 0 && (best < 0 || level < best)) best = level;
+    }
+
+    private int OfferHorizontal(Vector3I source, Vector3I offset, int level)
+    {
+        if (level > FluidRules.MaxFlowLevel) return 0;
+        Vector3I target = source + offset;
+        if (!TryGetLoaded(target, out BlockId existing)) return 0;
+        if (existing == BlockId.Lava) return ReactAt(target);
         if (BlockDb.IsWater(existing))
         {
-            int currentLevel = BlockDb.WaterLevel(existing);
-            if (currentLevel == 0) return;
-            int plannedLevel = BlockDb.WaterLevel(_next[i]);
-            if (level < currentLevel && (plannedLevel < 0 || level < plannedLevel))
-                _next[i] = FluidRules.BlockForLevel(level);
-            return;
+            if (BlockDb.WaterLevel(existing) == 0) return 0;
+            if (TryRegenerateSource(target)) return 1;
+            return 0;
         }
-        int nextLevel = BlockDb.WaterLevel(_next[i]);
-        if (FluidRules.CanFlowInto(existing) && (nextLevel < 0 || level < nextLevel))
-            _next[i] = FluidRules.BlockForLevel(level);
+        if (!FluidRules.CanFlowInto(existing)) return 0;
+        if (TryRegenerateSource(target)) return 1;
+        return TryPlaceFlow(target, level);
     }
 
-    private void ReactWithLava(int x, int y, int z)
+    private bool TryRegenerateSource(Vector3I target)
     {
-        ReactAt(x - 1, y, z);
-        ReactAt(x + 1, y, z);
-        ReactAt(x, y - 1, z);
-        ReactAt(x, y + 1, z);
-        ReactAt(x, y, z - 1);
-        ReactAt(x, y, z + 1);
+        if (_world == null || target.Y <= 1) return false;
+        if (!TryGetLoaded(target + Vector3I.Down, out BlockId floor)
+                || !BlockDb.IsSolid(floor)) return false;
+        int sources = 0;
+        if (IsSource(target + Vector3I.Left)) sources++;
+        if (IsSource(target + Vector3I.Right)) sources++;
+        if (IsSource(target + new Vector3I(0, 0, -1))) sources++;
+        if (IsSource(target + new Vector3I(0, 0, 1))) sources++;
+        bool replaceable = TryGetLoaded(target, out BlockId current)
+                && (current == BlockId.Air || BlockDb.IsWater(current)
+                        && BlockDb.WaterLevel(current) > 0);
+        if (!FluidRules.CanRegenerateSource(sources, true, replaceable)) return false;
+        if (!_world.SetBlock(target.X, target.Y, target.Z, BlockId.Water)) return false;
+        _sources.Add(target);
+        EnqueueWithNeighbours(target);
+        return true;
     }
 
-    private void ReactAt(int x, int y, int z)
+    private bool IsSource(Vector3I position) =>
+            TryGetLoaded(position, out BlockId id) && id == BlockId.Water;
+
+    private int ReactAdjacentLava(Vector3I cell)
     {
-        if (x < 0 || x >= Width || y < 0 || y >= Height || z < 0 || z >= Depth) return;
-        int i = Index(x, y, z);
-        if (_loaded[i] && _current[i] == BlockId.Lava)
-            _next[i] = FluidRules.ReactWithWater(_current[i]);
+        int edits = 0;
+        edits += ReactAt(cell + Vector3I.Up);
+        edits += ReactAt(cell + Vector3I.Down);
+        edits += ReactAt(cell + Vector3I.Left);
+        edits += ReactAt(cell + Vector3I.Right);
+        edits += ReactAt(cell + new Vector3I(0, 0, -1));
+        edits += ReactAt(cell + new Vector3I(0, 0, 1));
+        return edits;
     }
 
-    private static int Index(int x, int y, int z) => x + z * Width + y * Plane;
+    private int ReactAt(Vector3I position)
+    {
+        if (_world == null || !TryGetLoaded(position, out BlockId id)
+                || id != BlockId.Lava) return 0;
+        if (!_world.SetBlock(position.X, position.Y, position.Z, FluidRules.ReactWithWater(id))) return 0;
+        EnqueueWithNeighbours(position);
+        return 1;
+    }
+
+    private int TryPlaceFlow(Vector3I target, int level)
+    {
+        if (_world == null || level is < 1 or > FluidRules.MaxFlowLevel) return 0;
+        if (!TryGetLoaded(target, out BlockId existing)) return 0;
+        if (existing == BlockId.Lava) return ReactAt(target);
+        if (!FluidRules.CanFlowInto(existing)) return 0;
+        if (!_world.SetBlock(target.X, target.Y, target.Z, FluidRules.BlockForLevel(level))) return 0;
+        EnqueueWithNeighbours(target);
+        return 1;
+    }
+
+    private bool TryGetLoaded(Vector3I position, out BlockId id)
+    {
+        if (_world == null)
+        {
+            id = BlockId.Air;
+            return false;
+        }
+        if (position.Y < 0 || position.Y >= _world.Height)
+        {
+            id = BlockId.Bedrock;
+            return true;
+        }
+        return _world.TryGetLoadedBlock(position.X, position.Y, position.Z, out id);
+    }
+
+    private void EnqueueWithNeighbours(Vector3I cell)
+    {
+        Enqueue(cell);
+        Enqueue(cell + Vector3I.Up);
+        Enqueue(cell + Vector3I.Down);
+        Enqueue(cell + Vector3I.Left);
+        Enqueue(cell + Vector3I.Right);
+        Enqueue(cell + new Vector3I(0, 0, -1));
+        Enqueue(cell + new Vector3I(0, 0, 1));
+    }
+
+    private void Enqueue(Vector3I cell)
+    {
+        if (_queued.Add(cell)) _active.Enqueue(cell);
+    }
+
+    internal void SimulateForTests(VoxelWorld world, Vector3 center, int budget = 256)
+    {
+        AttachWorld(world);
+        DiscoverLoadedWater(center);
+        ProcessActiveCells(budget, 64);
+    }
 }

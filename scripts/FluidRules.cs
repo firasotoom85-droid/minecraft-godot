@@ -28,6 +28,9 @@ public static class FluidRules
         return best < 0 ? -1 : NextHorizontalLevel(best);
     }
 
+    public static bool CanRegenerateSource(int horizontalSourceCount, bool solidFloor, bool targetEmpty) =>
+            horizontalSourceCount >= 2 && solidFloor && targetEmpty;
+
     public static BlockId ReactWithWater(BlockId neighbor) =>
             neighbor == BlockId.Lava ? BlockId.Cobblestone : neighbor;
 
@@ -55,7 +58,11 @@ public static class WaterPhysics
             underwater ? UnderwaterMiningMultiplier : 1.0f;
 
     public static Vector3 Step(Vector3 velocity, Vector3 direction, float immersion,
-            bool swimUp, bool dive, float delta)
+            bool swimUp, bool dive, float delta) =>
+            Step(velocity, direction, immersion, swimUp, dive, delta, false, false);
+
+    public static Vector3 Step(Vector3 velocity, Vector3 direction, float immersion,
+            bool swimUp, bool dive, float delta, bool ceilingBlocked, bool floorBlocked)
     {
         float dt = Mathf.Clamp(delta, 0.0f, 0.1f);
         float amount = Mathf.Clamp(immersion, 0.0f, 1.0f);
@@ -78,7 +85,12 @@ public static class WaterPhysics
             targetY = DiveSpeed;
             acceleration = 13.0f;
         }
+
+        if (ceilingBlocked && targetY > 0.0f) targetY = 0.0f;
+        if (floorBlocked && targetY < 0.0f) targetY = 0.0f;
         velocity.Y = Mathf.MoveToward(velocity.Y, targetY, acceleration * dt);
+        if (ceilingBlocked && velocity.Y > 0.0f) velocity.Y = 0.0f;
+        if (floorBlocked && velocity.Y < 0.0f) velocity.Y = 0.0f;
         return velocity;
     }
 }

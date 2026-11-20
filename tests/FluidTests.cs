@@ -37,6 +37,12 @@ public static class FluidTests
                 "unsupported flow recedes");
         TestAssert.Equal(-1, FluidRules.ResolveFlowLevel(-1, 7, 7, 7, 7),
                 "maximum flow distance is bounded");
+        TestAssert.Check(FluidRules.CanRegenerateSource(2, true, true),
+                "two horizontal sources above a solid floor can regenerate");
+        TestAssert.Check(!FluidRules.CanRegenerateSource(1, true, true),
+                "one source cannot regenerate an infinite source");
+        TestAssert.Check(!FluidRules.CanRegenerateSource(2, false, true),
+                "source regeneration requires a solid floor");
 
         TestAssert.Check(FluidRules.CanFlowInto(BlockId.Air), "water enters air");
         TestAssert.Check(FluidRules.CanFlowInto(BlockId.TallGrass), "water displaces plants");
@@ -69,6 +75,12 @@ public static class FluidTests
         TestAssert.Check(buoyant.Y > 0.0f, "buoyancy provides upward movement");
         TestAssert.Check(rising.Y > buoyant.Y, "Space adds upward swim acceleration");
         TestAssert.Check(diving.Y < 0.0f, "Shift drives the player down");
+        Vector3 ceiling = WaterPhysics.Step(Vector3.Zero, Vector3.Zero, 1.0f,
+                true, false, 0.1f, true, false);
+        Vector3 floor = WaterPhysics.Step(Vector3.Zero, Vector3.Zero, 1.0f,
+                false, true, 0.1f, false, true);
+        TestAssert.Equal(0.0f, ceiling.Y, "swim-up input is blocked by a ceiling");
+        TestAssert.Equal(0.0f, floor.Y, "dive input is blocked by a floor");
 
         Vector3 horizontal = Vector3.Zero;
         for (int i = 0; i < 12; i++)

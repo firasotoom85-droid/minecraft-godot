@@ -66,7 +66,9 @@ public partial class Sound : Node
     private AudioStreamPlayer _thunderPlayer = null!;
     private AudioStreamPlayer _crickets = null!;
     private AudioEffectLowPassFilter _muffle = null!;
-    private int _masterBus = -1;
+    private AudioEffectLowPassFilter _ambientMuffle = null!;
+    private int _sfxBus = -1;
+    private int _ambientBus = -1;
     private bool _muffled;
     private float _muffleBlend;
 
@@ -148,14 +150,21 @@ public partial class Sound : Node
         };
         AddChild(_thunderPlayer);
 
-        // Underwater muffle: one low-pass on the Master bus, toggled by state.
-        _masterBus = AudioServer.GetBusIndex("Master");
-        _muffle = new AudioEffectLowPassFilter
+        // Filter world sound only; UI feedback and music on Master stay clear.
+        _sfxBus = AudioServer.GetBusIndex("Sfx");
+        _ambientBus = AudioServer.GetBusIndex("Ambient");
+        _muffle = new AudioEffectLowPassFilter { CutoffHz = 18000.0f };
+        _ambientMuffle = new AudioEffectLowPassFilter { CutoffHz = 18000.0f };
+        if (_sfxBus >= 0)
         {
-            CutoffHz = 18000.0f,
-        };
-        AudioServer.AddBusEffect(_masterBus, _muffle, 0);
-        AudioServer.SetBusEffectEnabled(_masterBus, 0, false);
+            AudioServer.AddBusEffect(_sfxBus, _muffle, 0);
+            AudioServer.SetBusEffectEnabled(_sfxBus, 0, false);
+        }
+        if (_ambientBus >= 0)
+        {
+            AudioServer.AddBusEffect(_ambientBus, _ambientMuffle, 0);
+            AudioServer.SetBusEffectEnabled(_ambientBus, 0, false);
+        }
 
         player.BlockBroken += OnBroken;
         player.BlockPlaced += OnPlaced;
@@ -182,12 +191,15 @@ public partial class Sound : Node
 
         bool under = PlayerRef.Underwater;
         _muffleBlend = Mathf.MoveToward(_muffleBlend, under ? 1.0f : 0.0f, (float)delta * 3.0f);
-        _muffle.CutoffHz = Mathf.Lerp(18000.0f, 650.0f, _muffleBlend);
+        float cutoff = Mathf.Lerp(18000.0f, 650.0f, _muffleBlend);
+        _muffle.CutoffHz = cutoff;
+        _ambientMuffle.CutoffHz = cutoff;
         bool muffled = _muffleBlend > 0.001f;
         if (muffled != _muffled)
         {
             _muffled = muffled;
-            AudioServer.SetBusEffectEnabled(_masterBus, 0, _muffled);
+            if (_sfxBus >= 0) AudioServer.SetBusEffectEnabled(_sfxBus, 0, _muffled);
+            if (_ambientBus >= 0) AudioServer.SetBusEffectEnabled(_ambientBus, 0, _muffled);
         }
 
         float clouds = WeatherRef == null ? 0.0f : (float)WeatherRef.Cloudiness;

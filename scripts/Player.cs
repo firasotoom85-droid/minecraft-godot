@@ -101,6 +101,9 @@ public partial class Player : CharacterBody3D, IDamageable
     private float _airFogDensity;
     private Color _airFogColor;
     private Godot.Environment? _underwaterEnvironment;
+    private Godot.Environment? _lavaEnvironment;
+    private float _lavaViewBlend;
+    private float _waterImmersion;
     private float _swimCameraPhase;
     private double _lastSwing = -10.0;
     private double _lastEat = -10.0;
@@ -121,6 +124,9 @@ public partial class Player : CharacterBody3D, IDamageable
         _airFogColor = environment.FogLightColor;
         _underwaterEnvironment.FogEnabled = true;
         _underwaterEnvironment.VolumetricFogEnabled = false;
+        _lavaEnvironment = (Godot.Environment)environment.Duplicate();
+        _lavaEnvironment.FogEnabled = true;
+        _lavaEnvironment.VolumetricFogEnabled = false;
     }
 
     public override void _Ready()
@@ -270,6 +276,7 @@ public partial class Player : CharacterBody3D, IDamageable
         float immersion = WaterPhysics.Immersion(feetWet, torsoWet, headWet);
         InWater = immersion > 0.0f;
         Underwater = headWet;
+        _waterImmersion = immersion;
         InLava = IsLavaAt(GlobalPosition + new Vector3(0, 0.2f, 0))
                 || IsLavaAt(GlobalPosition + new Vector3(0, 0.9f, 0))
                 || IsLavaAt(Camera.GlobalPosition);
@@ -341,7 +348,8 @@ public partial class Player : CharacterBody3D, IDamageable
             {
                 speed = WaterPhysics.HorizontalSpeed;
                 velocity = WaterPhysics.Step(velocity, direction, immersion,
-                        !locked && Input.IsActionPressed("jump"), sprintHeld, dt);
+                        !locked && Input.IsActionPressed("jump"), sprintHeld, dt,
+                        IsOnCeiling(), IsOnFloor());
                 _coyote = 0.0;
                 _jumpBuffer = 0.0;
             }
@@ -447,12 +455,22 @@ public partial class Player : CharacterBody3D, IDamageable
 
     private void UpdateWaterCamera(double delta)
     {
-        if (_underwaterEnvironment == null || Camera == null) return;
+        if (_underwaterEnvironment == null || _lavaEnvironment == null || Camera == null) return;
         float dt = (float)System.Math.Clamp(delta, 0.0, 0.1);
-        _waterViewBlend = Mathf.MoveToward(_waterViewBlend, Underwater ? 1.0f : 0.0f, dt * 2.2f);
-        _underwaterEnvironment.FogDensity = Mathf.Lerp(_airFogDensity, 0.035f, _waterViewBlend);
-        _underwaterEnvironment.FogLightColor = _airFogColor.Lerp(new Color(0.025f, 0.13f, 0.25f), _waterViewBlend);
-        Camera.Environment = _waterViewBlend > 0.001f ? _underwaterEnvironment : null;
+        float waterTarget = Underwater ? Mathf.Lerp(0.72f, 1.0f, _waterImmersion) : 0.0f;
+        _waterViewBlend = Mathf.MoveToward(_waterViewBlend, waterTarget, dt * 2.2f);
+        _lavaViewBlend = Mathf.MoveToward(_lavaViewBlend, InLava ? 1.0f : 0.0f, dt * 3.0f);
+
+        float waterDensity = Mathf.Lerp(0.022f, 0.052f, _waterImmersion);
+        _underwaterEnvironment.FogDensity = Mathf.Lerp(_airFogDensity, waterDensity, _waterViewBlend);
+        _underwaterEnvironment.FogLightColor = _airFogColor.Lerp(
+                new Color(0.018f, 0.105f, 0.205f), _waterViewBlend);
+        _lavaEnvironment.FogDensity = Mathf.Lerp(_airFogDensity, 0.085f, _lavaViewBlend);
+        _lavaEnvironment.FogLightColor = _airFogColor.Lerp(
+                new Color(0.34f, 0.075f, 0.018f), _lavaViewBlend);
+
+        Camera.Environment = _lavaViewBlend > 0.001f ? _lavaEnvironment
+                : _waterViewBlend > 0.001f ? _underwaterEnvironment : null;
     }
 
     private bool IsLadderAt(Vector3 p) =>
