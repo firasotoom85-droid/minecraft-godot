@@ -75,8 +75,18 @@ public partial class CaveStalker : Mob
         if (!HasLineOfSight(player))
         {
             _windup = 0.0f;
-            return toPlayer;
+            RememberTarget(player.GlobalPosition);
+            if (TryGetRememberedTarget(out Vector3 lastSeen))
+            {
+                Vector3 remembered = lastSeen - GlobalPosition;
+                remembered.Y = 0.0f;
+                return remembered.LengthSquared() > 1.0f ? remembered : Vector3.Zero;
+            }
+
+            return Vector3.Zero;
         }
+
+        RememberTarget(player.GlobalPosition);
 
         if (distance < 1.85f && _attackCooldown <= 0.0)
         {
