@@ -22,7 +22,9 @@ The project is a long-running solo build with an extensive design log in
   respawn, armor, tools with durability, fishing, farming, and cooking.
 - **A living world** — sheep, cows, pigs, chickens; Shades, Rots, Hollows, the
   Ember Warden boss; a wandering trader; weather, lightning, and ambient life.
-- **Interface** — shared pixel-art menu and inventory styling, responsive panel layouts, crisp hotbar/crosshair presentation, item tooltips, Shift-click inventory transfers, and controller-ready focusable menu buttons.
+- **Interface** — shared pixel-art styling across menus, pause/settings, inventory, trader, and HUD; viewport-aware menu scaling; framed chest/furnace panels; item tooltips; Shift-click transfers; and native drag-and-drop stack movement.
+- **First-person presentation** — blocky arm with a held-item icon viewmodel, animated swing, movement bob, landing response, and sprint FOV feedback.
+- **Controller support** — left-stick movement, right-stick look, gamepad actions for mining/placing, hotbar cycling, inventory, pause, map, journal, and per-action controller button rebinding.
 - **Quality of life** — minimap with zoom and waypoints, achievements journal,
   key rebinding, accessibility toggles, photo mode, dev console, and an
   automatic quality governor.
@@ -85,7 +87,11 @@ script looks on `PATH` and in common install locations.
 | `F9` | Mute sounds |
 | `/` | Dev console |
 
-Bindings are rebindable from **Esc → Controls**.
+Bindings are rebindable from **Esc → Controls**. The Controls panel has separate keyboard and controller buttons; controller overrides persist in `user://gamepad.cfg`, independently of the existing keyboard config.
+
+**Controller defaults:** left stick moves, right stick looks, A jumps, B toggles creative flight, left/right shoulder place/mine, right-stick click picks a block, Y opens inventory, Start pauses, D-pad left/right cycles the hotbar, and D-pad up/down opens the map/journal.
+
+Inventory supports click-to-pick/place, right-click half-stack splitting, Shift-click quick transfer, and drag-and-drop between compatible slots.
 
 ## Project layout
 
