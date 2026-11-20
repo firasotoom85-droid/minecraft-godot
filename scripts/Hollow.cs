@@ -88,7 +88,7 @@ public partial class Hollow : Mob
             Vector3 toPlayer = player.GlobalPosition - GlobalPosition;
             toPlayer.Y = 0.0f;
             float d = toPlayer.Length();
-            bool visible = HasLineOfSight(player);
+            bool visible = CanDetectPlayer(3.0f) && HasLineOfSight(player);
             if (visible) RememberTarget(player.GlobalPosition);
             if (d < SightRadius && (IsAlerted || visible || TryGetRememberedTarget(out _)))
             {
