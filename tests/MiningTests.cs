@@ -36,6 +36,21 @@ public static class MiningTests
                     < BlockDb.MiningSeconds(BlockDb.DefOf(BlockId.Log), null),
             "axe is the preferred tool for logs");
 
+        BlockDb.BlockDef glass = BlockDb.DefOf(BlockId.Glass);
+        float glassNormalTime = glass.Hardness * 1.5f;
+        TestAssert.Check(
+            System.MathF.Abs(BlockDb.MiningSeconds(glass, null) - glassNormalTime) < 0.0001f,
+            "glass uses normal hardness timing when no specialized tool is required");
+        TestAssert.Check(
+            System.MathF.Abs(BlockDb.MiningSeconds(glass, ItemDb.ToolOf(ItemId.WoodPick)) - glassNormalTime) < 0.0001f,
+            "unrequired tool classes do not create an artificial speed penalty or bonus");
+
+        BlockDb.BlockDef cactus = BlockDb.DefOf(BlockId.Cactus);
+        TestAssert.Equal(ToolKind.None, cactus.Tool, "cactus does not require a preferred tool");
+        TestAssert.Check(
+            System.MathF.Abs(BlockDb.MiningSeconds(cactus, null) - cactus.Hardness * 1.5f) < 0.0001f,
+            "cactus is not slowed by an arbitrary axe requirement");
+
         TestAssert.Check(BlockDb.CanHarvest(BlockDb.DefOf(BlockId.Dirt), null),
             "dirt drops when mined by hand");
         TestAssert.Check(BlockDb.CanHarvest(stone, ItemDb.ToolOf(ItemId.WoodPick)),
@@ -69,6 +84,27 @@ public static class MiningTests
         TestAssert.Equal(5, BlockDb.CrackStage(0.59f), "crack stage advances progressively");
         TestAssert.Equal(9, BlockDb.CrackStage(0.99f), "crack stage reaches final texture");
         TestAssert.Equal(9, BlockDb.CrackStage(1.0f), "completed mining clamps to final stage");
+
+        TestAssert.Check(BlockDb.IsCross(BlockId.TallGrass), "tall grass uses cross geometry");
+        TestAssert.Check(BlockDb.IsCross(BlockId.FlowerRed), "flowers use cross geometry");
+        TestAssert.Check(BlockDb.IsCross(BlockId.Torch), "torches use cross geometry");
+        TestAssert.Check(BlockDb.IsCross(BlockId.Wheat2), "wheat uses cross geometry");
+
+        TestAssert.Check(
+            BlockDb.RayIntersectsCross(
+                    new Vector3(0.5f, 0.5f, -1.0f), new Vector3(0.0f, 0.0f, 1.0f),
+                    Vector3I.Zero, 0.0f, 3.0f, out float crossDistance),
+            "ray can hit a cross-shaped plant without a physics collider");
+        TestAssert.Check(System.MathF.Abs(crossDistance - 1.5f) < 0.001f,
+            "cross-plant ray reports the correct intersection distance");
+        TestAssert.Check(!BlockDb.RayIntersectsCross(
+                    new Vector3(0.5f, 1.5f, -1.0f), new Vector3(0.0f, 0.0f, 1.0f),
+                    Vector3I.Zero, 0.0f, 3.0f, out _),
+            "cross-plant ray rejects hits above the visible geometry");
+        TestAssert.Check(!BlockDb.RayIntersectsCross(
+                    new Vector3(0.5f, 0.5f, -1.0f), new Vector3(0.0f, 0.0f, 1.0f),
+                    Vector3I.Zero, 0.0f, 1.0f, out _),
+            "cross-plant ray respects its maximum reach");
 
         foreach (BlockId id in System.Enum.GetValues<BlockId>())
         {

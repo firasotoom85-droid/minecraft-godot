@@ -130,7 +130,7 @@ public static class BlockDb
         new("Birch Leaves", true, false, [TBirchLeaves, TBirchLeaves, TBirchLeaves, TBirchLeaves, TBirchLeaves, TBirchLeaves],
                 0.2f, ToolKind.Hoe, Drops: false),
         new("Cactus", true, false, [TCactusTop, TCactusTop, TCactusSide, TCactusSide, TCactusSide, TCactusSide],
-                0.4f, ToolKind.Axe),
+                0.4f),
         new("Crafting Table", true, false,
                 [TCraftingTop, TPlanks, TCraftingSide, TCraftingSide, TCraftingSide, TCraftingSide],
                 2.5f, ToolKind.Axe),
@@ -223,7 +223,8 @@ public static class BlockDb
 
     /// <summary>
     /// Mining duration: the matching tool uses hardness × 1.5 / speed;
-    /// a hand or a non-matching tool uses hardness × 5.
+    /// a hand or a non-matching tool uses hardness × 5. Blocks without a
+    /// preferred tool class use the normal 1.5 hardness multiplier.
     /// </summary>
     public static float MiningSeconds(BlockDef def, ToolInfo? tool)
     {
@@ -232,13 +233,66 @@ public static class BlockDb
             return float.PositiveInfinity;
         }
 
-        if (def.Tool != ToolKind.None && tool is { } held
-                && held.Kind == def.Tool && held.Speed > 0.0f)
+        if (def.Tool == ToolKind.None)
+        {
+            return def.Hardness * 1.5f;
+        }
+
+        if (tool is { } held && held.Kind == def.Tool && held.Speed > 0.0f)
         {
             return def.Hardness * 1.5f / held.Speed;
         }
 
         return def.Hardness * 5.0f;
+    }
+
+    /// <summary>
+    /// Intersects the two diagonal, full-height planes used by cross-plant
+    /// geometry. Direction must be normalized; distances are from origin.
+    /// </summary>
+    public static bool RayIntersectsCross(
+            Vector3 origin, Vector3 direction, Vector3I block, float minDistance,
+            float maxDistance, out float hitDistance)
+    {
+        hitDistance = float.PositiveInfinity;
+        Vector3 localOrigin = origin - new Vector3(block.X, block.Y, block.Z);
+        const float epsilon = 0.0001f;
+
+        // Plane A: local X == local Z.
+        float denominatorA = direction.X - direction.Z;
+        if (Mathf.Abs(denominatorA) > epsilon)
+        {
+            float distance = (localOrigin.Z - localOrigin.X) / denominatorA;
+            if (distance >= minDistance - epsilon && distance <= maxDistance + epsilon)
+            {
+                Vector3 point = localOrigin + direction * distance;
+                if (point.X >= -epsilon && point.X <= 1.0f + epsilon
+                        && point.Y >= -epsilon && point.Y <= 1.0f + epsilon
+                        && point.Z >= -epsilon && point.Z <= 1.0f + epsilon)
+                {
+                    hitDistance = distance;
+                }
+            }
+        }
+
+        // Plane B: local X + local Z == 1.
+        float denominatorB = direction.X + direction.Z;
+        if (Mathf.Abs(denominatorB) > epsilon)
+        {
+            float distance = (1.0f - localOrigin.X - localOrigin.Z) / denominatorB;
+            if (distance >= minDistance - epsilon && distance <= maxDistance + epsilon)
+            {
+                Vector3 point = localOrigin + direction * distance;
+                if (point.X >= -epsilon && point.X <= 1.0f + epsilon
+                        && point.Y >= -epsilon && point.Y <= 1.0f + epsilon
+                        && point.Z >= -epsilon && point.Z <= 1.0f + epsilon)
+                {
+                    hitDistance = Mathf.Min(hitDistance, distance);
+                }
+            }
+        }
+
+        return float.IsFinite(hitDistance);
     }
 
     /// <summary>Crack texture stage in the ten-stage breaking animation.</summary>

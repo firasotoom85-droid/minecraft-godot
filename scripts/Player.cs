@@ -674,25 +674,23 @@ public partial class Player : CharacterBody3D, IDamageable
     // Block interaction
     // -----------------------------------------------------------------------
 
-    /// <summary>LMB press: swing at a mob, or start mining the current block.</summary>
+    /// <summary>LMB press: mine the closest voxel target or swing at a mob.</summary>
     public void AttackOrStartMining()
     {
-        if (World == null || !Ray.IsColliding())
+        if (World == null)
         {
             ResetMining();
-            return;
-        }
-
-        if (Ray.GetCollider() is IDamageable target)
-        {
-            ResetMining();
-            Swing(target);
             return;
         }
 
         if (!TryGetTargetBlock(out Vector3I bp, out BlockId id))
         {
             ResetMining();
+            if (Ray.IsColliding() && Ray.GetCollider() is IDamageable target)
+            {
+                Swing(target);
+            }
+
             return;
         }
 
@@ -736,21 +734,114 @@ public partial class Player : CharacterBody3D, IDamageable
     {
         blockPosition = new Vector3I(int.MinValue, 0, 0);
         blockId = BlockId.Air;
-        if (World == null || !Ray.IsColliding() || Ray.GetCollider() is IDamageable)
+        if (World == null)
         {
             return false;
         }
 
-        Vector3 hitPoint = Ray.GetCollisionPoint();
-        float maxReach = Reach + 0.05f;
-        if (Camera.GlobalPosition.DistanceSquaredTo(hitPoint) > maxReach * maxReach)
+        Vector3 origin = Camera.GlobalPosition;
+        Vector3 direction = -Camera.GlobalTransform.Basis.Z;
+        if (direction.LengthSquared() < 0.0001f)
         {
             return false;
         }
 
-        blockPosition = TargetBlock();
-        blockId = World.GetBlock(blockPosition.X, blockPosition.Y, blockPosition.Z);
-        return blockId is not (BlockId.Air or BlockId.Water);
+        direction = direction.Normalized();
+        float maxDistance = Reach + 0.05f;
+        if (Ray.IsColliding())
+        {
+            float colliderDistance = origin.DistanceTo(Ray.GetCollisionPoint());
+            maxDistance = Mathf.Min(
+                    maxDistance,
+                    Ray.GetCollider() is IDamageable
+                            ? colliderDistance - 0.001f
+                            : colliderDistance + 0.02f);
+        }
+
+        return TryRaycastVoxels(origin + direction * 0.0001f, direction,
+                maxDistance, out blockPosition, out blockId);
+    }
+
+    /// <summary>
+    /// Amanatides-Woo voxel traversal. Solid cubes are selected by cell entry;
+    /// cross plants are selected only when the ray intersects their visible
+    /// diagonal quads, leaving them non-colliding for player movement.
+    /// </summary>
+    private bool TryRaycastVoxels(
+            Vector3 origin, Vector3 direction, float maxDistance,
+            out Vector3I blockPosition, out BlockId blockId)
+    {
+        blockPosition = new Vector3I(int.MinValue, 0, 0);
+        blockId = BlockId.Air;
+        if (maxDistance < 0.0f)
+        {
+            return false;
+        }
+
+        int x = Mathf.FloorToInt(origin.X);
+        int y = Mathf.FloorToInt(origin.Y);
+        int z = Mathf.FloorToInt(origin.Z);
+        int stepX = direction.X > 0.0f ? 1 : direction.X < 0.0f ? -1 : 0;
+        int stepY = direction.Y > 0.0f ? 1 : direction.Y < 0.0f ? -1 : 0;
+        int stepZ = direction.Z > 0.0f ? 1 : direction.Z < 0.0f ? -1 : 0;
+
+        float deltaX = stepX == 0 ? float.PositiveInfinity : Mathf.Abs(1.0f / direction.X);
+        float deltaY = stepY == 0 ? float.PositiveInfinity : Mathf.Abs(1.0f / direction.Y);
+        float deltaZ = stepZ == 0 ? float.PositiveInfinity : Mathf.Abs(1.0f / direction.Z);
+        float nextX = stepX > 0 ? (x + 1.0f - origin.X) / direction.X
+                : stepX < 0 ? (origin.X - x) / -direction.X : float.PositiveInfinity;
+        float nextY = stepY > 0 ? (y + 1.0f - origin.Y) / direction.Y
+                : stepY < 0 ? (origin.Y - y) / -direction.Y : float.PositiveInfinity;
+        float nextZ = stepZ > 0 ? (z + 1.0f - origin.Z) / direction.Z
+                : stepZ < 0 ? (origin.Z - z) / -direction.Z : float.PositiveInfinity;
+
+        float entryDistance = 0.0f;
+        while (entryDistance <= maxDistance)
+        {
+            float exitDistance = Mathf.Min(nextX, Mathf.Min(nextY, nextZ));
+            BlockId current = World!.GetBlock(x, y, z);
+            if (current is not (BlockId.Air or BlockId.Water or BlockId.Lava))
+            {
+                if (!BlockDb.IsCross(current)
+                        || BlockDb.RayIntersectsCross(
+                                origin, direction, new Vector3I(x, y, z),
+                                entryDistance, Mathf.Min(exitDistance, maxDistance), out _))
+                {
+                    blockPosition = new Vector3I(x, y, z);
+                    blockId = current;
+                    return true;
+                }
+            }
+
+            if (!float.IsFinite(exitDistance) || exitDistance > maxDistance)
+            {
+                break;
+            }
+
+            const float tieEpsilon = 0.00001f;
+            bool advanceX = nextX <= exitDistance + tieEpsilon;
+            bool advanceY = nextY <= exitDistance + tieEpsilon;
+            bool advanceZ = nextZ <= exitDistance + tieEpsilon;
+            if (advanceX)
+            {
+                x += stepX;
+                nextX += deltaX;
+            }
+            if (advanceY)
+            {
+                y += stepY;
+                nextY += deltaY;
+            }
+            if (advanceZ)
+            {
+                z += stepZ;
+                nextZ += deltaZ;
+            }
+
+            entryDistance = exitDistance;
+        }
+
+        return false;
     }
 
     /// <summary>True when the ray currently rests on a crafting table in reach.</summary>
@@ -1131,9 +1222,10 @@ public partial class Player : CharacterBody3D, IDamageable
                 }
             }
 
-            if (id is BlockId.Leaves or BlockId.BirchLeaves && GD.Randf() < 0.06f)
+            // Apples are an oak-leaf bonus drop; birch foliage never produces them.
+            if (id == BlockId.Leaves && GD.Randf() < 0.06f)
             {
-                Inventory.Add(ItemId.Apple, 1);
+                GiveDrop(ItemId.Apple, 1);
             }
 
             if (tool is not null)
@@ -1371,28 +1463,19 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        if (!Ray.IsColliding())
-        {
-            ResetMining();
-            return;
-        }
-
-        if (Ray.GetCollider() is IDamageable target)
-        {
-            ResetMining();
-            _mineTimer -= delta;
-            if (_mineTimer <= 0.0)
-            {
-                _mineTimer = 0.5;
-                Swing(target);
-            }
-
-            return;
-        }
-
         if (!TryGetTargetBlock(out Vector3I bp, out BlockId id))
         {
             ResetMining();
+            if (Ray.IsColliding() && Ray.GetCollider() is IDamageable target)
+            {
+                _mineTimer -= delta;
+                if (_mineTimer <= 0.0)
+                {
+                    _mineTimer = 0.5;
+                    Swing(target);
+                }
+            }
+
             return;
         }
 

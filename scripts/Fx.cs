@@ -8,6 +8,9 @@ namespace Minecraft;
 /// </summary>
 public partial class Fx : Node
 {
+    private static readonly AtlasTexture?[] BlockTextures = new AtlasTexture?[BlockDb.BlockCount];
+    private static readonly GradientTexture1D?[] BlockColorRamps = new GradientTexture1D?[BlockDb.BlockCount];
+
     public GpuParticles3D BreakParticles = null!;
     public GpuParticles3D PlaceParticles = null!;
     public GpuParticles3D MiningParticles = null!;
@@ -91,6 +94,7 @@ public partial class Fx : Node
             case BlockId.TallGrass:
             case BlockId.FlowerRed:
             case BlockId.FlowerYellow:
+            case BlockId.Cactus:
             case BlockId.Wheat0:
             case BlockId.Wheat1:
             case BlockId.Wheat2:
@@ -125,8 +129,23 @@ public partial class Fx : Node
                 break;
         }
 
+        mat.AlbedoTexture = TextureFor(blockId);
+        particles.ColorRamp = ColorRampFor(blockId);
+        sys.GlobalPosition = pos;
+        sys.Restart();
+        sys.Emitting = true;
+    }
+
+    private static AtlasTexture TextureFor(BlockId blockId)
+    {
+        int index = (int)blockId;
+        if (BlockTextures[index] is { } cached)
+        {
+            return cached;
+        }
+
         int tile = BlockDb.IconTile(blockId);
-        mat.AlbedoTexture = new AtlasTexture
+        AtlasTexture texture = new()
         {
             Atlas = BlockDb.AtlasTexture(),
             Region = new Rect2(
@@ -134,17 +153,28 @@ public partial class Fx : Node
                 (tile / BlockDb.AtlasCols) * BlockDb.TilePx,
                 BlockDb.TilePx, BlockDb.TilePx),
         };
-        Color col = BlockDb.AverageTileColor(blockId);
-        Gradient ramp = new();
-        ramp.SetColor(0, col.WithAlpha(1.0f));
-        ramp.SetColor(1, col.WithAlpha(0.0f));
-        ((ParticleProcessMaterial)sys.ProcessMaterial).ColorRamp = new GradientTexture1D
+        BlockTextures[index] = texture;
+        return texture;
+    }
+
+    private static GradientTexture1D ColorRampFor(BlockId blockId)
+    {
+        int index = (int)blockId;
+        if (BlockColorRamps[index] is { } cached)
         {
-            Gradient = ramp,
+            return cached;
+        }
+
+        Color color = BlockDb.AverageTileColor(blockId);
+        Gradient gradient = new();
+        gradient.SetColor(0, color.WithAlpha(1.0f));
+        gradient.SetColor(1, color.WithAlpha(0.0f));
+        GradientTexture1D ramp = new()
+        {
+            Gradient = gradient,
         };
-        sys.GlobalPosition = pos;
-        sys.Restart();
-        sys.Emitting = true;
+        BlockColorRamps[index] = ramp;
+        return ramp;
     }
 
     private void OnBroken(Vector3 pos, int blockId)

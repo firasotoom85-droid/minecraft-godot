@@ -739,3 +739,19 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   removal, chunk-seam, source-level, skylight-shaft and cave-darkness tests.
 - **Verification pending:** run the Godot 4.7.2 .NET build, headless suite and
   MX230 visual/performance soak before treating this change as release-verified.
+
+
+## Mining interaction follow-up audit — 2026-11-20
+
+- Corrected mining timing for blocks without a preferred tool class (including
+  glass and flowers); these now use the normal hardness multiplier rather than
+  the wrong-tool penalty. Cactus no longer has an arbitrary axe requirement.
+- Added voxel DDA targeting for non-colliding crossed plant meshes (tall grass,
+  flowers, torches and wheat). Cross-plane checks match the mesher geometry;
+  terrain collision meshes remain unchanged.
+- Cached per-block particle atlas textures and color ramps so frequent
+  mining-chip feedback does not allocate fresh texture and gradient resources
+  every quarter-second.
+- Oak leaves retain the bonus apple drop; birch leaves do not. Apple inventory
+  overflow now uses the same full-inventory notification as other bonus drops.
+- Added regression checks for no-tool mining timing and cross-plant ray hits.
