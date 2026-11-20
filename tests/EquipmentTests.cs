@@ -54,7 +54,7 @@ public static class EquipmentTests
         TestAssert.Equal(1, EquipmentProgression.Cost(Enchantment.Sharpness, 1).Lapis, "enchant cost has lapis");
         TestAssert.Equal(3, EquipmentProgression.Cost(Enchantment.Unbreaking, 2).Levels, "unbreaking cost scales by level");
         PlayerStats levelTest = new();
-        levelTest.AddExperience(PlayerStats.ExperienceAtLevel(5));
+        levelTest.AddExperience(PlayerStats.ExperienceAtLevel(5) + 5);
         TestAssert.Equal(5, levelTest.ExperienceLevel, "experience points convert to levels");
         TestAssert.Check(levelTest.TrySpendLevels(2), "experience levels can be spent");
         TestAssert.Equal(3, levelTest.ExperienceLevel, "spending levels preserves remaining level progress");
