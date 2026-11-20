@@ -74,6 +74,10 @@ public static class MobContentTests
                 "animal hunger drains gradually with elapsed time");
         TestAssert.Equal(100.0f, Wanderer.RestoreHunger(80.0f, 42.0f),
                 "grazing restores hunger without exceeding its cap");
+        TestAssert.Equal(0.72f, Wanderer.MovementMultiplierForHunger(10.0f),
+                "starving animals move more slowly");
+        TestAssert.Equal(1.0f, Wanderer.MovementMultiplierForHunger(70.0f),
+                "well-fed animals retain normal movement speed");
         TestAssert.Check(Wanderer.IsGrazeable(BlockId.Grass)
                 && Wanderer.IsGrazeable(BlockId.SnowGrass),
                 "grass and snowy grass support grazing");
