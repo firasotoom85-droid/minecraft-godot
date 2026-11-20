@@ -3,11 +3,10 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>
-/// The sheep: wanders and avoids water when wild; once tamed (right-click)
-/// it follows the player, or waits where told. (The wild leash logic is
-/// the same one the old Mob had — taming just re-points Home at the player.)
+/// Sheep wander and flock while wild. Wheat can be used to breed them; an
+/// empty hand still tames one, and subsequent interactions toggle stay/follow.
 /// </summary>
-public partial class Sheep : Mob
+public partial class Sheep : Wanderer
 {
     public bool Tamed;
     public bool Staying;
@@ -28,10 +27,7 @@ public partial class Sheep : Mob
     {
         CollisionShape3D shape = new()
         {
-            Shape = new BoxShape3D
-            {
-                Size = new Vector3(0.85f, 0.9f, 1.1f),
-            },
+            Shape = new BoxShape3D { Size = new Vector3(0.85f, 0.9f, 1.1f) },
             Position = new Vector3(0, 0.75f, 0),
         };
         AddChild(shape);
@@ -56,12 +52,12 @@ public partial class Sheep : Mob
         CommitBody(st);
     }
 
-    /// <summary>Cycle: wild → follows → stays → follows …</summary>
+    /// <summary>Wheat is the breeding food; otherwise the original tame/stay/follow controls remain.</summary>
     public override bool Interact(Player player)
     {
-        if (World == null)
+        if (TryFeed(player))
         {
-            return false;
+            return true;
         }
 
         if (!Tamed)
@@ -94,15 +90,14 @@ public partial class Sheep : Mob
         {
             Vector3 toPlayer = player.GlobalPosition - GlobalPosition;
             toPlayer.Y = 0.0f;
-            float d = toPlayer.Length();
-            if (d > 48.0f)
+            float distance = toPlayer.Length();
+            if (distance > 48.0f)
             {
-                // Too far behind (chunk streaming edge) — catch up instantly.
                 Vector3 target = player.GlobalPosition + new Vector3(2, 0, 2);
                 Vector2I cp = new(
                         Mathf.FloorToInt(target.X / VoxelWorld.ChunkX),
                         Mathf.FloorToInt(target.Z / VoxelWorld.ChunkZ));
-                if (World!.HasChunk(cp))
+                if (World?.HasChunk(cp) == true)
                 {
                     GlobalPosition = target;
                 }
@@ -110,36 +105,9 @@ public partial class Sheep : Mob
                 return Vector3.Zero;
             }
 
-            return d > 3.2f ? toPlayer : Vector3.Zero;
+            return distance > 3.2f ? toPlayer : Vector3.Zero;
         }
 
-        // Wild (or staying): relaxed wander around Home.
-        Timer -= delta;
-        if (Timer <= 0.0)
-        {
-            (Walking, Timer) = Walking
-                    ? (false, GD.RandRange(1.0, 3.5))
-                    : (true, GD.RandRange(1.5, 4.0));
-            if (Walking)
-            {
-                float ang = GD.Randf() * Mathf.Tau;
-                Dir = new Vector3(Mathf.Cos(ang), 0.0f, Mathf.Sin(ang));
-            }
-        }
-
-        if (!Walking)
-        {
-            return Vector3.Zero;
-        }
-
-        Vector3 pos = GlobalPosition;
-        if (pos.DistanceTo(Home) > Leash)
-        {
-            Vector3 back = Home - pos;
-            back.Y = 0.0f;
-            Dir = back.Normalized();
-        }
-
-        return Dir;
+        return base.Think(delta);
     }
 }
