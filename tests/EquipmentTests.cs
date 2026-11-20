@@ -21,6 +21,12 @@ public static class EquipmentTests
         TestAssert.Check(!Recipes.CanCraft(ds,mats), "diamond sword requires two diamonds");mats.Add(ItemId.Diamond,1);TestAssert.Check(Recipes.CanCraft(ds,mats), "diamond sword crafts with two diamonds");
         TestAssert.Check(Recipes.All.Any(r => r.Result == ItemId.EnchantingTable), "enchanting table has a crafting recipe");
         TestAssert.Equal(BlockId.EnchantingTable, ItemDb.BlockFor(ItemId.EnchantingTable) ?? BlockId.Air, "enchanting table item maps to block");
+        Inventory tableMaterials = new();
+        tableMaterials.Add(ItemId.Diamond, 4);
+        tableMaterials.Add(ItemId.IronIngot, 4);
+        tableMaterials.Add(ItemId.EmberCore, 1);
+        Recipe enchantingTableRecipe = Recipes.All.First(r => r.Result == ItemId.EnchantingTable);
+        TestAssert.Check(Recipes.CanCraft(enchantingTableRecipe, tableMaterials), "enchanting table requires and accepts its full rare-material recipe");
 
         PlayerStats xp = new();
         xp.AddExperience(ExperienceAtLevelForTest(5));
