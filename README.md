@@ -20,8 +20,14 @@ The project is a long-running solo build with an extensive design log in
   share codes and per-world seeds.
 - **Survival** — health, hunger, breath, drowning, fall damage, softcore
   respawn, armor, tools with durability, fishing, farming, and cooking.
-- **A living world** — sheep, cows, pigs, chickens; Shades, Rots, Hollows, the
-  Ember Warden boss; a wandering trader; weather, lightning, and ambient life.
+- **A living world** — herding sheep, cows, pigs and chickens react to nearby
+  danger, gather in small groups, accept species-appropriate breeding food, and
+  raise young that mature over time. Briarbacks defend birch forests.
+- **Creature combat** — Shades and Rots coordinate detection, Hollows and
+  Crystal Wisps telegraph dodgeable ranged shots, Cave Stalkers pounce from
+  caves, and rare Dreadwings flank players at night; the Ember Warden remains
+  the arena boss. A wandering trader, weather, lightning and ambient life
+  complete the ecosystem.
 - **Quality of life** — minimap with zoom and waypoints, achievements journal,
   key rebinding, accessibility toggles, photo mode, dev console, and an
   automatic quality governor.
