@@ -618,13 +618,21 @@ public partial class VoxelWorld : Node3D
             return null;
         }
 
-        int h = SurfaceHeight(tx, tz);
-        if (h <= SeaLevel + 1)
+        int h;
+        Biome biome;
+        if (_genVersion >= WorldGenV7.Version)
         {
-            return null;
+            WorldGenV7.SurfaceSample surface = GeneratorV7.SampleSurface(tx, tz, SeaLevel);
+            h = surface.Height;
+            biome = surface.Biome;
+        }
+        else
+        {
+            h = SurfaceHeight(tx, tz);
+            biome = BiomeAt(tx, tz, h);
         }
 
-        if (BiomeAt(tx, tz, h) != Biome.Desert)
+        if (h <= SeaLevel + 1 || biome != Biome.Desert)
         {
             return null;
         }
@@ -659,13 +667,21 @@ public partial class VoxelWorld : Node3D
             return null;
         }
 
-        int h = SurfaceHeight(x, z);
-        if (h <= SeaLevel + 2 || h >= Height - 4)
+        int h;
+        Biome biome;
+        if (_genVersion >= WorldGenV7.Version)
         {
-            return null;
+            WorldGenV7.SurfaceSample surface = GeneratorV7.SampleSurface(x, z, SeaLevel);
+            h = surface.Height;
+            biome = surface.Biome;
+        }
+        else
+        {
+            h = SurfaceHeight(x, z);
+            biome = BiomeAt(x, z, h);
         }
 
-        if (BiomeAt(x, z, h) == Biome.Snow)
+        if (h <= SeaLevel + 2 || h >= Height - 4 || biome == Biome.Snow)
         {
             return null;
         }
