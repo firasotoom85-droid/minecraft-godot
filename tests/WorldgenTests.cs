@@ -66,6 +66,7 @@ public static class WorldgenTests
 
         CheckLegacyGoldenHashes(host);
         CheckV7BiomeDistribution();
+        ProfileV7ColumnSampling();
         CheckV7Determinism(host);
         CheckV7ChunkBoundaries(host);
     }
@@ -358,11 +359,6 @@ public static class WorldgenTests
     }
 
     // Profiling is informational: CI timing is not used as a hard performance gate.
-    private static void RunV7ProfileOnce()
-    {
-        ProfileV7ColumnSampling();
-    }
-
     /// <summary>A saved torch edit must repopulate the light registry on load.</summary>
     private static void CheckLightPersistence(Node host)
     {
