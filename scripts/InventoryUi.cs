@@ -26,8 +26,10 @@ public partial class InvSlot : Panel
     private TextureRect _icon = null!;
     private Label _count = null!;
     private bool _hovered;
+    private bool _hasStack;
 
     public event Action<InvSlot, MouseButton>? Clicked;
+    public event Action<InvSlot, InvSlot>? Dropped;
 
     public override void _Ready()
     {
@@ -62,6 +64,7 @@ public partial class InvSlot : Panel
             return;
         }
 
+        _hasStack = !stack.IsEmpty;
         TooltipText = stack.IsEmpty ? "" : $"{ItemDb.NameOf(stack.Id)}\\n{(ItemDb.ToolOf(stack.Id) is { } toolInfo ? $"Durability: {stack.Durability}/{toolInfo.Durability}" : $"Count: {stack.Count}")}";
         _icon.Texture = stack.IsEmpty ? null : ItemDb.Icon(stack.Id);
         _icon.Visible = !stack.IsEmpty;
@@ -93,9 +96,34 @@ public partial class InvSlot : Panel
         AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle());
     }
 
+    public override Variant _GetDragData(Vector2 atPosition)
+    {
+        if (!_hasStack) return default;
+        Panel preview = new()
+        {
+            CustomMinimumSize = new Vector2(48, 48),
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        preview.AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(true, false));
+        SetDragPreview(preview);
+        return Variant.From(this);
+    }
+
+    public override bool _CanDropData(Vector2 atPosition, Variant data)
+    {
+        return data.AsGodotObject() is InvSlot source && source != this && source._hasStack;
+    }
+
+    public override void _DropData(Vector2 atPosition, Variant data)
+    {
+        if (data.AsGodotObject() is InvSlot source && source != this)
+            Dropped?.Invoke(source, this);
+    }
+
     public override void _GuiInput(InputEvent @event)
     {
-        if (@event is InputEventMouseButton button && button.Pressed)
+        // Dispatch on release so Godot can recognize a drag gesture first.
+        if (@event is InputEventMouseButton button && !button.Pressed)
         {
             Clicked?.Invoke(this, button.ButtonIndex);
             AcceptEvent();
@@ -402,6 +430,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             CustomMinimumSize = new Vector2(SlotPx, SlotPx),
         };
         slot.Clicked += OnSlotClicked;
+        slot.Dropped += OnSlotDropped;
         return slot;
     }
 
@@ -669,6 +698,76 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             case SlotKind.FurnaceOutput when _furnace != null: _furnace.Output = remainder; break;
         }
         return true;
+    }
+
+    private ItemStack ReadSlot(InvSlot slot) => slot.Kind switch
+    {
+        SlotKind.Craft => _craft[slot.Index],
+        SlotKind.Backpack => _player.Inventory.Backpack[slot.Index],
+        SlotKind.Hotbar => _player.Inventory.Hotbar[slot.Index],
+        SlotKind.Container when _container != null => _container.Slots[slot.Index],
+        SlotKind.FurnaceInput when _furnace != null => _furnace.Input,
+        SlotKind.FurnaceFuel when _furnace != null => _furnace.Fuel,
+        _ => ItemStack.Empty,
+    };
+
+    private void WriteSlot(InvSlot slot, ItemStack stack)
+    {
+        switch (slot.Kind)
+        {
+            case SlotKind.Craft: _craft[slot.Index] = stack; break;
+            case SlotKind.Backpack: _player.Inventory.Backpack[slot.Index] = stack; break;
+            case SlotKind.Hotbar: _player.Inventory.Hotbar[slot.Index] = stack; break;
+            case SlotKind.Container when _container != null: _container.Slots[slot.Index] = stack; break;
+            case SlotKind.FurnaceInput when _furnace != null: _furnace.Input = stack; break;
+            case SlotKind.FurnaceFuel when _furnace != null: _furnace.Fuel = stack; break;
+        }
+    }
+
+    private void OnSlotDropped(InvSlot source, InvSlot target)
+    {
+        if (source.Kind == SlotKind.Result || target.Kind is SlotKind.Result or SlotKind.FurnaceOutput)
+            return;
+        if (source.Kind == target.Kind && source.Index == target.Index)
+            return;
+
+        ItemStack moving = ReadSlot(source);
+        ItemStack destination = ReadSlot(target);
+        if (moving.IsEmpty)
+            return;
+
+        if (target.Kind == SlotKind.Armor
+                && (ItemDb.ArmorOf(moving.Id) is not { } armor || armor.Slot != target.Index || moving.Count != 1))
+            return;
+        if (source.Kind == SlotKind.Armor && !destination.IsEmpty
+                && (ItemDb.ArmorOf(destination.Id) is not { } swappedArmor || swappedArmor.Slot != source.Index || destination.Count != 1))
+            return;
+
+        if (destination.IsEmpty)
+        {
+            WriteSlot(target, moving);
+            WriteSlot(source, ItemStack.Empty);
+        }
+        else if (destination.Id == moving.Id && destination.Count < ItemDb.MaxStack(destination.Id))
+        {
+            int amount = Math.Min(ItemDb.MaxStack(destination.Id) - destination.Count, moving.Count);
+            WriteSlot(target, destination with { Count = destination.Count + amount });
+            WriteSlot(source, moving.Count == amount ? ItemStack.Empty : moving with { Count = moving.Count - amount });
+        }
+        else
+        {
+            if (target.Kind == SlotKind.Armor
+                    && (ItemDb.ArmorOf(moving.Id) is not { } incoming || incoming.Slot != target.Index || moving.Count != 1))
+                return;
+            if (source.Kind == SlotKind.Armor
+                    && (ItemDb.ArmorOf(destination.Id) is not { } outgoing || outgoing.Slot != source.Index || destination.Count != 1))
+                return;
+            WriteSlot(target, moving);
+            WriteSlot(source, destination);
+        }
+
+        _player.Inventory.RaiseChanged();
+        Refresh();
     }
 
     private void ClickStack(ref ItemStack slot, MouseButton button)
