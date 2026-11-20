@@ -19,8 +19,10 @@ The project is a long-running solo build with an extensive design log in
   are part of the merge key, preserving lighting boundaries.
 - **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
   voxels, warm multi-source propagation with opaque occlusion, cave darkness and
-  live place/break updates across chunk boundaries. Lighting is baked into mesh
-  vertex channels; no per-torch light-node pool is required.
+  live place/break updates across chunk boundaries. Emitter edits incrementally
+  add/remove block light in cached 3×3 regions; opacity edits invalidate the
+  affected light maps so direct sun and cave spill are recalculated. Lighting is
+  baked into mesh vertex channels; no per-torch light-node pool is required.
 - **World presets** — normal, flat, amplified, and floating sky islands, with
   share codes and per-world seeds.
 - **Survival** — health, hunger, breath, drowning, fall damage, softcore
