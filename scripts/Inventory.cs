@@ -181,6 +181,16 @@ public sealed class Inventory
     /// <summary>Remove items wherever they are; false (and no change) when short.</summary>
     public bool Consume(ItemId id, int count)
     {
+        if (id == ItemId.None || count < 0)
+        {
+            return false;
+        }
+
+        if (count == 0)
+        {
+            return true;
+        }
+
         if (CountOf(id) < count)
         {
             return false;
