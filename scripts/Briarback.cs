@@ -4,7 +4,6 @@ namespace Minecraft;
 
 public partial class Briarback : Wanderer
 {
-    private Vector3 _provokedFrom;
     private float _rageTime;
     private double _attackCooldown;
 
@@ -20,7 +19,6 @@ public partial class Briarback : Wanderer
 
     protected override void OnProvoked(in DamageInfo info)
     {
-        _provokedFrom = info.Source;
         _rageTime = 10.0f;
         Manager?.Puff(GlobalPosition + new Vector3(0, 1.0f, 0), new Color(0.55f, 0.68f, 0.33f));
     }
