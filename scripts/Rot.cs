@@ -84,7 +84,7 @@ public partial class Rot : Mob
                 _attackCd -= delta;
                 if (d < AttackRange)
                 {
-                    if (_attackCd <= 0.0 && visible)
+                    if (MobCombatRules.CanAttack((float)_attackCd, visible))
                     {
                         _attackCd = AttackCooldown;
                         int packSize = Manager?.HostilesNear<Rot>(GlobalPosition, 9.0f) ?? 1;
