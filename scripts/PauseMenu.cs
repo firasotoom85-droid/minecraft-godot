@@ -162,6 +162,7 @@ public partial class PauseMenu : CanvasLayer, IModalUi
     {
         _mainPanel.Visible = !show;
         _settingsPanel.Visible = show;
+        UiFocus.FocusFirst(show ? _settingsPanel : _mainPanel);
     }
 
     private void QuitToMenu()
