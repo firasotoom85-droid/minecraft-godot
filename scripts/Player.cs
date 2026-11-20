@@ -197,7 +197,11 @@ public partial class Player : CharacterBody3D, IDamageable
         }
         else if (@event is InputEventJoypadButton pad && pad.Pressed)
         {
-            if (pad.IsActionPressed("break_block"))
+            if (pad.IsActionPressed("toggle_fly"))
+            {
+                SetFlying(!Flying);
+            }
+            else if (pad.IsActionPressed("break_block"))
             {
                 AttackOrStartMining();
                 _mineTimer = MineRepeat;
