@@ -74,7 +74,7 @@ public static class GamepadBindings
     {
         foreach (InputEvent inputEvent in InputMap.ActionGetEvents(action))
             if (inputEvent is InputEventJoypadButton button)
-                return button.Button.ToString();
+                return button.ButtonIndex.ToString();
         return "—";
     }
 
