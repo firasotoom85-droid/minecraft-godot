@@ -26,6 +26,7 @@ public partial class FluidSystem : Node
     private Vector2I _lastDiscoveryChunk = new(int.MinValue, int.MinValue);
     private int _lastDiscoveryYBand = int.MinValue;
     private int _sourcePulse;
+    private int _editsRemaining;
 
     public void Setup(VoxelWorld world, Player player)
     {
@@ -101,7 +102,8 @@ public partial class FluidSystem : Node
         if (_world == null) return;
         int processed = 0;
         int edits = 0;
-        while (processed < budget && edits < editBudget && _active.Count > 0)
+        _editsRemaining = editBudget;
+        while (processed < budget && edits < editBudget && _editsRemaining > 0 && _active.Count > 0)
         {
             Vector3I cell = _active.Dequeue();
             _queued.Remove(cell);
@@ -163,7 +165,7 @@ public partial class FluidSystem : Node
         if (best < 0)
         {
             if (unknownNeighbour) return 0;
-            if (_world.SetBlock(cell.X, cell.Y, cell.Z, BlockId.Air))
+            if (SetFluidBlock(cell, BlockId.Air))
             {
                 EnqueueWithNeighbours(cell);
                 return 1;
@@ -175,7 +177,7 @@ public partial class FluidSystem : Node
         if (desired > FluidRules.MaxFlowLevel)
         {
             if (unknownNeighbour) return 0;
-            if (_world.SetBlock(cell.X, cell.Y, cell.Z, BlockId.Air))
+            if (SetFluidBlock(cell, BlockId.Air))
             {
                 EnqueueWithNeighbours(cell);
                 return 1;
@@ -186,7 +188,7 @@ public partial class FluidSystem : Node
         int edits = 0;
         BlockId desiredBlock = FluidRules.BlockForLevel(desired);
         if (desiredBlock != FluidRules.BlockForLevel(level)
-                && _world.SetBlock(cell.X, cell.Y, cell.Z, desiredBlock))
+                && SetFluidBlock(cell, desiredBlock))
         {
             edits++;
             EnqueueWithNeighbours(cell);
@@ -241,7 +243,7 @@ public partial class FluidSystem : Node
                 && (current == BlockId.Air || BlockDb.IsWater(current)
                         && BlockDb.WaterLevel(current) > 0);
         if (!FluidRules.CanRegenerateSource(sources, true, replaceable)) return false;
-        if (!_world.SetBlock(target.X, target.Y, target.Z, BlockId.Water)) return false;
+        if (!SetFluidBlock(target, BlockId.Water)) return false;
         _sources.Add(target);
         EnqueueWithNeighbours(target);
         return true;
@@ -266,7 +268,7 @@ public partial class FluidSystem : Node
     {
         if (_world == null || !TryGetLoaded(position, out BlockId id)
                 || id != BlockId.Lava) return 0;
-        if (!_world.SetBlock(position.X, position.Y, position.Z, FluidRules.ReactWithWater(id))) return 0;
+        if (!SetFluidBlock(position, FluidRules.ReactWithWater(id))) return 0;
         EnqueueWithNeighbours(position);
         return 1;
     }
@@ -277,9 +279,17 @@ public partial class FluidSystem : Node
         if (!TryGetLoaded(target, out BlockId existing)) return 0;
         if (existing == BlockId.Lava) return ReactAt(target);
         if (!FluidRules.CanFlowInto(existing)) return 0;
-        if (!_world.SetBlock(target.X, target.Y, target.Z, FluidRules.BlockForLevel(level))) return 0;
+        if (!SetFluidBlock(target, FluidRules.BlockForLevel(level))) return 0;
         EnqueueWithNeighbours(target);
         return 1;
+    }
+
+    private bool SetFluidBlock(Vector3I position, BlockId id)
+    {
+        if (_world == null || _editsRemaining <= 0) return false;
+        if (!_world.SetBlock(position.X, position.Y, position.Z, id)) return false;
+        _editsRemaining--;
+        return true;
     }
 
     private bool TryGetLoaded(Vector3I position, out BlockId id)
