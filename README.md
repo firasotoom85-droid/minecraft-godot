@@ -113,8 +113,8 @@ Bindings are rebindable from **Esc → Controls**.
 
 Survival combat includes tiered swords, a bow with gravity-driven arrow projectiles,
 front-facing shield blocks against melee and ranged attacks, and armor mitigation.
-Mob defeats award experience; Crystal Wisps can drop lapis lazuli. The inventory's
-**Enchant / Upgrade** panel applies Sharpness, Protection, and Unbreaking (I–III)
+Mob defeats award experience; Crystal Wisps can drop lapis lazuli. Craft an **Enchanting Table** from four diamonds, four iron ingots, and an Ember Core;
+right-click it to open the dedicated station. Its **Enchant / Upgrade** panel applies Sharpness, Protection, and Unbreaking (I–III)
 using experience levels and lapis, and upgrades supported gear while preserving
 its remaining durability and enchantments. Experience and enchantment levels are
 stored in the existing player/inventory save files; old saves default these fields
