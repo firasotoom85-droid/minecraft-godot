@@ -58,7 +58,18 @@ public partial class MobProjectile : Area3D
             return;
         }
 
-        GlobalPosition += _velocity * (float)delta;
+        Vector3 nextPosition = GlobalPosition + _velocity * (float)delta;
+        PhysicsRayQueryParameters3D query = PhysicsRayQueryParameters3D.Create(
+                GlobalPosition, nextPosition, (uint)PhysicsLayer.Terrain);
+        query.CollideWithAreas = false;
+        if (GetWorld3D().DirectSpaceState.IntersectRay(query).Count > 0)
+        {
+            _manager?.Puff(nextPosition, _color);
+            QueueFree();
+            return;
+        }
+
+        GlobalPosition = nextPosition;
     }
 
     private void OnBodyEntered(Node3D body)
