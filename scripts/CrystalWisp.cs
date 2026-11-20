@@ -91,7 +91,7 @@ public partial class CrystalWisp : Mob
         }
 
         Vector3 toward = flat.Normalized();
-        Vector3 strafe = new(-toward.Z, 0.0f, toward.X) * _strafeSign;
+        Vector3 strafe = new Vector3(-toward.Z, 0.0f, toward.X) * _strafeSign;
         Vector3 movement = distance < 7.0f ? -toward : distance > 13.0f ? toward : Vector3.Zero;
         return movement + strafe * 0.35f;
     }
