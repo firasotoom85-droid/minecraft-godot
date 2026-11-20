@@ -1002,7 +1002,12 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     {
         if (_equipmentStatus == null) return;
         ItemStack selected = _player.Inventory.Hotbar[_player.Selected];
-        _equipmentStatus.Text = $"XP Level {_player.Stats.ExperienceLevel} · Lapis {_player.Inventory.CountOf(ItemId.LapisLazuli)}\nSelected: {(selected.IsEmpty ? "Empty" : ItemDb.NameOf(selected.Id))}";
+        ItemId target = EquipmentProgression.UpgradeTarget(selected.Id);
+        ItemId material = EquipmentProgression.UpgradeMaterial(selected.Id);
+        string upgrade = target == ItemId.None
+            ? "No upgrade available"
+            : $"Upgrade: {ItemDb.NameOf(target)} · {EquipmentProgression.UpgradeMaterialCount(selected.Id)} {ItemDb.NameOf(material)}";
+        _equipmentStatus.Text = $"XP Level {_player.Stats.ExperienceLevel} · Lapis {_player.Inventory.CountOf(ItemId.LapisLazuli)}\nSelected: {(selected.IsEmpty ? "Empty" : ItemDb.NameOf(selected.Id))}\n{upgrade}";
     }
     public override void _Process(double delta)
     {
