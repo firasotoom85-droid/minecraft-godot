@@ -10,6 +10,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
     private VBoxContainer _rows = null!;
     private Label _notice = null!;
     private string? _waitingAction;
+    private bool _waitingForGamepad;
     private bool _open;
 
     public void Setup(Player player)
@@ -49,7 +50,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         box.AddChild(MenuSkin.Title("CONTROLS", 18));
         Label hint = new()
         {
-            Text = "Click a binding, then press a key. Escape cancels.",
+            Text = "Select a key or controller binding, then press the desired input. Escape cancels.",
             HorizontalAlignment = HorizontalAlignment.Center,
         };
         hint.AddThemeFontSizeOverride("font_size", 12);
@@ -98,6 +99,12 @@ public partial class KeybindUi : CanvasLayer, IModalUi
             Button key = MenuSkin.MakeButton(Keybinds.LabelFor(action), () => WaitFor(action), 120);
             key.Name = "Key_" + action;
             row.AddChild(key);
+            if (GamepadBindings.LabelFor(action) != "—")
+            {
+                Button pad = MenuSkin.MakeButton(GamepadBindings.LabelFor(action), () => WaitForGamepad(action), 120);
+                pad.Name = "Pad_" + action;
+                row.AddChild(pad);
+            }
             _rows.AddChild(row);
         }
     }
@@ -105,6 +112,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
     private void WaitFor(string action)
     {
         _waitingAction = action;
+        _waitingForGamepad = false;
         _notice.Text = "";
         Button? target = _rows.GetNodeOrNull<Button>("Key_" + action);
         if (target != null)
@@ -113,36 +121,70 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         }
     }
 
+    private void WaitForGamepad(string action)
+    {
+        _waitingAction = action;
+        _waitingForGamepad = true;
+        _notice.Text = "Press a controller button…";
+        Button? target = _rows.GetNodeOrNull<Button>("Pad_" + action);
+        if (target != null) target.Text = "Press button…";
+    }
+
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (!_open)
+        if (!_open) return;
+
+        if (_waitingAction is { } action && _waitingForGamepad)
         {
+            if (@event is InputEventKey cancel && cancel.Pressed && cancel.Keycode == Key.Escape)
+            {
+                RefreshPadButton(action);
+                _waitingAction = null;
+                _waitingForGamepad = false;
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+
+            if (@event is InputEventJoypadButton padEvent && padEvent.Pressed)
+            {
+                JoyButton button = padEvent.ButtonIndex;
+                string? conflict = GamepadBindings.Conflict(action, button);
+                if (conflict != null)
+                {
+                    _notice.Text = $"{button} is already used by {conflict}";
+                    RefreshPadButton(action);
+                }
+                else
+                {
+                    GamepadBindings.SetButton(action, button);
+                    _notice.Text = "";
+                    RefreshPadButton(action);
+                }
+                _waitingAction = null;
+                _waitingForGamepad = false;
+                GetViewport().SetInputAsHandled();
+            }
             return;
         }
 
-        if (@event is not InputEventKey key || !key.Pressed || key.Echo)
-        {
-            return;
-        }
-
-        if (_waitingAction is { } action)
+        if (@event is not InputEventKey key || !key.Pressed || key.Echo) return;
+        if (_waitingAction is { } keyboardAction)
         {
             if (key.Keycode == Key.Escape)
             {
-                RefreshButton(action);
+                RefreshButton(keyboardAction);
             }
-            else if (Keybinds.Conflict(action, key.Keycode) is { } conflict)
+            else if (Keybinds.Conflict(keyboardAction, key.Keycode) is { } conflict)
             {
                 _notice.Text = $"{key.Keycode} is already bound to {conflict}";
-                RefreshButton(action);
+                RefreshButton(keyboardAction);
             }
             else
             {
                 _notice.Text = "";
-                Keybinds.Rebind(action, key.Keycode);
-                RefreshButton(action);
+                Keybinds.Rebind(keyboardAction, key.Keycode);
+                RefreshButton(keyboardAction);
             }
-
             _waitingAction = null;
             GetViewport().SetInputAsHandled();
             return;
@@ -153,6 +195,12 @@ public partial class KeybindUi : CanvasLayer, IModalUi
             Close();
             GetViewport().SetInputAsHandled();
         }
+    }
+
+    private void RefreshPadButton(string action)
+    {
+        Button? target = _rows.GetNodeOrNull<Button>("Pad_" + action);
+        if (target != null) target.Text = GamepadBindings.LabelFor(action);
     }
 
     private void RefreshButton(string action)
@@ -175,7 +223,9 @@ public partial class KeybindUi : CanvasLayer, IModalUi
     private void ResetAll()
     {
         Keybinds.ResetDefaults();
+        GamepadBindings.ResetDefaults();
         RefreshAll();
+        foreach ((string action, _) in Keybinds.Bindable) RefreshPadButton(action);
     }
 
     public void Open()
@@ -183,7 +233,9 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         _open = true;
         _root.Visible = true;
         _waitingAction = null;
+        _waitingForGamepad = false;
         RefreshAll();
+        foreach ((string action, _) in Keybinds.Bindable) RefreshPadButton(action);
         Input.MouseMode = Input.MouseModeEnum.Visible;
         _player.InputLocked = true;
     }
