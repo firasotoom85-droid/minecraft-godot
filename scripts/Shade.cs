@@ -19,6 +19,7 @@ public partial class Shade : Mob
         MaxHealth = 20.0f;
         Speed = 2.7f;
         DisplayName = "Shade";
+        Loot = [(ItemId.Coal, 1, 2, 0.85f), (ItemId.Stick, 1, 1, 0.35f)];
     }
 
     private double _attackCd;
