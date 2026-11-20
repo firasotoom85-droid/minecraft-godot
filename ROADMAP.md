@@ -651,3 +651,7 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   - **Integration caveat:** a subsequent run against the moving main branch
     failed in unrelated mob files (`CrystalWisp.cs`, `Dreadwing.cs`, and
     `Mobs.cs`); none of those files are part of this world-generation change.
+  - **Follow-up audit:** restored cave carving inside V7 sky islands and
+    constrained underground chambers to the island slab; added a sky-cave
+    regression check. Re-run CI and rebase/merge against current main before
+    considering the PR integration-ready.
