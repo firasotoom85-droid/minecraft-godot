@@ -75,6 +75,8 @@ public static class BlockDb
     private const int TBedTop = 41;
     private const int TBedSide = 42;
     private const int TLadder = 43;
+    private const int TEnchantTop = 44;
+    private const int TEnchantSide = 45;
 
     /// <summary>
     /// One block's definition; the tiles array is indexed by face (FACE order).
@@ -163,7 +165,7 @@ public static class BlockDb
         new("Ladder", false, true,
                 [TLadder, TLadder, TLadder, TLadder, TLadder, TLadder], 0.4f, ToolKind.Axe),
         new("Enchanting Table", true, false,
-                [TCraftingTop, TPlanks, TCraftingSide, TCraftingSide, TCraftingSide, TCraftingSide],
+                [TEnchantTop, TEnchantSide, TEnchantSide, TEnchantSide, TEnchantSide, TEnchantSide],
                 3.0f, ToolKind.Pick, 2),
     ];
 
@@ -645,6 +647,8 @@ void fragment() {
         PaintWheat(img, TWheat2, rng, 0.95f, true);
         PaintBed(img, rng);
         PaintLadder(img);
+        PaintEnchantingTop(img, rng);
+        PaintEnchantingSide(img, rng);
         return img;
     }
 
@@ -958,6 +962,37 @@ void fragment() {
         }
     }
 
+    private static void PaintEnchantingTop(Image img, RandomNumberGenerator rng)
+    {
+        FillNoise(img, TEnchantTop, new Color(0.12f, 0.08f, 0.22f), 0.035f, 1.0f, rng);
+        for (int i = 3; i < TilePx - 3; i++)
+        {
+            Px(img, TEnchantTop, i, 3, new Color(0.62f, 0.36f, 0.90f));
+            Px(img, TEnchantTop, i, TilePx - 4, new Color(0.62f, 0.36f, 0.90f));
+            Px(img, TEnchantTop, 3, i, new Color(0.62f, 0.36f, 0.90f));
+            Px(img, TEnchantTop, TilePx - 4, i, new Color(0.62f, 0.36f, 0.90f));
+        }
+        RectPixels(img, TEnchantTop, 11, 8, 10, 16, new Color(0.22f, 0.70f, 0.88f));
+        RectPixels(img, TEnchantTop, 8, 11, 16, 10, new Color(0.22f, 0.70f, 0.88f));
+        RectPixels(img, TEnchantTop, 14, 11, 4, 10, new Color(0.88f, 0.76f, 0.34f));
+    }
+
+    private static void PaintEnchantingSide(Image img, RandomNumberGenerator rng)
+    {
+        FillNoise(img, TEnchantSide, new Color(0.16f, 0.11f, 0.25f), 0.045f, 1.0f, rng);
+        for (int y = 0; y < TilePx; y += 8)
+            for (int x = 0; x < TilePx; x++)
+                Px(img, TEnchantSide, x, y, new Color(0.36f, 0.22f, 0.48f));
+        for (int i = 4; i < 28; i += 6)
+            Px(img, TEnchantSide, i, 16, new Color(0.25f, 0.68f, 0.82f));
+    }
+
+    private static void RectPixels(Image img, int tile, int x, int y, int width, int height, Color color)
+    {
+        for (int py = y; py < y + height; py++)
+            for (int px = x; px < x + width; px++)
+                Px(img, tile, px, py, color);
+    }
     /// <summary>Crafting table side: planks with a darker rim and tool marks.</summary>
     private static void PaintCraftingSide(Image img, RandomNumberGenerator rng)
     {
