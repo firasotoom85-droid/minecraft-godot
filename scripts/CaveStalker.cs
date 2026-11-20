@@ -94,7 +94,7 @@ public partial class CaveStalker : Mob
                         new Color(0.78f, 0.48f, 0.24f));
             }
 
-            return toPlayer;
+            return Vector3.Zero;
         }
 
         if (distance < 8.5f && _pounceCooldown <= 0.0)
