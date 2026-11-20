@@ -59,6 +59,45 @@ public static class MobContentTests
         TestAssert.Check(!MobCombatRules.CanBeginTelegraph(0.0f, 6.0f, 8.5f, false),
                 "pounce telegraph requires clear line of sight");
 
+        Mobs.HerdProfile chickenHerd = Mobs.HerdProfile.For(chicken);
+        Mobs.HerdProfile cowHerd = Mobs.HerdProfile.For(cow);
+        TestAssert.Check(chickenHerd.Minimum > cowHerd.Minimum
+                && chickenHerd.Maximum > cowHerd.Maximum,
+                "chickens form larger flocks than cattle");
+        TestAssert.Check(chickenHerd.Spacing < cowHerd.Spacing,
+                "small chicken flocks use tighter spacing");
+        TestAssert.Check(Mobs.HerdProfile.For(sheep).Cohesion > cowHerd.Cohesion,
+                "sheep use stronger herd cohesion than cattle");
+
+        TestAssert.Equal(90.0f, Wanderer.DrainHunger(100.0f, 10.0f),
+                "animal hunger drains gradually with elapsed time");
+        TestAssert.Equal(100.0f, Wanderer.RestoreHunger(80.0f, 42.0f),
+                "grazing restores hunger without exceeding its cap");
+        TestAssert.Check(Wanderer.IsGrazeable(BlockId.Grass)
+                && Wanderer.IsGrazeable(BlockId.SnowGrass),
+                "grass and snowy grass support grazing");
+        TestAssert.Check(!Wanderer.IsGrazeable(BlockId.Stone)
+                && !Wanderer.IsGrazeable(BlockId.Dirt),
+                "stone and dirt are not grazing targets");
+
+        TestAssert.Check(Mob.CanDetectAtLight(2, 3, 5),
+                "cave creature detects targets in dim light");
+        TestAssert.Check(!Mob.CanDetectAtLight(9, 2, 5),
+                "bright skylight suppresses dark-adapted cave detection");
+        TestAssert.Check(!Mob.CanDetectAtLight(2, 8, 5),
+                "bright block light suppresses cave detection");
+
+        TestAssert.Check(MobProjectileRules.ShouldStopOnTerrain(true),
+                "projectile terminates on terrain impact");
+        TestAssert.Check(!MobProjectileRules.ShouldStopOnTerrain(false),
+                "projectile continues without terrain collision");
+        TestAssert.Check(MobProjectileRules.ShouldDamagePlayer(true, false),
+                "player impact applies projectile damage");
+        TestAssert.Check(!MobProjectileRules.ShouldDamagePlayer(true, true),
+                "terrain impact prevents projectile damage through walls");
+        TestAssert.Check(!MobProjectileRules.ShouldDamagePlayer(false, false),
+                "non-player overlap cannot take projectile damage");
+
         // Wildlife uses the existing food inventory and persisted item ids.
         Sheep sheep = new();
         TestAssert.Check(sheep.IsPassive, "sheep uses passive wildlife behavior");
