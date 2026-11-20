@@ -16,7 +16,7 @@ public static class EquipmentProgression
 
     public static bool CanEnchant(ItemId item, Enchantment enchantment) => enchantment switch
     {
-        Enchantment.Sharpness => ItemDb.WeaponOf(item) is { Damage: > 0 } weapon && item != ItemId.Bow,
+        Enchantment.Sharpness => ItemDb.WeaponOf(item) is { Damage: > 0 } && item != ItemId.Bow,
         Enchantment.Protection => ItemDb.ArmorOf(item) != null,
         Enchantment.Unbreaking => ItemDb.WeaponOf(item) != null || ItemDb.ToolOf(item) != null || ItemDb.ArmorOf(item) != null,
         _ => false,
