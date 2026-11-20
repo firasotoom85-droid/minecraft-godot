@@ -44,6 +44,21 @@ public static class MobContentTests
         TestAssert.Check(!Mobs.IsBabySpawnCellSafe(BlockId.Grass, BlockId.Air, BlockId.Air, BlockId.Stone),
                 "newborn spawn reserves clearance for later growth");
 
+        TestAssert.Check(MobCombatRules.CanAttack(0.0f, true),
+                "hostile attack becomes available when cooldown expires in sight");
+        TestAssert.Check(!MobCombatRules.CanAttack(0.01f, true),
+                "hostile attack cooldown prevents repeated hits");
+        TestAssert.Check(!MobCombatRules.CanAttack(0.0f, false),
+                "hostile melee cannot hit through blocked line of sight");
+        TestAssert.Check(MobCombatRules.CanBeginTelegraph(0.0f, 6.0f, 8.5f, true),
+                "pounce telegraph starts inside range when ready and visible");
+        TestAssert.Check(!MobCombatRules.CanBeginTelegraph(1.0f, 6.0f, 8.5f, true),
+                "pounce telegraph waits for its cooldown");
+        TestAssert.Check(!MobCombatRules.CanBeginTelegraph(0.0f, 9.0f, 8.5f, true),
+                "pounce telegraph does not start outside range");
+        TestAssert.Check(!MobCombatRules.CanBeginTelegraph(0.0f, 6.0f, 8.5f, false),
+                "pounce telegraph requires clear line of sight");
+
         // Wildlife uses the existing food inventory and persisted item ids.
         Sheep sheep = new();
         TestAssert.Check(sheep.IsPassive, "sheep uses passive wildlife behavior");
