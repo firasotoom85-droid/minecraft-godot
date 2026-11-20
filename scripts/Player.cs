@@ -193,6 +193,22 @@ public partial class Player : CharacterBody3D, IDamageable
                 Select(Selected + 1);
             }
         }
+        else if (@event is InputEventJoypadButton pad && pad.Pressed)
+        {
+            if (pad.IsActionPressed("break_block"))
+            {
+                AttackOrStartMining();
+                _mineTimer = MineRepeat;
+            }
+            else if (pad.IsActionPressed("place_block"))
+            {
+                PlaceBlock();
+            }
+            else if (pad.IsActionPressed("pick_block"))
+            {
+                PickBlock();
+            }
+        }
         else if (@event is InputEventKey key && key.Pressed && !key.Echo)
         {
             if (key.IsActionPressed("toggle_fly"))
@@ -222,6 +238,20 @@ public partial class Player : CharacterBody3D, IDamageable
 
         float dt = (float)delta;
         bool locked = InputLocked || Stats.Dead;
+        if (!locked && Input.MouseMode != Input.MouseModeEnum.Captured)
+        {
+            Vector2 look = Input.GetVector("look_left", "look_right", "look_up", "look_down");
+            if (look.LengthSquared() > 0.0001f)
+            {
+                RotateY(-look.X * 2.4f * dt);
+                Vector3 cameraRotation = Camera.Rotation;
+                cameraRotation.X = Mathf.Clamp(cameraRotation.X - look.Y * 2.0f * dt, -1.55f, 1.55f);
+                Camera.Rotation = cameraRotation;
+            }
+        }
+
+        if (!locked && Input.IsActionJustPressed("hotbar_prev")) Select(Selected - 1);
+        if (!locked && Input.IsActionJustPressed("hotbar_next")) Select(Selected + 1);
         Vector2 inputDir = locked ? Vector2.Zero : Input.GetVector("left", "right", "forward", "back");
         Vector3 direction = (Transform.Basis * new Vector3(inputDir.X, 0, inputDir.Y)).Normalized();
         bool sprinting = !locked && Input.IsActionPressed("sprint");
@@ -1322,8 +1352,7 @@ public partial class Player : CharacterBody3D, IDamageable
 
     private void HoldMine(float delta)
     {
-        if (InputLocked || Stats.Dead || Input.MouseMode != Input.MouseModeEnum.Captured
-                || !Input.IsActionPressed("break_block") || World == null || !Ray.IsColliding())
+        if (InputLocked || Stats.Dead || !Input.IsActionPressed("break_block") || World == null || !Ray.IsColliding())
         {
             ResetMining();
             _mineTimer = 0.0;
