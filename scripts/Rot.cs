@@ -77,13 +77,14 @@ public partial class Rot : Mob
             Vector3 toPlayer = player.GlobalPosition - GlobalPosition;
             toPlayer.Y = 0.0f;
             float d = toPlayer.Length();
-            if (d < ChaseRadius && (IsAlerted || HasLineOfSight(player)))
+            bool visible = HasLineOfSight(player);
+            if (d < ChaseRadius && (IsAlerted || visible))
             {
                 Manager?.AlertHostiles(GlobalPosition, 12.0f, 7.0f);
                 _attackCd -= delta;
                 if (d < AttackRange)
                 {
-                    if (_attackCd <= 0.0)
+                    if (_attackCd <= 0.0 && visible)
                     {
                         _attackCd = AttackCooldown;
                         int packSize = Manager?.HostilesNear<Rot>(GlobalPosition, 9.0f) ?? 1;
@@ -96,7 +97,7 @@ public partial class Rot : Mob
                         }
                     }
 
-                    return toPlayer.Normalized() * 0.2f;
+                    return visible ? toPlayer.Normalized() * 0.2f : toPlayer;
                 }
 
                 return toPlayer;
