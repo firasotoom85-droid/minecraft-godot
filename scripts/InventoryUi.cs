@@ -464,10 +464,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (GetTree().Paused)
-        {
+        if (GetTree().Paused || @event is InputEventKey { Echo: true })
             return;
-        }
 
         if (@event.IsActionPressed("inventory"))
         {
