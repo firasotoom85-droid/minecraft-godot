@@ -197,6 +197,7 @@ public partial class Player : CharacterBody3D, IDamageable
         }
         else if (@event is InputEventJoypadButton pad && pad.Pressed)
         {
+            Input.MouseMode = Input.MouseModeEnum.Hidden;
             if (pad.IsActionPressed("toggle_fly"))
             {
                 SetFlying(!Flying);
@@ -214,6 +215,10 @@ public partial class Player : CharacterBody3D, IDamageable
             {
                 PickBlock();
             }
+        }
+        else if (@event is InputEventJoypadMotion motion && Mathf.Abs(motion.AxisValue) > 0.25f)
+        {
+            Input.MouseMode = Input.MouseModeEnum.Hidden;
         }
         else if (@event is InputEventKey key && key.Pressed && !key.Echo)
         {
