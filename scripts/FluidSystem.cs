@@ -20,6 +20,7 @@ public partial class FluidSystem : Node
     private readonly Queue<Vector3I> _active = new();
     private readonly HashSet<Vector3I> _queued = [];
     private readonly HashSet<Vector3I> _sources = [];
+    private readonly List<Vector3I> _sourceScratch = [];
     private VoxelWorld? _world;
     private Player? _player;
     private double _accumulator;
@@ -79,6 +80,17 @@ public partial class FluidSystem : Node
     private void DiscoverLoadedWater(Vector3 center)
     {
         if (_world == null) return;
+
+        // Do not keep pulsing sources from chunks the player has left behind.
+        _sourceScratch.Clear();
+        foreach (Vector3I source in _sources)
+        {
+            if (System.Math.Abs(source.X - center.X) > DiscoveryRadius + 1
+                    || System.Math.Abs(source.Y - center.Y) > DiscoveryBelow + 1
+                    || System.Math.Abs(source.Z - center.Z) > DiscoveryRadius + 1)
+                _sourceScratch.Add(source);
+        }
+        foreach (Vector3I source in _sourceScratch) _sources.Remove(source);
         int ox = Mathf.FloorToInt(center.X) - DiscoveryRadius;
         int oy = Mathf.FloorToInt(center.Y) - DiscoveryBelow;
         int oz = Mathf.FloorToInt(center.Z) - DiscoveryRadius;
