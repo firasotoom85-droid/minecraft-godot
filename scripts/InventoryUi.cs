@@ -155,8 +155,10 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     private GridContainer _backpackGrid = null!;
     private HBoxContainer _hotbarRow = null!;
     private VBoxContainer _containerBox = null!;
+    private PanelContainer _containerPanel = null!;
     private GridContainer _containerGrid = null!;
     private VBoxContainer _furnaceBox = null!;
+    private PanelContainer _furnacePanel = null!;
     private ProgressBar _furnaceProgress = null!;
     private InvSlot _resultSlot = null!;
     private VBoxContainer _recipeList = null!;
@@ -228,11 +230,13 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         VBoxContainer box = new();
         box.AddThemeConstantOverride("separation", 10);
         _containerBox = BuildContainer();
-        _containerBox.Visible = false;
-        box.AddChild(_containerBox);
+        _containerPanel = MenuSkin.Wrap(_containerBox);
+        _containerPanel.Visible = false;
+        box.AddChild(_containerPanel);
         _furnaceBox = BuildFurnace();
-        _furnaceBox.Visible = false;
-        box.AddChild(_furnaceBox);
+        _furnacePanel = MenuSkin.Wrap(_furnaceBox);
+        _furnacePanel.Visible = false;
+        box.AddChild(_furnacePanel);
         _title = MenuSkin.Title("INVENTORY", 18);
         box.AddChild(_title);
         box.AddChild(BuildColumns());
@@ -503,8 +507,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         _container = _player.World.GetContainer(pos);
-        _containerBox.Visible = true;
-        _furnaceBox.Visible = false;
+        _containerPanel.Visible = true;
+        _furnacePanel.Visible = false;
         _furnace = null;
         _title.Text = "INVENTORY";
         Refresh();
@@ -524,9 +528,9 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         _furnace = _player.World.GetFurnace(pos);
-        _containerBox.Visible = false;
+        _containerPanel.Visible = false;
         _container = null;
-        _furnaceBox.Visible = true;
+        _furnacePanel.Visible = true;
         _title.Text = "INVENTORY";
         _furnaceRefreshTimer = 0.0;
         Refresh();
@@ -547,9 +551,9 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _open = true;
         _craftSize = size;
         _title.Text = size == 3 ? "CRAFTING TABLE" : "INVENTORY";
-        _containerBox.Visible = false;
+        _containerPanel.Visible = false;
         _container = null;
-        _furnaceBox.Visible = false;
+        _furnacePanel.Visible = false;
         _furnace = null;
         _craftGrid.Columns = size;
         foreach (Node child in _craftGrid.GetChildren())
@@ -573,9 +577,9 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     {
         _open = false;
         _root.Visible = false;
-        _containerBox.Visible = false;
+        _containerPanel.Visible = false;
         _container = null;
-        _furnaceBox.Visible = false;
+        _furnacePanel.Visible = false;
         _furnace = null;
         ReturnCraftItems();
         GiveCursorBack();
