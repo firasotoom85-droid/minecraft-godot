@@ -52,6 +52,20 @@ public static class MobContentTests
                 "sheep feed consumes one wheat");
         TestAssert.Check(!sheep.Tamed, "feeding sheep does not replace taming state");
 
+        Sheep sheepPartner = new();
+        Player partnerFeeder = new();
+        partnerFeeder.Inventory.Add(ItemId.Wheat, 1);
+        TestAssert.Check(sheepPartner.Interact(partnerFeeder),
+                "second sheep accepts breeding food");
+        TestAssert.Check(sheep.CanBreedWith(sheepPartner),
+                "compatible fed adults can enter breeding pair");
+        TestAssert.Check(!sheep.CanBreedWith(chicken),
+                "different species cannot form breeding pair");
+        sheep.MarkBred();
+        sheepPartner.MarkBred();
+        TestAssert.Check(!sheep.CanBreedWith(sheepPartner),
+                "breeding cooldown prevents immediate repeat pairing");
+
         Player cowFeeder = new();
         cowFeeder.Inventory.Add(ItemId.Wheat, 1);
         TestAssert.Check(cow.Interact(cowFeeder), "cow accepts wheat feed");
