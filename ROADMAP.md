@@ -39,7 +39,7 @@ harness.
 | Water | Drowning and muffling exist, but **no swimming** — water is effectively a walkable floor |
 | Progression | Iron/gold ore → raw ore → tools directly; no smelting/ingots/armor |
 | Goals | No achievements, journal, boss, or directed objective |
-| UX/platform | No key rebinding, gamepad, onboarding, localization, or music |
+| UX/platform | Keyboard rebinding, controller button rebinding, controller movement/look, onboarding, and world management exist; Arabic localization and music remain outstanding |
 | World management | List + create only; no rename/delete/duplicate/export |
 | Quality | **Zero automated tests**; save version field is written but ignored; no README |
 | Save format | `WorldSave` v2: edits + time only; no containers/achievements |
@@ -647,3 +647,13 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   drag/drop validation remain required before this milestone is complete.
 - Compatibility: no persisted IDs, save formats, world generation, voxel
   mutation, meshing, or chunk streaming code changed.
+
+- **2026-11-20 — M8.5 interface and controller completion pass (implementation).**
+  - **Controller:** added additive gamepad defaults for left-stick movement, right-stick camera look, jump, sprint, mining, placement, block pick, hotbar cycling, inventory, pause, minimap, journal, and creative flight. Controller overrides persist separately in `user://gamepad.cfg`; keyboard rebinding now preserves controller events.
+  - **Controls UI:** added a separate controller-button binding column with conflict detection, reset-to-defaults, and a guard against binding the button used to activate a row.
+  - **UI navigation:** shared focus initialization now targets visible panels; main-menu, pause, controls, and inventory surfaces expose focusable controls. Inventory slots accept keyboard/controller confirm and controller cancel closes the inventory.
+  - **Inventory:** implemented native Godot drag-and-drop stack movement between player, chest, crafting, and furnace slots, including armor-slot validation and furnace-output extraction. Existing click, right-click split, and Shift-click paths remain.
+  - **First person:** the existing arm now displays the selected item icon and animates it with the existing punch/swing motion; existing head bob, landing dip, and sprint FOV feedback remain.
+  - **Responsive UI:** main menu, pause/settings, controls, and inventory now scale their centered content against viewport dimensions. Chest and furnace panels use the shared pixel-art frame.
+  - **Tests:** extended the keybind suite for controller action registration, default bindings, conflict-free defaults, and preservation of controller mappings during keyboard rebinding.
+  - **Not verified in this environment:** Godot 4.7.2 .NET compilation, headless test execution, live drag/drop behavior, controller hardware input, and visual layout review at 1920×1080 and 1280×720. The implementation is pushed to the UI branch; do not mark the milestone release-ready until CI and in-game review pass.
