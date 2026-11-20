@@ -29,6 +29,12 @@ public static class KeybindTests
                 "hotbar previous is mapped to the D-pad");
         TestAssert.Check(GamepadBindings.Conflict("jump", JoyButton.A) == null,
                 "default controller bindings do not conflict");
+        GamepadBindings.SetButton("jump", JoyButton.X);
+        TestAssert.Equal("X", GamepadBindings.LabelFor("jump"), "controller button can be rebound");
+        TestAssert.Equal("jump", GamepadBindings.Conflict("sprint", JoyButton.X),
+                "controller binding conflicts are detected");
+        GamepadBindings.ResetDefaults();
+        TestAssert.Equal("A", GamepadBindings.LabelFor("jump"), "controller reset restores defaults");
 
         // Keyboard rebinding must not erase the additive controller event.
         Keybinds.Rebind("jump", Key.Space);
