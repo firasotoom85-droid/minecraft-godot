@@ -77,21 +77,25 @@ public partial class Dreadwing : Mob
                     + side * sideSign * 5.0f + new Vector3(0, 4.0f, 0);
             int x = Mathf.FloorToInt(candidate.X);
             int z = Mathf.FloorToInt(candidate.Z);
-            int h = World!.SurfaceHeight(x, z);
-            if (candidate.Y < h + 2.0f)
-            {
-                candidate.Y = h + 3.0f;
-            }
-
             Vector2I cp = new(Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX),
                     Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ));
             if (World.HasChunk(cp))
             {
+                int h = World.SurfaceHeight(x, z);
+                candidate.Y = Mathf.Clamp(Mathf.Max(candidate.Y, h + 3.0f),
+                        2.0f, World.Height - 2.0f);
                 GlobalPosition = candidate;
             }
 
             Manager?.Puff(GlobalPosition, new Color(0.55f, 0.22f, 0.44f));
             Manager?.SoundRef?.Play("mobdread", GlobalPosition, 0.9f, -7.0f);
+        }
+
+        bool visible = HasLineOfSight(player);
+        if (!visible)
+        {
+            _windup = 0.0f;
+            return toPlayer;
         }
 
         if (_windup > 0.0f)
