@@ -76,15 +76,18 @@ public partial class Rot : Mob
             Vector3 toPlayer = player.GlobalPosition - GlobalPosition;
             toPlayer.Y = 0.0f;
             float d = toPlayer.Length();
-            if (d < ChaseRadius)
+            if (d < ChaseRadius && (IsAlerted || HasLineOfSight(player)))
             {
+                Manager?.AlertHostiles(GlobalPosition, 12.0f, 7.0f);
                 _attackCd -= delta;
                 if (d < AttackRange)
                 {
                     if (_attackCd <= 0.0)
                     {
                         _attackCd = AttackCooldown;
-                        float damage = Settings.Difficulty == Settings.DifficultyHard ? 3.0f : 2.0f;
+                        int packSize = Manager?.HostilesNear<Rot>(GlobalPosition, 9.0f) ?? 1;
+                        float damage = (Settings.Difficulty == Settings.DifficultyHard ? 2.7f : 1.9f)
+                                + Mathf.Min(packSize - 1, 3) * 0.35f;
                         if (player.ApplyDamage(new DamageInfo(
                                 damage, DamageKind.Melee, GlobalPosition, 3.5f, 2.0f)))
                         {
