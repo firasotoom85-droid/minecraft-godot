@@ -102,14 +102,14 @@ public partial class Hollow : Mob
                     else
                     {
                         _charge -= (float)delta;
-                    }
-                    if (_charge <= 0.0f)
-                    {
-                        _shotCd = ShotCooldown;
-                        float damage = Settings.Difficulty == Settings.DifficultyHard ? 3.0f : 2.0f;
-                        Manager?.FireProjectile(GlobalPosition + new Vector3(0, 1.2f, 0),
-                                player.GlobalPosition + new Vector3(0, 1.2f, 0), damage,
-                                new Color(0.70f, 0.86f, 0.94f), 7.5f, "mobchitter");
+                        if (_charge <= 0.0f)
+                        {
+                            _shotCd = ShotCooldown;
+                            float damage = Settings.Difficulty == Settings.DifficultyHard ? 3.0f : 2.0f;
+                            Manager?.FireProjectile(GlobalPosition + new Vector3(0, 1.2f, 0),
+                                    player.GlobalPosition + new Vector3(0, 1.2f, 0), damage,
+                                    new Color(0.70f, 0.86f, 0.94f), 7.5f, "mobchitter");
+                        }
                     }
                 }
                 else if (visible && _shotCd <= 0.0 && d <= KeepMax)
