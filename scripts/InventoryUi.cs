@@ -759,41 +759,14 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
         ItemStack moving = ReadSlot(source);
         ItemStack destination = ReadSlot(target);
-        if (moving.IsEmpty) return;
-
-        if (target.Kind == SlotKind.Armor
-                && (ItemDb.ArmorOf(moving.Id) is not { } armor || armor.Slot != target.Index || moving.Count != 1))
-            return;
-        if (source.Kind == SlotKind.Armor && !destination.IsEmpty
-                && (ItemDb.ArmorOf(destination.Id) is not { } swappedArmor
-                        || swappedArmor.Slot != source.Index || destination.Count != 1))
+        int sourceArmorSlot = source.Kind == SlotKind.Armor ? source.Index : -1;
+        int targetArmorSlot = target.Kind == SlotKind.Armor ? target.Index : -1;
+        if (!InventoryStackTransfer.TryTransfer(ref moving, ref destination,
+                    sourceArmorSlot, targetArmorSlot))
             return;
 
-        if (destination.IsEmpty)
-        {
-            WriteSlot(target, moving);
-            WriteSlot(source, ItemStack.Empty);
-        }
-        else if (destination.Id == moving.Id && destination.Count < ItemDb.MaxStack(destination.Id))
-        {
-            int amount = Math.Min(ItemDb.MaxStack(destination.Id) - destination.Count, moving.Count);
-            WriteSlot(target, destination with { Count = destination.Count + amount });
-            WriteSlot(source, moving.Count == amount ? ItemStack.Empty : moving with { Count = moving.Count - amount });
-        }
-        else
-        {
-            if (target.Kind == SlotKind.Armor
-                    && (ItemDb.ArmorOf(moving.Id) is not { } incoming
-                            || incoming.Slot != target.Index || moving.Count != 1))
-                return;
-            if (source.Kind == SlotKind.Armor
-                    && (ItemDb.ArmorOf(destination.Id) is not { } outgoing
-                            || outgoing.Slot != source.Index || destination.Count != 1))
-                return;
-            WriteSlot(target, moving);
-            WriteSlot(source, destination);
-        }
-
+        WriteSlot(source, moving);
+        WriteSlot(target, destination);
         _player.Inventory.RaiseChanged();
         Refresh();
     }
