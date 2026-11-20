@@ -46,7 +46,7 @@ public sealed class WorldGenV7
         _erosion = CreateNoise(0x45524F53u, FastNoiseLite.NoiseTypeEnum.Simplex, 0.0031f, 3);
         _hills = CreateNoise(0x48494C4Cu, FastNoiseLite.NoiseTypeEnum.Simplex, 0.0085f, 3);
         _mountainRange = CreateNoise(0x4D4F554Eu, FastNoiseLite.NoiseTypeEnum.Simplex, 0.00115f, 3);
-        _ridge = CreateNoise(0x52494447u, FastNoiseLite.NoiseTypeEnum.Perlin, 0.0044f, 4);
+        _ridge = CreateNoise(0x52494447u, FastNoiseLite.NoiseTypeEnum.Perlin, 0.0028f, 3);
         _temperature = CreateNoise(0x54454D50u, FastNoiseLite.NoiseTypeEnum.Simplex, 0.00135f, 4);
         _moisture = CreateNoise(0x4D4F4953u, FastNoiseLite.NoiseTypeEnum.Simplex, 0.0018f, 4);
         _warpX = CreateNoise(0x57525058u, FastNoiseLite.NoiseTypeEnum.Simplex, 0.00125f, 3);
@@ -136,7 +136,7 @@ public sealed class WorldGenV7
             terrainHeight += hills * (2.5f + land * 4.0f);
             terrainHeight += erosion * (1.8f + land * 2.0f);
             float mountainScale = _preset == "amplified" ? 1.62f : 1.0f;
-            terrainHeight += mountainMask * (13.0f + mountainPeaks * 28.0f) * mountainScale;
+            terrainHeight += mountainMask * (13.0f + mountainPeaks * 18.0f) * mountainScale;
 
             float swampMask = SmoothStep(0.25f, 0.58f, climate.Moisture)
                     * (1.0f - SmoothStep(0.12f, 0.46f, climate.Continentalness));
