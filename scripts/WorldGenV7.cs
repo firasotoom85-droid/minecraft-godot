@@ -145,14 +145,14 @@ public sealed class WorldGenV7
                 terrainHeight -= swampMask * 3.2f;
             }
 
-            if (land > 0.45f && climate.RiverStrength > 0.20f)
-            {
-                float channelFloor = seaLevel - 1.0f
-                        + (1.0f - climate.RiverStrength) * 2.0f;
-                float channelHeight = Math.Min(terrainHeight, channelFloor);
-                float riverBlend = SmoothStep(0.20f, 1.0f, climate.RiverStrength);
-                terrainHeight = Mathf.Lerp(terrainHeight, channelHeight, riverBlend);
-            }
+            float channelFloor = seaLevel - 1.0f
+                    + (1.0f - climate.RiverStrength) * 2.0f;
+            float channelHeight = Math.Min(terrainHeight, channelFloor);
+            // Blend the channel into the land mask and use a broad bank
+            // transition. A hard river threshold can turn a mountain column
+            // into a sea-level cliff across a single chunk edge.
+            float riverBlend = SmoothStep(0.15f, 0.95f, climate.RiverStrength) * land;
+            terrainHeight = Mathf.Lerp(terrainHeight, channelHeight, riverBlend);
 
             height = Mathf.Clamp(Mathf.RoundToInt(terrainHeight), 4, 118);
             climateAtSurface = false;
@@ -259,7 +259,7 @@ public sealed class WorldGenV7
         float distanceA = Math.Abs(_riverA.GetNoise2D(x, z));
         float distanceB = Math.Abs(_riverB.GetNoise2D(x + 311.0f, z - 173.0f));
         float distance = Math.Min(distanceA, distanceB * 1.12f);
-        return 1.0f - SmoothStep(width, width + 0.035f, distance);
+        return 1.0f - SmoothStep(width, width + 0.085f, distance);
     }
 
     public bool IsIsland(int x, int z) => _islandMask.GetNoise2D(x, z) > 0.10f;
