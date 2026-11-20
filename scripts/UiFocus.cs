@@ -36,10 +36,13 @@ public static class UiFocus
 
     private static Control? FindFocusable(Node node)
     {
+        if (node is CanvasItem item && !item.Visible)
+            return null;
+        if (node is Control self && self.FocusMode != Control.FocusModeEnum.None)
+            return self;
+
         foreach (Node child in node.GetChildren())
         {
-            if (child is Control control && control.Visible && control.FocusMode != Control.FocusModeEnum.None)
-                return control;
             Control? nested = FindFocusable(child);
             if (nested != null) return nested;
         }
