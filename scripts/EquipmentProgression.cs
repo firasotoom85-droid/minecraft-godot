@@ -78,7 +78,7 @@ public static class EquipmentProgression
     public static bool BlocksWithShield(ItemStack held, Vector3 forward, Vector3 playerPosition, in DamageInfo info)
     {
         if (held.Id != ItemId.Shield || info.Kind is not (DamageKind.Melee or DamageKind.Projectile) || info.Source == Vector3.Zero) return false;
-        Vector3 incoming = playerPosition - info.Source;
+        Vector3 incoming = info.Source - playerPosition;
         incoming.Y = 0.0f;
         forward.Y = 0.0f;
         return incoming.LengthSquared() > 0.001f && forward.LengthSquared() > 0.001f
