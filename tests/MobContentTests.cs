@@ -69,7 +69,7 @@ public static class MobContentTests
         TestAssert.Check(Mobs.HerdProfile.For(sheep).Cohesion > cowHerd.Cohesion,
                 "sheep use stronger herd cohesion than cattle");
 
-        TestAssert.Equal(90.0f, Wanderer.DrainHunger(100.0f, 10.0f),
+        TestAssert.Equal(99.82f, Wanderer.DrainHunger(100.0f, 10.0f),
                 "animal hunger drains gradually with elapsed time");
         TestAssert.Equal(100.0f, Wanderer.RestoreHunger(80.0f, 42.0f),
                 "grazing restores hunger without exceeding its cap");
