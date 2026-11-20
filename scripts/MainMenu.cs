@@ -380,6 +380,7 @@ public partial class MainMenu : Control
         _newWorldPanel.Visible = false;
         _settingsPanel.Visible = false;
         _managePanel.Visible = false;
+        UiFocus.FocusFirst(_buttons);
     }
 
     private void ShowWorlds()
@@ -390,6 +391,7 @@ public partial class MainMenu : Control
         _newWorldPanel.Visible = false;
         _settingsPanel.Visible = false;
         _managePanel.Visible = false;
+        UiFocus.FocusFirst(_worldsPanel);
     }
 
     private void ShowNewWorld()
@@ -400,6 +402,7 @@ public partial class MainMenu : Control
         _newWorldPanel.Visible = true;
         _settingsPanel.Visible = false;
         _managePanel.Visible = false;
+        UiFocus.FocusFirst(_newWorldPanel);
     }
 
     private void ShowSettings()
@@ -409,5 +412,6 @@ public partial class MainMenu : Control
         _newWorldPanel.Visible = false;
         _settingsPanel.Visible = true;
         _managePanel.Visible = false;
+        UiFocus.FocusFirst(_settingsPanel);
     }
 }
