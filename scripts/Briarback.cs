@@ -66,7 +66,7 @@ public partial class Briarback : Wanderer
             Vector3 toPlayer = player.GlobalPosition - GlobalPosition;
             toPlayer.Y = 0.0f;
             float distance = toPlayer.Length();
-            if (distance < 2.0f)
+            if (distance < 2.0f && HasLineOfSight(player))
             {
                 if (_attackCooldown <= 0.0
                         && GlobalPosition.DistanceSquaredTo(player.GlobalPosition) < 3.2f * 3.2f)
