@@ -171,7 +171,7 @@ public partial class Mobs : Node
         Vector3 flee = Vector3.Zero;
         float radiusSq = radius * radius;
 
-        if (PlayerRef is { Stats.Dead: false } player)
+        if (PlayerRef is { } player && !player.Stats.Dead)
         {
             Vector3 away = source.GlobalPosition - player.GlobalPosition;
             away.Y = 0.0f;
@@ -414,8 +414,17 @@ public partial class Mobs : Node
         int x = Mathf.FloorToInt(point.X);
         int z = Mathf.FloorToInt(point.Z);
         Biome biome = World.BiomeAt(x, z, World.SurfaceHeight(x, z));
+        if (biome == Biome.Desert)
+        {
+            return; // dry sand flats do not support the ordinary grazing herds
+        }
+
         Mob prototype;
-        if (biome == Biome.Birch && _rng.Randf() < 0.18f)
+        if (biome == Biome.Snow)
+        {
+            prototype = new Sheep();
+        }
+        else if (biome == Biome.Birch && _rng.Randf() < 0.18f)
         {
             SpawnMob(new Briarback(), point, 1.0f, false);
             return;
@@ -544,6 +553,10 @@ public partial class Mobs : Node
 
                 SpawnMob(new Rot(), packPoint, 1.2f, true);
             }
+        }
+        else if (biome == Biome.Snow && roll < 72)
+        {
+            SpawnMob(new Hollow(), point, 1.2f, true);
         }
         else if (roll < 68 || IsStorm)
         {
