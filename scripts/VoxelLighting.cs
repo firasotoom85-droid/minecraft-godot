@@ -274,7 +274,7 @@ public static class VoxelLighting
             byte[] light, int changedIndex, byte newEmission)
     {
         BlockDb.EnsureTables();
-        if (blocks.Length != width * height * depth || light.Length != blocks.Length)
+        if (blocks.Length < width * height * depth || light.Length < width * height * depth)
             throw new ArgumentException("Block and light volumes must have matching dimensions.");
         if ((uint)changedIndex >= (uint)light.Length)
             throw new ArgumentOutOfRangeException(nameof(changedIndex));
