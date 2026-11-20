@@ -27,6 +27,25 @@ public static class UiFocus
                 : Input.MouseModeEnum.Captured;
     }
 
+    /// <summary>Give controller/keyboard navigation a deterministic starting focus.</summary>
+    public static void FocusFirst(Control root)
+    {
+        Control? target = FindFocusable(root);
+        target?.GrabFocus();
+    }
+
+    private static Control? FindFocusable(Node node)
+    {
+        foreach (Node child in node.GetChildren())
+        {
+            if (child is Control control && control.Visible && control.FocusMode != Control.FocusModeEnum.None)
+                return control;
+            Control? nested = FindFocusable(child);
+            if (nested != null) return nested;
+        }
+        return null;
+    }
+
     /// <summary>Close every open modal; used when the death screen takes over.</summary>
     public static void CloseAll(Node owner)
     {
