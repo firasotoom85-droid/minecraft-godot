@@ -645,4 +645,9 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
     chunk work, independent of chunk request order.
   - Added classifier and cross-order chunk-hash regression tests; retained the
     existing v1 SHA-256 anchor test.
-  - **Verification status:** pending CI build and headless test run.
+  - **Verified on the isolated feature commit** (before later unrelated main
+    updates): .NET build with 0 warnings; headless suite **715 checks / 0
+    failures**, including the original v1 anchor and V7 generation-order tests.
+  - **Integration caveat:** a subsequent run against the moving main branch
+    failed in unrelated mob files (`CrystalWisp.cs`, `Dreadwing.cs`, and
+    `Mobs.cs`); none of those files are part of this world-generation change.

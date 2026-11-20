@@ -671,7 +671,8 @@ public partial class VoxelWorld
                 }
 
                 Biome biome = BiomeAt(wx, wz, height);
-                if (biome is Biome.Desert or Biome.Snow or Biome.Ocean or Biome.Beach)
+                if (biome is Biome.Desert or Biome.Snow or Biome.Ocean or Biome.Beach
+                        || BlockAtV7(wx, height, wz, height, biome) != BlockId.Grass)
                 {
                     continue;
                 }
