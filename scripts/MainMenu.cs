@@ -10,6 +10,7 @@ namespace Minecraft;
 public partial class MainMenu : Control
 {
     private VBoxContainer _buttons = null!;
+    private CenterContainer _center = null!;
     private PanelContainer _worldsPanel = null!;
     private PanelContainer _newWorldPanel = null!;
     private PanelContainer _settingsPanel = null!;
@@ -66,13 +67,15 @@ public partial class MainMenu : Control
         vignette.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(vignette);
 
-        CenterContainer center = new();
-        center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        AddChild(center);
+        _center = new CenterContainer();
+        _center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        AddChild(_center);
+        GetViewport().SizeChanged += ApplyResponsiveScale;
 
         VBoxContainer stack = new();
         stack.AddThemeConstantOverride("separation", 14);
-        center.AddChild(stack);
+        _center.AddChild(stack);
+        ApplyResponsiveScale();
 
         Label title = new()
         {
@@ -112,6 +115,16 @@ public partial class MainMenu : Control
         stack.AddChild(_settingsPanel);
         stack.AddChild(_managePanel);
         ShowMain();
+    }
+
+    private void ApplyResponsiveScale()
+    {
+        if (_center == null || !IsInstanceValid(_center)) return;
+        Vector2 viewport = GetViewportRect().Size;
+        if (viewport.X <= 0 || viewport.Y <= 0) return;
+        float scale = Mathf.Clamp(Mathf.Min(viewport.X / 1600.0f, viewport.Y / 900.0f), 0.68f, 1.0f);
+        _center.PivotOffset = viewport * 0.5f;
+        _center.Scale = Vector2.One * scale;
     }
 
     // -----------------------------------------------------------------------
