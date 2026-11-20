@@ -43,12 +43,14 @@ public partial class Mob : CharacterBody3D, IDamageable
     private double _animationTime;
     private double _lovePuffTimer;
     private float _alertTime;
+    private Vector3 _alertSource;
     private float _loveTime;
     private float _breedCooldown;
     private float _growthTime;
 
     public bool Dead => Health <= 0.0f;
     public bool IsAlerted => _alertTime > 0.0f;
+    public Vector3 AlertSource => _alertSource;
     public bool InLove => _loveTime > 0.0f;
     public bool IsBaby { get; private set; }
     public virtual bool IsPassive => false;
@@ -165,6 +167,12 @@ public partial class Mob : CharacterBody3D, IDamageable
     public void SetAlerted(float seconds)
     {
         _alertTime = Mathf.Max(_alertTime, seconds);
+    }
+
+    public void SetAlerted(float seconds, Vector3 sourcePosition)
+    {
+        SetAlerted(seconds);
+        _alertSource = sourcePosition;
     }
 
     /// <summary>Subclass hook for the Signalled event (tame/stay/follow/love).</summary>
@@ -382,6 +390,10 @@ public partial class Mob : CharacterBody3D, IDamageable
     {
         _animationTime += dt;
         _alertTime = Mathf.Max(0.0f, _alertTime - dt);
+        if (_alertTime <= 0.0f)
+        {
+            _alertSource = Vector3.Zero;
+        }
         _loveTime = Mathf.Max(0.0f, _loveTime - dt);
         _breedCooldown = Mathf.Max(0.0f, _breedCooldown - dt);
 
