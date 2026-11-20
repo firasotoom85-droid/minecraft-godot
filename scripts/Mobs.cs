@@ -51,6 +51,7 @@ public partial class Mobs : Node
     private double _timer = 1.5;
     private double _hostileTimer = 8.0;
     private double _breedingTimer = 2.0;
+    private double _maintenanceTimer = 0.5;
     private readonly RandomNumberGenerator _rng = new();
 
     public void Setup(VoxelWorld world, Player player, Fx fx, Sound sound, Weather weather)
@@ -70,11 +71,16 @@ public partial class Mobs : Node
             return;
         }
 
-        _passive.RemoveAll(mob => !IsInstanceValid(mob));
-        _hostiles.RemoveAll(mob => !IsInstanceValid(mob));
-        Vector3 pos = PlayerRef.GlobalPosition;
-        _passive.RemoveAll(mob => DespawnFar(mob, pos, PassiveDespawn));
-        _hostiles.RemoveAll(mob => DespawnFar(mob, pos, HostileDespawn));
+        _maintenanceTimer -= delta;
+        if (_maintenanceTimer <= 0.0)
+        {
+            _maintenanceTimer = 0.5;
+            _passive.RemoveAll(static mob => !GodotObject.IsInstanceValid(mob));
+            _hostiles.RemoveAll(static mob => !GodotObject.IsInstanceValid(mob));
+            Vector3 playerPosition = PlayerRef.GlobalPosition;
+            _passive.RemoveAll(mob => DespawnFar(mob, playerPosition, PassiveDespawn));
+            _hostiles.RemoveAll(mob => DespawnFar(mob, playerPosition, HostileDespawn));
+        }
 
         bool dark = DayNight.IsNight(World.TimeOfDay) || IsStorm;
         if (Settings.Difficulty == Settings.DifficultyPeaceful && _hostiles.Count > 0)
