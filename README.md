@@ -22,6 +22,7 @@ The project is a long-running solo build with an extensive design log in
   respawn, armor, tools with durability, fishing, farming, and cooking.
 - **A living world** — sheep, cows, pigs, chickens; Shades, Rots, Hollows, the
   Ember Warden boss; a wandering trader; weather, lightning, and ambient life.
+- **Interface** — shared pixel-art menu and inventory styling, responsive panel layouts, crisp hotbar/crosshair presentation, item tooltips, Shift-click inventory transfers, and controller-ready focusable menu buttons.
 - **Quality of life** — minimap with zoom and waypoints, achievements journal,
   key rebinding, accessibility toggles, photo mode, dev console, and an
   automatic quality governor.

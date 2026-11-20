@@ -179,14 +179,14 @@ public partial class Hud : CanvasLayer
         root.AddChild(cross);
         Control wrap = new()
         {
-            CustomMinimumSize = new Vector2(20, 20),
+            CustomMinimumSize = new Vector2(22, 22),
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         cross.AddChild(wrap);
-        Bar(wrap, new Vector2(0, 8), new Vector2(20, 4), new Color(0, 0, 0, 0.55f));     // outline h
-        Bar(wrap, new Vector2(8, 0), new Vector2(4, 20), new Color(0, 0, 0, 0.55f));     // outline v
-        Bar(wrap, new Vector2(0, 9), new Vector2(20, 2), new Color(1, 1, 1, 0.95f));     // h
-        Bar(wrap, new Vector2(9, 0), new Vector2(2, 20), new Color(1, 1, 1, 0.95f));     // v
+        Bar(wrap, new Vector2(0, 9), new Vector2(22, 4), new Color(0, 0, 0, 0.62f));
+        Bar(wrap, new Vector2(9, 0), new Vector2(4, 22), new Color(0, 0, 0, 0.62f));
+        Bar(wrap, new Vector2(1, 10), new Vector2(20, 2), new Color(0.96f, 0.96f, 0.83f, 0.98f));
+        Bar(wrap, new Vector2(10, 1), new Vector2(2, 20), new Color(0.96f, 0.96f, 0.83f, 0.98f));
     }
 
     private static void Bar(Control parent, Vector2 pos, Vector2 size, Color color)

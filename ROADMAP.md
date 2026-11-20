@@ -626,3 +626,24 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 	changed the scale to 512 m and the larger map rendered.
   - **Not measured:** frame-time hitch before/after the sliced rebuild.
   - **Next:** music + release engineering.
+
+
+## 13. Pixel-art interface and first-person presentation — 2026-11-20
+
+- Started a unified square-corner pixel-art UI language: dark forest-charcoal
+  panels, muted green bevel borders, warm parchment highlights, consistent
+  typography, high-contrast button states, and crisp inventory slot frames.
+- Reused the shared MenuSkin primitives across the main menu, pause/settings,
+  inventory, trader, and other existing menu surfaces; no gameplay UI was
+  replaced with mockups.
+- Updated HUD slot frames and crosshair contrast while retaining the existing
+  health, hunger, armor, breath, minimap, boss, and status bindings.
+- Inventory slots now expose item name/count/durability tooltips, have hover
+  feedback, and support Shift-click quick transfer into available inventory
+  space. Existing right-click half-stack splitting and cursor-held placement
+  remain intact.
+- Verification pending: Godot 4.7.2 .NET build, headless test runner, live
+  responsive layout review, gamepad navigation/rebinding, and pointer
+  drag/drop validation remain required before this milestone is complete.
+- Compatibility: no persisted IDs, save formats, world generation, voxel
+  mutation, meshing, or chunk streaming code changed.

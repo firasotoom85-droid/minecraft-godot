@@ -25,6 +25,7 @@ public partial class InvSlot : Panel
 
     private TextureRect _icon = null!;
     private Label _count = null!;
+    private bool _hovered;
 
     public event Action<InvSlot, MouseButton>? Clicked;
 
@@ -49,7 +50,7 @@ public partial class InvSlot : Panel
         _count.AddThemeConstantOverride("outline_size", 4);
         _count.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight, LayoutPresetMode.Minsize, 2);
         AddChild(_count);
-        AddThemeStyleboxOverride("panel", Style(false));
+        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle());
     }
 
     public void ShowStack(ItemStack stack, bool selected)
@@ -59,6 +60,7 @@ public partial class InvSlot : Panel
             return;
         }
 
+        TooltipText = stack.IsEmpty ? "" : $"{ItemDb.NameOf(stack.Id)}\\n{(ItemDb.ToolOf(stack.Id) is { } toolInfo ? $"Durability: {stack.Durability}/{toolInfo.Durability}" : $"Count: {stack.Count}")}";
         _icon.Texture = stack.IsEmpty ? null : ItemDb.Icon(stack.Id);
         _icon.Visible = !stack.IsEmpty;
         if (stack.IsEmpty)
@@ -74,19 +76,19 @@ public partial class InvSlot : Panel
             _count.Text = stack.Count > 1 ? stack.Count.ToString() : "";
         }
 
-        AddThemeStyleboxOverride("panel", Style(selected));
+        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(selected, _hovered));
     }
 
-    private static StyleBoxFlat Style(bool selected)
+    public override void _MouseEnter()
     {
-        StyleBoxFlat sb = new()
-        {
-            BgColor = selected ? new Color(0.10f, 0.10f, 0.13f, 0.90f) : new Color(0.06f, 0.06f, 0.08f, 0.78f),
-            BorderColor = selected ? new Color(1, 1, 1, 0.95f) : new Color(0.35f, 0.35f, 0.38f, 0.85f),
-        };
-        sb.SetBorderWidthAll(selected ? 3 : 2);
-        sb.SetCornerRadiusAll(5);
-        return sb;
+        _hovered = true;
+        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(false, true));
+    }
+
+    public override void _MouseExit()
+    {
+        _hovered = false;
+        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle());
     }
 
     public override void _GuiInput(InputEvent @event)
@@ -576,6 +578,13 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     private void OnSlotClicked(InvSlot slot, MouseButton button)
     {
+        if (button == MouseButton.Left && Input.IsKeyPressed(Key.Shift) && TransferSlotToInventory(slot))
+        {
+            _player.Inventory.RaiseChanged();
+            Refresh();
+            return;
+        }
+
         switch (slot.Kind)
         {
             case SlotKind.Result:
@@ -621,6 +630,37 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         _player.Inventory.RaiseChanged();
+    }
+
+    private bool TransferSlotToInventory(InvSlot slot)
+    {
+        ItemStack stack = slot.Kind switch
+        {
+            SlotKind.Craft => _craft[slot.Index],
+            SlotKind.Backpack => _player.Inventory.Backpack[slot.Index],
+            SlotKind.Hotbar => _player.Inventory.Hotbar[slot.Index],
+            SlotKind.Container when _container != null => _container.Slots[slot.Index],
+            SlotKind.FurnaceInput when _furnace != null => _furnace.Input,
+            SlotKind.FurnaceFuel when _furnace != null => _furnace.Fuel,
+            SlotKind.FurnaceOutput when _furnace != null => _furnace.Output,
+            _ => ItemStack.Empty,
+        };
+        if (stack.IsEmpty) return false;
+        int leftover = _player.Inventory.Add(stack);
+        int moved = stack.Count - leftover;
+        if (moved <= 0) return false;
+        ItemStack remainder = leftover <= 0 ? ItemStack.Empty : stack with { Count = leftover };
+        switch (slot.Kind)
+        {
+            case SlotKind.Craft: _craft[slot.Index] = remainder; break;
+            case SlotKind.Backpack: _player.Inventory.Backpack[slot.Index] = remainder; break;
+            case SlotKind.Hotbar: _player.Inventory.Hotbar[slot.Index] = remainder; break;
+            case SlotKind.Container when _container != null: _container.Slots[slot.Index] = remainder; break;
+            case SlotKind.FurnaceInput when _furnace != null: _furnace.Input = remainder; break;
+            case SlotKind.FurnaceFuel when _furnace != null: _furnace.Fuel = remainder; break;
+            case SlotKind.FurnaceOutput when _furnace != null: _furnace.Output = remainder; break;
+        }
+        return true;
     }
 
     private void ClickStack(ref ItemStack slot, MouseButton button)
