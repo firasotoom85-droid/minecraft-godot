@@ -761,3 +761,17 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - Oak leaves retain the bonus apple drop; birch leaves do not. Apple inventory
   overflow now uses the same full-inventory notification as other bonus drops.
 - Added regression checks for no-tool mining timing and cross-plant ray hits.
+
+- **2026-11-20 — Mob ecology high-priority audit fixes.**
+  - Newborn placement now searches a small nearby footprint and requires a solid
+    floor plus three clear voxel cells; blocked/occupied locations are rejected
+    before either parent enters breeding cooldown.
+  - Added shared attack/telegraph eligibility gates and regression tests for
+    cooldown expiry, line-of-sight blocking, pounce range and telegraph readiness.
+  - Cave Stalkers and Hollows now retain a short-lived last-seen player position
+    and investigate it after losing direct sight; ranged wind-up is cancelled
+    when line of sight breaks.
+  - **Verification pending:** latest GitHub Actions build/test run is still in
+    progress. Herd-size tuning, hunger/grazing, limb animation, light-aware cave
+    detection, projectile-specific integration tests, and rest/weather behavior
+    remain unimplemented; a sustained survival soak is still outstanding.
