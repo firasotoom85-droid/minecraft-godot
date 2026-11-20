@@ -67,7 +67,7 @@ public static class MobContentTests
                 "chickens form larger flocks than cattle");
         TestAssert.Check(chickenHerd.Spacing < cowHerd.Spacing,
                 "small chicken flocks use tighter spacing");
-        TestAssert.Check(Mobs.HerdProfile.For(sheep).Cohesion > cowHerd.Cohesion,
+        TestAssert.Check(Mobs.HerdProfile.For(new Sheep()).Cohesion > cowHerd.Cohesion,
                 "sheep use stronger herd cohesion than cattle");
 
         TestAssert.Equal(99.82f, Wanderer.DrainHunger(100.0f, 10.0f),
