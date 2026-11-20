@@ -22,6 +22,7 @@ public static class LightingTests
         TestTransparentTransmission();
         TestChunkBoundary();
         TestRemoval();
+        TestIncrementalBlockUpdates();
         TestSunlightAndCaves();
     }
 
@@ -104,6 +105,64 @@ public static class LightingTests
                 "source initially illuminates adjacent cells");
         TestAssert.Equal((byte)0, At(afterRemoval, width, height, depth, 6, 4, 4),
                 "re-solving after source removal clears stale block light");
+    }
+
+    private static void TestIncrementalBlockUpdates()
+    {
+        const int width = 32;
+        const int height = 8;
+        const int depth = 8;
+        byte[] blocks = new byte[width * height * depth];
+        byte[] incremental = new byte[blocks.Length];
+        int first = Idx(width, height, depth, 15, 4, 4);
+        int second = Idx(width, height, depth, 22, 4, 4);
+        byte torch = BlockDb.LightEmission[(int)BlockId.Torch];
+
+        blocks[first] = (byte)BlockId.Torch;
+        VoxelLighting.ApplyIncrementalBlockLight(
+                blocks, width, height, depth, incremental, first, torch);
+        byte[] full = VoxelLighting.PropagateBlockLight(
+                blocks, width, height, depth,
+                [new VoxelLightSource(new Godot.Vector3I(15, 4, 4), torch)]);
+        TestAssert.Check(EqualBytes(full, incremental),
+                "incremental emitter addition matches a full block-light solve");
+
+        blocks[second] = (byte)BlockId.Torch;
+        VoxelLighting.ApplyIncrementalBlockLight(
+                blocks, width, height, depth, incremental, second, torch);
+        full = VoxelLighting.PropagateBlockLight(
+                blocks, width, height, depth,
+                [
+                    new VoxelLightSource(new Godot.Vector3I(15, 4, 4), torch),
+                    new VoxelLightSource(new Godot.Vector3I(22, 4, 4), torch),
+                ]);
+        TestAssert.Check(EqualBytes(full, incremental),
+                "incremental second source addition matches full overlapping-source solve");
+
+        blocks[first] = (byte)BlockId.Air;
+        VoxelLighting.ApplyIncrementalBlockLight(
+                blocks, width, height, depth, incremental, first, 0);
+        full = VoxelLighting.PropagateBlockLight(
+                blocks, width, height, depth,
+                [new VoxelLightSource(new Godot.Vector3I(22, 4, 4), torch)]);
+        TestAssert.Check(EqualBytes(full, incremental),
+                "incremental source removal preserves the overlapping emitter");
+
+        blocks[second] = (byte)BlockId.Air;
+        VoxelLighting.ApplyIncrementalBlockLight(
+                blocks, width, height, depth, incremental, second, 0);
+        full = VoxelLighting.PropagateBlockLight(
+                blocks, width, height, depth, System.Array.Empty<VoxelLightSource>());
+        TestAssert.Check(EqualBytes(full, incremental),
+                "incremental final source removal clears the complete light volume");
+    }
+
+    private static bool EqualBytes(byte[] a, byte[] b)
+    {
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++)
+            if (a[i] != b[i]) return false;
+        return true;
     }
 
     private static void TestSunlightAndCaves()
