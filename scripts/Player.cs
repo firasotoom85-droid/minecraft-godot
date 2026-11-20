@@ -489,7 +489,9 @@ public partial class Player : CharacterBody3D, IDamageable
     /// <summary>All incoming hurt routes here; creative and invulnerability refuse it.</summary>
     public bool ApplyDamage(in DamageInfo info)
     {
-        float amount = info.Amount;
+        float amount = info.Amount; ItemStack held=Inventory.Hotbar[Selected];
+        if(held.Id==ItemId.Shield&&info.Kind==DamageKind.Melee&&info.Source!=Vector3.Zero){Vector3 incoming=GlobalPosition-info.Source;incoming.Y=0;Vector3 forward=-GlobalTransform.Basis.Z;forward.Y=0;
+            if(incoming.LengthSquared()>0.001f&&forward.LengthSquared()>0.001f&&forward.Normalized().Dot(incoming.Normalized())>=0.35f){Inventory.DamageEquipment(Selected);EmitSignal(SignalName.Notice,"Blocked");return false;}}
         // Armor protects against physical/environmental hits, not hunger or drowning.
         if (info.Kind is not (DamageKind.Drown or DamageKind.Starve))
         {
@@ -714,16 +716,14 @@ public partial class Player : CharacterBody3D, IDamageable
     /// <summary>One melee swing: tool tier picks the damage, swing cadence is capped.</summary>
     private void Swing(IDamageable target)
     {
-        double now = Time.GetTicksMsec() / 1000.0;
-        if (now - _lastSwing < SwingCooldown)
-        {
-            return;
-        }
-
-        _lastSwing = now;
-        StartPunch();
-        float damage = 1.0f + (ItemDb.ToolOf(Inventory.Hotbar[Selected].Id)?.Tier ?? 0);
-        target.ApplyDamage(new DamageInfo(damage, DamageKind.Melee, GlobalPosition, 3.0f, 1.5f));
+        double now=Time.GetTicksMsec()/1000.0; ItemStack held=Inventory.Hotbar[Selected]; WeaponInfo? weapon=ItemDb.WeaponOf(held.Id);
+        float cooldown=weapon is { AttackSpeed: > 0 } w?w.AttackSpeed:SwingCooldown; if(now-_lastSwing<cooldown)return;
+        if(held.Id==ItemId.Bow){if(!Inventory.Consume(ItemId.Arrow,1)){EmitSignal(SignalName.Notice,"Need arrows to fire");_lastSwing=now;return;}
+            Inventory.DamageEquipment(Selected);_lastSwing=now;StartPunch();target.ApplyDamage(new DamageInfo(5,DamageKind.Melee,GlobalPosition,1,0.4f));return;}
+        _lastSwing=now;StartPunch();float damage=weapon?.Damage??(1+(ItemDb.ToolOf(held.Id)?.Tier??0));
+        bool critical=!IsOnFloor()&&Velocity.Y< -0.1f;if(critical)damage*=1.5f;float knockback=weapon?.Knockback??3;
+        bool landed=target.ApplyDamage(new DamageInfo(damage,DamageKind.Melee,GlobalPosition,knockback,1.5f));
+        if(landed&&weapon is not null)Inventory.DamageEquipment(Selected);if(landed&&critical)EmitSignal(SignalName.Notice,"Critical hit!");
     }
 
     public Vector3I TargetBlock()
