@@ -492,7 +492,7 @@ public partial class Player : CharacterBody3D, IDamageable
     {
         float amount = info.Amount;
         ItemStack held = Inventory.Hotbar[Selected];
-        if (EquipmentProgression.BlocksWithShield(held, -GlobalTransform.Basis.Z, GlobalPosition, info))
+        if (Mode == GameMode.Survival && EquipmentProgression.BlocksWithShield(held, -GlobalTransform.Basis.Z, GlobalPosition, info))
         {
             Inventory.DamageEquipment(Selected);
             EmitSignal(SignalName.Notice, "Blocked");
@@ -544,7 +544,7 @@ public partial class Player : CharacterBody3D, IDamageable
     }
 
     private int ProtectionLevels { get { int total = 0; foreach (ItemStack piece in Inventory.Armor) total += piece.Protection; return total; } }
-    private float ArmorReduction => Mathf.Min(ArmorPoints * 0.04f + ProtectionLevels * 0.04f, 0.80f);
+    private float ArmorReduction => Mathf.Min(ArmorPoints * 0.04f + EquipmentProgression.ProtectionBonus(ProtectionLevels), 0.80f);
 
     /// <summary>Every landed hit wears each equipped piece by one point.</summary>
     private void DamageArmor()
