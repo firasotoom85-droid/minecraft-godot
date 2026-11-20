@@ -88,6 +88,10 @@ public partial class Sound : Node
         _streams["hurt"] = SynthHurt();
         _streams["mobhurt"] = SynthMobHurt();
         _streams["mobdie"] = SynthMobDie();
+        _streams["mobgrowl"] = SynthMobGrowl();
+        _streams["mobchitter"] = SynthMobChitter();
+        _streams["mobcrystal"] = SynthMobCrystal();
+        _streams["mobdread"] = SynthMobDread();
         _streams["eat"] = SynthEat();
         _streams["sizzle"] = SynthSizzle();
         for (int i = 0; i < Voices; i++)
@@ -478,6 +482,104 @@ public partial class Sound : Node
         }
 
         return MakeWav(outFrames);
+    }
+
+
+    /// <summary>Low wooden growl used by the defensive Briarback and newborns.</summary>
+    private static AudioStreamWav SynthMobGrowl()
+    {
+        int n = (int)(SampleRate * 0.38);
+        float[] frames = new float[n];
+        RandomNumberGenerator rng = new() { Seed = 8611 };
+        double phase = 0.0;
+        double lowPass = 0.0;
+        for (int i = 0; i < n; i++)
+        {
+            double t = (double)i / n;
+            double envelope = System.Math.Pow(System.Math.Sin(System.Math.PI * t), 0.8);
+            double frequency = 112.0 - 52.0 * t + 8.0 * System.Math.Sin(t * 18.0);
+            phase += System.Math.Tau * frequency / SampleRate;
+            lowPass = lowPass * 0.84 + rng.RandfRange(-1.0f, 1.0f) * 0.16;
+            double tone = System.Math.Sin(phase) * 0.72 + System.Math.Sin(phase * 1.7) * 0.18;
+            frames[i] = (float)((tone + lowPass * 0.22) * envelope * 0.72);
+        }
+
+        return MakeWav(frames);
+    }
+
+    /// <summary>Dry, rapid clicks for the stalking cave predator and Hollow.</summary>
+    private static AudioStreamWav SynthMobChitter()
+    {
+        int n = (int)(SampleRate * 0.24);
+        float[] frames = new float[n];
+        RandomNumberGenerator rng = new() { Seed = 8622 };
+        double phase = 0.0;
+        double last = 0.0;
+        for (int i = 0; i < n; i++)
+        {
+            double t = (double)i / n;
+            double pulse = 0.0;
+            for (int click = 0; click < 4; click++)
+            {
+                double start = click * 0.052;
+                double local = t - start;
+                if (local >= 0.0 && local < 0.026)
+                {
+                    pulse += System.Math.Pow(1.0 - local / 0.026, 2.0);
+                }
+            }
+
+            phase += System.Math.Tau * (1250.0 + 520.0 * t) / SampleRate;
+            double noise = rng.RandfRange(-1.0f, 1.0f);
+            double highPass = noise - last * 0.72;
+            last = noise;
+            frames[i] = (float)((System.Math.Sin(phase) * 0.22 + highPass * 0.48) * pulse);
+        }
+
+        return MakeWav(frames);
+    }
+
+    /// <summary>Bright, glassy shimmer for crystal creatures and their projectiles.</summary>
+    private static AudioStreamWav SynthMobCrystal()
+    {
+        int n = (int)(SampleRate * 0.34);
+        float[] frames = new float[n];
+        double phaseA = 0.0;
+        double phaseB = 0.0;
+        for (int i = 0; i < n; i++)
+        {
+            double t = (double)i / n;
+            double envelope = System.Math.Sin(System.Math.PI * t) * (1.0 - 0.25 * t);
+            double frequency = 720.0 + 420.0 * t;
+            phaseA += System.Math.Tau * frequency / SampleRate;
+            phaseB += System.Math.Tau * frequency * 1.503 / SampleRate;
+            double tone = System.Math.Sin(phaseA) * 0.55 + System.Math.Sin(phaseB) * 0.22;
+            frames[i] = (float)(tone * envelope * 0.52);
+        }
+
+        return MakeWav(frames);
+    }
+
+    /// <summary>Descending, airy call for the rare Dreadwing.</summary>
+    private static AudioStreamWav SynthMobDread()
+    {
+        int n = (int)(SampleRate * 0.48);
+        float[] frames = new float[n];
+        RandomNumberGenerator rng = new() { Seed = 8633 };
+        double phase = 0.0;
+        double lowPass = 0.0;
+        for (int i = 0; i < n; i++)
+        {
+            double t = (double)i / n;
+            double envelope = System.Math.Pow(1.0 - t, 1.35);
+            double frequency = 480.0 - 290.0 * t + 34.0 * System.Math.Sin(t * 15.0);
+            phase += System.Math.Tau * frequency / SampleRate;
+            lowPass = lowPass * 0.96 + rng.RandfRange(-1.0f, 1.0f) * 0.04;
+            frames[i] = (float)((System.Math.Sin(phase) * 0.55
+                    + System.Math.Sin(phase * 0.53) * 0.20 + lowPass * 0.18) * envelope * 0.68);
+        }
+
+        return MakeWav(frames);
     }
 
     /// <summary>Eating: three soft crunches.</summary>
