@@ -73,11 +73,12 @@ public partial class InvSlot : Panel
         {
             _count.Text = stack.Durability < weapon.Durability ? stack.Durability.ToString() : "";
         }
-        TooltipText = stack.IsEmpty ? "" : $"{ItemDb.NameOf(stack.Id)}\n{ItemDb.DescriptionOf(stack.Id)}";
         else
         {
             _count.Text = stack.Count > 1 ? stack.Count.ToString() : "";
         }
+
+        TooltipText = stack.IsEmpty ? "" : $"{ItemDb.NameOf(stack.Id)}\n{ItemDb.DescriptionOf(stack.Id)}";
 
         AddThemeStyleboxOverride("panel", Style(selected));
     }
