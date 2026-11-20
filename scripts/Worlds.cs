@@ -44,10 +44,12 @@ public sealed record PlayerSave(
     string? Mode = null,
     float Health = 0.0f,
     float? Hunger = null,
-    float[]? Respawn = null);
+    float[]? Respawn = null,
+    int Experience = 0);
 
 /// <summary>One saved inventory slot (0-8 hotbar, 9-35 backpack).</summary>
-public sealed record ItemStackSave(int Slot, int Id, int Count, int Durability = 0);
+public sealed record ItemStackSave(int Slot, int Id, int Count, int Durability = 0,
+    int Sharpness = 0, int Protection = 0, int Unbreaking = 0);
 
 /// <summary>Persisted furnace slots + burn/smelt timers.</summary>
 public sealed record FurnaceSave(
