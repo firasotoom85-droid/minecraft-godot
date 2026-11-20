@@ -155,7 +155,7 @@ public partial class DevConsole : CanvasLayer
             case "help":
                 return "/seed · /tp x y z · /time <0..1|day|noon|night|midnight> · /vd n · /autoq on|off · /greedy on|off · /spawn · /save"
                         + " · /give <item> [n] · /hold <item> [n] · /armor iron|diamond|off · /gamemode · /difficulty · /heal · /hunger n"
-                        + " · /kill · /mob <shade|rot|hollow|warden|sheep|cow|pig|chicken> [n] · /trader · /struct <tower|ruin|mine|ember>";
+                        + " · /kill · /mob <shade|rot|hollow|warden|stalker|briarback|crystalwisp|dreadwing|sheep|cow|pig|chicken> [n] · /trader · /struct <tower|ruin|mine|ember>";
             case "seed":
                 return $"seed {_world.WorldSeed}  ·  gen v{_world.WorldGenVersion}";
             case "tp":
