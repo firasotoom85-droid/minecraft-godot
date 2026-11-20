@@ -49,6 +49,7 @@ public partial class Mob : CharacterBody3D, IDamageable
     private float _growthTime;
     private Vector3 _rememberedTarget;
     private float _rememberedTargetTime;
+    private Node3D[] _animatedLegs = [];
 
     public bool Dead => Health <= 0.0f;
     public bool IsAlerted => _alertTime > 0.0f;
@@ -437,6 +438,44 @@ public partial class Mob : CharacterBody3D, IDamageable
         }
     }
 
+    /// <summary>Add four independently pivoted legs to procedural quadruped/bird bodies.</summary>
+    protected void AddAnimatedLegs(Color color, float length, float thickness,
+            float xSpacing, float zSpacing, float topY)
+    {
+        StandardMaterial3D material = new()
+        {
+            AlbedoColor = color,
+            Roughness = 1.0f,
+        };
+        _animatedLegs = new Node3D[4];
+        int index = 0;
+        foreach (float x in new[] { -xSpacing, xSpacing })
+        {
+            foreach (float z in new[] { -zSpacing, zSpacing })
+            {
+                Node3D pivot = new()
+                {
+                    Name = $"LegPivot{index}",
+                    Position = new Vector3(x, topY, z),
+                };
+                MeshInstance3D leg = new()
+                {
+                    Name = $"Leg{index}",
+                    Mesh = new BoxMesh
+                    {
+                        Size = new Vector3(thickness, length, thickness),
+                    },
+                    Position = new Vector3(0, -length * 0.5f, 0),
+                    MaterialOverride = material,
+                    CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+                };
+                pivot.AddChild(leg);
+                AddChild(pivot);
+                _animatedLegs[index++] = pivot;
+            }
+        }
+    }
+
     private void AnimateBody(float dt)
     {
         if (_bodyVisual == null)
@@ -449,6 +488,14 @@ public partial class Mob : CharacterBody3D, IDamageable
                 ? Mathf.Abs(Mathf.Sin((float)_animationTime * Mathf.Max(Speed, 1.0f) * 2.4f)) * 0.045f
                 : Mathf.Sin((float)_animationTime * 1.6f) * 0.012f;
         _bodyVisual.Position = _bodyRestPosition + new Vector3(0, bob, 0);
+        float gait = moving ? Mathf.Sin((float)_animationTime * Mathf.Max(Speed, 1.0f) * 4.0f) * 0.48f : 0.0f;
+        for (int i = 0; i < _animatedLegs.Length; i++)
+        {
+            Vector3 legRotation = _animatedLegs[i].Rotation;
+            float phase = (i == 0 || i == 3) ? gait : -gait;
+            legRotation.X = phase;
+            _animatedLegs[i].Rotation = legRotation;
+        }
         Vector3 rotation = _bodyVisual.Rotation;
         rotation.X = moving ? Mathf.Sin((float)_animationTime * 3.2f) * 0.025f : 0.0f;
         rotation.Z = moving ? Mathf.Cos((float)_animationTime * 3.2f) * 0.018f : 0.0f;
