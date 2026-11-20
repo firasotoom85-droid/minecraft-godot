@@ -54,7 +54,7 @@ public partial class ArrowProjectile : Area3D
         float dt = (float)delta;
         _velocity += Vector3.Down * (9.8f * dt);
         Vector3 step = _velocity * dt;
-        _sweep.TargetPosition = step;
+        _sweep.TargetPosition = ToLocal(GlobalPosition + step);
         _sweep.ForceRaycastUpdate();
         if (_sweep.IsColliding())
         {
