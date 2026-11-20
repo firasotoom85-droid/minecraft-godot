@@ -54,6 +54,7 @@ public partial class Mob : CharacterBody3D, IDamageable
     public virtual bool IsPassive => false;
     public virtual ItemId BreedingFood => ItemId.None;
     protected virtual bool UsesGravity => true;
+    protected virtual bool UsesVoxelSteering => true;
 
     public void Setup(VoxelWorld world, Mobs manager, Vector3 home)
     {
@@ -198,7 +199,9 @@ public partial class Mob : CharacterBody3D, IDamageable
         {
             double thinkDelta = _thinkElapsed;
             _thinkElapsed = 0.0;
-            _moveDirection = SteerAroundObstacles(Think(thinkDelta));
+            _moveDirection = UsesVoxelSteering
+                    ? SteerAroundObstacles(Think(thinkDelta))
+                    : Think(thinkDelta);
         }
 
         Vector3 dir = _moveDirection;
