@@ -19,6 +19,7 @@ public partial class Rot : Mob
         MaxHealth = 14.0f;
         Speed = 2.15f;
         DisplayName = "Rot";
+        Loot = [(ItemId.Coal, 1, 2, 0.85f), (ItemId.Stick, 1, 2, 0.55f)];
     }
 
     protected override void AddShape()
