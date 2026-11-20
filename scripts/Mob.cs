@@ -508,7 +508,8 @@ public partial class Mob : CharacterBody3D, IDamageable
         float bob = moving
                 ? Mathf.Abs(Mathf.Sin((float)_animationTime * Mathf.Max(Speed, 1.0f) * 2.4f)) * 0.045f
                 : Mathf.Sin((float)_animationTime * 1.6f) * 0.012f;
-        _bodyVisual.Position = _bodyRestPosition + new Vector3(0, bob, 0);
+        bool resting = this is Wanderer { IsResting: true };
+        _bodyVisual.Position = _bodyRestPosition + new Vector3(0, bob - (resting ? 0.055f : 0.0f), 0);
         float gait = moving ? Mathf.Sin((float)_animationTime * Mathf.Max(Speed, 1.0f) * 4.0f) * 0.48f : 0.0f;
         for (int i = 0; i < _animatedLegs.Length; i++)
         {
