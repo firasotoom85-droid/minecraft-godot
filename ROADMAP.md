@@ -775,3 +775,17 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
     progress. Herd-size tuning, hunger/grazing, limb animation, light-aware cave
     detection, projectile-specific integration tests, and rest/weather behavior
     remain unimplemented; a sustained survival soak is still outstanding.
+
+---
+
+## 2026-11-20 — M8 UX interface and controller continuation
+
+- Unified the menu and gameplay visual language with square pixel-art panels, muted green borders, warm highlights, crisp focus/hover states and high contrast hotbar/crosshair treatment.
+- Added responsive scaling to main menu, pause/settings, controls and inventory; chest and furnace panels now use the shared framed surface.
+- Inventory slots show item name/count/durability, support hover feedback, Shift-click transfer, and native drag-and-drop across player inventory, crafting, chest and furnace slots. Armor destinations validate equipment type, and furnace output can be dragged into inventory.
+- Added additive controller bindings for movement, camera look, jump, sprint, mining, placement, block pick, hotbar cycling, creative flight, inventory, pause, minimap and journal. Controller button overrides persist separately from keyboard settings and can be rebound in the Controls panel.
+- Added focus initialization and controller confirm/cancel support across the main menu, pause, controls, inventory and achievement journal.
+- First-person arm now displays the selected item icon and animates it with the existing swing, swimming, movement bob and landing presentation.
+- Added keybind regression checks for controller defaults, remapping, conflict detection, reset behavior and preservation of controller events during keyboard rebinding.
+- Compatibility: no persisted IDs, save schema, world generation, voxel mutation, meshing or chunk streaming changes.
+- **Verification pending:** the current branch has not yet been built or run through `scripts/verify.sh` in this environment. CI and in-game validation remain required, including a controller smoke test and visual review at 1920×1080 and 1280×720.
