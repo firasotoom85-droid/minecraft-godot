@@ -46,10 +46,10 @@ public partial class Chicken : Wanderer
         foreach (float sx in new[] { -1.0f, 1.0f })
         {
             AddBox(st, new Vector3(0.06f, 0.22f, 0.30f), new Vector3(sx * 0.24f, 0.48f, 0.02f), wing);
-            AddBox(st, new Vector3(0.07f, 0.26f, 0.07f), new Vector3(sx * 0.10f, 0.16f, 0.02f), beak.Darkened(0.25f));
         }
 
         AddBox(st, new Vector3(0.18f, 0.10f, 0.22f), new Vector3(0, 0.62f, 0.24f), wing);
         CommitBody(st);
+        AddAnimatedLegs(beak.Darkened(0.25f), 0.26f, 0.07f, 0.10f, 0.12f, 0.28f);
     }
 }
