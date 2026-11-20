@@ -51,9 +51,9 @@ public sealed class WorldGenV7
         _moisture = CreateNoise(0x4D4F4953u, FastNoiseLite.NoiseTypeEnum.Simplex, 0.0018f, 4);
         _warpX = CreateNoise(0x57525058u, FastNoiseLite.NoiseTypeEnum.Simplex, 0.00125f, 3);
         _warpZ = CreateNoise(0x5752505Au, FastNoiseLite.NoiseTypeEnum.Simplex, 0.00125f, 3);
-        _riverA = CreateNoise(0x52495641u, FastNoiseLite.NoiseTypeEnum.Simplex, 0.0017f, 2);
-        _riverB = CreateNoise(0x52495642u, FastNoiseLite.NoiseTypeEnum.Simplex, 0.0021f, 2);
-        _riverWidth = CreateNoise(0x52495744u, FastNoiseLite.NoiseTypeEnum.Simplex, 0.0011f, 2);
+        _riverA = CreateNoise(0x52495641u, FastNoiseLite.NoiseTypeEnum.Simplex, 0.0010f, 2);
+        _riverB = CreateNoise(0x52495642u, FastNoiseLite.NoiseTypeEnum.Simplex, 0.0012f, 2);
+        _riverWidth = CreateNoise(0x52495744u, FastNoiseLite.NoiseTypeEnum.Simplex, 0.0007f, 2);
         _islandMask = CreateNoise(0x49534C37u, FastNoiseLite.NoiseTypeEnum.Simplex, 0.0065f, 3);
         _caveA = CreateNoise(0x43415641u, FastNoiseLite.NoiseTypeEnum.Perlin, 0.031f, 2);
         _caveB = CreateNoise(0x43415642u, FastNoiseLite.NoiseTypeEnum.Perlin, 0.043f, 2);
@@ -259,7 +259,7 @@ public sealed class WorldGenV7
         float distanceA = Math.Abs(_riverA.GetNoise2D(x, z));
         float distanceB = Math.Abs(_riverB.GetNoise2D(x + 311.0f, z - 173.0f));
         float distance = Math.Min(distanceA, distanceB * 1.12f);
-        return 1.0f - SmoothStep(width, width + 0.085f, distance);
+        return 1.0f - SmoothStep(width, width + 0.16f, distance);
     }
 
     public bool IsIsland(int x, int z) => _islandMask.GetNoise2D(x, z) > 0.10f;
