@@ -68,6 +68,8 @@ public static class EquipmentTests
         toolUpgrade.Add(ItemId.Cobblestone, 2);
         TestAssert.Check(EquipmentProgression.TryUpgrade(toolUpgrade, 0, out _), "wood pick upgrades to stone");
         TestAssert.Equal(ItemId.StonePick, toolUpgrade.Get(0).Id, "tool upgrade advances one tier");
+        TestAssert.Equal(ItemId.Diamond, EquipmentProgression.UpgradeMaterial(ItemId.IronSword), "iron sword upgrade uses diamonds");
+        TestAssert.Equal(2, EquipmentProgression.UpgradeMaterialCount(ItemId.IronSword), "iron sword upgrade requires two diamonds");
         ItemStack shield = ItemDb.New(ItemId.Shield, 1);
         DamageInfo frontArrow = new(4, DamageKind.Projectile, new Godot.Vector3(0, 0, -3));
         DamageInfo rearArrow = new(4, DamageKind.Projectile, new Godot.Vector3(0, 0, 3));
