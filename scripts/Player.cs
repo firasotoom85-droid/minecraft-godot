@@ -38,6 +38,7 @@ public partial class Player : CharacterBody3D, IDamageable
     [Signal] public delegate void ToolBrokeEventHandler();
     [Signal] public delegate void InventoryFullEventHandler();
     [Signal] public delegate void TableUsedEventHandler();
+    [Signal] public delegate void EnchantingTableUsedEventHandler();
     [Signal] public delegate void ChestUsedEventHandler(Vector3I pos);
     [Signal] public delegate void FurnaceUsedEventHandler(Vector3I pos);
     [Signal] public delegate void SleptEventHandler();
@@ -777,6 +778,14 @@ public partial class Player : CharacterBody3D, IDamageable
         return World.GetBlock(bp.X, bp.Y, bp.Z) == BlockId.CraftingTable;
     }
 
+    /// <summary>True when the ray currently rests on an enchanting table in reach.</summary>
+    public bool EnchantingTableInReach()
+    {
+        if (World == null || !Ray.IsColliding() || Ray.GetCollider() is Mob) return false;
+        Vector3I bp = TargetBlock();
+        return World.GetBlock(bp.X, bp.Y, bp.Z) == BlockId.EnchantingTable;
+    }
+
     /// <summary>True when the ray currently rests on a furnace in reach.</summary>
     public bool FurnaceInReach()
     {
@@ -1249,6 +1258,12 @@ public partial class Player : CharacterBody3D, IDamageable
         if (FurnaceInReach())
         {
             EmitSignal(SignalName.FurnaceUsed, TargetBlock());
+            return;
+        }
+
+        if (EnchantingTableInReach())
+        {
+            EmitSignal(SignalName.EnchantingTableUsed);
             return;
         }
 
