@@ -22,9 +22,9 @@ public static class EquipmentTests
         TestAssert.Check(Recipes.All.Any(r => r.Result == ItemId.EnchantingTable), "enchanting table has a crafting recipe");
         TestAssert.Equal(BlockId.EnchantingTable, ItemDb.BlockFor(ItemId.EnchantingTable) ?? BlockId.Air, "enchanting table item maps to block");
         Inventory tableMaterials = new();
-        tableMaterials.Add(ItemId.Diamond, 4);
-        tableMaterials.Add(ItemId.IronIngot, 4);
-        tableMaterials.Add(ItemId.EmberCore, 1);
+        tableMaterials.Add(ItemId.Diamond, 2);
+        tableMaterials.Add(ItemId.IronIngot, 2);
+        tableMaterials.Add(ItemId.LapisLazuli, 1);
         Recipe enchantingTableRecipe = Recipes.All.First(r => r.Result == ItemId.EnchantingTable);
         TestAssert.Check(Recipes.CanCraft(enchantingTableRecipe, tableMaterials), "enchanting table requires and accepts its full rare-material recipe");
 
