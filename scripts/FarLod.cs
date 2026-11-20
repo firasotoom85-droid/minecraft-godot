@@ -35,7 +35,7 @@ public partial class FarLod : Node3D
     private readonly Dictionary<Vector2I, Tile> _tiles = new();  // Vector2I -> tile
     private readonly List<Vector2I> _queue = [];
     private readonly Dictionary<Vector2I, long> _inFlight = new();
-    private bool _alive = true;
+    private volatile bool _alive = true;
 
     private StandardMaterial3D _material = null!;
     private Color _colGrass = Colors.White;
