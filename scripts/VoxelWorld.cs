@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -1503,55 +1504,62 @@ public partial class VoxelWorld : Node3D
             chunks[slot] = blocks;
         }
 
-        byte[] regionBlocks = new byte[volume];
-        byte[] regionLight = new byte[volume];
-        for (int dz = -1; dz <= 1; dz++)
-        for (int dx = -1; dx <= 1; dx++)
+        byte[] regionBlocks = ArrayPool<byte>.Shared.Rent(volume);
+        byte[] regionLight = ArrayPool<byte>.Shared.Rent(volume);
+        try
         {
-            int slot = (dz + 1) * 3 + dx + 1;
-            byte[] chunkBlocks = chunks[slot];
-            byte[] packed = maps[slot].Packed;
-            for (int yLocal = 0; yLocal < Height; yLocal++)
-            for (int zLocal = 0; zLocal < ChunkZ; zLocal++)
+            for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
             {
-                int source = (yLocal * ChunkZ + zLocal) * ChunkX;
-                int target = yLocal * plane
-                        + (dz + 1) * ChunkZ * width
-                        + zLocal * width
-                        + (dx + 1) * ChunkX;
-                Array.Copy(chunkBlocks, source, regionBlocks, target, ChunkX);
-                for (int xLocal = 0; xLocal < ChunkX; xLocal++)
-                    regionLight[target + xLocal] = (byte)(packed[source + xLocal] & 0x0F);
-            }
-        }
-
-        int localX = worldX - (center.X - 1) * ChunkX;
-        int localZ = worldZ - (center.Y - 1) * ChunkZ;
-        int changedIndex = localX + localZ * width + y * plane;
-        VoxelLighting.ApplyIncrementalBlockLight(
-                regionBlocks, width, Height, depth, regionLight, changedIndex, emission);
-
-        for (int dz = -1; dz <= 1; dz++)
-        for (int dx = -1; dx <= 1; dx++)
-        {
-            int slot = (dz + 1) * 3 + dx + 1;
-            byte[] packed = maps[slot].Packed;
-            for (int yLocal = 0; yLocal < Height; yLocal++)
-            for (int zLocal = 0; zLocal < ChunkZ; zLocal++)
-            {
-                int source = yLocal * plane
-                        + (dz + 1) * ChunkZ * width
-                        + zLocal * width
-                        + (dx + 1) * ChunkX;
-                int target = (yLocal * ChunkZ + zLocal) * ChunkX;
-                for (int xLocal = 0; xLocal < ChunkX; xLocal++)
-                    packed[target + xLocal] = (byte)((packed[target + xLocal] & 0xF0)
-                            | regionLight[source + xLocal]);
+                int slot = (dz + 1) * 3 + dx + 1;
+                byte[] chunkBlocks = chunks[slot];
+                byte[] packed = maps[slot].Packed;
+                for (int yLocal = 0; yLocal < Height; yLocal++)
+                for (int zLocal = 0; zLocal < ChunkZ; zLocal++)
+                {
+                    int source = (yLocal * ChunkZ + zLocal) * ChunkX;
+                    int target = yLocal * plane
+                            + (dz + 1) * ChunkZ * width
+                            + zLocal * width
+                            + (dx + 1) * ChunkX;
+                    Array.Copy(chunkBlocks, source, regionBlocks, target, ChunkX);
+                    for (int xLocal = 0; xLocal < ChunkX; xLocal++)
+                        regionLight[target + xLocal] = (byte)(packed[source + xLocal] & 0x0F);
+                }
             }
 
-            _blockLightCache.Remove(center + new Vector2I(dx, dz));
-        }
+            int localX = worldX - (center.X - 1) * ChunkX;
+            int localZ = worldZ - (center.Y - 1) * ChunkZ;
+            int changedIndex = localX + localZ * width + y * plane;
+            VoxelLighting.ApplyIncrementalBlockLight(
+                    regionBlocks, width, Height, depth, regionLight, changedIndex, emission);
 
+            for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int slot = (dz + 1) * 3 + dx + 1;
+                byte[] packed = maps[slot].Packed;
+                for (int yLocal = 0; yLocal < Height; yLocal++)
+                for (int zLocal = 0; zLocal < ChunkZ; zLocal++)
+                {
+                    int source = yLocal * plane
+                            + (dz + 1) * ChunkZ * width
+                            + zLocal * width
+                            + (dx + 1) * ChunkX;
+                    int target = (yLocal * ChunkZ + zLocal) * ChunkX;
+                    for (int xLocal = 0; xLocal < ChunkX; xLocal++)
+                        packed[target + xLocal] = (byte)((packed[target + xLocal] & 0xF0)
+                                | regionLight[source + xLocal]);
+                }
+
+                _blockLightCache.Remove(center + new Vector2I(dx, dz));
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(regionBlocks);
+            ArrayPool<byte>.Shared.Return(regionLight);
+        }
         return true;
     }
 
