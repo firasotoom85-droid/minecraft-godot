@@ -3,8 +3,7 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>
-/// Escape overlay: pauses the tree, resumes it, saves on demand, shares the
-/// settings form with the main menu and can quit back to the menu.
+/// Paused-game dashboard with quick actions and the shared settings interface.
 /// </summary>
 public partial class PauseMenu : CanvasLayer, IModalUi
 {
@@ -40,7 +39,7 @@ public partial class PauseMenu : CanvasLayer, IModalUi
 
         ColorRect dim = new()
         {
-            Color = new Color(0, 0, 0, 0.45f),
+            Color = new Color(0.008f, 0.020f, 0.025f, 0.76f),
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
         dim.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
@@ -52,40 +51,69 @@ public partial class PauseMenu : CanvasLayer, IModalUi
         _root.AddChild(center);
 
         VBoxContainer box = new();
-        box.AddThemeConstantOverride("separation", 10);
-        box.AddChild(MenuSkin.Title("PAUSED", 30));
-        _status = new Label
+        box.AddThemeConstantOverride("separation", 13);
+        box.AddChild(MenuSkin.Eyebrow("SESSION CONTROL"));
+        box.AddChild(MenuSkin.Title("The world can wait.", 32, true));
+        box.AddChild(MenuSkin.MutedLabel("Your game is paused. Take a moment, adjust your setup, or jump back in.", 13));
+
+        PanelContainer session = new();
+        session.AddThemeStyleboxOverride("panel", MenuSkin.InsetStyle());
+        HBoxContainer sessionRow = new();
+        sessionRow.AddThemeConstantOverride("separation", 14);
+        VBoxContainer sessionInfo = new();
+        sessionInfo.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        sessionInfo.AddThemeConstantOverride("separation", 3);
+        sessionInfo.AddChild(MenuSkin.Eyebrow("CURRENT SESSION"));
+        sessionInfo.AddChild(MenuSkin.Title("Voxel world", 16, true));
+        sessionInfo.AddChild(MenuSkin.MutedLabel(
+                $"{(_player.Mode == GameMode.Survival ? "SURVIVAL" : "CREATIVE")}  ·  {Settings.DifficultyNames[Settings.Difficulty].ToUpperInvariant()}",
+                10));
+        sessionRow.AddChild(sessionInfo);
+        Label saveHint = new()
         {
-            HorizontalAlignment = HorizontalAlignment.Center,
+            Text = "Autosave enabled",
+            VerticalAlignment = VerticalAlignment.Center,
         };
-        _status.AddThemeFontSizeOverride("font_size", 13);
-        _status.AddThemeColorOverride("font_color", new Color(0.75f, 0.85f, 0.75f, 0.9f));
+        saveHint.AddThemeFontSizeOverride("font_size", 11);
+        saveHint.AddThemeColorOverride("font_color", MenuSkin.AccentBright);
+        sessionRow.AddChild(saveHint);
+        session.AddChild(sessionRow);
+        box.AddChild(session);
+
+        _status = MenuSkin.MutedLabel("", 12);
         box.AddChild(_status);
-        box.AddChild(MenuSkin.MakeButton("Resume", Resume, 0));
-        box.AddChild(MenuSkin.MakeButton("Save", () =>
+        box.AddChild(MenuSkin.MakeButton("RESUME GAME", Resume, 0, primary: true));
+        box.AddChild(MenuSkin.MakeButton("SAVE NOW", () =>
         {
             _world.SaveNow();
-            _status.Text = $"Saved · {Time.GetTimeStringFromSystem()}";
+            _status.Text = $"Save requested  ·  {Time.GetTimeStringFromSystem()}";
         }, 0));
-        box.AddChild(MenuSkin.MakeButton("Settings", () => SwitchSettings(true), 0));
-        box.AddChild(MenuSkin.MakeButton("Controls", () => _keybinds.Open(), 0));
-        box.AddChild(MenuSkin.MakeButton("Quit to menu", QuitToMenu, 0));
-        _mainPanel = MenuSkin.Wrap(box, 320);
+        box.AddChild(MenuSkin.MakeButton("SETTINGS", () => SwitchSettings(true), 0));
+        box.AddChild(MenuSkin.MakeButton("KEYBOARD CONTROLS", () => _keybinds.Open(), 0));
+        box.AddChild(MenuSkin.MakeButton("RETURN TO TITLE", QuitToMenu, 0, danger: true));
+        _mainPanel = MenuSkin.Wrap(box, 430);
 
         VBoxContainer settingsBox = new();
-        settingsBox.AddThemeConstantOverride("separation", 10);
-        settingsBox.AddChild(MenuSkin.Title("SETTINGS"));
-        settingsBox.AddChild(SettingsPanel.Build(() =>
+        settingsBox.AddThemeConstantOverride("separation", 12);
+        settingsBox.AddChild(MenuSkin.Eyebrow("PREFERENCES"));
+        settingsBox.AddChild(MenuSkin.Title("Settings", 27, true));
+        ScrollContainer settingsScroll = new()
+        {
+            CustomMinimumSize = new Vector2(0, 480),
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+        };
+        settingsScroll.AddChild(SettingsPanel.Build(() =>
         {
             Sound.ApplyVolumes();
             _world.SetViewDistance(Settings.ViewDistance);
         }));
-        settingsBox.AddChild(MenuSkin.MakeButton("Back", () => SwitchSettings(false), 0));
+        settingsBox.AddChild(settingsScroll);
+        settingsBox.AddChild(MenuSkin.MakeButton("BACK TO PAUSE MENU", () => SwitchSettings(false), 210));
         _settingsPanel = MenuSkin.Wrap(settingsBox);
+        _settingsPanel.Visible = false;
 
         center.AddChild(_mainPanel);
         center.AddChild(_settingsPanel);
-        _settingsPanel.Visible = false;
     }
 
     public override void _UnhandledInput(InputEvent @event)
