@@ -199,9 +199,10 @@ public partial class Mob : CharacterBody3D, IDamageable
         {
             double thinkDelta = _thinkElapsed;
             _thinkElapsed = 0.0;
-            _moveDirection = UsesVoxelSteering
-                    ? SteerAroundObstacles(Think(thinkDelta))
-                    : Think(thinkDelta);
+            Vector3 desired = Think(thinkDelta);
+            _moveDirection = !UsesVoxelSteering
+                    ? desired
+                    : UsesGravity ? SteerAroundObstacles(desired) : SteerAroundWalls(desired);
         }
 
         Vector3 dir = _moveDirection;
@@ -296,6 +297,62 @@ public partial class Mob : CharacterBody3D, IDamageable
         }
 
         return gap ? -desired : Vector3.Zero;
+    }
+
+    /// <summary>
+    /// Hovering mobs steer around solid voxel walls without interpreting open
+    /// air below them as a fall. This keeps cave sentries mobile in chambers.
+    /// </summary>
+    private Vector3 SteerAroundWalls(Vector3 desired)
+    {
+        if (desired.LengthSquared() < 0.001f || World == null)
+        {
+            return Vector3.Zero;
+        }
+
+        desired.Y = 0.0f;
+        desired = desired.Normalized();
+        if (!IsWallBlocked(desired))
+        {
+            return desired;
+        }
+
+        Vector3 left = new(-desired.Z, 0.0f, desired.X);
+        Vector3 right = -left;
+        bool leftBlocked = IsWallBlocked(left);
+        bool rightBlocked = IsWallBlocked(right);
+        if (!leftBlocked && !rightBlocked)
+        {
+            return (GetInstanceId() & 1UL) == 0UL ? left : right;
+        }
+
+        if (!leftBlocked)
+        {
+            return left;
+        }
+
+        if (!rightBlocked)
+        {
+            return right;
+        }
+
+        return Vector3.Zero;
+    }
+
+    private bool IsWallBlocked(Vector3 direction)
+    {
+        if (World == null)
+        {
+            return true;
+        }
+
+        Vector3 probe = GlobalPosition + direction * 1.05f;
+        int x = Mathf.FloorToInt(probe.X);
+        int z = Mathf.FloorToInt(probe.Z);
+        int bodyY = Mathf.FloorToInt(GlobalPosition.Y + 0.35f);
+        int headY = Mathf.FloorToInt(GlobalPosition.Y + 0.95f);
+        return BlockDb.DefOf(World.GetBlock(x, bodyY, z)).Solid
+                || BlockDb.DefOf(World.GetBlock(x, headY, z)).Solid;
     }
 
     private bool IsDirectionBlocked(Vector3 direction, out bool water, out bool gap)
