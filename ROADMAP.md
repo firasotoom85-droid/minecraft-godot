@@ -737,8 +737,11 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   Day/night updates one shared sky-energy uniform rather than rebuilding meshes.
 - Added propagation, opaque blocking, attenuation, transparent transmission,
   removal, chunk-seam, source-level, skylight-shaft and cave-darkness tests.
-- **Verification pending:** run the Godot 4.7.2 .NET build, headless suite and
-  MX230 visual/performance soak before treating this change as release-verified.
+- **CI verification:** commit `734f758` passed GitHub Actions with a clean
+  .NET build (0 warnings, 0 errors) and the Godot headless suite (828 checks,
+  0 failures).
+- **Hardware validation pending:** no MX230 visual/performance soak was run in
+  CI; verify chunk-streaming frame times and torch-heavy caves on that GPU.
 
 
 ## Mining interaction follow-up audit — 2026-11-20
