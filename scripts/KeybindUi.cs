@@ -7,6 +7,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
 {
     private Player _player = null!;
     private Control _root = null!;
+    private CenterContainer _center = null!;
     private VBoxContainer _rows = null!;
     private Label _notice = null!;
     private string? _waitingAction;
@@ -40,10 +41,11 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         dim.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _root.AddChild(dim);
 
-        CenterContainer center = new();
-        center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        center.MouseFilter = Control.MouseFilterEnum.Ignore;
-        _root.AddChild(center);
+        _center = new CenterContainer();
+        _center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _center.MouseFilter = Control.MouseFilterEnum.Ignore;
+        _root.AddChild(_center);
+        GetViewport().SizeChanged += ApplyResponsiveScale;
 
         VBoxContainer box = new();
         box.AddThemeConstantOverride("separation", 8);
@@ -80,8 +82,19 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         actions.AddChild(MenuSkin.MakeButton("Reset defaults", ResetAll, 0));
         actions.AddChild(MenuSkin.MakeButton("Back", Close, 0));
         box.AddChild(actions);
-        center.AddChild(MenuSkin.Wrap(box, 520));
+        _center.AddChild(MenuSkin.Wrap(box, 520));
         BuildRows();
+        ApplyResponsiveScale();
+    }
+
+    private void ApplyResponsiveScale()
+    {
+        if (_center == null || !IsInstanceValid(_center)) return;
+        Vector2 viewport = GetViewportRect().Size;
+        if (viewport.X <= 0 || viewport.Y <= 0) return;
+        float scale = Mathf.Clamp(Mathf.Min(viewport.X / 1100.0f, viewport.Y / 850.0f), 0.68f, 1.0f);
+        _center.PivotOffset = viewport * 0.5f;
+        _center.Scale = Vector2.One * scale;
     }
 
     private void BuildRows()
