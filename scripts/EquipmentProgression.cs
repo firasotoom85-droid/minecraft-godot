@@ -88,8 +88,6 @@ public static class EquipmentProgression
     public static float ProtectionMultiplier(ItemStack stack) =>
         1.0f - Mathf.Clamp(stack.Protection, 0, 3) * 0.04f;
 
-    public static float ProtectionBonus(int totalLevels) => Mathf.Clamp(totalLevels, 0, 12) * 0.04f;
-
     public static float SharpnessBonus(ItemStack stack) => Mathf.Clamp(stack.Sharpness, 0, 3) * 1.0f;
 
     public static ItemId UpgradeTarget(ItemId id) => id switch
