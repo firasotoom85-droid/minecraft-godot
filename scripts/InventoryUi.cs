@@ -175,13 +175,16 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     private Hud _hud = null!;
 
     private Control _root = null!;
+    private CenterContainer _center = null!;
     private Label _title = null!;
     private GridContainer _craftGrid = null!;
     private GridContainer _backpackGrid = null!;
     private HBoxContainer _hotbarRow = null!;
     private VBoxContainer _containerBox = null!;
+    private PanelContainer _containerPanel = null!;
     private GridContainer _containerGrid = null!;
     private VBoxContainer _furnaceBox = null!;
+    private PanelContainer _furnacePanel = null!;
     private ProgressBar _furnaceProgress = null!;
     private InvSlot _resultSlot = null!;
     private VBoxContainer _recipeList = null!;
@@ -211,6 +214,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         Layer = 9;
         AddToGroup(UiFocus.ModalGroup);
         Build();
+        GetViewport().SizeChanged += ApplyResponsiveScale;
+        ApplyResponsiveScale();
         _player.TableUsed += () => Open(3);
         _player.Inventory.Changed += () =>
         {
@@ -243,23 +248,25 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         dim.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _root.AddChild(dim);
 
-        CenterContainer center = new();
-        center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        center.MouseFilter = Control.MouseFilterEnum.Ignore;
-        _root.AddChild(center);
+        _center = new CenterContainer();
+        _center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _center.MouseFilter = Control.MouseFilterEnum.Ignore;
+        _root.AddChild(_center);
 
         VBoxContainer box = new();
         box.AddThemeConstantOverride("separation", 10);
         _containerBox = BuildContainer();
-        _containerBox.Visible = false;
-        box.AddChild(_containerBox);
+        _containerPanel = MenuSkin.Wrap(_containerBox);
+        _containerPanel.Visible = false;
+        box.AddChild(_containerPanel);
         _furnaceBox = BuildFurnace();
-        _furnaceBox.Visible = false;
-        box.AddChild(_furnaceBox);
+        _furnacePanel = MenuSkin.Wrap(_furnaceBox);
+        _furnacePanel.Visible = false;
+        box.AddChild(_furnacePanel);
         _title = MenuSkin.Title("INVENTORY", 18);
         box.AddChild(_title);
         box.AddChild(BuildColumns());
-        center.AddChild(MenuSkin.Wrap(box));
+        _center.AddChild(MenuSkin.Wrap(box));
 
         _cursorIcon = new TextureRect
         {
@@ -281,6 +288,16 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _cursorCount.AddThemeConstantOverride("outline_size", 4);
         _root.AddChild(_cursorCount);
         BuildRecipeRows();
+    }
+
+    private void ApplyResponsiveScale()
+    {
+        if (_center == null || !IsInstanceValid(_center)) return;
+        Vector2 viewport = GetViewportRect().Size;
+        if (viewport.X <= 0 || viewport.Y <= 0) return;
+        float scale = Mathf.Clamp(Mathf.Min(viewport.X / 1450.0f, viewport.Y / 900.0f), 0.68f, 1.0f);
+        _center.PivotOffset = viewport * 0.5f;
+        _center.Scale = Vector2.One * scale;
     }
 
     private VBoxContainer BuildContainer()
@@ -518,8 +535,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         _container = _player.World.GetContainer(pos);
-        _containerBox.Visible = true;
-        _furnaceBox.Visible = false;
+        _containerPanel.Visible = true;
+        _furnacePanel.Visible = false;
         _furnace = null;
         _title.Text = "INVENTORY";
         Refresh();
@@ -539,9 +556,9 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         _furnace = _player.World.GetFurnace(pos);
-        _containerBox.Visible = false;
+        _containerPanel.Visible = false;
         _container = null;
-        _furnaceBox.Visible = true;
+        _furnacePanel.Visible = true;
         _title.Text = "INVENTORY";
         _furnaceRefreshTimer = 0.0;
         Refresh();
@@ -562,9 +579,9 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _open = true;
         _craftSize = size;
         _title.Text = size == 3 ? "CRAFTING TABLE" : "INVENTORY";
-        _containerBox.Visible = false;
+        _containerPanel.Visible = false;
         _container = null;
-        _furnaceBox.Visible = false;
+        _furnacePanel.Visible = false;
         _furnace = null;
         _craftGrid.Columns = size;
         foreach (Node child in _craftGrid.GetChildren())
@@ -587,9 +604,9 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     {
         _open = false;
         _root.Visible = false;
-        _containerBox.Visible = false;
+        _containerPanel.Visible = false;
         _container = null;
-        _furnaceBox.Visible = false;
+        _furnacePanel.Visible = false;
         _furnace = null;
         ReturnCraftItems();
         GiveCursorBack();
