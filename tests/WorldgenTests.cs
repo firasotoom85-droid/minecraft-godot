@@ -91,7 +91,9 @@ public static class WorldgenTests
                 "v7 classifies swamps");
         TestAssert.Equal(Biome.Taiga, WorldGenV7.ClassifyBiome(-0.3f, 0.2f, 58, 40, 0.0f),
                 "v7 classifies taiga");
-        TestAssert.Equal(Biome.DenseForest, WorldGenV7.ClassifyBiome(0.1f, 0.3f, 58, 40, 0.0f),
+        TestAssert.Equal(Biome.Birch, WorldGenV7.ClassifyBiome(0.1f, 0.25f, 58, 40, 0.0f),
+                "v7 retains birch forest as a climate biome");
+        TestAssert.Equal(Biome.DenseForest, WorldGenV7.ClassifyBiome(0.1f, 0.55f, 58, 40, 0.0f),
                 "v7 classifies dense forests");
         TestAssert.Equal(Biome.FlowerPlains, WorldGenV7.ClassifyBiome(0.0f, 0.0f, 58, 40, 0.6f),
                 "v7 classifies flower plains");

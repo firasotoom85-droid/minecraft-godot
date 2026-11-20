@@ -205,6 +205,11 @@ public sealed class WorldGenV7
 
         if (moisture > 0.19f)
         {
+            if (temperature > -0.12f && temperature < 0.28f && moisture < 0.38f)
+            {
+                return Biome.Birch;
+            }
+
             return Biome.DenseForest;
         }
 
