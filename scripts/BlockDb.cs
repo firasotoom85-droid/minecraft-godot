@@ -162,6 +162,9 @@ public static class BlockDb
                 [TBedTop, TBedSide, TBedSide, TBedSide, TBedSide, TBedSide], 0.2f, ToolKind.Axe),
         new("Ladder", false, true,
                 [TLadder, TLadder, TLadder, TLadder, TLadder, TLadder], 0.4f, ToolKind.Axe),
+        new("Enchanting Table", true, false,
+                [TCraftingTop, TPlanks, TCraftingSide, TCraftingSide, TCraftingSide, TCraftingSide],
+                3.0f, ToolKind.Pick, 2),
     ];
 
     // Cube face geometry shared by the mesher. Order: +Y, -Y, +X, -X, +Z, -Z.
