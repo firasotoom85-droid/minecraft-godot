@@ -33,7 +33,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
 
         ColorRect dim = new()
         {
-            Color = new Color(0, 0, 0, 0.45f),
+            Color = new Color(0.008f, 0.020f, 0.025f, 0.76f),
             MouseFilter = Control.MouseFilterEnum.Stop,
         };
         dim.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
@@ -46,21 +46,22 @@ public partial class KeybindUi : CanvasLayer, IModalUi
 
         VBoxContainer box = new();
         box.AddThemeConstantOverride("separation", 8);
-        box.AddChild(MenuSkin.Title("CONTROLS", 18));
+        box.AddChild(MenuSkin.Eyebrow("INPUT CONFIGURATION"));
+        box.AddChild(MenuSkin.Title("Keyboard controls", 26, true));
         Label hint = new()
         {
-            Text = "Click a binding, then press a key. Escape cancels.",
+            Text = "Choose a binding, then press the key you want to use. Escape cancels.",
             HorizontalAlignment = HorizontalAlignment.Center,
         };
         hint.AddThemeFontSizeOverride("font_size", 12);
-        hint.AddThemeColorOverride("font_color", new Color(0.70f, 0.78f, 0.88f));
+        hint.AddThemeColorOverride("font_color", MenuSkin.Muted);
         box.AddChild(hint);
         _notice = new Label
         {
             HorizontalAlignment = HorizontalAlignment.Center,
         };
         _notice.AddThemeFontSizeOverride("font_size", 12);
-        _notice.AddThemeColorOverride("font_color", new Color(1.0f, 0.66f, 0.55f));
+        _notice.AddThemeColorOverride("font_color", MenuSkin.Warm);
         box.AddChild(_notice);
         _rows = new VBoxContainer
         {
@@ -69,7 +70,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         _rows.AddThemeConstantOverride("separation", 4);
         ScrollContainer scroll = new()
         {
-            CustomMinimumSize = new Vector2(500, 390),
+            CustomMinimumSize = new Vector2(0, 400),
             HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
         };
         scroll.AddChild(_rows);
@@ -79,7 +80,8 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         actions.AddChild(MenuSkin.MakeButton("Reset defaults", ResetAll, 0));
         actions.AddChild(MenuSkin.MakeButton("Back", Close, 0));
         box.AddChild(actions);
-        center.AddChild(MenuSkin.Wrap(box, 520));
+        PanelContainer panel = MenuSkin.Wrap(box, 560);
+        center.AddChild(panel);
         BuildRows();
     }
 
@@ -87,18 +89,23 @@ public partial class KeybindUi : CanvasLayer, IModalUi
     {
         foreach ((string action, string label) in Keybinds.Bindable)
         {
+            PanelContainer card = new();
+            card.AddThemeStyleboxOverride("panel", MenuSkin.InsetStyle());
             HBoxContainer row = new();
             row.AddThemeConstantOverride("separation", 12);
             Label name = new()
             {
                 Text = label,
-                CustomMinimumSize = new Vector2(250, 0),
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                VerticalAlignment = VerticalAlignment.Center,
             };
+            name.AddThemeFontSizeOverride("font_size", 13);
             row.AddChild(name);
-            Button key = MenuSkin.MakeButton(Keybinds.LabelFor(action), () => WaitFor(action), 120);
+            Button key = MenuSkin.MakeButton(Keybinds.LabelFor(action), () => WaitFor(action), 150);
             key.Name = "Key_" + action;
             row.AddChild(key);
-            _rows.AddChild(row);
+            card.AddChild(row);
+            _rows.AddChild(card);
         }
     }
 
