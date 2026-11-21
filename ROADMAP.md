@@ -917,3 +917,30 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   GitHub; #27, #26 and #19 were closed as superseded with the reasons recorded
   on each PR. All branches remain on the remote; nothing was deleted or
   force-pushed.
+
+
+## 18. Water transportation: buckets and boats — 2026-11-21
+
+- Added unstackable empty, water and lava buckets with generated inventory
+  icons, names and descriptions. Three iron ingots craft an empty bucket;
+  five planks craft a wooden boat.
+- Bucket collection is source-only: flowing water is never converted to a
+  bucket. Collection removes the source through `VoxelWorld.SetBlock` and
+  changes the selected inventory slot only after the world edit succeeds.
+  Filled buckets place a source into a loaded replaceable cell and transform
+  back to empty. Solid blocks, existing fluids and unloaded cells are refused.
+- Added a custom wooden hull, seat and animated oars. Boats use the existing
+  streamed terrain collision, sample source/flow water heights for buoyancy,
+  and provide acceleration, steering, reverse and braking.
+- Player boarding disables the player capsule and attaches the player to the
+  boat; Space dismounts to a loaded clear cell. Left-click removes the boat and
+  returns its item in survival. Vehicle state is an optional world-save field.
+- Boat movement checks the complete hull footprint against loaded chunks and
+  pauses at unloaded boundaries instead of crossing into unbuilt terrain.
+- Added tests for source-only collection, fluid conservation, inventory
+  transformations, invalid placement, recipes, acceleration/steering/braking,
+  collision response, chunk-edge protection, boarding/dismounting, boat removal
+  and save compatibility.
+- **Verification:** Godot 4.7.2 .NET build completed with 0 warnings and
+  0 errors. The final full headless suite passed with 1,247 checks and
+  0 failures. Live interactive playtesting was not performed.

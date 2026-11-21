@@ -169,6 +169,23 @@ or scan the world. Swimming uses buoyancy and smooth acceleration: Space swims
 up, Shift dives, shallow water slows wading, and head submersion controls breath
 loss. Breath recovers above water; mining is slower while fully submerged.
 
+### Buckets and boats
+
+Buckets are unstackable inventory items. An empty bucket collects only a true
+source-water or lava cell; flowing water cannot be scooped. Filled buckets
+place a new source into a loaded, replaceable voxel and become empty again.
+Both operations use `VoxelWorld.SetBlock`, so edits continue through the
+existing save, lighting, and meshing path. Craft a bucket from three iron
+ingots in a V; craft a wooden boat from five planks in a U.
+
+Place a wooden boat on a loaded water surface. Right-click a nearby boat to
+board, use WASD to accelerate and steer, hold Shift to brake, and press Space
+to dismount to a nearby clear cell. The boat samples the existing source and
+flowing-water heights for buoyancy, collides with streamed terrain, and stops
+before any part of its hull can enter an unloaded chunk. Boat position,
+heading, velocity, and rider state are optional world-save fields; older
+worlds load without a vehicle list.
+
 ## Project layout
 
 | Path | Contents |
@@ -198,7 +215,7 @@ to zero.
 Each world lives in `user://worlds/<id>/`:
 
 - `manifest.json` — seed, generator version, preset, spawn, play time.
-- `world.json` — edits, time, containers, furnaces, flags.
+- `world.json` — edits, time, containers, furnaces, flags, and optional boat state.
 - `player.json` — position, inventory, mode, health, hunger, respawn, experience, and optional per-item enchantment levels.
 
 Writes are atomic (temp file + rename) and keep two rotating backups. Old

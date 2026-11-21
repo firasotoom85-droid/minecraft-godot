@@ -31,6 +31,7 @@ public partial class TestRunner : Node
         RunSuite("stats", StatsTests.Run);
         RunSuite("fluids", FluidTests.Run);
         RunSuite("fluid-world", () => FluidWorldTests.Run(this));
+        RunSuite("boats-buckets", () => BoatBucketTests.Run(this));
         RunSuite("save", SaveTests.Run);
         RunSuite("worldgen", () => WorldgenTests.Run(this));
         GD.Print($"minecraft tests: {TestAssert.Checks} checks, {TestAssert.Failures} failures");

@@ -52,6 +52,9 @@ public enum ItemId : byte
     FishingRod, RawFish, CookedFish,
     // Appended persisted IDs: prior item values remain unchanged.
     WoodSword, StoneSword, IronSword, DiamondSword, Bow, Arrow, Shield, EmberBlade, LapisLazuli, EnchantingTable,
+
+    // Transportation and fluid containers (appended persisted IDs).
+    EmptyBucket, WaterBucket, LavaBucket, WoodenBoat,
 }
 
 public enum ToolKind : byte

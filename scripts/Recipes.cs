@@ -104,6 +104,8 @@ public static class Recipes
         new("Shield", ["IPI", "IPI", ".I."], Key(('I', ItemId.IronIngot), ('P', ItemId.Planks)), ItemId.Shield, 1),
         new("Ember Blade", [".D.", "DSD", ".E."], Key(('D', ItemId.Diamond), ('S', ItemId.Stick), ('E', ItemId.EmberCore)), ItemId.EmberBlade, 1),
         new("Enchanting Table", [".D.", "ILI", ".D."], Key(('D', ItemId.Diamond), ('I', ItemId.IronIngot), ('L', ItemId.LapisLazuli)), ItemId.EnchantingTable, 1),
+        new("Bucket", ["I.I", ".I."], Key(('I', ItemId.IronIngot)), ItemId.EmptyBucket, 1),
+        new("Wooden Boat", ["P.P", "PPP"], Key(('P', ItemId.Planks)), ItemId.WoodenBoat, 1),
     ];
 
     /// <summary>
