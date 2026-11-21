@@ -1,94 +1,91 @@
-# Performance baseline — M5
+# Performance baseline
 
-> **Historical snapshot.** These numbers come from one development laptop, not
-> a CI benchmark. They are not reproducible on a clean machine without the same
+> **Snapshot, not a CI benchmark.** These numbers come from one development
+> laptop. They are not reproducible on a clean machine without the same
 > hardware and a focused window; use the build/test steps in `README.md` for
 > correctness and re-record a baseline when tuning performance.
-
-Recorded 2026-10-21 on the development machine while verifying the M5 content
-capacity and test-harness work.
 
 ## Machine
 
 - CPU: Intel Core i7-1065G7 (8 threads)
-- GPU: NVIDIA GeForce MX230, 4 GB, driver 580.178.04
+- GPU: NVIDIA GeForce MX230, 4 GB
 - RAM: 7 GB
 - OS: CachyOS (Arch)
 - Godot: 4.7.2-stable mono
 - Build: **Debug** (`dotnet build -c Debug`), 0 warnings
 
-## Scene / settings
+## Integration measurement — 2026-11-21
 
-- Scene: `res://scenes/main.tscn`, most recent world, normal preset, survival.
-- Renderer: Forward Plus, 1152×648 window.
-- `Gfx` preset **HIGH** (index 1), view distance **8**, greedy meshing **on**,
-  auto-quality **off**.
-- Window focused for every sample (unfocused readings are throttled).
+Taken after merging WorldGen V7, the pixel-art UI/controller pass and the
+survival equipment progression into `integration/v1.0-merge`.
 
-## Results
+### Method
+
+A temporary probe scene instantiated `res://scenes/main.tscn`, waited 15 s for
+streaming to settle, then sampled 20 s of frame deltas and printed one summary.
+The window was 1280×720, V-Sync off, on an isolated user-data directory.
+
+### Results — HIGH preset, view distance 8
 
 | Metric | Value |
 |---|---|
-| Idle FPS (sample range) | **42–47** |
+| Frames sampled | 613 |
+| Average FPS | **30.6** |
+| Average frame time | 32.71 ms |
+| Median (p50) frame time | 32.36 ms |
+| p99 frame time | 36.99 ms |
+| Worst frame | 70.4 ms |
 | Streamed chunks | 441 |
-| Scene nodes | 3,092 |
-| Chunks after view-distance change | 625 → 441 (settled) |
+| Scene nodes | 2,585 |
+| Static memory | 171 MB |
+| Video memory | 263 MB |
+| Worker mesh build (avg / max) | 383 ms / 538 ms |
 
-## Method
+### Results — default settings, auto quality on
 
-1. Launch `main.tscn` with the current world.
-2. Focus the game window with `xdotool windowactivate`.
-3. Apply `Gfx.ApplyPreset(1, false)` and `World.SetViewDistance(8)`.
-4. Wait 8 s for streaming to settle.
-5. Sample `Engine.get_frames_per_second()` several times.
+| Metric | Value |
+|---|---|
+| Average FPS | 29.6 |
+| Average frame time | 33.83 ms |
+| p99 frame time | 39.47 ms |
+| Streamed chunks | 512 |
+| Video memory | 282 MB |
+| Worker mesh build (avg / max) | 621 ms / 736 ms |
 
-## Caveats
+### Comparison against unmodified `main`
 
-This is a **baseline snapshot**, not a benchmark harness: the camera path and
-world are not fixed, the build is Debug, and only one run was sampled. The
-release build is expected to be faster. Future milestones should compare
-against this number using the same window size, preset, view distance and
-focused-window rule; M5.4's fixed-seed benchmark scene remains a useful
-follow-up when tuning begins.
+The same probe on `origin/main` (headless, isolated user data) reported a
+worker mesh average of **342 ms** and a max of 380 ms. The integration run at
+HIGH/VD8 reported **383 ms / 538 ms**. The worlds differ (V7 terrain is denser),
+so this is an indication of V7 content cost, not a meshing regression. Frame
+times are stable: p99 is within ~4 ms of p50, i.e. no streaming hitches were
+observed in the sampled window.
+
+Headless (no rendering) the scene runs at ~145 FPS, which confirms the cost is
+render/scene-side rather than simulation-side.
+
+### Caveats
+
+- Debug assemblies; release builds are faster.
+- One run per configuration; the camera path and world seed are not fixed.
+- No RTX 4060-class hardware was available, so high-end numbers are not
+  recorded.
+- The quality governor is disabled for the HIGH measurement so the preset does
+  not change mid-sample.
+
+## Historical baseline — M5 (2026-10-21)
+
+Recorded while verifying the M5 content capacity and test-harness work.
+
+- Scene: `res://scenes/main.tscn`, normal preset, survival.
+- Renderer: Forward Plus, 1152×648 window.
+- `Gfx` preset **HIGH** (index 1), view distance **8**, greedy meshing **on**,
+  auto-quality **off**.
+- Idle FPS: **42–47**, 441 streamed chunks, 3,092 scene nodes.
 
 ## Test suite at this baseline
 
-`./scripts/verify.sh` → 373 checks, 0 failures at the M5 checkpoint; the suite
-grew to **668 checks** after M8.4 (minimap), including:
-
-- Content registry and recipe/item/block validation.
-- Inventory stack/overflow/save round-trip.
-- Recipe matching and one-click crafting.
-- Damage/death/respawn/drowning.
-- Save v2 compatibility, v3 fields, backup rotation and corruption recovery.
-- v1 anchor chunk hash unchanged.
-- Greedy vs per-face mesher surface-area parity.
-
-## World generation V7 sampling profile — CI, 2026-11-20
-
-The WorldgenTests suite runs an informational profile on the GitHub Actions
-runner. It is a CPU microbenchmark, not an in-game frame-time measurement.
-
-| Measurement | Result |
-|---|---:|
-| 4,096 separate height + biome samples | 7.20–8.32 ms |
-| 4,096 shared surface samples | 3.69–4.34 ms |
-| Shared-sample speedup | **1.92–1.95×** |
-| Generator v6, 8 chunks | 2.27–2.61 ms/chunk |
-| Generator v7, 8 chunks | 4.27–4.65 ms/chunk |
-| V7 / v6 generation cost | **1.78–1.88×** |
-
-V7 performs more work per chunk (additional climate layers, caves, veins,
-biome-specific vegetation and structures), so the 1.83× cost is expected but
-should be checked on target hardware. Reusing one SurfaceSample for height
-and biome avoids almost half of the duplicate column-sampling work.
-
-Across both runs, the terrain-profile scan consistently recorded 4,284 river-channel samples,
-3,399 raised-bank samples, 4,862 biome transitions, 1,439 elevated mountain
-columns, 7,755 cave samples, and a maximum 8-block height difference of 38.
-
-**Limitations:** CI runner timing is noisy and cannot represent the MX230 or
-RTX 4060. The headless suite validates terrain values and chunk data, not
-rendered visuals. A fixed-seed in-game playtest is still required for river
-bank appearance, biome blending, mountain silhouettes, cave readability,
-underground-room presentation, and streaming frame-time impact.
+`./scripts/verify.sh` → **1,182 checks, 0 failures** on the integration branch,
+including content registry, recipes, inventory stack/drag rules, save
+compatibility, legacy worldgen golden hashes, lighting, fluids, mining, mob
+content, equipment and keybinds.

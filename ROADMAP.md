@@ -40,13 +40,12 @@ current mob implementation has since advanced:
   added. Existing item IDs, world-generation versions, block mutation paths,
   greedy meshing and chunk streaming were not changed.
 
-**Verification status:** repository edits are committed, but the latest
-mob-review revision has not yet completed a clean CI run. Recent Actions runs
-are failing during compilation in unrelated concurrent edits to
-`Mesher.cs`, `VoxelLighting.cs`, and `InventoryUi.cs`; these failures prevent
-the mob revision from reaching the headless tests. The earlier mob baseline
-passed 805 checks, but that result does not verify the follow-up fixes. An
-in-game high-population performance soak also remains outstanding.
+**Verification status (updated 2026-11-21):** the integrated branch builds with
+0 warnings/0 errors and passes the headless suite with **1,182 checks, 0
+failures**, including mob content and ecology rules. A 300 s real-scene soak ran
+without script errors (22 passive mobs, 4 hostiles at night, 8 cave encounters).
+A full one-hour soak and an in-game high-population performance run remain
+outstanding.
 
 ## 1. Current state
 
@@ -843,8 +842,10 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   river-bank appearance, biome blending, mountain silhouettes, cave readability
   or underground-room presentation in the running game. A graphical playtest
   is still required before treating visual quality as signed off.
-- **Hardware profiling pending:** CI timings are correctness diagnostics, not
-  a substitute for fixed-seed profiling on the target MX230 and desktop GPU.
+- **Hardware profiling:** CI timings are correctness diagnostics, not a
+  substitute for fixed-seed profiling. One MX230 integration measurement is
+  recorded in `docs/PERF_BASELINE.md`; a fixed-seed harness and RTX-class
+  numbers remain outstanding.
 
 ## 15. M8 UX interface and controller continuation — 2026-11-20
 
@@ -856,7 +857,7 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - First-person arm now displays the selected item icon and animates it with the existing swing, swimming, movement bob and landing presentation.
 - Added keybind regression checks for controller defaults, remapping, conflict detection, reset behavior and preservation of controller events during keyboard rebinding.
 - Compatibility: no persisted IDs, save schema, world generation, voxel mutation, meshing or chunk streaming changes.
-- **Verification pending:** the current branch has not yet been built or run through `scripts/verify.sh` in this environment. CI and in-game validation remain required, including a controller smoke test and visual review at 1920×1080 and 1280×720.
+- **Verification (2026-11-21):** merged and built with 0 warnings; the headless suite (including keybind and inventory stack-transfer tests) passes. Visual review at 1920×1080 / 1280×720 and a physical-controller smoke test remain outstanding.
 ## 16. Combat equipment progression — 2026-11-20
 
 - Added experience points and levels; hostile/passive mob defeats award XP and
@@ -879,5 +880,36 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   experience and legacy inventory stacks load with no enchantments. No old IDs
   were reordered or reused.
 - Added regression coverage for enchant costs/eligibility, upgrade preservation,
-  save round-trips, unbreaking odds, and shield facing. Build, headless tests,
-  and live playtesting remain pending CI verification.
+  save round-trips, unbreaking odds, and shield facing.
+- **Verification (2026-11-21):** merged and built with 0 warnings; the headless
+  suite passes the equipment, save and combat regressions. Live enchanting and
+  ballistic-arrow playtesting was not performed.
+
+## 17. Integration of V7, UI and equipment — 2026-11-21
+
+- Merged `worldgen/v7-release-candidate` (PR #29),
+  `ui/pixel-art-redesign-ready` (PR #24) and
+  `feature/survival-equipment-progression` (PR #22) into
+  `integration/v1.0-merge` with merge commits; branch history is preserved.
+- Resolved the only persisted-id collision: flowing water keeps block ids
+  38–44 and `EnchantingTable` is appended as 45. Item ids were already
+  append-only and needed no renumbering.
+- Combined main's DDA mining / target-cancel path with the equipment branch's
+  bow firing; right-click and held left-click fire a bow, melee and mining keep
+  the existing flow.
+- Combined the pixel-art slot styling with the enchantment tooltip and removed
+  the branch's duplicate local style helper.
+- Kept the `InputLocked` mining guard without the mouse-capture requirement so
+  controller mining works while every modal panel still blocks it.
+- Armor mitigation is base points (up to 80 %) followed by multiplicative
+  Protection, so both systems apply without double-counting.
+- Save extensions (`Experience`, per-stack `Sharpness`/`Protection`/`Unbreaking`)
+  are optional JSON fields; old player, world and manifest files load unchanged.
+- Verification: 0 warnings / 0 errors, **1,182 checks / 0 failures**, legacy
+  worldgen golden hashes intact, 300 s real-scene soak with no script errors,
+  and a 30.6 FPS MX230 measurement at HIGH/VD8 (see `docs/PERF_BASELINE.md`).
+- Superseded branch iterations and the draft `redesign/ui-overhaul` were not
+  merged; see `docs/INTEGRATION_2026-11-21.md` for the full decision log.
+- **Remaining gaps:** no partial-height block shapes (slabs/stairs) exist in any
+  branch; V7 terrain was not visually reviewed on a GPU; no RTX-class
+  measurement; the soak's juvenile-breeding observation was not hit in 300 s.

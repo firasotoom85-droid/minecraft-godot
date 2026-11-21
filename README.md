@@ -37,7 +37,13 @@ The project is a long-running solo build with an extensive design log in
   hunger rises, and raise young that mature over time. Procedural articulated
   legs animate their gait; passive animals rest at night and seek overhead
   shelter during rain and storms. Briarbacks defend birch forests.
-- **Equipment progression** — wood/stone/iron/diamond swords, bows and arrows, directional shields, weapon durability, critical strikes and knockback. Ember Warden trophies can be forged into an end-game Ember Blade.
+- **Equipment progression** — wood/stone/iron/diamond swords, bows and ballistic
+  arrows, directional shields, weapon durability, critical strikes and
+  knockback. Defeats award experience levels; a craftable Enchanting Table
+  applies Sharpness, Protection and Unbreaking and upgrades tools and armor one
+  tier while preserving durability and enchantments. Ember Warden trophies can
+  be forged into an end-game Ember Blade. Legacy saves load with zero XP and
+  unenchanted stacks.
 - **Creature combat** — Shades and Rots coordinate detection, Hollows and
   Crystal Wisps telegraph dodgeable ranged shots, Cave Stalkers pounce from
   caves, and rare Dreadwings flank players at night; the Ember Warden remains
@@ -123,7 +129,25 @@ observed juvenile, and live passive population to report PASS.
 | `F9` | Mute sounds |
 | `/` | Dev console |
 
-Bindings are rebindable from **Esc → Controls**. Keyboard and controller buttons are configured separately and persist in `user://keybinds.cfg` and `user://gamepad.cfg`.
+Bindings are rebindable from **Esc → Controls**. Keyboard and controller
+bindings are stored separately; the controller map is additive and never
+erases a keyboard binding.
+
+| Controller | Action |
+|---|---|
+| Left stick | Move |
+| Right stick | Look |
+| `A` | Jump / swim up |
+| `B` | Toggle creative flight |
+| `Y` | Inventory |
+| `Start` | Pause |
+| Left shoulder | Place / use |
+| Right shoulder | Mine / attack |
+| Right stick click | Pick block |
+| D-pad left / right | Previous / next hotbar slot |
+| D-pad up / down | Minimap / achievements journal |
+
+Menus support controller focus, confirm and cancel. Keyboard and controller buttons are configured separately and persist in `user://keybinds.cfg` and `user://gamepad.cfg`.
 
 **Controller defaults:** left stick moves, right stick looks, A jumps, B toggles creative flight, left/right shoulder place/mine, right-stick click picks a block, Y opens inventory, Start pauses, D-pad left/right cycles the hotbar, and D-pad up/down opens the map/journal.
 
@@ -181,12 +205,31 @@ Writes are atomic (temp file + rename) and keep two rotating backups. Old
 worlds remain loadable: block/item ids are append-only and worldgen changes are
 gated behind generator versions.
 
+## Known limitations
+
+- **No partial-height building blocks.** Slabs, stairs and other non-cube block
+  shapes are not implemented; the mesher and collision path are cube-only. No
+  feature branch contained a block-shape implementation, so this remains future
+  work rather than an integrated feature.
+- **V7 visual validation is headless only.** Automated tests cover biome
+  distribution, chunk seams, river banks, mountains and cave readability
+  numerically; rendered terrain was not reviewed on a GPU during this
+  integration.
+- **Long soak coverage.** The opt-in survival soak runs the real scene and
+  exercises herds, hostiles, caves, weather and saving. Its juvenile-breeding
+  observation depends on the player standing near the herd; a 300 s headless run
+  completed without errors but did not observe a juvenile.
+- **High-end hardware not measured.** Performance was recorded on the MX230
+  laptop only; no RTX 4060-class machine was available for comparison.
+- **Debug-build meshing cost.** Chunk mesh builds are expensive in Debug on the
+  MX230; release builds are faster. See `docs/PERF_BASELINE.md`.
+
 ## License
 
 [MIT](LICENSE). Third-party assets and the bundled editor addon keep their own
 licenses; see [`addons/godot_ai/LICENSE`](addons/godot_ai/LICENSE).
 
 
-## Fluid simulation update
+## Fluid simulation internals
 
 Water uses a deduplicated active-cell queue with bounded per-tick work rather than rescanning the local volume every tick. Unloaded chunk neighbours are treated as unknown rather than air; source blocks are periodically rescheduled, and successful world block edits wake nearby fluid cells. Two horizontal sources over a solid floor can regenerate a source. All fluid changes still pass through `VoxelWorld.SetBlock`. Swimming buoyancy respects floor/ceiling contacts. Underwater and lava fog use separate blended environments, and underwater low-pass filtering is limited to SFX/ambient buses so master/UI audio remains clear.
