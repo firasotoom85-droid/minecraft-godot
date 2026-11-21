@@ -28,12 +28,20 @@ reintroduce older implementations.
 - `worldgen/v7-final` (PR #25, closed)
 - `ui/pixel-art-redesign` (PR #21, closed)
 - `ui/pixel-art-redesign-merge-ready` (PR #23, closed)
-- `ui/pixel-art-redesign-current` (PR #27, open)
-- `ui/pixel-art-redesign-final` (PR #26, open)
-- `redesign/ui-overhaul` (PR #19, draft) — an alternative visual direction for
-  the same surfaces. It conflicts conceptually with the merged pixel-art pass;
-  merging both would produce two competing designs. It stays unmerged and is
-  documented as a draft alternative.
+- `ui/pixel-art-redesign-current` (PR #27, closed 2026-11-21) — older snapshot:
+  pre-refactor inventory transfer, no V7/fluid/mob test suites, no branch-only
+  files.
+- `ui/pixel-art-redesign-final` (PR #26, closed 2026-11-21) — older snapshot:
+  removes FluidTests/FluidWorldTests/SurvivalSoakRunner and lacks the shared
+  `InventoryStackTransfer` module.
+- `redesign/ui-overhaul` (PR #19, draft, closed 2026-11-21) — an alternative
+  visual direction for the same surfaces. It conflicts conceptually with the
+  merged pixel-art pass and still carries the obsolete `BlockLights` OmniLight
+  pool replaced by the voxel lighting engine. Its two functional fixes are
+  already in main. The design notes remain on the branch for reference.
+
+All branches were kept on GitHub after closing; nothing was deleted or
+force-pushed.
 
 ## Conflicts resolved
 

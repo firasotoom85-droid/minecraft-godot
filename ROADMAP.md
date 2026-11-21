@@ -913,3 +913,7 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - **Remaining gaps:** no partial-height block shapes (slabs/stairs) exist in any
   branch; V7 terrain was not visually reviewed on a GPU; no RTX-class
   measurement; the soak's juvenile-breeding observation was not hit in 300 s.
+- Pull request cleanup (2026-11-21): PRs #29, #24 and #22 are marked merged by
+  GitHub; #27, #26 and #19 were closed as superseded with the reasons recorded
+  on each PR. All branches remain on the remote; nothing was deleted or
+  force-pushed.
