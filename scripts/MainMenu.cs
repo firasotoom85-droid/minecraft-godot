@@ -24,6 +24,7 @@ public partial class MainMenu : Control
     private ConfirmationDialog _deleteDialog = null!;
     private string _manageDir = "";
     private OptionButton _typeOption = null!;
+    private WorldManagementDialog _worldManagement = null!;
 
     public override void _Ready()
     {
@@ -110,6 +111,9 @@ public partial class MainMenu : Control
         _newWorldPanel = BuildNewWorld();
         _settingsPanel = BuildSettings();
         _managePanel = BuildManage();
+        _worldManagement = new WorldManagementDialog();
+        _worldManagement.ImportCompleted += () => RefreshWorlds();
+        AddChild(_worldManagement);
         stack.AddChild(_worldsPanel);
         stack.AddChild(_newWorldPanel);
         stack.AddChild(_settingsPanel);
@@ -164,6 +168,7 @@ public partial class MainMenu : Control
         HBoxContainer row = new();
         row.AddThemeConstantOverride("separation", 10);
         row.AddChild(MenuSkin.MakeButton("New world", ShowNewWorld, 0));
+        row.AddChild(MenuSkin.MakeButton("Import ZIP", () => _worldManagement.ShowImport(), 0));
         row.AddChild(MenuSkin.MakeButton("Back", ShowMain, 0));
         box.AddChild(row);
         return MenuSkin.Wrap(box);
@@ -234,6 +239,7 @@ public partial class MainMenu : Control
         row.AddChild(MenuSkin.MakeButton("Rename", RenameWorld, 0));
         row.AddChild(MenuSkin.MakeButton("Duplicate", DuplicateWorld, 0));
         row.AddChild(MenuSkin.MakeButton("Delete", ConfirmDelete, 0));
+        row.AddChild(MenuSkin.MakeButton("Backups / Export", () => _worldManagement.ShowFor(_manageDir), 150));
         box.AddChild(row);
         _manageStatus = new Label
         {
