@@ -6,6 +6,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
+using IoFileAccess = System.IO.FileAccess;
 using Godot;
 
 namespace Minecraft;
@@ -95,7 +96,7 @@ public static class WorldArchive
         long completed = 0;
         try
         {
-            using (FileStream output = new(temporary, FileMode.CreateNew, FileAccess.ReadWrite,
+            using (FileStream output = new(temporary, FileMode.CreateNew, IoFileAccess.ReadWrite,
                     FileShare.None, BufferSize, FileOptions.SequentialScan))
             {
                 using (ZipArchive zip = new(output, ZipArchiveMode.Create, leaveOpen: true))
@@ -240,7 +241,7 @@ public static class WorldArchive
                 Directory.CreateDirectory(parent);
 
                 using Stream input = entry.Open();
-                using FileStream output = new(destination, FileMode.CreateNew, FileAccess.Write,
+                using FileStream output = new(destination, FileMode.CreateNew, IoFileAccess.Write,
                         FileShare.None, BufferSize, FileOptions.SequentialScan);
                 using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
                 byte[] buffer = new byte[BufferSize];
