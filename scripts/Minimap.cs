@@ -20,6 +20,7 @@ public partial class Minimap : Control
     private Image _img = null!;
     private ImageTexture _tex = null!;
     private readonly int[] _heights = new int[Px * Px];
+    private readonly Biome[] _biomes = new Biome[Px * Px];
     private readonly bool[] _edited = new bool[Px * Px];
     private double _timer;
     private Vector2 _lastCentre;
@@ -34,6 +35,12 @@ public partial class Minimap : Control
     private Color _sand = new(0.86f, 0.81f, 0.61f);
     private Color _grass = new(0.34f, 0.56f, 0.24f);
     private Color _birch = new(0.48f, 0.68f, 0.30f);
+    private Color _denseForest = new(0.12f, 0.34f, 0.18f);
+    private Color _taiga = new(0.25f, 0.43f, 0.35f);
+    private Color _jungle = new(0.10f, 0.40f, 0.22f);
+    private Color _swamp = new(0.28f, 0.38f, 0.20f);
+    private Color _flowerPlains = new(0.62f, 0.68f, 0.30f);
+    private Color _meadow = new(0.48f, 0.70f, 0.34f);
     private Color _snow = new(0.88f, 0.92f, 0.97f);
     private Color _shallow = new(0.20f, 0.48f, 0.72f);
     private Color _deep = new(0.08f, 0.22f, 0.48f);
@@ -120,7 +127,7 @@ public partial class Minimap : Control
             {
                 int wx = _buildCx + (int)((i - Px / 2) * MetresPerPx);
                 int wz = _buildCz + (int)((j - Px / 2) * MetresPerPx);
-                int h = World.SurfaceHeight(wx, wz);
+                (int h, Biome biome) = World.SurfaceSampleAt(wx, wz);
                 bool edited = World.TryEditTop(wx, wz, out int editedTop);
                 if (edited)
                 {
@@ -129,6 +136,7 @@ public partial class Minimap : Control
 
                 int index = i + j * Px;
                 _heights[index] = h;
+                _biomes[index] = biome;
                 _edited[index] = edited;
             }
         }
@@ -174,11 +182,18 @@ public partial class Minimap : Control
                 }
                 else
                 {
-                    c = World.BiomeAt(wx, wz, h) switch
+                    c = _biomes[index] switch
                     {
-                        Biome.Desert => _sand,
+                        Biome.Desert or Biome.Beach => _sand,
                         Biome.Snow => _snow,
                         Biome.Birch => _birch,
+                        Biome.DenseForest => _denseForest,
+                        Biome.Taiga => _taiga,
+                        Biome.Jungle => _jungle,
+                        Biome.Swamp => _swamp,
+                        Biome.Mountain => _stone,
+                        Biome.FlowerPlains => _flowerPlains,
+                        Biome.Meadow => _meadow,
                         _ => _grass,
                     };
                     float lift = Mathf.Clamp((h - sea) / 20.0f, 0.0f, 1.0f);

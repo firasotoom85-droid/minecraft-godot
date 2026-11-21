@@ -838,3 +838,30 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - Swimming vertical input respects floor/ceiling contacts. Underwater visibility blends with immersion, lava has a separate warm fog environment, and low-pass filtering no longer affects Master/UI audio.
 - Added generated-world integration coverage for source regeneration, flowing-water creation, impermeable terrain, lava reaction and an unloaded chunk edge, plus collision/source-rule unit checks.
 - **Verification pending:** run `dotnet build -c Debug` and `scripts/verify.sh` with Godot 4.7.2 .NET; no runtime/performance soak has been performed in this environment.
+
+---
+
+## 14. World generation V7 audit — 2026-11-20
+
+- New worlds use the isolated V7 generator; generator versions 1–6 retain their
+  existing code paths. Persisted block/item IDs and save schemas are unchanged.
+- Added 13 climate/height biomes, continental terrain, smoothed river valleys,
+  mountain ridges, biome-specific tree canopies, aquifers, magma pockets,
+  depth-aware ore veins, surface landmarks and underground chambers.
+- V7 column generation now shares a single surface/climate sample between
+  height and biome classification. Tree, cactus, campfire, structure and
+  minimap paths reuse the same sample instead of recalculating climate noise.
+- Added real generated-world biome distribution checks across four seeds,
+  deterministic request-order tests, chunk-seam checks for trees, ore veins,
+  surface structures and underground rooms, and golden SHA-256 chunk anchors
+  for generator versions 3, 5 and 6 alongside the v1 anchor.
+- Added terrain-profile checks for river channels/banks, biome transitions,
+  mountain elevations/slopes and cave passages. Added informational CI timings
+  for separate vs shared column sampling and full chunk generation.
+- **Visual inspection pending:** CI is headless and does not validate rendered
+  river-bank appearance, biome blending, mountain silhouettes, cave readability
+  or underground-room presentation in the running game. A graphical playtest
+  is still required before treating visual quality as signed off.
+- **Hardware profiling pending:** CI timings are correctness diagnostics, not
+  a substitute for fixed-seed profiling on the target MX230 and desktop GPU.
+
