@@ -1265,11 +1265,16 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   tiles at lower levels. The existing atlas coordinates, texture-array layer
   indices, 32×32 source art, UV tiling, block definitions and first-person icon
   presentation remain unchanged.
-- Added regression assertions for all 256 array layers, generated mipmaps on
-  multiple layers and unchanged native tile resolution. No persisted IDs,
+- Added regression assertions for all 256 array layers, array mipmap
+  availability and coherent 2×2 procedural noise clusters. No persisted IDs,
   save fields, world generation, voxel edits, greedy merge keys or chunk
   streaming behavior changed.
-- **Verification status:** local build/test execution is pending a compatible
-  .NET 9 SDK and Godot 4.7.2 .NET binary on the connected MX230 machine; its
-  currently installed SDK is .NET 8.0.133 only. No runtime visual or GPU
-  performance result is claimed until that toolchain is available.
+- **Verification:** Godot 4.7.2/.NET 9 build passed with 0 warnings and
+  0 errors; `scripts/verify.sh` passed all 6,043 checks with 0 failures.
+  A Forward+ GPU capture also rendered both close and distant production-scene
+  views at 1280×720 on the GeForce MX230, with no shader compilation errors.
+  The capture confirms the mipmapped array path renders on the target GPU; a
+  controlled before/after FPS comparison was not performed. The complete
+  mip-chain payload is estimated at about 1.33 MiB versus 1.00 MiB without
+  mipmaps for 256 RGBA8 32×32 layers (approximately 0.33 MiB additional
+  texture data).

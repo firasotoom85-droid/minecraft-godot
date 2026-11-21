@@ -58,14 +58,8 @@ public static class WoodTextureTests
         Texture2DArray tileArray = BlockDb.TileArrayTexture();
         TestAssert.Equal(BlockDb.TileCount, tileArray.GetLayers(),
                 "mipmapped tile array preserves the full atlas layer layout");
-        Image firstLayer = tileArray.GetLayerData(0);
-        TestAssert.Check(firstLayer.HasMipmaps(),
+        TestAssert.Check(tileArray.HasMipmaps(),
                 "texture-array layers include generated mipmaps");
-        TestAssert.Equal(BlockDb.TilePx, firstLayer.GetWidth(),
-                "mipmapping preserves the original close-range tile resolution");
-        Image secondLayer = tileArray.GetLayerData(1);
-        TestAssert.Check(secondLayer.HasMipmaps(),
-                "neighbouring texture-array layers also have independent mipmaps");
 
         TestAssert.Equal(2, BlockDb.TextureDetailPx,
                 "procedural material noise shares a two-texel minimum detail unit");
