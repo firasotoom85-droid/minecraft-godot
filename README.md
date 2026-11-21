@@ -64,8 +64,9 @@ The project is a long-running solo build with an extensive design log in
   and an automatic quality governor.
 - **Deterministic saves** — per-world folders, atomic writes, rotating backups,
   and byte-parity anchors so old worlds never change under new worldgen. Save
-  format v4 adds a sparse optional shape-state extension; v1-v3 worlds load
-  with default shape state and generator versions remain unchanged.
+  format v4 adds optional block-shape state, villager and quest records, and
+  boat state; v1-v3 worlds load with defaults and generator versions remain
+  unchanged.
 - **Portable world management** — checksummed ZIP export/import, duplicate-name
   handling, staged imports with path-traversal and archive-expansion protection,
   backup browsing and safe restore, and per-world playtime/size metadata.
@@ -240,6 +241,23 @@ or scan the world. Swimming uses buoyancy and smooth acceleration: Space swims
 up, Shift dives, shallow water slows wading, and head submersion controls breath
 loss. Breath recovers above water; mining is slower while fully submerged.
 
+### Buckets and boats
+
+Buckets are unstackable inventory items. An empty bucket collects only a true
+source-water or lava cell; flowing water cannot be scooped. Filled buckets
+place a new source into a loaded, replaceable voxel and become empty again.
+Both operations use `VoxelWorld.SetBlock`, so edits continue through the
+existing save, lighting, and meshing path. Craft a bucket from three iron
+ingots in a V; craft a wooden boat from five planks in a U.
+
+Place a wooden boat on a loaded water surface. Right-click a nearby boat to
+board, use WASD to accelerate and steer, hold Shift to brake, and press Space
+to dismount to a nearby clear cell. The boat samples the existing source and
+flowing-water heights for buoyancy, collides with streamed terrain, and stops
+before any part of its hull can enter an unloaded chunk. Boat position,
+heading, velocity, and rider state are optional world-save fields; older
+worlds load without a vehicle list.
+
 ## Project layout
 
 | Path | Contents |
@@ -303,13 +321,31 @@ for the balance table, deterministic scenarios and verification record.
 Each world lives in `user://worlds/<id>/`:
 
 - `manifest.json` — seed, generator version, preset, spawn, play time.
-- `world.json` — edits, time, containers, furnaces, flags, discovered villagers, and multi-stage quest progress.
+- `world.json` — edits, time, containers, furnaces, flags, block-shape states,
+  discovered villagers, multi-stage quest progress, and optional boat state.
 - `player.json` — position, inventory, mode, health, hunger, respawn, experience, and optional per-item enchantment levels.
 
 Writes are atomic (temp file + rename) and keep two rotating backups. Old
 worlds remain loadable: block/item ids are append-only and worldgen changes are
-gated behind generator versions.
+gated behind generator versions. The v4 fields are optional, so v1-v3 files
+load without shape, villager, quest or boat data.
 
+## Persisted block and item IDs
+
+`BlockId` and `ItemId` are save data, not presentation order. Existing values
+are never renumbered or reused; new content is appended and pinned by tests.
+
+| Range | Contents |
+|---|---|
+| `BlockId` 0–45 | Original terrain, plants, fluids and M6/M7 blocks, unchanged |
+| `BlockId` 46–51 | Oak-planks, cobblestone and brick slabs/stairs |
+| `ItemId` 0–90 | Original items, armor, tools, food, boss trophy and enchanting table, unchanged |
+| `ItemId` 91–96 | Slab and stair items, matching the block order above |
+| `ItemId` 97–100 | Empty bucket, water bucket, lava bucket, wooden boat |
+
+`tests/ContentTests.cs` pins every block and item value and asserts that the
+building and transportation ranges remain disjoint. `tests/WorldgenTests.cs`
+pins golden chunk hashes for V1, V3, V5, V6, V7 and V8.
 
 ## Villages, residents and quests
 
@@ -335,18 +371,19 @@ completion and reward claims persist in `world.json`.
 
 ## Known limitations
 
-- **No partial-height building blocks.** Slabs, stairs and other non-cube block
-  shapes are not implemented; the mesher and collision path are cube-only. No
-  feature branch contained a block-shape implementation, so this remains future
-  work rather than an integrated feature.
+- **Building shapes are limited to slabs and stairs.** The occupancy-mask
+  architecture is ready for walls, fences, gates, doors, trapdoors, glass panes,
+  pressure plates, buttons and signs, but none of those categories is
+  implemented yet. There are no vertical slabs.
 - **Visual validation is representative, not exhaustive.** V8 has matched
   GPU-rendered before/after captures for river, steep-bank, mountain, forest and
-  cave locations across four seeds. More biome/preset combinations and long
-  exploration routes still need manual review.
-- **Long soak coverage.** The opt-in survival soak runs the real scene and
-  exercises herds, hostiles, caves, weather and saving. Its juvenile-breeding
-  observation depends on the player standing near the herd; a 300 s headless run
-  completed without errors but did not observe a juvenile.
+  cave locations across four seeds. The integrated village, boat and block-shape
+  presentation has automated coverage but no complete human visual playthrough
+  across every biome, preset and UI state.
+- **Soak coverage is headless.** The 5- and 60-minute survival soaks exercise
+  the real main scene, physics, mobs, weather, saves and cleanup, but they do not
+  replace a human combat, building or visual playtest. The 60-minute result is
+  recorded below when the run completes.
 - **High-end hardware not measured.** Performance was recorded on the MX230
   laptop only; no RTX 4060-class machine was available for comparison.
 - **Debug-build meshing cost.** Chunk mesh builds are expensive in Debug on the

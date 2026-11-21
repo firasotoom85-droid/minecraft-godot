@@ -111,6 +111,8 @@ public static class Recipes
         new("Oak Stairs", ["P..", "PP.", "PPP"], Key(('P', ItemId.Planks)), ItemId.PlanksStairs, 4),
         new("Cobblestone Stairs", ["C..", "CC.", "CCC"], Key(('C', ItemId.Cobblestone)), ItemId.CobblestoneStairs, 4),
         new("Brick Stairs", ["B..", "BB.", "BBB"], Key(('B', ItemId.Brick)), ItemId.BrickStairs, 4),
+        new("Bucket", ["I.I", ".I."], Key(('I', ItemId.IronIngot)), ItemId.EmptyBucket, 1),
+        new("Wooden Boat", ["P.P", "PPP"], Key(('P', ItemId.Planks)), ItemId.WoodenBoat, 1),
     ];
 
     /// <summary>

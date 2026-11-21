@@ -126,6 +126,8 @@ public static class ItemDb
             ItemId.CookedFish => "Cooked Fish",
             ItemId.WoodSword => "Wooden Sword", ItemId.StoneSword => "Stone Sword", ItemId.IronSword => "Iron Sword", ItemId.DiamondSword => "Diamond Sword",
             ItemId.Bow => "Bow", ItemId.Arrow => "Arrow", ItemId.Shield => "Shield", ItemId.EmberBlade => "Ember Blade", ItemId.LapisLazuli => "Lapis Lazuli",
+            ItemId.EmptyBucket => "Bucket", ItemId.WaterBucket => "Water Bucket",
+            ItemId.LavaBucket => "Lava Bucket", ItemId.WoodenBoat => "Wooden Boat",
             _ => id.ToString(),
         };
     }
@@ -236,10 +238,16 @@ public static class ItemDb
         ItemId.Arrow => "Bow ammunition crafted from gravel, sticks and feathers.", ItemId.Shield => "Blocks frontal melee and ranged hits while held; blocking wears it.", ItemId.LapisLazuli => "A blue mineral used to power enchantments.", ItemId.EnchantingTable => "A crafted station for enchanting and upgrading equipment.",
         ItemId.PlanksSlab or ItemId.CobblestoneSlab or ItemId.BrickSlab => "A half-height building block. Place against a face to choose the top or bottom half; stack a matching slab to make a full block.",
         ItemId.PlanksStairs or ItemId.CobblestoneStairs or ItemId.BrickStairs => "A stepped building block. Facing follows your view; upper-half placement turns the stairs upside down.",
+        ItemId.EmptyBucket => "Collects source water or lava. Flowing water cannot be scooped.",
+        ItemId.WaterBucket => "Places one water source into a valid open voxel.",
+        ItemId.LavaBucket => "Places one lava source into a valid open voxel.",
+        ItemId.WoodenBoat => "Place on water, right-click to board, Space to dismount, Shift to brake.",
         _ => id.ToString(),
     };
     public static int MaxStack(ItemId id) =>
-        id == ItemId.FishingRod || ToolOf(id) != null || ArmorOf(id) != null || WeaponOf(id) != null ? 1 : 64;
+        id is ItemId.FishingRod or ItemId.EmptyBucket or ItemId.WaterBucket
+                or ItemId.LavaBucket or ItemId.WoodenBoat
+                || ToolOf(id) != null || ArmorOf(id) != null || WeaponOf(id) != null ? 1 : 64;
 
     /// <summary>A fresh stack; tools and armor start at full durability.</summary>
     public static ItemStack New(ItemId id, int count) =>
@@ -399,6 +407,18 @@ public static class ItemDb
                     break;
                 case ItemId.Arrow:
                     Rect(img, 6, 15, 20, 2, new Color(0.72f, 0.72f, 0.74f)); Rect(img, 24, 12, 5, 8, new Color(0.78f, 0.78f, 0.80f)); break;
+                case ItemId.EmptyBucket:
+                    PaintBucket(img, new Color(0.76f, 0.78f, 0.82f));
+                    break;
+                case ItemId.WaterBucket:
+                    PaintBucket(img, new Color(0.20f, 0.55f, 0.92f));
+                    break;
+                case ItemId.LavaBucket:
+                    PaintBucket(img, new Color(1.0f, 0.38f, 0.08f));
+                    break;
+                case ItemId.WoodenBoat:
+                    PaintBoat(img);
+                    break;
                 case ItemId.LapisLazuli:
                     PaintBlob(img, new Color(0.12f, 0.30f, 0.86f), new Color(0.06f, 0.14f, 0.52f), 125);
                     break;
@@ -478,6 +498,28 @@ public static class ItemDb
         for(int i=0;i<18;i++) Rect(img,24-i,27-i,3,3,wood);
         Rect(img,5,4,6,22,metal); Rect(img,2,5,12,4,metal.Lightened(0.12f)); Rect(img,8,3,7,4,metal);
         if(id==ItemId.EmberBlade) Rect(img,4,8,8,3,new Color(1,0.55f,0.1f));
+    }
+
+    private static void PaintBucket(Image img, Color liquid)
+    {
+        Color metal = new(0.70f, 0.73f, 0.77f);
+        Rect(img, 7, 7, 18, 3, metal);
+        Rect(img, 9, 10, 3, 14, metal);
+        Rect(img, 20, 10, 3, 14, metal);
+        Rect(img, 11, 23, 10, 3, metal);
+        Rect(img, 12, 15, 8, 7, liquid);
+        Rect(img, 12, 13, 8, 2, liquid.Lightened(0.18f));
+    }
+
+    private static void PaintBoat(Image img)
+    {
+        Color wood = new(0.48f, 0.28f, 0.14f);
+        Rect(img, 5, 14, 22, 4, wood.Lightened(0.16f));
+        Rect(img, 7, 18, 18, 5, wood);
+        Rect(img, 10, 23, 12, 3, wood.Darkened(0.16f));
+        Rect(img, 8, 11, 3, 5, wood);
+        Rect(img, 21, 11, 3, 5, wood);
+        Rect(img, 13, 11, 7, 3, wood.Lightened(0.1f));
     }
 
     private static void PaintFishingRod(Image img)

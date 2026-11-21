@@ -56,6 +56,7 @@ public partial class Player : CharacterBody3D, IDamageable
     [Signal] public delegate void CampfireUsedEventHandler(string message);
     [Signal] public delegate void RespawnedEventHandler();
     [Signal] public delegate void LandedEventHandler(Vector3 pos, float impact);
+    [Signal] public delegate void BucketUsedEventHandler(Vector3 pos, bool lava, bool collected);
 
     private static readonly string[] HotbarActions =
     [
@@ -77,6 +78,8 @@ public partial class Player : CharacterBody3D, IDamageable
     public bool Dead => Stats.Dead;
 
     public Inventory Inventory { get; } = new();
+    public BoatSystem? Boats;
+    public Boat? CurrentBoat { get; private set; }
 
     public void InteractVillager(Villager villager) => VillagerInteracted?.Invoke(villager);
 
@@ -95,6 +98,7 @@ public partial class Player : CharacterBody3D, IDamageable
         if (count > 0) TradeCompleted?.Invoke(count);
     }
 
+    private CollisionShape3D _bodyCollider = null!;
     public Camera3D Camera = null!;
     public RayCast3D Ray = null!;
 
@@ -165,6 +169,7 @@ public partial class Player : CharacterBody3D, IDamageable
     {
         Camera = GetNode<Camera3D>("Camera3D");
         Ray = GetNode<RayCast3D>("Camera3D/RayCast3D");
+        _bodyCollider = GetNode<CollisionShape3D>("Collision");
         Ray.TargetPosition = new Vector3(0, 0, -Reach);
         Ray.CollisionMask = (uint)(PhysicsLayer.Terrain | PhysicsLayer.Mobs);
         Ray.AddException(this);
@@ -189,10 +194,13 @@ public partial class Player : CharacterBody3D, IDamageable
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (InputLocked || Stats.Dead)
+        if (InputLocked) return;
+        if (CurrentBoat != null)
         {
+            if (@event.IsActionPressed("jump")) CurrentBoat.Dismount();
             return;
         }
+        if (Stats.Dead) return;
 
         if (@event is InputEventMouseMotion motion)
         {
@@ -318,6 +326,11 @@ public partial class Player : CharacterBody3D, IDamageable
 
     public override void _PhysicsProcess(double delta)
     {
+        if (CurrentBoat is { } mounted)
+        {
+            Stats.Update(delta, false, mounted.Velocity.LengthSquared() > 0.1f, Mode);
+            return;
+        }
         if (World == null)
         {
             return;
@@ -657,7 +670,12 @@ public partial class Player : CharacterBody3D, IDamageable
 
         float amount = info.Amount;
         ItemStack held = Inventory.Hotbar[Selected];
-        if (Mode == GameMode.Survival && EquipmentProgression.BlocksWithShield(held, -GlobalTransform.Basis.Z, GlobalPosition, info))
+        // Damage can arrive while a player node is being constructed or tested
+        // outside the scene tree; engine transforms are invalid there.
+        bool inTree = IsInsideTree();
+        Vector3 forward = inTree ? -GlobalTransform.Basis.Z : Vector3.Forward;
+        Vector3 position = inTree ? GlobalPosition : Vector3.Zero;
+        if (Mode == GameMode.Survival && EquipmentProgression.BlocksWithShield(held, forward, position, info))
         {
             Inventory.DamageEquipment(Selected);
             EmitSignal(SignalName.Notice, "Blocked");
@@ -677,7 +695,7 @@ public partial class Player : CharacterBody3D, IDamageable
 
         if (applied && info.Knockback > 0.0f)
         {
-            Vector3 away = GlobalPosition - info.Source;
+            Vector3 away = position - info.Source;
             away.Y = 0.0f;
             if (away.LengthSquared() > 0.001f)
             {
@@ -860,6 +878,13 @@ public partial class Player : CharacterBody3D, IDamageable
 
         if (World == null)
         {
+            ResetMining();
+            return;
+        }
+
+        if (Ray.IsColliding() && Ray.GetCollider() is Boat boat)
+        {
+            boat.Break(this);
             ResetMining();
             return;
         }
@@ -1515,6 +1540,31 @@ public partial class Player : CharacterBody3D, IDamageable
         Vector3 direction = -Camera.GlobalTransform.Basis.Z;
         arrow.Launch(this, Camera.GlobalPosition + direction * 0.65f, direction);
     }
+    public void EnterBoat(Boat boat)
+    {
+        if (CurrentBoat != null) return;
+        CurrentBoat = boat;
+        _bodyCollider.SetDeferred(CollisionShape3D.PropertyName.Disabled, true);
+        Reparent(boat, false);
+        Position = new Vector3(0.0f, 0.48f, 0.0f);
+        Rotation = Vector3.Zero;
+        Velocity = Vector3.Zero;
+        _coyote = 0.0;
+        _jumpBuffer = 0.0;
+    }
+
+    public void ExitBoat(Boat boat, Vector3 position)
+    {
+        if (CurrentBoat != boat) return;
+        Node? destination = boat.GetParent();
+        CurrentBoat = null;
+        if (destination != null) Reparent(destination, true);
+        GlobalPosition = position;
+        _bodyCollider.SetDeferred(CollisionShape3D.PropertyName.Disabled, false);
+        Velocity = Vector3.Zero;
+        _wasSwimming = false;
+    }
+
     public void PlaceBlock()
     {
         if (World == null)
@@ -1540,6 +1590,25 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
+        if (Ray.IsColliding() && Ray.GetCollider() is Boat boat)
+        {
+            if (!boat.TryBoard(this))
+                EmitSignal(SignalName.Notice, "That boat is occupied or out of reach");
+            return;
+        }
+
+        ItemStack stack = Inventory.Hotbar[Selected];
+        if (BucketMechanics.IsBucket(stack.Id))
+        {
+            UseBucket(stack);
+            return;
+        }
+        if (stack.Id == ItemId.WoodenBoat)
+        {
+            PlaceBoat();
+            return;
+        }
+
         if (!Ray.IsColliding())
         {
             // Aiming at nothing: food still works (eat on the go).
@@ -1551,8 +1620,6 @@ public partial class Player : CharacterBody3D, IDamageable
 
             return;
         }
-
-        ItemStack stack = Inventory.Hotbar[Selected];
 
         // Campfires cook what you hold raw and offer a rest (respawn + heal).
         if (CampfireInReach())
@@ -1667,6 +1734,152 @@ public partial class Player : CharacterBody3D, IDamageable
                     ? ItemStack.Empty : stack with { Count = stack.Count - 1 };
             Inventory.RaiseChanged();
         }
+    }
+
+    private void UseBucket(ItemStack stack)
+    {
+        if (World == null || !TryGetBucketRayHit(
+                    out Vector3I hit, out BlockId hitId, out Vector3I faceNormal))
+        {
+            EmitSignal(SignalName.Notice, "Aim at a source fluid or a block face");
+            return;
+        }
+
+        bool collected;
+        bool lava;
+        Vector3 actionPosition = new(hit.X + 0.5f, hit.Y + 0.5f, hit.Z + 0.5f);
+        if (stack.Id == ItemId.EmptyBucket)
+        {
+            if (!BucketMechanics.TryCollect(World, hit, Inventory, Selected,
+                        out BlockId collectedFluid))
+            {
+                EmitSignal(SignalName.Notice, BlockDb.IsWater(hitId)
+                        ? "Only source water can be collected"
+                        : "Aim at source water or lava");
+                return;
+            }
+
+            collected = true;
+            lava = collectedFluid == BlockId.Lava;
+        }
+        else
+        {
+            if (BlockDb.IsWater(hitId) || hitId == BlockId.Lava || faceNormal == Vector3I.Zero)
+            {
+                EmitSignal(SignalName.Notice, "Aim at an open block face to place fluid");
+                return;
+            }
+
+            Vector3I destination = hit + faceNormal;
+            if (!BucketMechanics.TryPlace(World, destination, Inventory, Selected,
+                        out BlockId placed))
+            {
+                EmitSignal(SignalName.Notice, "There is no open space for that fluid");
+                return;
+            }
+
+            actionPosition = new(destination.X + 0.5f, destination.Y + 0.5f, destination.Z + 0.5f);
+            collected = false;
+            lava = placed == BlockId.Lava;
+        }
+
+        StartPunch();
+        EmitSignal(SignalName.BucketUsed, actionPosition, lava, collected);
+    }
+
+    private void PlaceBoat()
+    {
+        if (Boats == null || World == null
+                || !TryGetBucketRayHit(out Vector3I target, out BlockId id, out _)
+                || !BlockDb.IsWater(id))
+        {
+            EmitSignal(SignalName.Notice, "Aim at a water surface to place the boat");
+            return;
+        }
+
+        if (!Boats.TryPlaceBoat(target, id))
+        {
+            EmitSignal(SignalName.Notice, "The boat needs open, loaded water");
+            return;
+        }
+
+        Inventory.Hotbar[Selected] = ItemStack.Empty;
+        Inventory.RaiseChanged();
+        StartPunch();
+    }
+
+    /// <summary>
+    /// Loaded-only voxel ray for fluids and boat placement. Unlike the normal
+    /// block ray it deliberately stops at water/lava instead of skipping them.
+    /// Unloaded cells are never generated or interpreted as air.
+    /// </summary>
+    private bool TryGetBucketRayHit(out Vector3I position, out BlockId block,
+            out Vector3I faceNormal)
+    {
+        position = new Vector3I(int.MinValue, 0, 0);
+        block = BlockId.Air;
+        faceNormal = Vector3I.Zero;
+        if (World == null) return false;
+
+        Vector3 origin = Camera.GlobalPosition;
+        Vector3 direction = -Camera.GlobalTransform.Basis.Z;
+        if (direction.LengthSquared() < 0.0001f) return false;
+        direction = direction.Normalized();
+        float maxDistance = Reach + 0.02f;
+        if (Ray.IsColliding())
+            maxDistance = Mathf.Min(maxDistance, origin.DistanceTo(Ray.GetCollisionPoint()) + 0.02f);
+
+        int x = Mathf.FloorToInt(origin.X);
+        int y = Mathf.FloorToInt(origin.Y);
+        int z = Mathf.FloorToInt(origin.Z);
+        int sx = direction.X > 0.0f ? 1 : direction.X < 0.0f ? -1 : 0;
+        int sy = direction.Y > 0.0f ? 1 : direction.Y < 0.0f ? -1 : 0;
+        int sz = direction.Z > 0.0f ? 1 : direction.Z < 0.0f ? -1 : 0;
+        float dx = sx == 0 ? float.PositiveInfinity : Mathf.Abs(1.0f / direction.X);
+        float dy = sy == 0 ? float.PositiveInfinity : Mathf.Abs(1.0f / direction.Y);
+        float dz = sz == 0 ? float.PositiveInfinity : Mathf.Abs(1.0f / direction.Z);
+        float tx = sx > 0 ? (x + 1.0f - origin.X) / direction.X
+                : sx < 0 ? (origin.X - x) / -direction.X : float.PositiveInfinity;
+        float ty = sy > 0 ? (y + 1.0f - origin.Y) / direction.Y
+                : sy < 0 ? (origin.Y - y) / -direction.Y : float.PositiveInfinity;
+        float tz = sz > 0 ? (z + 1.0f - origin.Z) / direction.Z
+                : sz < 0 ? (origin.Z - z) / -direction.Z : float.PositiveInfinity;
+
+        float distance = 0.0f;
+        while (distance <= maxDistance)
+        {
+            if (!World.TryGetLoadedBlock(x, y, z, out BlockId current)) return false;
+            if (BlockDb.IsWater(current) || current == BlockId.Lava
+                    || BlockDb.IsSolid(current) && !BlockDb.IsCross(current))
+            {
+                position = new Vector3I(x, y, z);
+                block = current;
+                return true;
+            }
+
+            float next = Mathf.Min(tx, Mathf.Min(ty, tz));
+            if (!float.IsFinite(next) || next > maxDistance) break;
+            if (tx <= next + 0.00001f)
+            {
+                x += sx;
+                tx += dx;
+                faceNormal = new Vector3I(-sx, 0, 0);
+            }
+            else if (ty <= next + 0.00001f)
+            {
+                y += sy;
+                ty += dy;
+                faceNormal = new Vector3I(0, -sy, 0);
+            }
+            else
+            {
+                z += sz;
+                tz += dz;
+                faceNormal = new Vector3I(0, 0, -sz);
+            }
+            distance = next;
+        }
+        return false;
     }
 
     public void PickBlock()

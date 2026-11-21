@@ -170,6 +170,8 @@ public partial class Sound : Node
         player.BlockPlaced += OnPlaced;
         player.Stepped += OnStepped;
         player.Splashed += OnSplashed;
+        player.BucketUsed += (pos, lava, collected) =>
+                Play(lava ? "sizzle" : "splash", pos, collected ? 1.05f : 0.92f, -3.0f);
         player.SwimStroke += pos => Play("splash", pos, 0.78f, -13.0f);
         player.LavaEntered += pos => Play("sizzle", pos, 0.82f, -5.0f);
         player.MiningTick += OnMiningTick;

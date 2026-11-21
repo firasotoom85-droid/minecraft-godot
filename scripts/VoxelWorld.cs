@@ -82,6 +82,8 @@ public partial class VoxelWorld : Node3D
     public float SavedHunger = -1.0f;
     public int SavedExperience;
     public Vector3? SavedRespawn;        // campfire anchor, null = world spawn
+    public List<BoatSave>? SavedBoats;   // optional vehicle state; absent in older saves
+    public BoatSystem? BoatSystem;
 
     // Save v3: per-block inventories (chests/furnaces) and one-time world
     // flags (dungeon clears, achievements). Keys are stable block coordinates.
@@ -2636,7 +2638,8 @@ public partial class VoxelWorld : Node3D
                 furnaces,
                 blockStatesOut.Count == 0 ? null : blockStatesOut,
                 Villagers.Count == 0 ? null : Villagers,
-                Quests.Count == 0 ? null : Quests);
+                Quests.Count == 0 ? null : Quests,
+                BoatSystem != null ? BoatSystem.ToSave() : SavedBoats);
         bool worldSaved = WorldStore.WriteAtomic(
                 WorldStore.WorldSavePath(_worldDir),
                 JsonSerializer.Serialize(world, WorldStore.Json));
@@ -2808,6 +2811,7 @@ public partial class VoxelWorld : Node3D
             }
 
             TimeOfDay = Mathf.Clamp(world.Time, 0.0, 1.0);
+            SavedBoats = world.Boats;
             if (world.Containers != null)
             {
                 foreach ((string key, List<ItemStackSave> items) in world.Containers)

@@ -35,6 +35,7 @@ public partial class TestRunner : Node
         RunSuite("stats", StatsTests.Run);
         RunSuite("fluids", FluidTests.Run);
         RunSuite("fluid-world", () => FluidWorldTests.Run(this));
+        RunSuite("boats-buckets", () => BoatBucketTests.Run(this));
         RunSuite("save", SaveTests.Run);
         RunSuite("world-archives", WorldArchiveTests.Run);
         RunSuite("worldgen", () => WorldgenTests.Run(this));

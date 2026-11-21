@@ -39,6 +39,7 @@ public partial class Main : Node3D
     private AchievementUi _achievementUi = null!;
     private OnboardingSystem _onboarding = null!;
     private FluidSystem _fluids = null!;
+    private BoatSystem _boats = null!;
 
     public override void _Ready()
     {
@@ -157,6 +158,8 @@ public partial class Main : Node3D
         _world.SetupInitial();
         _fluids = AddSystem(new FluidSystem());
         _fluids.Setup(_world, _player);
+        _boats = AddSystem(new BoatSystem());
+        _boats.Setup(_world, _player, _sound);
         _hud.Bind(_player);
         _hud.ShowToast($"{_gfx.CurrentPreset.Name} quality  ·  F6 change  ·  H help  ·  F3 info");
     }
