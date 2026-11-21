@@ -1245,3 +1245,27 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - **Verification:** Godot 4.7.2 .NET build completed with 0 warnings and
   0 errors. The final full headless suite passed with 1,247 checks and
   0 failures. Live interactive playtesting was not performed.
+
+
+## 21. Terrain texture scale and distance consistency — 2026-11-21
+
+- Audited the existing 32×32 procedural atlas, atlas UV path, greedy texture
+  array, shape-face UV mapping and selected-item first-person icon path. The
+  atlas and close-range UV scale were already consistent; the missing piece was
+  distance filtering in the default greedy renderer.
+- Generate mipmaps independently for each texture-array tile before creating
+  the array. The greedy shader now uses nearest-mipmap filtering: native texels
+  remain crisp nearby, while smaller prefiltered levels suppress distant
+  high-frequency shimmer and detail popping.
+- Do not generate mipmaps on the packed atlas: that would blend adjacent atlas
+  tiles at lower levels. The existing atlas coordinates, texture-array layer
+  indices, 32×32 source art, UV tiling, block definitions and first-person icon
+  presentation remain unchanged.
+- Added regression assertions for all 256 array layers, generated mipmaps on
+  multiple layers and unchanged native tile resolution. No persisted IDs,
+  save fields, world generation, voxel edits, greedy merge keys or chunk
+  streaming behavior changed.
+- **Verification status:** local build/test execution is pending a compatible
+  .NET 9 SDK and Godot 4.7.2 .NET binary on the connected MX230 machine; its
+  currently installed SDK is .NET 8.0.133 only. No runtime visual or GPU
+  performance result is claimed until that toolchain is available.

@@ -677,7 +677,7 @@ void fragment() {
 shader_type spatial;
 render_mode cull_back, depth_draw_opaque, specular_disabled, alpha_to_coverage;
 
-uniform sampler2DArray tiles : source_color, filter_nearest;
+uniform sampler2DArray tiles : source_color, filter_nearest_mipmap;
 uniform vec4 tint = vec4(1.0);   // wet-ground darkening (Weather)
 uniform float sky_light_energy = 1.0;
 
@@ -734,6 +734,14 @@ void fragment() {
                     atlas,
                     new Rect2I((tile % AtlasCols) * TilePx, (tile / AtlasCols) * TilePx, TilePx, TilePx),
                     Vector2I.Zero);
+            // Generate each tile's mip chain independently. Generating mipmaps
+            // on the packed atlas would average across tile borders and bleed
+            // neighbouring block art into distant faces.
+            Error mipmapError = slice.GenerateMipmaps();
+            if (mipmapError != Error.Ok)
+            {
+                GD.PushWarning($"minecraft: mipmap generation failed for tile {tile} ({mipmapError})");
+            }
             layers.Add(slice);
         }
 

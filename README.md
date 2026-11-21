@@ -31,7 +31,9 @@ The project is a long-running solo build with an extensive design log in
   cut-end tiles. Slabs and stairs sample the same block-relative texel scale as
   full cubes, and stair grain follows its facing. The existing nearest-filtered
   atlas and texture-array materials remain in use, including the first-person
-  held-item icon path.
+  held-item icon path. Greedy terrain's texture-array layers build isolated
+  per-tile mip chains, retaining the 32×32 close-range pixel art while
+  reducing distant shimmer and preventing mip-level bleed between atlas tiles.
 - **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
   voxels, warm multi-source propagation with opaque occlusion, cave darkness and
   live place/break updates across chunk boundaries. Emitter edits incrementally

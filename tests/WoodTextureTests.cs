@@ -52,6 +52,21 @@ public static class WoodTextureTests
                 && distinctNewTiles[1] != distinctNewTiles[2],
                 "top, side and end grain each have a dedicated atlas tile");
 
+        // Greedy terrain samples a texture array, not the packed atlas. Every
+        // layer must have an isolated mip chain so distant filtering cannot
+        // shimmer or bleed detail from an adjacent atlas tile.
+        Texture2DArray tileArray = BlockDb.TileArrayTexture();
+        TestAssert.Equal(BlockDb.TileCount, tileArray.GetLayers(),
+                "mipmapped tile array preserves the full atlas layer layout");
+        Image firstLayer = tileArray.GetLayerData(0);
+        TestAssert.Check(firstLayer.HasMipmaps(),
+                "texture-array layers include generated mipmaps");
+        TestAssert.Equal(BlockDb.TilePx, firstLayer.GetWidth(),
+                "mipmapping preserves the original close-range tile resolution");
+        Image secondLayer = tileArray.GetLayerData(1);
+        TestAssert.Check(secondLayer.HasMipmaps(),
+                "neighbouring texture-array layers also have independent mipmaps");
+
         Image atlas = BlockDb.AtlasTexture().GetImage();
         CheckTileHasVariation(atlas, oakLog.Tiles[0], "oak log end grain");
         CheckTileHasVariation(atlas, oakLog.Tiles[2], "oak bark");
