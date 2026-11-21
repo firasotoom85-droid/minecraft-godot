@@ -68,8 +68,8 @@ public static class MobPerceptionTests
             TestAssert.Check(Mob.CanDetectAtLight(darkSky, darkBlock, 5),
                     "dark cave conditions restore the stalker's detection state");
 
-            host.AddChild(player);
-            host.AddChild(manager);
+            // The player is deliberately kept out of the tree: this test only
+            // emits its existing signals and does not need its camera/viewmodel.
             manager.Setup(world, player, new Fx(), new Sound(), new Weather());
             Vector3 noisePosition = new(-16.5f, 54.0f, 0.5f);
             player.EmitSignal(Player.SignalName.MiningTick, noisePosition, (int)BlockId.Stone);
@@ -93,8 +93,8 @@ public static class MobPerceptionTests
                     "sound pulses expire after their bounded lifetime");
 
             host.AddChild(probe);
-            probe.Setup(world, manager, new Vector3(-23, 54, 0.5f));
-            probe.GlobalPosition = new Vector3(-23, 54, 0.5f);
+            probe.Setup(world, manager, new Vector3(-23, 61, 0.5f));
+            probe.GlobalPosition = new Vector3(-23, 61, 0.5f);
             TestAssert.Check(probe.TryHear(out Vector3 investigationDirection),
                     "hostile perception accepts an existing player noise pulse");
             TestAssert.Check(investigationDirection.X > 0.9f,
@@ -116,8 +116,10 @@ public static class MobPerceptionTests
                     "juvenile stays with its parent inside the formation distance");
 
             host.AddChild(target);
-            target.GlobalPosition = new Vector3(-9, 54, 0.5f);
-            wall.GlobalPosition = new Vector3(-16, 55.15f, 0.5f);
+            // Test above the generated terrain roof so only the fixture wall
+            // participates in the visibility ray.
+            target.GlobalPosition = new Vector3(-9, 61, 0.5f);
+            wall.GlobalPosition = new Vector3(-16, 62.15f, 0.5f);
             wall.AddChild(new CollisionShape3D
             {
                 Shape = new BoxShape3D { Size = new Vector3(1.0f, 3.0f, 3.0f) },
@@ -130,7 +132,7 @@ public static class MobPerceptionTests
                     "cached blocked visibility remains consistent during its short validity window");
 
             wall.QueueFree();
-            target.GlobalPosition = new Vector3(-8, 54, 0.5f);
+            target.GlobalPosition = new Vector3(-8, 61, 0.5f);
             await host.ToSignal(host.GetTree(), SceneTree.SignalName.PhysicsFrame);
             TestAssert.Check(probe.CanSee(target),
                     "line of sight refreshes after obstruction removal and target movement");
@@ -146,8 +148,8 @@ public static class MobPerceptionTests
             if (GodotObject.IsInstanceValid(wall)) wall.QueueFree();
             if (GodotObject.IsInstanceValid(target)) target.QueueFree();
             if (GodotObject.IsInstanceValid(probe)) probe.QueueFree();
-            if (GodotObject.IsInstanceValid(manager)) manager.QueueFree();
-            if (GodotObject.IsInstanceValid(player)) player.QueueFree();
+            if (GodotObject.IsInstanceValid(manager)) manager.Free();
+            if (GodotObject.IsInstanceValid(player)) player.Free();
             host.RemoveChild(world);
             world.QueueFree();
             DirAccess.RemoveAbsolute(directory + "/manifest.json");
