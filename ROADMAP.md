@@ -1216,3 +1216,9 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - **Verification:** Godot 4.7.2 .NET build completed with 0 warnings and
   0 errors. The final full headless suite passed with 1,247 checks and
   0 failures. Live interactive playtesting was not performed.
+
+## 21. Player journey repair audit — 2026-11-21
+
+- Added a source-level first-time Survival player-journey audit, covering world creation, starter inventory, crafting, First Night onboarding, mining, exploration, villages, quests, and reward retention. The report separates confirmed code-path defects from design decisions and playtest candidates.
+- Repair candidates are prioritized in `docs/PLAYER_JOURNEY_REPAIR_REPORT_2026-11-21.md`, with affected code paths, proposed repair directions, and regression-test expectations.
+- This entry records audit findings only; no gameplay fixes or verification claims are implied. Resolve the design questions before implementation, preserve existing saves and generator behavior, and add integration tests for confirmed fixes.
