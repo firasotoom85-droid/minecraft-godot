@@ -1322,3 +1322,27 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - **Verification:** Godot 4.7.2 .NET / .NET 9 Debug build and headless suite
   pass; the completed run reports 4,247 checks and 0 failures. No generator,
   save-format or persisted-ID migrations are required.
+
+
+## Unified voxel material response (implemented)
+
+- Added a shared response matrix for stone, wood, soil, ores, foliage, glass,
+  and metal. Block faces classify their existing procedural atlas tiles and
+  pass the response family through vertex colour alpha; greedy texture-array
+  tile selection remains in UV2.x.
+- Matched atlas and texture-array shader response values, including controlled
+  metallic/specular highlights instead of a single roughness-1 response.
+- Generated mipmaps from isolated tile images for the greedy texture array,
+  preventing adjacent atlas tiles from bleeding into distant surfaces.
+- First-person held-item sprites now use the same material response palette.
+  Material instances are created only when the selected item changes.
+- No persisted IDs, world saves, generator versions, atlas dimensions, or
+  texture coordinates were changed. The non-greedy packed-atlas path retains
+  nearest sampling without mipmaps to avoid atlas cross-tile contamination.
+- Performance: response tags reuse the existing vertex-colour alpha channel,
+  so per-face meshes gain no extra vertex attribute or UV allocation. The
+  isolated mip chain adds approximately 0.33 MiB to the 256-layer RGBA8 tile
+  array; generation occurs once during lazy texture-array creation. Held-item
+  materials are rebuilt only on hotbar item changes.
+- **Verification:** Godot 4.7.2 .NET / .NET 9 Debug build has 0 warnings and
+  0 errors; `scripts/verify.sh` passes 4,268 checks with 0 failures.

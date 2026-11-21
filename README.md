@@ -9,6 +9,24 @@ event-driven “First Night” guide.
 The project is a long-running solo build with an extensive design log in
 [`PLAN.md`](PLAN.md) and a forward roadmap in [`ROADMAP.md`](ROADMAP.md).
 
+## Unified voxel material response
+
+World surfaces and first-person held items share the response palette in
+`scripts/MaterialResponse.cs`: stone, wood, soil, ore, foliage, glass, and
+metal each have explicit roughness, metallic, and specular values. Procedural
+atlas tile IDs are classified without changing persisted block/item IDs or
+world-generation output. One C# response table configures all world shaders
+and first-person materials. The mesher carries its compact family tag in vertex
+colour alpha; greedy meshes retain their tile-array layer in UV2.x, so existing
+merging, atlas UVs, and chunk streaming remain intact.
+
+The greedy texture array builds mipmaps from each isolated 32px tile rather
+than the combined atlas. This avoids cross-tile colour bleed at distance.
+The classic atlas path intentionally retains nearest sampling without atlas
+mipmaps because generating mipmaps from the packed atlas would blend adjacent
+tiles. Held-item sprites use the same response values through a cached-on-slot-
+change StandardMaterial3D; no per-frame material creation is performed.
+
 ## Highlights
 
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
