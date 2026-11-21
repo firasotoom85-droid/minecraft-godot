@@ -949,12 +949,14 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   Weapon damage/cadence and armor points/durability are asserted against tier data.
 - Compatibility: no `BlockId`, `ItemId`, worldgen-version, player-save or
   furnace-save fields were added, removed, reordered or repurposed.
-- **Last verified revision (`58c1c7d`):** GitHub Actions Debug build and
-  headless suite succeeded with 1,353 checks / 0 failures. The test process
-  reported the same baseline shutdown allocations (18 ObjectDB / 17 Jolt).
-- **Follow-up verification:** the herd-slot reservation, worker-group release,
-  expanded tier assertions and isolated soak cleanup are being verified by the
-  post-commit Debug/Release CI and real-scene smoke/soak runs; their results are
-  recorded in the audit report rather than inferred from the previous revision.
+- **Current head (`ece355e`):** GitHub Actions Debug and Release builds both
+  succeeded with 0 warnings / 0 errors; the full headless suite passed
+  **1,375 checks / 0 failures**. The test process reported the same baseline
+  shutdown allocations (18 ObjectDB / 17 Jolt).
+- **Real-scene smoke:** initial 300-second attempt failed at the 600-second
+  process timeout after Jolt's job pool saturated before the scenario started
+  ([run 44898183295](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44898183295)).
+  The test runner now caps headless rendering at 60 FPS without fixed-FPS
+  simulation; a corrected smoke must pass before dispatching the 3,600-second soak.
 - See `docs/SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md` for detailed values,
   findings, reproducible steps and test evidence.

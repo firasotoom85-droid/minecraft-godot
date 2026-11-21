@@ -109,9 +109,12 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 bash scripts/soak-survival.
 Use `300` for a five-minute smoke run. The runner reports PASS only when it
 finds a generated cave, records cave encounters and a juvenile, retains a live
 passive population, reads back both save files, and removes the temporary world.
-The script bounds runtime to duration + 300 seconds by default; override that
-with `SOAK_TIMEOUT_SECONDS`. The soak remains separate from the fast headless
-suite and is not a human combat or visual gameplay playtest.
+The runner caps the uncapped headless render loop at 60 FPS to avoid
+saturating the Godot 4.7.2 Jolt job pool; it does not use fixed-FPS simulation,
+so survival time remains real-time. The script bounds runtime to duration +
+300 seconds by default; override that with `SOAK_TIMEOUT_SECONDS`. The soak
+remains separate from the fast headless suite and is not a human combat or
+visual gameplay playtest.
 
 ## Controls
 

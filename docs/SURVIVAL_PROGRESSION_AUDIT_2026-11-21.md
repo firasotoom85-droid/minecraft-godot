@@ -246,17 +246,19 @@ save files, then removes the temporary test directory.
 
 | Check | Result |
 |---|---|
-| Last verified audit commit (`58c1c7d`) — Debug build and full headless suite | Build succeeded; 1,353 checks, 0 failures |
-| Follow-up worktree changes — Debug and Release builds | Awaiting the post-commit CI run |
-| Follow-up worktree changes — full headless suite | Awaiting the post-commit CI run |
-| Baseline test shutdown allocations | 18 ObjectDB / 17 Jolt (same as the pre-audit test harness) |
-| Isolated soak smoke | Pending execution on the updated branch |
-| 60-minute normal-survival real-scene soak | Pending smoke success; no PASS claimed yet |
+| Current audit head (`ece355e`) — Debug build | Succeeded; 0 warnings, 0 errors |
+| Current audit head (`ece355e`) — Release build | Succeeded; 0 warnings, 0 errors |
+| Current audit head (`ece355e`) — full headless suite | 1,375 checks, 0 failures |
+| Test shutdown allocations | 18 ObjectDB / 17 Jolt (same as the pre-audit test harness) |
+| First isolated 5-minute real-scene smoke | Failed at 600-second process timeout; Jolt job-pool saturation occurred before scenario start ([run 44898183295](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44898183295)) |
+| Corrected capped smoke | Queued after adding `--max-fps 60`; result pending |
+| 60-minute normal-survival real-scene soak | Not started; gated on corrected smoke PASS |
 
 Commands:
 
 ```bash
 dotnet build -c Debug --nologo
+dotnet build minecraft.csproj -c Release --nologo
 GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 bash scripts/soak-survival.sh 3600
 ```
@@ -264,10 +266,12 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 bash scripts/soak-survival.
 The headless save suite deliberately emits warnings while forcing an atomic
 write failure and a backup-recovery path. It passes. The test process exits with
 18 ObjectDB and 17 Jolt allocations, matching the baseline runner's known
-shutdown allocation count. The main scene emits
-invalid cached UID warnings for several script references in this worktree but
-falls back to their valid `res://scripts/*.cs` paths and continues loading; this
-was not a gameplay script error. See the soak outcome below after it completes.
+shutdown allocation count. The first 300-second scene smoke loaded the main
+scene but Jolt reported that its fixed-size job queue was exhausted before the
+scenario-start log; the 600-second process timeout then returned exit code 124.
+The soak runner is now launched with a 60 FPS cap (not fixed-FPS simulation) to
+avoid unbounded headless frame scheduling. The corrected smoke must pass before
+the one-hour soak is dispatched.
 
 ## Compatibility and scope boundaries
 

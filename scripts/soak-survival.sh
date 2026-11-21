@@ -25,6 +25,9 @@ fi
 
 dotnet build "$ROOT" -c Debug --nologo
 
+# Headless mode is otherwise uncapped (max_fps=0). On Godot 4.7.2 this can
+# overwhelm Jolt's fixed-size job pool during sustained scene/physics startup.
+# A render cap preserves real-time delta without forcing fixed-FPS simulation.
 exec timeout --signal=TERM --kill-after=15 "$SOAK_TIMEOUT" \
-  "$GODOT_BIN" --headless --path "$ROOT" \
+  "$GODOT_BIN" --headless --max-fps 60 --path "$ROOT" \
   res://tests/SurvivalSoakRunner.tscn -- --duration="$DURATION"
