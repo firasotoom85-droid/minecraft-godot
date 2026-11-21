@@ -316,7 +316,9 @@ public static class Mesher
                                 vertex.Y = f >= 2 ? waterBase + vertex.Y * (waterTop - waterBase) : vertex.Y * waterTop;
                             surf.Vertex.Add(b + vertex);
                             surf.Normal.Add(normal);
-                            surf.Color.Add(VoxelLighting.VertexColor(cornerLight[t], kk[t]));
+                            Color litColor = VoxelLighting.VertexColor(cornerLight[t], kk[t]);
+                            SurfaceFamily family = MaterialResponse.ForTile(tile);
+                            surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B, (float)family));
                             surf.Uv.Add(BlockDb.UvLut[ui + t]);
                             if (Greedy && ReferenceEquals(surf, opaque))
                                 surf.Uv2.Add(new Vector2(tile, 0.0f));
@@ -459,7 +461,9 @@ public static class Mesher
         {
             surf.Vertex.Add(points[tri]);
             surf.Normal.Add(normal);
-            surf.Color.Add(VoxelLighting.VertexColor(cornerLight[tri], kk[tri]));
+            Color litColor = VoxelLighting.VertexColor(cornerLight[tri], kk[tri]);
+            surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B,
+                    (float)MaterialResponse.ForTile(textureTile)));
             surf.Uv.Add(BlockDb.UvLut[uvIndex + tri]);
             if (Greedy)
                 surf.Uv2.Add(new Vector2(textureTile, 0.0f));
@@ -712,7 +716,9 @@ public static class Mesher
             float k = shade * AoFactors[(int)(key >> (16 + (c * 2))) & 3];
             byte sky = (byte)((key >> (24 + c * 4)) & 0x0F);
             byte block = (byte)((key >> (40 + c * 4)) & 0x0F);
-            surf.Color.Add(VoxelLighting.VertexColor(VoxelLighting.Pack(sky, block), k));
+            Color litColor = VoxelLighting.VertexColor(VoxelLighting.Pack(sky, block), k);
+            surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B,
+                    (float)MaterialResponse.ForTile(tile)));
             Vector2 duv = BlockDb.FaceUvs[f * 4 + c];
             surf.Uv.Add(new Vector2(duv.X * su, duv.Y * sv));
             surf.Uv2.Add(new Vector2(tile, 0.0f));
@@ -757,7 +763,8 @@ public static class Mesher
     private static void EmitDoubleSided(SurfaceData surf, Vector3[] p, Vector2[] uv, int tile, Color lightColor)
     {
         Vector3 n = (p[1] - p[0]).Cross(p[3] - p[0]).Normalized();
-        Color white = lightColor;
+        SurfaceFamily family = MaterialResponse.ForTile(tile);
+        Color white = new(lightColor.R, lightColor.G, lightColor.B, (float)family);
         for (int pass = 0; pass < 2; pass++)
         {
             Vector3 normal = pass == 0 ? n : -n;
@@ -769,9 +776,7 @@ public static class Mesher
                 surf.Color.Add(white);
                 surf.Uv.Add(uv[idx]);
                 if (Greedy)
-                {
                     surf.Uv2.Add(new Vector2(tile, 0.0f));
-                }
             }
         }
     }
@@ -955,7 +960,7 @@ public sealed class SurfaceData
     public readonly List<Vector3> Normal = [];
     public readonly List<Color> Color = [];
     public readonly List<Vector2> Uv = [];
-    public readonly List<Vector2> Uv2 = [];   // greedy mode: tile layer in .x
+    public readonly List<Vector2> Uv2 = [];   // greedy mode only: texture-array layer in .x
 }
 
 /// <summary>Worker result of a chunk mesh build; applied on the main thread.

@@ -582,11 +582,29 @@ public static class BlockDb
 
     private const string LitAtlasShader = @"
 shader_type spatial;
-render_mode cull_back, depth_draw_opaque, specular_disabled, alpha_to_coverage;
+render_mode cull_back, depth_draw_opaque, alpha_to_coverage;
 
 uniform sampler2D atlas : source_color, filter_nearest, repeat_disable;
 uniform vec4 tint = vec4(1.0);
 uniform float sky_light_energy = 1.0;
+
+uniform vec3 response_stone = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_wood = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_soil = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_ore = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_foliage = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_glass = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_metal = vec3(0.8, 0.0, 0.2);
+
+vec3 surface_response(float family) {
+    if (family > 5.5) return response_metal;
+    if (family > 4.5) return response_glass;
+    if (family > 3.5) return response_foliage;
+    if (family > 2.5) return response_ore;
+    if (family > 1.5) return response_soil;
+    if (family > 0.5) return response_wood;
+    return response_stone;
+}
 
 void fragment() {
     vec4 tex = texture(atlas, UV);
@@ -599,16 +617,37 @@ void fragment() {
     EMISSION = tex.rgb * warm * block * 0.88;
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
-    ROUGHNESS = 1.0;
+    vec3 response = surface_response(COLOR.a);
+    ROUGHNESS = response.x;
+    METALLIC = response.y;
+    SPECULAR = response.z;
 }
 ";
 
     private const string LitGlassShader = @"
 shader_type spatial;
-render_mode blend_mix, cull_disabled, depth_draw_opaque, specular_disabled;
+render_mode blend_mix, cull_disabled, depth_draw_opaque;
 
 uniform sampler2D atlas : source_color, filter_nearest, repeat_disable;
 uniform float sky_light_energy = 1.0;
+
+uniform vec3 response_stone = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_wood = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_soil = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_ore = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_foliage = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_glass = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_metal = vec3(0.8, 0.0, 0.2);
+
+vec3 surface_response(float family) {
+    if (family > 5.5) return response_metal;
+    if (family > 4.5) return response_glass;
+    if (family > 3.5) return response_foliage;
+    if (family > 2.5) return response_ore;
+    if (family > 1.5) return response_soil;
+    if (family > 0.5) return response_wood;
+    return response_stone;
+}
 
 void fragment() {
     vec4 tex = texture(atlas, UV);
@@ -620,7 +659,10 @@ void fragment() {
     ALBEDO = tex.rgb * illumination * shade;
     EMISSION = tex.rgb * warm * block * 0.72;
     ALPHA = tex.a * 0.72;
-    ROUGHNESS = 0.18;
+    vec3 response = surface_response(COLOR.a);
+    ROUGHNESS = response.x;
+    METALLIC = response.y;
+    SPECULAR = response.z;
 }
 ";
 
@@ -631,6 +673,7 @@ void fragment() {
         material.SetShaderParameter("atlas", AtlasTexture());
         material.SetShaderParameter("sky_light_energy", 1.0f);
         material.SetShaderParameter("tint", Colors.White);
+        MaterialResponse.ApplyTo(material);
         return material;
     }
 
@@ -640,6 +683,7 @@ void fragment() {
         ShaderMaterial material = new() { Shader = new Shader { Code = LitGlassShader } };
         material.SetShaderParameter("atlas", AtlasTexture());
         material.SetShaderParameter("sky_light_energy", 1.0f);
+        MaterialResponse.ApplyTo(material);
         return material;
     }
 
@@ -647,16 +691,34 @@ void fragment() {
     /// Greedy-mesh material: one texture-array layer per tile, so merged
     /// multi-block quads can tile their texture with UV fract() — impossible
     /// with a classic atlas (a merged quad would sample neighbouring tiles).
-    /// Visually matches MakeOpaqueMaterial (same albedo × vertex colour,
-    /// roughness 1, no specular, alpha scissor for cutout leaves).
+    /// Uses the same C#-authored response palette and lighting channels as the
+    /// atlas shader; only the texture lookup differs for merged quads.
     /// </summary>
     private const string OpaqueArrayShader = @"
 shader_type spatial;
-render_mode cull_back, depth_draw_opaque, specular_disabled, alpha_to_coverage;
+render_mode cull_back, depth_draw_opaque, alpha_to_coverage;
 
-uniform sampler2DArray tiles : source_color, filter_nearest;
+uniform sampler2DArray tiles : source_color, filter_nearest_mipmap;
 uniform vec4 tint = vec4(1.0);   // wet-ground darkening (Weather)
 uniform float sky_light_energy = 1.0;
+
+uniform vec3 response_stone = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_wood = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_soil = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_ore = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_foliage = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_glass = vec3(0.8, 0.0, 0.2);
+uniform vec3 response_metal = vec3(0.8, 0.0, 0.2);
+
+vec3 surface_response(float family) {
+    if (family > 5.5) return response_metal;
+    if (family > 4.5) return response_glass;
+    if (family > 3.5) return response_foliage;
+    if (family > 2.5) return response_ore;
+    if (family > 1.5) return response_soil;
+    if (family > 0.5) return response_wood;
+    return response_stone;
+}
 
 varying vec2 tile_uv;
 varying float tile_layer;
@@ -677,7 +739,10 @@ void fragment() {
     EMISSION = tex.rgb * warm * block * 0.88;
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
-    ROUGHNESS = 1.0;
+    vec3 response = surface_response(COLOR.a);
+    ROUGHNESS = response.x;
+    METALLIC = response.y;
+    SPECULAR = response.z;
 }
 ";
 
@@ -692,6 +757,7 @@ void fragment() {
             Shader = shader,
         };
         m.SetShaderParameter("tiles", TileArrayTexture());
+        MaterialResponse.ApplyTo(m);
         return m;
     }
 
@@ -711,6 +777,10 @@ void fragment() {
                     atlas,
                     new Rect2I((tile % AtlasCols) * TilePx, (tile / AtlasCols) * TilePx, TilePx, TilePx),
                     Vector2I.Zero);
+            // Mipmaps are generated per isolated tile, never from the atlas.
+            // This prevents distant minification from bleeding adjacent atlas
+            // tiles into one another while keeping the 32px source art intact.
+            slice.GenerateMipmaps();
             layers.Add(slice);
         }
 

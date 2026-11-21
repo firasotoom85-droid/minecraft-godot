@@ -220,6 +220,11 @@ public static class BlockShapeTests
                 "shape surfaces carry AO and voxel-light color for every emitted vertex");
         TestAssert.Equal(perFace.Opaque.Vertex.Count, perFace.Opaque.Uv.Count,
                 "shape surfaces carry atlas UVs for every emitted vertex");
+        TestAssert.Check(perFace.Opaque.Color.Exists(c => Mathf.IsEqualApprox(c.A,
+                        (float)SurfaceFamily.Wood)),
+                "wood faces carry their response family in vertex alpha");
+        TestAssert.Equal(0, perFace.Opaque.Uv2.Count,
+                "per-face atlas meshes do not allocate a texture-array UV channel");
         Chunk? geometryChunk = null;
         foreach (Node child in world.GetChildren())
             if (child is Chunk candidate && candidate.ChunkPos == Vector2I.Zero)
@@ -255,6 +260,9 @@ public static class BlockShapeTests
                 "greedy and split opaque faces carry texture-array tile indices");
         TestAssert.Equal(greedy.Opaque.Vertex.Count, greedy.Opaque.Color.Count,
                 "greedy and split shape faces preserve AO/voxel-light attributes");
+        TestAssert.Check(greedy.Opaque.Color.Exists(c => Mathf.IsEqualApprox(c.A,
+                        (float)SurfaceFamily.Wood)),
+                "greedy faces preserve the same material-response family tags");
         double greedyArea = SurfaceArea(greedy.Opaque);
         TestAssert.Check(Math.Abs(perFaceArea - greedyArea) < 0.001,
                 "greedy and per-face meshing preserve equal surface area around shapes");
