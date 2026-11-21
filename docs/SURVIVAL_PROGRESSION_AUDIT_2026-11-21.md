@@ -246,15 +246,16 @@ save files, then removes the temporary test directory.
 
 | Check | Result |
 |---|---|
-| Current audit head (`ece355e`) — Debug build | Succeeded; 0 warnings, 0 errors |
-| Current audit head (`ece355e`) — Release build | Succeeded; 0 warnings, 0 errors |
-| Current audit head (`ece355e`) — full headless suite | 1,375 checks, 0 failures |
-| Test shutdown allocations | 18 ObjectDB / 17 Jolt (same as the pre-audit test harness) |
-| First isolated 5-minute real-scene smoke | Failed at 600-second process timeout; Jolt job-pool saturation occurred before scenario start ([run 44898183295](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44898183295)) |
-| FPS-capped smoke attempt | Cancelled after source review found the default MAX/12-chunk configuration would stream up to a 25×25 chunk square on CI ([run 44899215328](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44899215328)) |
-| First controlled-load smoke | Main scene/cave/hostiles/save reload/temp cleanup passed; breeding check failed because food was placed in backpack, not hotbar ([run 44900043965](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44900043965)) |
-| Corrected feeding smoke | Queued with explicit wheat/seeds hotbar reservations and feed-success counters; result pending |
-| 60-minute normal-survival real-scene soak | Not started; gated on corrected feeding smoke PASS |
+| Verified code revision (`46c2857`) — Debug build | Succeeded; 0 warnings, 0 errors |
+| Verified code revision (`46c2857`) — Release build | Succeeded; 0 warnings, 0 errors |
+| Verified code revision (`46c2857`) — full headless suite | 1,397 checks, 0 failures |
+| Headless test shutdown baseline | 18 ObjectDB / 17 Jolt allocations |
+| Initial uncapped real-scene smoke | Failed at 600-second process timeout after Jolt job-pool saturation ([run 44898183295](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44898183295)) |
+| FPS-capped / default-quality smoke | Cancelled after finding the default MAX / 12-chunk profile queued a 25×25 stream ([run 44899215328](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44899215328)) |
+| First controlled-load smoke | Scene, cave, hostiles, save read-back and temp cleanup passed; feeding failed because food was in backpack rather than hotbar ([run 44900043965](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44900043965)) |
+| Corrected 5-minute real-scene smoke | **PASS** — 300s, passive=10, feeds=144, caveEncounters=8, babyObservations=5,519, savesReloaded=true, tempWorldCleaned=true ([run 44900680833](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44900680833)) |
+| Real-scene smoke shutdown | 9 CanvasItem RIDs and 28 ObjectDB instances reported at engine exit; soak result and cleanup still passed |
+| 60-minute normal-survival real-scene soak | Queued after the 5-minute smoke PASS; result pending |
 
 Commands:
 
@@ -268,24 +269,29 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 bash scripts/soak-survival.
 The headless save suite deliberately emits warnings while forcing an atomic
 write failure and a backup-recovery path. It passes. The test process exits with
 18 ObjectDB and 17 Jolt allocations, matching the baseline runner's known
-shutdown allocation count. The first 300-second scene smoke loaded the main
-scene but Jolt reported that its fixed-size job queue was exhausted before the
-scenario-start log; the 600-second process timeout then returned exit code 124.
-A second FPS-capped attempt was stopped after reviewing the fresh-profile
-defaults: MAX quality sets a 12-chunk radius, and the main scene then overrides
-that from `Settings.ViewDistance`, potentially queueing a 25×25 chunk stream
-during the soak. The harness now explicitly loads then overrides settings to
-LOW quality, a two-chunk radius, three mesh workers, no far-LOD and no adaptive
-quality. The main scene still uses real generated terrain, collision meshes,
-Jolt physics, normal survival, and live mob systems. The 60 FPS cap is
-test-process-only and does not force fixed-FPS simulation. The first
-controlled-load run completed its cave encounter, save read-back and temporary
-world cleanup, but observed no juvenile. Source inspection found that the
-starter kit prefilled all nine hotbar slots; `Inventory.Add` placed the soak's
-wheat/seeds in the backpack while `Mob.TryFeed` requires a selected hotbar
-stack, so the harness never fed the animals. It now reserves the last two
-hotbar slots and reports successful feed interactions. The corrected smoke
-must pass before the one-hour soak is dispatched.
+shutdown allocation count. The first 300-second scene smoke loaded the main scene but Jolt reported
+that its fixed-size job queue was exhausted before the scenario-start log; the
+600-second process timeout returned exit code 124. A second FPS-capped attempt
+was cancelled after reviewing the fresh-profile defaults: MAX quality sets a
+12-chunk radius and could queue a 25×25 chunk stream during the soak. The
+harness now loads and overrides settings to LOW quality, a two-chunk radius,
+three mesh workers, no far-LOD and no adaptive quality. It still runs the real
+main scene with generated terrain, collision meshes, Jolt physics, normal
+survival and live mob systems. The 60 FPS cap is test-process-only and does not
+force fixed-FPS simulation.
+
+The first controlled-load run completed its cave encounter, save read-back and
+temporary-world cleanup, but observed no juvenile. Source inspection found
+that the starter kit fills all nine hotbar slots; `Inventory.Add` therefore
+placed the soak's wheat/seeds in the backpack while `Mob.TryFeed` requires a
+selected hotbar stack. The harness now reserves its final two hotbar slots for
+breeding food and counts successful interactions. The corrected smoke passed
+with 144 feed interactions, 8 cave encounters, 5,519 juvenile observations,
+10 passive mobs still present, successful world/player save read-back and
+temporary-world cleanup. Godot still reports 9 CanvasItem RIDs and 28 ObjectDB
+instances during engine shutdown after this successful soak; these are recorded
+as shutdown warnings, not survival assertions or failures. The 60-minute run
+is now dispatched against this verified code.
 
 ## Compatibility and scope boundaries
 

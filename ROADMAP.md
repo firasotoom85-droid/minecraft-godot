@@ -949,21 +949,16 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   Weapon damage/cadence and armor points/durability are asserted against tier data.
 - Compatibility: no `BlockId`, `ItemId`, worldgen-version, player-save or
   furnace-save fields were added, removed, reordered or repurposed.
-- **Current head (`ece355e`):** GitHub Actions Debug and Release builds both
-  succeeded with 0 warnings / 0 errors; the full headless suite passed
-  **1,375 checks / 0 failures**. The test process reported the same baseline
-  shutdown allocations (18 ObjectDB / 17 Jolt).
-- **Real-scene smoke:** initial 300-second attempt failed at the 600-second
-  timeout after Jolt's job pool saturated before scenario start
-  ([run 44898183295](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44898183295)).
-  A second FPS-capped attempt was cancelled after finding the default MAX /
-  12-chunk CI profile would queue a 25×25 chunk stream
-  ([run 44899215328](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44899215328)).
-  The next controlled-load run passed scene startup, cave, hostiles, save
-  read-back and cleanup but failed juvenile observation: starter-kit hotbar
-  slots were full, so the harness fed backpack food that `Mob.TryFeed` cannot
-  consume. The harness now reserves two hotbar slots and counts successful
-  feed interactions; a corrected smoke must pass before dispatching the
-  3,600-second soak.
+- **Verified code revision (`46c2857`):** GitHub Actions Debug and Release
+  builds both succeeded with 0 warnings / 0 errors; the full headless suite
+  passed **1,397 checks / 0 failures**. The headless test process reported the
+  baseline shutdown allocations (18 ObjectDB / 17 Jolt).
+- **Real-scene smoke:** the controlled 300-second run passed with 10 passive
+  mobs, 144 successful feeds, 8 cave encounters, 5,519 juvenile observations,
+  save read-back and temporary-world cleanup
+  ([run 44900680833](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44900680833)).
+  The smoke still reports 9 CanvasItem RIDs and 28 ObjectDB instances at engine
+  exit; recorded as shutdown warnings. The 3,600-second normal-survival soak is
+  dispatched separately against the verified code revision.
 - See `docs/SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md` for detailed values,
   findings, reproducible steps and test evidence.
