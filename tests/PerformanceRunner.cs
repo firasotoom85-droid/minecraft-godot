@@ -43,8 +43,8 @@ public partial class PerformanceRunner : Node
     private string _worldDir = "";
     private string _outputBase = "";
     private int _seed = DefaultSeed;
-    private int _preset = 1;
-    private int _viewDistance = 8;
+    private int _preset = Gfx.DefaultPreset;
+    private int _viewDistance = Gfx.Presets[Gfx.DefaultPreset].View;
     private int _windowWidth = 1280;
     private int _windowHeight = 720;
     private bool _headless;

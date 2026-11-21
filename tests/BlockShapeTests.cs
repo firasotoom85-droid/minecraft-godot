@@ -235,7 +235,21 @@ public static class BlockShapeTests
         TestAssert.Check(Math.Abs(AreaOnPlane(perFace.Opaque, 0, 12.0f, 100.0f, 101.0f, 4.0f, 5.0f) - 0.5) < 0.001,
                 "full-cube face is clipped to the uncovered half beside a bottom slab");
         double perFaceArea = SurfaceArea(perFace.Opaque);
+        TestAssert.Check(perFace.Collision.Count > 0,
+                "gameplay meshing retains collision triangles for partial block geometry");
         PayloadPool.Release(perFace);
+
+        // The live menu preview uses the same render mesher but does not need
+        // collision output. Verify that this avoids triangle construction,
+        // while restoring the normal gameplay setting before the greedy pass.
+        world.BuildCollision = false;
+        MeshPayload renderOnly = Mesher.Build(world, Vector2I.Zero);
+        TestAssert.Equal(0, renderOnly.Collision.Count,
+                "render-only mesh payload omits collision triangles");
+        TestAssert.Check(renderOnly.Opaque.Vertex.Count > 0,
+                "render-only mesh payload retains visible voxel geometry");
+        PayloadPool.Release(renderOnly);
+        world.BuildCollision = true;
 
         Mesher.Greedy = true;
         MeshPayload greedy = Mesher.Build(world, Vector2I.Zero);
