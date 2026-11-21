@@ -969,7 +969,14 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   following, real terrain-layer ray occlusion and visibility-cache refresh.
   The survival soak now produces mining/placement noise and reports acoustic
   investigations plus non-finite creature positions.
-- Verification: build, full headless suite and a sustained 3600-second soak
-  still need to run under Godot 4.7.2 .NET. Do not treat the soak as executed
-  until its runner completes and prints SURVIVAL SOAK PASS.
+- Verification on Godot 4.7.2 .NET / .NET 9: build succeeds with 0 warnings
+  and 0 errors; headless suites pass with 1,238 checks and 0 failures.
+- Runtime validation: the five-minute main-scene survival soak completed with
+  SURVIVAL SOAK PASS (300 simulated seconds, 10 passive, 11 hostile, 8 cave
+  encounters, 254 sound investigations, 0 invalid creature positions).
+  A 60-second breeding smoke test also passed using normal food interactions.
+- The default 3,600-second soak has not yet been run. Godot reports renderer,
+  worker-pool and ObjectDB resource warnings at soak shutdown; the unchanged
+  baseline test runner also reports ObjectDB/Jolt cleanup leaks, so these are
+  recorded as shutdown diagnostics rather than hidden.
 
