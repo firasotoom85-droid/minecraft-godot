@@ -279,7 +279,10 @@ systems.
 
 The mob-perception integration suite covers a torch-lit cave straddling a
 negative-coordinate chunk boundary, emitter removal, actual player mining and
-placement signals, acoustic investigation, parent following, and a terrain
-physics blocker. The opt-in survival soak also injects sound stimuli and checks
-creature positions and observed acoustic investigations during its default
-one-hour run.
+placement signals, acoustic investigation, parent following, freed-reference
+pruning, and a terrain physics blocker. The opt-in survival soak also injects
+sound stimuli and checks creature positions and observed acoustic investigations.
+A five-minute main-scene soak has passed with capped populations, eight cave
+encounters, 254 sound investigations, and no non-finite creature positions.
+The runner defaults to one hour; that full 3600-second run remains a separate
+long-duration validation target.
