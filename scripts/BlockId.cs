@@ -60,4 +60,17 @@ public enum BlockId : byte
 
     // M7 equipment progression (appended after the flowing-water range).
     EnchantingTable = 45,
+
+    // Advanced voxel building (append-only persisted IDs).
+    PlanksSlab = 46,
+    CobblestoneSlab = 47,
+    BrickSlab = 48,
+    PlanksStairs = 49,
+    CobblestoneStairs = 50,
+    BrickStairs = 51,
+
+    // V8 biome-specific foliage. Persisted IDs remain append-only.
+    SpruceLeaves = 52,
+    JungleLeaves = 53,
+    SwampLeaves = 54,
 }

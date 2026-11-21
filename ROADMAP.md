@@ -47,6 +47,39 @@ without script errors (22 passive mobs, 4 hostiles at night, 8 cave encounters).
 A full one-hour soak and an in-game high-population performance run remain
 outstanding.
 
+## Advanced voxel building increment — 2026-11-21
+
+- Added append-only block IDs 46–51 and item IDs for oak-planks, cobblestone
+  and brick slabs/stairs; existing persisted IDs are unchanged.
+- Added a reusable 2×2×2 block-shape definition for bottom/top/double slabs and
+  four stair facings with upside-down placement. The same occupancy model
+  drives ray intersections, player overlap checks and exposed-face meshing.
+- Added non-greedy partial-shape geometry and matching collision triangles.
+  Full cubes and double slabs retain greedy meshing; cube faces adjacent to a
+  partial shape are split only along the shared boundary. Shape faces use the
+  existing atlas UVs, face normals, AO and packed voxel lighting.
+- Placement uses the targeted face and hit position; stairs follow player
+  facing, slabs select their half, and a matching placed slab completes a
+  double slab. Double slabs drop two slab items when mined.
+- Added recipes, procedural original block textures, inventory mappings,
+  descriptions/tooltips, shape-aware selection outlines and slab mining cracks.
+- World-save format v5 stores non-default shape states in an optional sparse
+  extension alongside the existing edit map. Versions 1–4 load with zero/default
+  block state; world-generation versions and existing block/item IDs are unchanged.
+- Remaining building families are still outstanding: walls, fences, fence gates,
+  doors, trapdoors, glass panes, pressure plates, buttons and signs. These need
+  dedicated placement/state rules and thinner-than-half-block geometry before
+  they can safely share the same data-driven shape pipeline.
+- Added regression tests for shape occupancy, face culling, ray intersections,
+  player overlap, orientation, recipes, hardness metadata and save compatibility.
+
+**Verification (2026-11-21):** Godot 4.7.2 .NET build succeeds with 0 warnings
+and 0 errors. The headless suite passes **1,364 checks, 0 failures**, including
+real chunk mesh creation, full-cube/slab boundary area parity between greedy
+and per-face modes, rendered/collision triangle coverage, non-default shape
+save/reload, and state-buffer release after the last stateful edit. A manual
+visual playtest remains recommended before merging.
+
 ## Glass rendering polish — 2026-11-21
 
 - Kept the existing dedicated glass chunk surface, atlas tile, alpha material,
@@ -935,3 +968,60 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   GitHub; #27, #26 and #19 were closed as superseded with the reasons recorded
   on each PR. All branches remain on the remote; nothing was deleted or
   force-pushed.
+
+
+## 18. Stone surface material variation — 2026-11-21
+
+- Refined the existing procedural stone, cobblestone, brick and gravel tiles
+  with low-contrast, pixel-aligned clusters; cobblestone and brick building
+  variants now reuse the matching source tile art.
+- Added per-material variation strengths and a deterministic integer
+  world-coordinate hash in both opaque atlas shader paths. Greedy meshing,
+  chunk streaming, atlas dimensions/indices, first-person icon lookup, and
+  persisted block/item IDs are unchanged.
+- Variation uses the unused vertex alpha channel, preserving RGB sky/block
+  lighting and AO. Non-stone materials write zero strength and keep their
+  original appearance.
+- Added regression checks for atlas dimensions and tile indices, variation
+  bounds and channel preservation, material exclusions, icon atlas/region
+  reuse, pixel detail, and both opaque shader paths.
+- **Verification (2026-11-21):** .NET 9 build: 0 warnings / 0 errors;
+  Godot 4.7.2 headless suite: 5,499 checks / 0 failures. Existing save-test
+  warning-path diagnostics and shutdown ObjectDB/Jolt leak diagnostics remain
+  present; the suite exits successfully. GPU visual comparison and runtime
+  frame-time profiling remain outstanding.
+
+
+## 19. Biome foliage material variants — 2026-11-21
+
+- Added dedicated procedural spruce, jungle and swamp leaf atlas tiles. Oak
+  and birch retain their existing tile indices and persisted block IDs.
+- Added append-only block IDs 52–54 for the three new foliage species. All
+  variants use the existing 32×32 atlas, texture-array layers, alpha-cutout
+  shader, greedy mesher and light/AO channels.
+- New worlds use generator V8. Taiga, jungle and swamp trees select their
+  matching foliage; V1–V7 tree placement and foliage IDs remain unchanged.
+- Added foliage regressions for tile indices, atlas cutout density, block
+  registration, canopy face visibility and light opacity.
+- Performance: no new scene nodes, per-frame work, material instances or
+  texture resources; three 32×32 tiles are painted once with the atlas.
+- **Verification (2026-11-21):** Godot 4.7.2 .NET build succeeds with 0
+  warnings and 0 errors; the complete headless suite passes **5,578 checks,
+  0 failures**, including the biome-foliage and world-generation regression
+  suites. GPU visual review and MX230 frame-time comparison remain outstanding.
+
+
+## First-person mining feedback polish — 2026-11-21
+
+- Crossed plants (tall grass, flowers, torches and wheat) now use a selection
+  outline that traces the two diagonal planes instead of highlighting the full
+  invisible voxel cube.
+- Mining crack overlays use matching double-sided diagonal planes for crossed
+  plants, so fissures follow the visible geometry rather than appearing on an
+  empty cube around the plant.
+- Reuse the existing crack material and ten-stage textures; switch the overlay
+  mesh only when the mining target changes. No new scene nodes or per-frame
+  mesh construction were added.
+- Added mesh-topology regression checks for the eight outline edges and the
+  two-sided crack overlay. Headless verification passed; an in-game GPU visual
+  check remains outstanding.

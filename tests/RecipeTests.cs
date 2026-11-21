@@ -104,6 +104,17 @@ public static class RecipeTests
         TestAssert.Equal(4, packed.CountOf(ItemId.Planks), "failed craft keeps the planks");
         TestAssert.Equal(3, packed.CountOf(ItemId.Stick), "failed craft keeps the sticks");
 
+        Inventory bucketMaterials = new();
+        bucketMaterials.Add(ItemId.IronIngot, 3);
+        Recipe bucketRecipe = Recipes.All.First(r => r.Result == ItemId.EmptyBucket);
+        TestAssert.Check(Recipes.Craft(bucketRecipe, bucketMaterials), "three iron ingots craft one bucket");
+        TestAssert.Equal(1, bucketMaterials.CountOf(ItemId.EmptyBucket), "bucket recipe creates one empty bucket");
+        Inventory boatMaterials = new();
+        boatMaterials.Add(ItemId.Planks, 5);
+        Recipe boatRecipe = Recipes.All.First(r => r.Result == ItemId.WoodenBoat);
+        TestAssert.Check(Recipes.Craft(boatRecipe, boatMaterials), "five planks craft one wooden boat");
+        TestAssert.Equal(1, boatMaterials.CountOf(ItemId.WoodenBoat), "boat recipe creates one boat item");
+
         Inventory roomy = new();
         roomy.Set(0, ItemDb.New(ItemId.Planks, 4));
         roomy.Set(1, ItemDb.New(ItemId.Stick, 3));

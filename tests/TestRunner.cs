@@ -14,6 +14,8 @@ public partial class TestRunner : Node
     {
         GD.Print("minecraft tests: start");
         RunSuite("content", ContentTests.Run);
+        RunSuite("biome-foliage", FoliageTests.Run);
+        RunSuite("block-shapes", () => BlockShapeTests.Run(this));
         RunSuite("lighting", LightingTests.Run);
         RunSuite("glass", GlassTests.Run);
         RunSuite("mining", MiningTests.Run);
@@ -32,6 +34,7 @@ public partial class TestRunner : Node
         RunSuite("stats", StatsTests.Run);
         RunSuite("fluids", FluidTests.Run);
         RunSuite("fluid-world", () => FluidWorldTests.Run(this));
+        RunSuite("boats-buckets", () => BoatBucketTests.Run(this));
         RunSuite("save", SaveTests.Run);
         RunSuite("worldgen", () => WorldgenTests.Run(this));
         GD.Print($"minecraft tests: {TestAssert.Checks} checks, {TestAssert.Failures} failures");

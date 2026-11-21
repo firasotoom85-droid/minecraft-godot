@@ -456,7 +456,7 @@ public static class VoxelLighting
     /// <summary>Shader channels: sky, warm block emission, and AO/face shade.</summary>
     public static Color VertexColor(byte packed, float shade) =>
         new((packed >> 4) / 15.0f, (packed & 0x0F) / 15.0f,
-                Mathf.Clamp(shade, 0.0f, 1.0f), 1.0f);
+                Mathf.Clamp(shade, 0.0f, 1.0f), 0.0f);
 
     /// <summary>Average light from the four voxel samples around a face corner.</summary>
     public static byte AverageCorner(byte[] lightPad, int i, int du, int dv)

@@ -77,6 +77,12 @@ public static class BlockDb
     private const int TLadder = 43;
     private const int TEnchantTop = 44;
     private const int TEnchantSide = 45;
+    private const int TPlanksBuilding = 46;
+    private const int TCobbleBuilding = 47;
+    private const int TBrickBuilding = 48;
+    private const int TSpruceLeaves = 49;
+    private const int TJungleLeaves = 50;
+    private const int TSwampLeaves = 51;
 
     /// <summary>
     /// One block's definition; the tiles array is indexed by face (FACE order).
@@ -87,7 +93,8 @@ public static class BlockDb
     public readonly record struct BlockDef(
         string Name, bool Solid, bool Transparent, int[] Tiles,
         float Hardness = 1.0f, ToolKind Tool = ToolKind.None, int Tier = 0,
-        ItemId Drop = ItemId.None, int DropCount = 1, float Light = 0.0f, bool Drops = true);
+        ItemId Drop = ItemId.None, int DropCount = 1, float Light = 0.0f, bool Drops = true,
+        float SurfaceVariation = 0.0f);
 
     // Face order: +Y, -Y, +X, -X, +Z, -Z  (-1 = no face)
     private static readonly BlockDef[] Defs =
@@ -97,7 +104,7 @@ public static class BlockDb
                 0.6f, ToolKind.Shovel),
         new("Dirt", true, false, [TDirt, TDirt, TDirt, TDirt, TDirt, TDirt], 0.5f, ToolKind.Shovel),
         new("Stone", true, false, [TStone, TStone, TStone, TStone, TStone, TStone],
-                1.5f, ToolKind.Pick, 1, ItemId.Cobblestone),
+                1.5f, ToolKind.Pick, 1, ItemId.Cobblestone, SurfaceVariation: 0.035f),
         new("Sand", true, false, [TSand, TSand, TSand, TSand, TSand, TSand], 0.5f, ToolKind.Shovel),
         new("Oak Log", true, false, [TLogTop, TLogTop, TLogSide, TLogSide, TLogSide, TLogSide],
                 2.0f, ToolKind.Axe),
@@ -107,9 +114,9 @@ public static class BlockDb
         new("Planks", true, false, [TPlanks, TPlanks, TPlanks, TPlanks, TPlanks, TPlanks],
                 2.0f, ToolKind.Axe),
         new("Cobblestone", true, false, [TCobblestone, TCobblestone, TCobblestone, TCobblestone, TCobblestone, TCobblestone],
-                2.0f, ToolKind.Pick, 1),
+                2.0f, ToolKind.Pick, 1, SurfaceVariation: 0.045f),
         new("Bricks", true, false, [TBrick, TBrick, TBrick, TBrick, TBrick, TBrick],
-                1.5f, ToolKind.Pick, 1),
+                1.5f, ToolKind.Pick, 1, SurfaceVariation: 0.022f),
         new("Coal Ore", true, false, [TCoalOre, TCoalOre, TCoalOre, TCoalOre, TCoalOre, TCoalOre],
                 3.0f, ToolKind.Pick, 1, ItemId.Coal),
         new("Iron Ore", true, false, [TIronOre, TIronOre, TIronOre, TIronOre, TIronOre, TIronOre],
@@ -122,7 +129,7 @@ public static class BlockDb
                 0.6f, ToolKind.Shovel),
         new("Snow Block", true, false, [TSnow, TSnow, TSnow, TSnow, TSnow, TSnow], 0.2f, ToolKind.Shovel),
         new("Gravel", true, false, [TGravel, TGravel, TGravel, TGravel, TGravel, TGravel],
-                0.6f, ToolKind.Shovel),
+                0.6f, ToolKind.Shovel, SurfaceVariation: 0.032f),
         new("Gold Ore", true, false, [TGoldOre, TGoldOre, TGoldOre, TGoldOre, TGoldOre, TGoldOre],
                 3.0f, ToolKind.Pick, 3, ItemId.RawGold),
         new("Diamond Ore", true, false, [TDiamondOre, TDiamondOre, TDiamondOre, TDiamondOre, TDiamondOre, TDiamondOre],
@@ -174,6 +181,30 @@ public static class BlockDb
         new("Enchanting Table", true, false,
                 [TEnchantTop, TEnchantSide, TEnchantSide, TEnchantSide, TEnchantSide, TEnchantSide],
                 3.0f, ToolKind.Pick, 2),
+        new("Oak Planks Slab", true, false,
+                [TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding],
+                2.0f, ToolKind.Axe),
+        new("Cobblestone Slab", true, false,
+                [TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding],
+                2.0f, ToolKind.Pick, 1),
+        new("Brick Slab", true, false,
+                [TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding],
+                1.5f, ToolKind.Pick, 1),
+        new("Oak Planks Stairs", true, false,
+                [TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding],
+                2.0f, ToolKind.Axe),
+        new("Cobblestone Stairs", true, false,
+                [TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding],
+                2.0f, ToolKind.Pick, 1),
+        new("Brick Stairs", true, false,
+                [TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding],
+                1.5f, ToolKind.Pick, 1),
+        new("Spruce Leaves", true, false, [TSpruceLeaves, TSpruceLeaves, TSpruceLeaves, TSpruceLeaves, TSpruceLeaves, TSpruceLeaves],
+                0.2f, ToolKind.Hoe, Drops: false),
+        new("Jungle Leaves", true, false, [TJungleLeaves, TJungleLeaves, TJungleLeaves, TJungleLeaves, TJungleLeaves, TJungleLeaves],
+                0.2f, ToolKind.Hoe, Drops: false),
+        new("Swamp Leaves", true, false, [TSwampLeaves, TSwampLeaves, TSwampLeaves, TSwampLeaves, TSwampLeaves, TSwampLeaves],
+                0.2f, ToolKind.Hoe, Drops: false),
     ];
 
     // Cube face geometry shared by the mesher. Order: +Y, -Y, +X, -X, +Z, -Z.
@@ -332,6 +363,9 @@ public static class BlockDb
             _foliage = new byte[BlockCount];
             _foliage[(int)BlockId.Leaves] = 1;
             _foliage[(int)BlockId.BirchLeaves] = 1;
+            _foliage[(int)BlockId.SpruceLeaves] = 1;
+            _foliage[(int)BlockId.JungleLeaves] = 1;
+            _foliage[(int)BlockId.SwampLeaves] = 1;
             foreach (BlockId id in DefinedIds())
             {
                 int[] tiles = Defs[(int)id].Tiles;
@@ -349,7 +383,8 @@ public static class BlockDb
                 LightEmission[(int)id] = (byte)Mathf.Clamp(Mathf.RoundToInt(Defs[(int)id].Light * 15.0f), 0, 15);
                 LightOpacity[(int)id] = id switch
                 {
-                    BlockId.Water or BlockId.Leaves or BlockId.BirchLeaves => 2,
+                    BlockId.Water or BlockId.Leaves or BlockId.BirchLeaves or BlockId.SpruceLeaves
+                            or BlockId.JungleLeaves or BlockId.SwampLeaves => 2,
                     _ when IsSolid(id) && !IsTransparent(id) && !IsFoliage(id) => 15,
                     _ => 0,
                 };
@@ -401,6 +436,14 @@ public static class BlockDb
 
     public static string NameOf(BlockId id) => Defs[(int)id].Name;
 
+    /// <summary>Low-amplitude world-space tone variation for opaque stone surfaces.</summary>
+    public static float SurfaceVariationOf(BlockId id) =>
+        (uint)id < (uint)Defs.Length ? Defs[(int)id].SurfaceVariation : 0.0f;
+
+    /// <summary>Stores the material's variation strength in the unused vertex alpha channel.</summary>
+    public static Color WithSurfaceVariation(Color vertexColor, BlockId id) =>
+        new(vertexColor.R, vertexColor.G, vertexColor.B, SurfaceVariationOf(id));
+
     public static bool IsSolid(BlockId id) => Defs[(int)id].Solid;
 
     public static bool IsTransparent(BlockId id) => Defs[(int)id].Transparent;
@@ -446,7 +489,8 @@ public static class BlockDb
         return false;
     }
 
-    public static bool IsFoliage(BlockId id) => id is BlockId.Leaves or BlockId.BirchLeaves;
+    public static bool IsFoliage(BlockId id) => id is BlockId.Leaves or BlockId.BirchLeaves
+            or BlockId.SpruceLeaves or BlockId.JungleLeaves or BlockId.SwampLeaves;
 
     /// <summary>Cross-shaped plants: two crossed double-sided quads, no cube faces.</summary>
     public static bool IsCross(BlockId id) =>
@@ -537,8 +581,31 @@ uniform sampler2D atlas : source_color, filter_nearest, repeat_disable;
 uniform vec4 tint = vec4(1.0);
 uniform float sky_light_energy = 1.0;
 
+varying vec3 surface_world_position;
+varying vec3 surface_world_normal;
+varying float surface_variation;
+
+uint surface_cell_hash(ivec3 cell) {
+    uint hash = uint(cell.x) * 374761393u;
+    hash ^= uint(cell.y) * 668265263u;
+    hash ^= uint(cell.z) * 2147483647u;
+    hash = (hash ^ (hash >> 13u)) * 1274126177u;
+    return hash ^ (hash >> 16u);
+}
+
+void vertex() {
+    surface_world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+    surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+    surface_variation = COLOR.a;
+}
+
 void fragment() {
     vec4 tex = texture(atlas, UV);
+    if (surface_variation > 0.001) {
+        ivec3 cell = ivec3(floor(surface_world_position - surface_world_normal * 0.01));
+        float tone = float(surface_cell_hash(cell) & 65535u) / 65535.0 * 2.0 - 1.0;
+        tex.rgb *= 1.0 + tone * surface_variation;
+    }
     float sky = COLOR.r * sky_light_energy;
     float block = COLOR.g;
     float shade = COLOR.b;
@@ -609,14 +676,33 @@ uniform float sky_light_energy = 1.0;
 
 varying vec2 tile_uv;
 varying float tile_layer;
+varying vec3 surface_world_position;
+varying vec3 surface_world_normal;
+varying float surface_variation;
+
+uint surface_cell_hash(ivec3 cell) {
+    uint hash = uint(cell.x) * 374761393u;
+    hash ^= uint(cell.y) * 668265263u;
+    hash ^= uint(cell.z) * 2147483647u;
+    hash = (hash ^ (hash >> 13u)) * 1274126177u;
+    return hash ^ (hash >> 16u);
+}
 
 void vertex() {
     tile_uv = UV;
     tile_layer = UV2.x;
+    surface_world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+    surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+    surface_variation = COLOR.a;
 }
 
 void fragment() {
     vec4 tex = texture(tiles, vec3(fract(tile_uv), tile_layer));
+    if (surface_variation > 0.001) {
+        ivec3 cell = ivec3(floor(surface_world_position - surface_world_normal * 0.01));
+        float tone = float(surface_cell_hash(cell) & 65535u) / 65535.0 * 2.0 - 1.0;
+        tex.rgb *= 1.0 + tone * surface_variation;
+    }
     float sky = COLOR.r * sky_light_energy;
     float block = COLOR.g;
     float shade = COLOR.b;
@@ -744,8 +830,8 @@ void fragment() {
                 new Color(0.28f, 0.52f, 0.21f), rng);
         PaintWater(img, rng);
         PaintPlanks(img, TPlanks, rng);
-        PaintCobblestone(img, rng);
-        PaintBrick(img, rng);
+        PaintCobblestone(img, TCobblestone, rng);
+        PaintBrick(img, TBrick, rng);
         PaintOre(img, TCoalOre, new Color(0.07f, 0.07f, 0.08f), rng);
         PaintOre(img, TIronOre, new Color(0.86f, 0.60f, 0.42f), rng);
         PaintGlass(img);
@@ -759,6 +845,14 @@ void fragment() {
         PaintBirchTop(img, rng);
         PaintLeaves(img, TBirchLeaves, new Color(0.38f, 0.58f, 0.26f), new Color(0.28f, 0.45f, 0.18f),
                 new Color(0.50f, 0.68f, 0.32f), rng);
+        // Restrained species palettes share the same cutout grammar and
+        // controlled variation as oak/birch, avoiding noisy biome colour shifts.
+        PaintLeaves(img, TSpruceLeaves, new Color(0.16f, 0.34f, 0.25f),
+                new Color(0.11f, 0.25f, 0.19f), new Color(0.23f, 0.42f, 0.31f), rng);
+        PaintLeaves(img, TJungleLeaves, new Color(0.24f, 0.46f, 0.18f),
+                new Color(0.17f, 0.36f, 0.13f), new Color(0.31f, 0.53f, 0.23f), rng);
+        PaintLeaves(img, TSwampLeaves, new Color(0.34f, 0.43f, 0.19f),
+                new Color(0.26f, 0.34f, 0.14f), new Color(0.42f, 0.50f, 0.25f), rng);
         PaintCactusSide(img, rng);
         PaintCactusTop(img, rng);
         PaintCraftingTop(img, rng);
@@ -779,11 +873,23 @@ void fragment() {
         PaintLadder(img);
         PaintEnchantingTop(img, rng);
         PaintEnchantingSide(img, rng);
+        PaintBuildingTexture(img, TPlanksBuilding, new Color(0.49f, 0.32f, 0.18f), rng, 8);
+        CopyTile(img, TCobblestone, TCobbleBuilding);
+        CopyTile(img, TBrick, TBrickBuilding);
         return img;
     }
 
     private static void Px(Image img, int tile, int x, int y, Color c) =>
         img.SetPixel((tile % AtlasCols) * TilePx + x, (tile / AtlasCols) * TilePx + y, c);
+
+    private static void CopyTile(Image img, int sourceTile, int destinationTile)
+    {
+        int sourceX = (sourceTile % AtlasCols) * TilePx;
+        int sourceY = (sourceTile / AtlasCols) * TilePx;
+        for (int y = 0; y < TilePx; y++)
+        for (int x = 0; x < TilePx; x++)
+            Px(img, destinationTile, x, y, img.GetPixel(sourceX + x, sourceY + y));
+    }
 
     private static Color Jitter(RandomNumberGenerator rng, Color c, float amount)
     {
@@ -804,6 +910,37 @@ void fragment() {
                 Px(img, tile, x, y, c);
             }
         }
+    }
+
+    private static void PaintBuildingTexture(Image img, int tile, Color baseColor,
+            RandomNumberGenerator rng, int courseHeight)
+    {
+        FillNoise(img, tile, baseColor, 0.045f, 1.0f, rng);
+        Color seam = new(Mathf.Max(0.0f, baseColor.R * 0.48f),
+                Mathf.Max(0.0f, baseColor.G * 0.48f), Mathf.Max(0.0f, baseColor.B * 0.48f));
+        Color highlight = Jitter(rng, baseColor, 0.10f);
+        for (int y = 0; y < TilePx; y++)
+        {
+            bool horizontal = y % courseHeight == 0;
+            if (horizontal)
+                for (int x = 0; x < TilePx; x++) Px(img, tile, x, y, seam);
+        }
+
+        for (int y = 0; y < TilePx; y += courseHeight)
+        {
+            int offset = (y / courseHeight % 2) * (courseHeight / 2);
+            for (int x = offset; x < TilePx; x += courseHeight)
+            {
+                for (int dy = 1; dy < courseHeight - 1 && y + dy < TilePx; dy++)
+                {
+                    Px(img, tile, x, y + dy, seam);
+                    if (x + 1 < TilePx) Px(img, tile, x + 1, y + dy, seam);
+                }
+            }
+        }
+
+        for (int i = 0; i < 48; i++)
+            Px(img, tile, rng.RandiRange(1, TilePx - 2), rng.RandiRange(1, TilePx - 2), Jitter(rng, highlight, 0.035f));
     }
 
     private static void Speckle(Image img, int tile, Color c, int count, float amount,
@@ -852,16 +989,26 @@ void fragment() {
 
     private static void PaintStone(Image img, int tile, RandomNumberGenerator rng)
     {
-        FillNoise(img, tile, new Color(0.54f, 0.54f, 0.56f), 0.04f, 1.0f, rng);
-        for (int i = 0; i < 120; i++)
-        {
-            Color c = new(0.46f, 0.46f, 0.48f);
-            if (rng.Randf() < 0.5f)
-            {
-                c = new Color(0.60f, 0.60f, 0.62f);
-            }
+        Color baseColor = new(0.54f, 0.54f, 0.56f);
+        FillNoise(img, tile, baseColor, 0.016f, 1.0f, rng);
 
-            Speckle(img, tile, c, 1, 0.02f, rng);
+        // Low-contrast 1–3 px mineral flecks form readable pixel clusters
+        // instead of a uniformly noisy field. Wrapping keeps edge clusters
+        // from being clipped when the atlas tile repeats across block faces.
+        for (int i = 0; i < 34; i++)
+        {
+            int cx = rng.RandiRange(0, TilePx - 1);
+            int cy = rng.RandiRange(0, TilePx - 1);
+            int width = 1 + rng.RandiRange(0, 2);
+            int height = 1 + rng.RandiRange(0, 1);
+            float tone = rng.RandfRange(-0.035f, 0.035f);
+            Color cluster = new(
+                    Mathf.Clamp(baseColor.R + tone, 0.0f, 1.0f),
+                    Mathf.Clamp(baseColor.G + tone, 0.0f, 1.0f),
+                    Mathf.Clamp(baseColor.B + tone, 0.0f, 1.0f));
+            for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++)
+                Px(img, tile, (cx + x) % TilePx, (cy + y) % TilePx, cluster);
         }
     }
 
@@ -893,21 +1040,19 @@ void fragment() {
 
     private static void PaintGravel(Image img, RandomNumberGenerator rng)
     {
-        FillNoise(img, TGravel, new Color(0.52f, 0.50f, 0.48f), 0.06f, 1.0f, rng);
-        for (int i = 0; i < 26; i++)
+        FillNoise(img, TGravel, new Color(0.52f, 0.50f, 0.48f), 0.026f, 1.0f, rng);
+        for (int i = 0; i < 28; i++)
         {
-            int cx = rng.RandiRange(0, TilePx - 4);
-            int cy = rng.RandiRange(0, TilePx - 4);
-            int w = 2 + rng.RandiRange(0, 2);
-            float b = rng.RandfRange(0.36f, 0.68f);
-            for (int y = 0; y < w; y++)
-            {
-                for (int x = 0; x < w; x++)
-                {
-                    Px(img, TGravel, (cx + x) % TilePx, (cy + y) % TilePx,
-                            Jitter(rng, new Color(b, b * 0.98f, b * 0.95f), 0.03f));
-                }
-            }
+            int cx = rng.RandiRange(0, TilePx - 1);
+            int cy = rng.RandiRange(0, TilePx - 1);
+            int width = 2 + rng.RandiRange(0, 2);
+            int height = 1 + rng.RandiRange(0, 2);
+            float b = rng.RandfRange(0.40f, 0.64f);
+            Color grain = new(b, b * 0.985f, b * 0.96f);
+            for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++)
+                Px(img, TGravel, (cx + x) % TilePx, (cy + y) % TilePx,
+                        Jitter(rng, grain, 0.012f));
         }
     }
 
@@ -1151,51 +1296,61 @@ void fragment() {
         }
     }
 
-    private static void PaintCobblestone(Image img, RandomNumberGenerator rng)
+    private static void PaintCobblestone(Image img, int tile, RandomNumberGenerator rng)
     {
         int cell = TilePx / 4;
         for (int cy = 0; cy < 4; cy++)
+        for (int cx = 0; cx < 4; cx++)
         {
-            for (int cx = 0; cx < 4; cx++)
+            float b = rng.RandfRange(0.44f, 0.58f);
+            for (int y = 0; y < cell; y++)
+            for (int x = 0; x < cell; x++)
             {
-                float b = rng.RandfRange(0.42f, 0.60f);
-                for (int y = 0; y < cell; y++)
-                {
-                    for (int x = 0; x < cell; x++)
-                    {
-                        Color c = new(b, b, b * 1.03f);
-                        if (x == 0 || y == 0)
-                        {
-                            c *= 0.62f;
-                        }
+                float bevel = x == 0 || y == 0 ? 0.70f
+                        : x == cell - 1 || y == cell - 1 ? 1.045f : 1.0f;
+                Color c = new(b * bevel, b * bevel, b * 1.025f * bevel);
+                Px(img, tile, cx * cell + x, cy * cell + y, Jitter(rng, c, 0.014f));
+            }
 
-                        Px(img, TCobblestone, cx * cell + x, cy * cell + y, Jitter(rng, c, 0.03f));
-                    }
-                }
+            // A couple of quiet facets distinguish stones without outlining
+            // every pixel or breaking the 8 px cobble silhouette.
+            for (int fleck = 0; fleck < 2; fleck++)
+            {
+                int fx = 2 + rng.RandiRange(0, cell - 4);
+                int fy = 2 + rng.RandiRange(0, cell - 4);
+                float tone = rng.Randf() < 0.5f ? 0.96f : 1.035f;
+                Color c = new(b * tone, b * tone, b * 1.025f * tone);
+                Px(img, tile, cx * cell + fx, cy * cell + fy, c);
+                if (fx + 1 < cell - 1)
+                    Px(img, tile, cx * cell + fx + 1, cy * cell + fy, c);
             }
         }
     }
 
-    private static void PaintBrick(Image img, RandomNumberGenerator rng)
+    private static void PaintBrick(Image img, int tile, RandomNumberGenerator rng)
     {
         for (int y = 0; y < TilePx; y++)
         {
             int row = y / 8;
-            int offset = 0;
-            if (row % 2 == 1)
-            {
-                offset = 8;
-            }
-
+            int offset = row % 2 == 1 ? 8 : 0;
             for (int x = 0; x < TilePx; x++)
             {
-                Color c = new(0.60f, 0.26f, 0.20f);
-                if (y % 8 == 7 || (x + offset) % 16 == 0)
+                bool mortar = y % 8 == 7 || (x + offset) % 16 == 0;
+                Color c;
+                if (mortar)
                 {
-                    c = new Color(0.72f, 0.70f, 0.65f);
+                    c = new Color(0.69f, 0.67f, 0.62f);
+                    c = Jitter(rng, c, 0.008f);
+                }
+                else
+                {
+                    int brickColumn = (x + offset) / 16;
+                    float tone = ((row + brickColumn) % 3 - 1) * 0.012f;
+                    c = new Color(0.60f + tone, 0.26f + tone * 0.45f, 0.20f + tone * 0.35f);
+                    c = Jitter(rng, c, 0.012f);
                 }
 
-                Px(img, TBrick, x, y, Jitter(rng, c, 0.025f));
+                Px(img, tile, x, y, c);
             }
         }
     }

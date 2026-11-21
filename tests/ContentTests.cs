@@ -47,5 +47,7 @@ public static class ContentTests
         TestAssert.Check(ItemDb.Placeable.Count > 0, "placeable item list is populated");
         TestAssert.Check(Recipes.All.Count > 0, "recipe list is populated");
         TestAssert.Check(BlockDb.Hotbar.Length == Inventory.HotbarSize, "hotbar defaults fill nine slots");
+
+        SurfaceVariationTests.Run();
     }
 }

@@ -14,11 +14,17 @@ The project is a long-running solo build with an extensive design log in
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
   climate-shaped continents, smooth river valleys, mountain ranges, multi-form
   caves, aquifers, magma pockets, depth-aware ore veins, biome-specific trees,
-  surface ruins and underground chambers. New worlds use generator V7; older
-  generator versions retain their frozen terrain rules and golden chunk hashes.
-- **Greedy meshing** — merged coplanar quads cut triangle count roughly in half;
-  per-face meshing remains available for comparison. Vertex-light and AO samples
-  are part of the merge key, preserving lighting boundaries.
+  surface ruins and underground chambers. New worlds use generator V8 with
+  distinct oak, birch, spruce, jungle and swamp foliage; older generator
+  versions retain their frozen terrain rules and golden chunk hashes.
+- **Greedy meshing** — merged coplanar full-cube quads cut triangle count
+  roughly in half; per-face meshing remains available for comparison. Vertex-light
+  and AO samples are part of the merge key, preserving lighting boundaries.
+- **Architectural voxel building** — bottom/top/double slabs and four-way,
+  upside-down stairs use a shared 2×2×2 occupancy definition for geometry,
+  collision, ray selection and placement. Partial faces are split only at shape
+  boundaries; full cubes retain the greedy path. Shape surfaces use the regular
+  atlas, AO and voxel-light pipeline, with procedurally painted original textures.
 - **Readable glass** — dedicated alpha-blended chunk surface with bounds-center
   transparency sorting, front-face culling to avoid double-blended internal
   faces, and a restrained original atlas treatment that stays clear across
@@ -34,8 +40,9 @@ The project is a long-running solo build with an extensive design log in
 - **Survival** — health, hunger, breath, drowning, fall damage, softcore
   respawn, armor, tools with durability, fishing, farming, and cooking.
 - **Block interaction** — material-specific hardness and tool speeds, harvest
-  tiers and drops, creative instant mining, ten crack stages, block chips, and
-  material-matched procedural breaking and placement sounds.
+  tiers and drops, creative instant mining, ten crack stages, shape-matched
+  slab and crossed-plant crack overlays, plant-accurate selection silhouettes,
+  block chips, and material-matched procedural breaking and placement sounds.
 - **A living world** — species-specific sheep, cow, pig and chicken herds use
   distinct group sizes and spacing, react to danger, graze grass into dirt as
   hunger rises, and raise young that mature over time. Procedural articulated
@@ -60,7 +67,9 @@ The project is a long-running solo build with an extensive design log in
   keyboard/controller rebinding, accessibility toggles, photo mode, dev console,
   and an automatic quality governor.
 - **Deterministic saves** — per-world folders, atomic writes, rotating backups,
-  and byte-parity anchors so old worlds never change under new worldgen.
+  and byte-parity anchors so old worlds never change under new worldgen. Save
+  format v5 adds a sparse optional block-state extension; v1-v4 worlds load
+  with default block state and generator versions remain unchanged.
 
 ## Requirements
 
@@ -237,3 +246,16 @@ licenses; see [`addons/godot_ai/LICENSE`](addons/godot_ai/LICENSE).
 ## Fluid simulation internals
 
 Water uses a deduplicated active-cell queue with bounded per-tick work rather than rescanning the local volume every tick. Unloaded chunk neighbours are treated as unknown rather than air; source blocks are periodically rescheduled, and successful world block edits wake nearby fluid cells. Two horizontal sources over a solid floor can regenerate a source. All fluid changes still pass through `VoxelWorld.SetBlock`. Swimming buoyancy respects floor/ceiling contacts. Underwater and lava fog use separate blended environments, and underwater low-pass filtering is limited to SFX/ambient buses so master/UI audio remains clear.
+
+
+## Stone surface detail
+
+Common stone, cobblestone, brick and gravel use restrained, original pixel
+clusters in the existing nearest-filtered atlas. Their opaque world surfaces
+also receive a subtle deterministic tone shift from integer world-voxel
+coordinates. The shift is encoded in the otherwise-unused vertex alpha channel
+and evaluated in both the regular atlas and greedy texture-array shaders; it
+does not add atlas layers, split greedy quads, or depend on chunk-local
+coordinates. The same atlas remains the source for first-person item icons.
+Atlas dimensions, tile indices, persisted IDs, world saves and generator
+versions are unchanged. Non-stone materials retain zero variation.

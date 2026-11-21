@@ -24,16 +24,18 @@ public sealed record LegacySave(
     float[]? Player,
     double Time);
 
-/// <summary>World state (version 3): block edits, world clock, container
-/// inventories, furnace states and per-world flags. Every field past Time is
-/// optional so v2 saves load unchanged.</summary>
+/// <summary>World state (version 5): block edits, clock, containers, furnaces,
+/// flags, sparse block states and optional boat state. New fields default empty
+/// so saves from versions 1-4 load without conversion.</summary>
 public sealed record WorldSave(
     int Version,
     Dictionary<string, Dictionary<string, BlockId>>? Edits,
     double Time,
     Dictionary<string, List<ItemStackSave>>? Containers = null,
     Dictionary<string, bool>? Flags = null,
-    Dictionary<string, FurnaceSave>? Furnaces = null);
+    Dictionary<string, FurnaceSave>? Furnaces = null,
+    Dictionary<string, Dictionary<string, byte>>? BlockStates = null,
+    List<BoatSave>? Boats = null);
 
 /// <summary>Per-player state. Experience is optional and defaults to zero for legacy saves.</summary>
 public sealed record PlayerSave(
@@ -57,6 +59,9 @@ public sealed record FurnaceSave(
     float BurnMax = 0.0f,
     float SmeltTime = 0.0f);
 
+/// <summary>Optional per-world boat state. Missing Boats in old saves means no boats.</summary>
+public sealed record BoatSave(float[] Position, float Yaw, float[] Velocity, bool Occupied = false);
+
 /// <summary>
 /// World folders under user://worlds/&lt;id&gt;/ hold manifest.json (identity +
 /// seeds), world.json (edits + time) and player.json (position). Saves are
@@ -64,8 +69,8 @@ public sealed record FurnaceSave(
 /// </summary>
 public static class WorldStore
 {
-    public const int CurrentGenVersion = 7;
-    public const int WorldFormatVersion = 3;
+    public const int CurrentGenVersion = 8;
+    public const int WorldFormatVersion = 5;
     public const string WorldsRoot = "user://worlds";
     private const string LegacySavePath = "user://minecraft_save.json";
 

@@ -106,6 +106,19 @@ public static class MiningTests
                     Vector3I.Zero, 0.0f, 1.0f, out _),
             "cross-plant ray respects its maximum reach");
 
+        Mesh crossOutline = Player.BuildCrossOutlineMesh();
+        TestAssert.Equal((int)Mesh.PrimitiveType.Lines, (int)((ArrayMesh)crossOutline).SurfaceGetPrimitiveType(0),
+            "cross-plant selection outline uses line geometry");
+        TestAssert.Equal(16, ((Godot.Collections.Array)crossOutline.SurfaceGetArrays(0))[
+                (int)Mesh.ArrayType.Vertex].As<Vector3[]>().Length,
+            "cross-plant selection outline traces the eight edges of both diagonal planes");
+        Mesh crossCracks = Player.BuildCrossCrackMesh();
+        TestAssert.Equal((int)Mesh.PrimitiveType.Triangles, (int)((ArrayMesh)crossCracks).SurfaceGetPrimitiveType(0),
+            "cross-plant crack overlay uses textured plane triangles");
+        TestAssert.Equal(24, ((Godot.Collections.Array)crossCracks.SurfaceGetArrays(0))[
+                (int)Mesh.ArrayType.Vertex].As<Vector3[]>().Length,
+            "cross-plant crack overlay covers both sides of both diagonal planes");
+
         foreach (BlockId id in System.Enum.GetValues<BlockId>())
         {
             BlockDb.BlockDef def = BlockDb.DefOf(id);

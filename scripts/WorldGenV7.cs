@@ -369,7 +369,7 @@ public sealed class WorldGenV7
     public readonly record struct SurfaceSample(int Height, Biome Biome);
 }
 
-/// <summary>V7-specific block stamping and decoration. Legacy versions never enter these paths.</summary>
+/// <summary>V7 terrain stamping with V8-only biome foliage selection. Legacy versions never enter these paths.</summary>
 public partial class VoxelWorld
 {
     private WorldGenV7? _worldGenV7;
@@ -521,7 +521,16 @@ public partial class VoxelWorld
     private BlockId TreeBlockForV7(TreeInfo tree, int wx, int wy, int wz)
     {
         BlockId log = tree.Kind == 1 ? BlockId.BirchLog : BlockId.Log;
-        BlockId leaves = tree.Kind == 1 ? BlockId.BirchLeaves : BlockId.Leaves;
+        // V7 and older retain the original two foliage IDs exactly. V8 adds
+        // species-specific foliage without changing tree placement or shape.
+        BlockId leaves = tree.Kind switch
+        {
+            1 => BlockId.BirchLeaves,
+            2 when _genVersion >= 8 => BlockId.SpruceLeaves,
+            3 when _genVersion >= 8 => BlockId.JungleLeaves,
+            4 when _genVersion >= 8 => BlockId.SwampLeaves,
+            _ => BlockId.Leaves,
+        };
         int dx = wx - tree.X;
         int dz = wz - tree.Z;
 
