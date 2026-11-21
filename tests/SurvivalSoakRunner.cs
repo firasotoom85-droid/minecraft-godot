@@ -150,7 +150,7 @@ public partial class SurvivalSoakRunner : Node
         if (_reportTimer >= 60.0)
         {
             _reportTimer = 0.0;
-            GD.Print($"SOAK minute={_elapsed / 60.0:0} passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} caveEncounters={_caveEncounters}");
+            GD.Print($"SOAK minute={_elapsed / 60.0:0} passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} feeds={_feedSuccesses} caveEncounters={_caveEncounters}");
         }
 
         if (_elapsed >= _duration)
@@ -225,11 +225,12 @@ public partial class SurvivalSoakRunner : Node
 
     private void FeedHerds()
     {
-        // Keep only one feeding reserve per capped natural herd. Replenishing a
-        // large fixed batch every tick would fill the test inventory during a
-        // one-hour run and eventually turn overflow into a false breeding failure.
-        RefillFeedReserve(ItemId.Wheat, 8);
-        RefillFeedReserve(ItemId.Seeds, 8);
+        // New worlds fill all nine hotbar slots with the starter kit. Reserve
+        // the final two slots explicitly; Inventory.Add would put food in the
+        // backpack, while Mob.TryFeed intentionally requires the selected
+        // hotbar stack. Restock only this private test inventory as needed.
+        EnsureHotbarFeedReserve(ItemId.Wheat, 8, Inventory.HotbarSize - 2);
+        EnsureHotbarFeedReserve(ItemId.Seeds, 8, Inventory.HotbarSize - 1);
         int wheatSlot = FindHotbarSlot(ItemId.Wheat);
         int seedSlot = FindHotbarSlot(ItemId.Seeds);
         foreach (Node child in _mobs.GetChildren())
@@ -239,17 +240,22 @@ public partial class SurvivalSoakRunner : Node
             if (slot >= 0)
             {
                 _player.Select(slot);
-                animal.Interact(_player);
+                if (animal.Interact(_player))
+                {
+                    _feedSuccesses++;
+                }
             }
         }
     }
 
-    private void RefillFeedReserve(ItemId id, int reserve)
+    private int _feedSuccesses;
+
+    private void EnsureHotbarFeedReserve(ItemId id, int reserve, int slot)
     {
-        int missing = reserve - _player.Inventory.CountOf(id);
-        if (missing > 0)
+        ItemStack current = _player.Inventory.Hotbar[slot];
+        if (current.Id != id || current.Count < reserve)
         {
-            _player.Inventory.Add(id, missing);
+            _player.Inventory.Set(slot, ItemDb.New(id, reserve));
         }
     }
 
@@ -278,8 +284,8 @@ public partial class SurvivalSoakRunner : Node
                 WorldStore.PlayerSavePath(_soakWorldDir), WorldStore.Json);
         bool savesReloaded = savedWorld is not null && savedPlayer is not null
                 && savedPlayer.Mode == "survival";
-        bool passed = _hasCave && _caveEncounters > 0 && _babiesObserved > 0
-                && _mobs.PassiveCount > 0 && savesReloaded;
+        bool passed = _hasCave && _caveEncounters > 0 && _feedSuccesses >= 2
+                && _babiesObserved > 0 && _mobs.PassiveCount > 0 && savesReloaded;
         int passive = _mobs.PassiveCount;
         int hostile = _mobs.HostileCount;
 
@@ -291,7 +297,7 @@ public partial class SurvivalSoakRunner : Node
 
         bool cleaned = CleanupSoakWorld();
         passed &= cleaned;
-        GD.Print($"SURVIVAL SOAK {(passed ? "PASS" : "INCOMPLETE")}: elapsed={_elapsed:0}s passive={passive} hostile={hostile} caveEncounters={_caveEncounters} babyObservations={_babiesObserved} savesReloaded={savesReloaded} tempWorldCleaned={cleaned}");
+        GD.Print($"SURVIVAL SOAK {(passed ? "PASS" : "INCOMPLETE")}: elapsed={_elapsed:0}s passive={passive} hostile={hostile} feeds={_feedSuccesses} caveEncounters={_caveEncounters} babyObservations={_babiesObserved} savesReloaded={savesReloaded} tempWorldCleaned={cleaned}");
         GetTree().Quit(passed ? 0 : 1);
         SetProcess(false);
     }

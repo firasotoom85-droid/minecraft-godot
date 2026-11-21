@@ -252,8 +252,9 @@ save files, then removes the temporary test directory.
 | Test shutdown allocations | 18 ObjectDB / 17 Jolt (same as the pre-audit test harness) |
 | First isolated 5-minute real-scene smoke | Failed at 600-second process timeout; Jolt job-pool saturation occurred before scenario start ([run 44898183295](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44898183295)) |
 | FPS-capped smoke attempt | Cancelled after source review found the default MAX/12-chunk configuration would stream up to a 25×25 chunk square on CI ([run 44899215328](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44899215328)) |
-| Controlled-load smoke | Queued with LOW preset, 2-chunk radius, 3 mesh workers, no LOD, and `--max-fps 60`; result pending |
-| 60-minute normal-survival real-scene soak | Not started; gated on controlled-load smoke PASS |
+| First controlled-load smoke | Main scene/cave/hostiles/save reload/temp cleanup passed; breeding check failed because food was placed in backpack, not hotbar ([run 44900043965](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44900043965)) |
+| Corrected feeding smoke | Queued with explicit wheat/seeds hotbar reservations and feed-success counters; result pending |
+| 60-minute normal-survival real-scene soak | Not started; gated on corrected feeding smoke PASS |
 
 Commands:
 
@@ -277,8 +278,14 @@ during the soak. The harness now explicitly loads then overrides settings to
 LOW quality, a two-chunk radius, three mesh workers, no far-LOD and no adaptive
 quality. The main scene still uses real generated terrain, collision meshes,
 Jolt physics, normal survival, and live mob systems. The 60 FPS cap is
-test-process-only and does not force fixed-FPS simulation. The controlled-load
-smoke must pass before the one-hour soak is dispatched.
+test-process-only and does not force fixed-FPS simulation. The first
+controlled-load run completed its cave encounter, save read-back and temporary
+world cleanup, but observed no juvenile. Source inspection found that the
+starter kit prefilled all nine hotbar slots; `Inventory.Add` placed the soak's
+wheat/seeds in the backpack while `Mob.TryFeed` requires a selected hotbar
+stack, so the harness never fed the animals. It now reserves the last two
+hotbar slots and reports successful feed interactions. The corrected smoke
+must pass before the one-hour soak is dispatched.
 
 ## Compatibility and scope boundaries
 

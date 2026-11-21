@@ -959,8 +959,11 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   A second FPS-capped attempt was cancelled after finding the default MAX /
   12-chunk CI profile would queue a 25×25 chunk stream
   ([run 44899215328](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44899215328)).
-  The runner now forces LOW quality, a 2-chunk radius, 3 meshing workers, no
-  LOD/adaptive quality, and a 60 FPS cap while retaining real world physics and
-  mobs. The controlled-load smoke must pass before dispatching the 3,600-second soak.
+  The next controlled-load run passed scene startup, cave, hostiles, save
+  read-back and cleanup but failed juvenile observation: starter-kit hotbar
+  slots were full, so the harness fed backpack food that `Mob.TryFeed` cannot
+  consume. The harness now reserves two hotbar slots and counts successful
+  feed interactions; a corrected smoke must pass before dispatching the
+  3,600-second soak.
 - See `docs/SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md` for detailed values,
   findings, reproducible steps and test evidence.

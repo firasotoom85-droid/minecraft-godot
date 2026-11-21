@@ -107,8 +107,12 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 bash scripts/soak-survival.
 ```
 
 Use `300` for a five-minute smoke run. The runner reports PASS only when it
-finds a generated cave, records cave encounters and a juvenile, retains a live
-passive population, reads back both save files, and removes the temporary world.
+finds a generated cave, records cave encounters, successfully feeds the natural
+herd and observes a juvenile, retains a live passive population, reads back
+both save files, and removes the temporary world. It reserves the final two
+hotbar slots for wheat and seeds because a new-world starter kit occupies all
+nine hotbar slots and normal `Inventory.Add` then places food in the backpack,
+which cannot be selected for animal feeding.
 The runner uses the real main scene, but fixes its test-only graphics load
 to LOW, a two-chunk view radius, three meshing workers, and no far-LOD ring.
 This avoids turning a gameplay soak into an accidental MAX-preset streaming
