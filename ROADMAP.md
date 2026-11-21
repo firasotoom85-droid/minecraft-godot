@@ -47,6 +47,33 @@ without script errors (22 passive mobs, 4 hostiles at night, 8 cave encounters).
 A full one-hour soak and an in-game high-population performance run remain
 outstanding.
 
+
+### World portability increment — 2026-11-21
+
+- Added complete ZIP export/import on top of the existing per-world directory
+  and manifest format. Archives contain all non-temporary world files, including
+  rotating backups, plus a versioned index with per-file SHA-256 checksums.
+- Imports validate archive/save/generator versions, file lengths and hashes,
+  duplicate entry names, path containment, symlink/special-file entries, and
+  expanded-size/file-count limits. Extraction occurs in a private staging
+  directory; the world is published with a same-volume directory rename only
+  after validation succeeds. Existing worlds are never overwritten.
+- Added world-detail/backup UI using the shared pixel-art menu skin: seed,
+  generator version, cumulative playtime, last-played time, world size, and
+  valid/corrupt backup metadata. Restore confirmation creates a safety backup
+  through the existing atomic save rotation.
+- Added optional cumulative playtime to the world manifest and track it through
+  the normal autosave path. Older manifests default to zero; world-save and
+  generator formats are unchanged.
+- Added archive/backup regression coverage for large files, corrupt ZIPs,
+  path traversal, duplicate imports, metadata preservation, legacy v2 save
+  import, backup restoration, and pre-restore safety snapshots.
+
+**Verification status:** source changes are committed to `main`. A local
+Godot/.NET build and headless execution have not yet been run for this
+increment; CI verification is required before treating the feature as fully
+validated.
+
 ## 1. Current state
 
 ### Survival equipment increment — 2026-11-20
@@ -84,9 +111,9 @@ outstanding.
 | Progression | Iron/gold ore → raw ore → tools directly; no smelting/ingots/armor |
 | Goals | No achievements, journal, boss, or directed objective |
 | UX/platform | No key rebinding, gamepad, onboarding, localization, or music |
-| World management | List + create only; no rename/delete/duplicate/export |
-| Quality | **Zero automated tests**; save version field is written but ignored; no README |
-| Save format | `WorldSave` v2: edits + time only; no containers/achievements |
+| World management | Create/list/rename/delete/duplicate plus ZIP portability, backup browser and safe restore |
+| Quality | Automated gameplay, save, worldgen and regression suites; README and roadmap maintained |
+| Save format | `WorldSave` v3: edits, time, containers, furnaces and world flags; v2 remains readable |
 
 ### Strengths to protect
 
