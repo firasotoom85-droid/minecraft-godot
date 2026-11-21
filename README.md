@@ -16,9 +16,14 @@ The project is a long-running solo build with an extensive design log in
   caves, aquifers, magma pockets, depth-aware ore veins, biome-specific trees,
   surface ruins and underground chambers. New worlds use generator V7; older
   generator versions retain their frozen terrain rules and golden chunk hashes.
-- **Greedy meshing** — merged coplanar quads cut triangle count roughly in half;
-  per-face meshing remains available for comparison. Vertex-light and AO samples
-  are part of the merge key, preserving lighting boundaries.
+- **Greedy meshing** — merged coplanar full-cube quads cut triangle count
+  roughly in half; per-face meshing remains available for comparison. Vertex-light
+  and AO samples are part of the merge key, preserving lighting boundaries.
+- **Architectural voxel building** — bottom/top/double slabs and four-way,
+  upside-down stairs use a shared 2×2×2 occupancy definition for geometry,
+  collision, ray selection and placement. Partial faces are split only at shape
+  boundaries; full cubes retain the greedy path. Shape surfaces use the regular
+  atlas, AO and voxel-light pipeline, with procedurally painted original textures.
 - **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
   voxels, warm multi-source propagation with opaque occlusion, cave darkness and
   live place/break updates across chunk boundaries. Emitter edits incrementally
@@ -56,7 +61,9 @@ The project is a long-running solo build with an extensive design log in
   keyboard/controller rebinding, accessibility toggles, photo mode, dev console,
   and an automatic quality governor.
 - **Deterministic saves** — per-world folders, atomic writes, rotating backups,
-  and byte-parity anchors so old worlds never change under new worldgen.
+  and byte-parity anchors so old worlds never change under new worldgen. Save
+  format v4 adds a sparse optional shape-state extension; v1-v3 worlds load
+  with default shape state and generator versions remain unchanged.
 - **Portable world management** — checksummed ZIP export/import, duplicate-name
   handling, staged imports with path-traversal and archive-expansion protection,
   backup browsing and safe restore, and per-world playtime/size metadata.

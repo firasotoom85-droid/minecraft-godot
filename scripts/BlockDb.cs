@@ -77,6 +77,9 @@ public static class BlockDb
     private const int TLadder = 43;
     private const int TEnchantTop = 44;
     private const int TEnchantSide = 45;
+    private const int TPlanksBuilding = 46;
+    private const int TCobbleBuilding = 47;
+    private const int TBrickBuilding = 48;
 
     /// <summary>
     /// One block's definition; the tiles array is indexed by face (FACE order).
@@ -174,6 +177,24 @@ public static class BlockDb
         new("Enchanting Table", true, false,
                 [TEnchantTop, TEnchantSide, TEnchantSide, TEnchantSide, TEnchantSide, TEnchantSide],
                 3.0f, ToolKind.Pick, 2),
+        new("Oak Planks Slab", true, false,
+                [TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding],
+                2.0f, ToolKind.Axe),
+        new("Cobblestone Slab", true, false,
+                [TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding],
+                2.0f, ToolKind.Pick, 1),
+        new("Brick Slab", true, false,
+                [TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding],
+                1.5f, ToolKind.Pick, 1),
+        new("Oak Planks Stairs", true, false,
+                [TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding],
+                2.0f, ToolKind.Axe),
+        new("Cobblestone Stairs", true, false,
+                [TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding],
+                2.0f, ToolKind.Pick, 1),
+        new("Brick Stairs", true, false,
+                [TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding],
+                1.5f, ToolKind.Pick, 1),
     ];
 
     // Cube face geometry shared by the mesher. Order: +Y, -Y, +X, -X, +Z, -Z.
@@ -779,6 +800,9 @@ void fragment() {
         PaintLadder(img);
         PaintEnchantingTop(img, rng);
         PaintEnchantingSide(img, rng);
+        PaintBuildingTexture(img, TPlanksBuilding, new Color(0.49f, 0.32f, 0.18f), rng, 8);
+        PaintBuildingTexture(img, TCobbleBuilding, new Color(0.43f, 0.44f, 0.45f), rng, 11);
+        PaintBuildingTexture(img, TBrickBuilding, new Color(0.58f, 0.25f, 0.19f), rng, 7);
         return img;
     }
 
@@ -804,6 +828,37 @@ void fragment() {
                 Px(img, tile, x, y, c);
             }
         }
+    }
+
+    private static void PaintBuildingTexture(Image img, int tile, Color baseColor,
+            RandomNumberGenerator rng, int courseHeight)
+    {
+        FillNoise(img, tile, baseColor, 0.045f, 1.0f, rng);
+        Color seam = new(Mathf.Max(0.0f, baseColor.R * 0.48f),
+                Mathf.Max(0.0f, baseColor.G * 0.48f), Mathf.Max(0.0f, baseColor.B * 0.48f));
+        Color highlight = Jitter(rng, baseColor, 0.10f);
+        for (int y = 0; y < TilePx; y++)
+        {
+            bool horizontal = y % courseHeight == 0;
+            if (horizontal)
+                for (int x = 0; x < TilePx; x++) Px(img, tile, x, y, seam);
+        }
+
+        for (int y = 0; y < TilePx; y += courseHeight)
+        {
+            int offset = (y / courseHeight % 2) * (courseHeight / 2);
+            for (int x = offset; x < TilePx; x += courseHeight)
+            {
+                for (int dy = 1; dy < courseHeight - 1 && y + dy < TilePx; dy++)
+                {
+                    Px(img, tile, x, y + dy, seam);
+                    if (x + 1 < TilePx) Px(img, tile, x + 1, y + dy, seam);
+                }
+            }
+        }
+
+        for (int i = 0; i < 48; i++)
+            Px(img, tile, rng.RandiRange(1, TilePx - 2), rng.RandiRange(1, TilePx - 2), Jitter(rng, highlight, 0.035f));
     }
 
     private static void Speckle(Image img, int tile, Color c, int count, float amount,

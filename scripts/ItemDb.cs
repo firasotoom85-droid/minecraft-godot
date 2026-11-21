@@ -39,6 +39,12 @@ public static class ItemDb
         (ItemId.Bed, BlockId.Bed),
         (ItemId.Ladder, BlockId.Ladder),
         (ItemId.EnchantingTable, BlockId.EnchantingTable),
+        (ItemId.PlanksSlab, BlockId.PlanksSlab),
+        (ItemId.CobblestoneSlab, BlockId.CobblestoneSlab),
+        (ItemId.BrickSlab, BlockId.BrickSlab),
+        (ItemId.PlanksStairs, BlockId.PlanksStairs),
+        (ItemId.CobblestoneStairs, BlockId.CobblestoneStairs),
+        (ItemId.BrickStairs, BlockId.BrickStairs),
     ];
 
     private static readonly Dictionary<BlockId, ItemId> BlockToItem =
@@ -228,6 +234,8 @@ public static class ItemDb
         ItemId.IronSword => "Durable blade forged from smelted iron.", ItemId.DiamondSword => "Rare, powerful blade for deep expeditions.",
         ItemId.EmberBlade => "A Warden-forged end-game blade.", ItemId.Bow => "Ranged weapon; consumes one arrow per shot.",
         ItemId.Arrow => "Bow ammunition crafted from gravel, sticks and feathers.", ItemId.Shield => "Blocks frontal melee and ranged hits while held; blocking wears it.", ItemId.LapisLazuli => "A blue mineral used to power enchantments.", ItemId.EnchantingTable => "A crafted station for enchanting and upgrading equipment.",
+        ItemId.PlanksSlab or ItemId.CobblestoneSlab or ItemId.BrickSlab => "A half-height building block. Place against a face to choose the top or bottom half; stack a matching slab to make a full block.",
+        ItemId.PlanksStairs or ItemId.CobblestoneStairs or ItemId.BrickStairs => "A stepped building block. Facing follows your view; upper-half placement turns the stairs upside down.",
         _ => id.ToString(),
     };
     public static int MaxStack(ItemId id) =>

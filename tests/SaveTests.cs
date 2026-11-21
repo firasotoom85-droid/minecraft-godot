@@ -13,14 +13,23 @@ public static class SaveTests
 
         Dictionary<string, Dictionary<string, BlockId>> edits = new()
         {
-            ["0,0"] = new Dictionary<string, BlockId> { ["123"] = BlockId.Stone },
+            ["0,0"] = new Dictionary<string, BlockId>
+            {
+                ["123"] = BlockId.Stone,
+                ["124"] = BlockId.PlanksSlab,
+            },
         };
         Dictionary<string, List<ItemStackSave>> containers = new()
         {
             ["1,2,3"] = [new ItemStackSave(0, (int)ItemId.Stone, 12)],
         };
         Dictionary<string, bool> flags = new() { ["dungeon/ember"] = true };
-        WorldSave save = new(WorldStore.WorldFormatVersion, edits, 0.625, containers, flags);
+        Dictionary<string, Dictionary<string, byte>> blockStates = new()
+        {
+            ["0,0"] = new Dictionary<string, byte> { ["124"] = BlockShapes.SlabTop },
+        };
+        WorldSave save = new(WorldStore.WorldFormatVersion, edits, 0.625, containers, flags,
+                BlockStates: blockStates);
         string path = root + "/world.json";
 
         PlayerSave emptyHungerSave = new([0.0f, 0.0f, 0.0f], 0, null, "survival", 20.0f, 0.0f);
@@ -54,6 +63,8 @@ public static class SaveTests
             TestAssert.Equal(BlockId.Stone, loaded.Edits?["0,0"]["123"], "edits round-trip");
             TestAssert.Equal(12, loaded.Containers?["1,2,3"][0].Count, "containers round-trip");
             TestAssert.Check(loaded.Flags?["dungeon/ember"] == true, "flags round-trip");
+            TestAssert.Equal(BlockShapes.SlabTop, loaded.BlockStates?["0,0"]["124"] ?? 0,
+                    "optional slab block state survives save round-trip");
         }
 
         string backupPath = root + "/backup.json";
@@ -82,10 +93,15 @@ public static class SaveTests
         TestAssert.Equal(2, old?.Version, "v2 version is preserved");
         TestAssert.Check(old?.Containers is null, "v2 save has no containers");
         TestAssert.Check(old?.Flags is null, "v2 save has no flags");
+        TestAssert.Check(old?.BlockStates is null, "legacy save has no block-state extension");
+        const string v3 = "{\"version\":3,\"edits\":{},\"time\":0.5,\"containers\":{},\"flags\":{}}";
+        WorldSave? preShape = JsonSerializer.Deserialize<WorldSave>(v3, WorldStore.Json);
+        TestAssert.Equal(3, preShape?.Version ?? -1, "v3 save remains readable after the state extension");
+        TestAssert.Check(preShape?.BlockStates is null, "v3 save defaults to the empty shape-state extension");
 
         WorldSave upgraded = new(WorldStore.WorldFormatVersion, old?.Edits, old?.Time ?? 0.5);
         string upgradedJson = JsonSerializer.Serialize(upgraded, WorldStore.Json);
-        TestAssert.Check(upgradedJson.Contains("\"version\":3"), "upgraded save writes version 3");
+        TestAssert.Check(upgradedJson.Contains("\"version\":4"), "upgraded save writes version 4");
         TestAssert.Equal(7, WorldStore.CurrentGenVersion, "new worlds use generator version 7");
 
         string worldDir = WorldStore.Create("Management Test", 424242);
