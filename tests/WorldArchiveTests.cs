@@ -59,10 +59,10 @@ public static class WorldArchiveTests
             importedTwo = second.WorldDirectory;
 
             TestAssert.Check(importedOne != importedTwo, "duplicate imports receive different world identities");
-            TestAssert.Equal("Portable Test", WorldStore.ReadManifest(importedOne)?.Name,
-                    "first import preserves the original world name");
-            TestAssert.Equal("Portable Test (Imported)", WorldStore.ReadManifest(importedTwo)?.Name,
-                    "duplicate name is resolved without overwriting the first import");
+            TestAssert.Equal("Portable Test (Imported)", WorldStore.ReadManifest(importedOne)?.Name,
+                    "first import receives a unique name while the source world exists");
+            TestAssert.Equal("Portable Test (Imported 2)", WorldStore.ReadManifest(importedTwo)?.Name,
+                    "repeated import receives a distinct name without overwriting prior worlds");
             TestAssert.Equal(8675309, WorldStore.ReadManifest(importedOne)?.Seed ?? 0,
                     "import preserves the world seed");
             TestAssert.Equal(3725L, WorldStore.ReadManifest(importedOne)?.PlaytimeSeconds ?? -1,
