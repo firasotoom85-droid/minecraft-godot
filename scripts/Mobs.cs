@@ -200,8 +200,11 @@ public partial class Mobs : Node
         if (_timer <= 0.0)
         {
             _timer = 2.5;
-            if (_passive.Count < PassiveTarget)
+            if (_passive.Count < PassiveTarget && !HasReadyBreedingPair())
             {
+                // Reserve an available population slot for an imminent birth.
+                // This keeps routine herd replenishment from starving the existing
+                // breeding system while still enforcing the same hard population cap.
                 SpawnPassiveGroup();
             }
         }
@@ -576,6 +579,27 @@ public partial class Mobs : Node
         Chicken => new Chicken(),
         _ => new Sheep(),
     };
+
+    private bool HasReadyBreedingPair()
+    {
+        for (int i = 0; i < _passive.Count; i++)
+        {
+            Mob first = _passive[i];
+            if (!IsTrackedMobUsable(first) || first.Dead || first.IsBaby || !first.InLove)
+                continue;
+
+            for (int j = i + 1; j < _passive.Count; j++)
+            {
+                Mob second = _passive[j];
+                if (IsTrackedMobUsable(second) && !second.Dead
+                        && first.CanBreedWith(second)
+                        && first.GlobalPosition.DistanceSquaredTo(second.GlobalPosition) <= 9.0f)
+                    return true;
+            }
+        }
+
+        return false;
+    }
 
     private void TryBreedPassives()
     {
