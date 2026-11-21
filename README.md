@@ -26,6 +26,10 @@ The project is a long-running solo build with an extensive design log in
   collision, ray selection and placement. Partial faces are split only at shape
   boundaries; full cubes retain the greedy path. Shape surfaces use the regular
   atlas, AO and voxel-light pipeline, with procedurally painted original textures.
+- **Texture scale and distance filtering** — procedural terrain noise and
+  speckle detail share a coherent 2×2-texel unit. Greedy terrain builds isolated
+  mip chains per 32×32 texture-array tile and uses nearest-mipmap filtering,
+  reducing distant shimmer without bleeding across tile boundaries.
 - **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
   voxels, warm multi-source propagation with opaque occlusion, cave darkness and
   live place/break updates across chunk boundaries. Emitter edits incrementally
