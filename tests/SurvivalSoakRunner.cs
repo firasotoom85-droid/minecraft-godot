@@ -30,9 +30,22 @@ public partial class SurvivalSoakRunner : Node
     private bool _breedingPairStaged;
     private Wanderer? _breedingParentA;
     private Wanderer? _breedingParentB;
+    private bool _finishing;
+    private string _soakWorldDir = "";
 
     public override void _Ready()
     {
+        // A new profile defaults to MAX quality / 12 chunks. That is useful
+        // for a fresh player, but needlessly floods a hosted headless soak with
+        // hundreds of colliders and far-LOD tiles before survival starts.
+        // Keep the real scene, physics and mob systems enabled at a deterministic
+        // low preset and a two-chunk view radius for a reproducible soak load.
+        Settings.Load();
+        Settings.GfxPreset = 0;
+        Settings.ViewDistance = 2;
+        Settings.AutoQuality = false;
+        Settings.Difficulty = Settings.DifficultyNormal;
+
         foreach (string arg in OS.GetCmdlineUserArgs())
         {
             if (arg.StartsWith("--duration=")
@@ -42,19 +55,46 @@ public partial class SurvivalSoakRunner : Node
             }
         }
 
+        // Never borrow the user's most-recent world for an automated soak.
+        // A private directory keeps this world out of the world picker, and its
+        // save files are verified then removed when the run finishes.
+        const int soakSeed = -90817263; // Previously verified to contain nearby V7 caves.
+        _soakWorldDir = $"user://tests/survival-soak-{Time.GetTicksUsec()}";
+        long now = WorldStore.NowUtc();
+        WorldManifest manifest = new("Temporary survival soak", soakSeed,
+                WorldGenV7.Version, WorldStore.DeriveNoiseSeeds(soakSeed), now, now,
+                "survival", null);
+        if (!WorldStore.WriteManifest(_soakWorldDir, manifest))
+        {
+            GD.PushError("SURVIVAL SOAK: could not create isolated test world manifest");
+            CleanupSoakWorld();
+            GetTree().Quit(1);
+            return;
+        }
+
+        GameSession.Instance.SelectWorld(_soakWorldDir);
         PackedScene game = GD.Load<PackedScene>("res://scenes/main.tscn");
         _main = game.Instantiate<Main>();
         AddChild(_main);
         _world = _main.GetNode<VoxelWorld>("World");
         _player = _main.GetNode<Player>("Player");
         _mobs = _main.GetNode<Mobs>("Mobs");
+        Settings.Difficulty = Settings.DifficultyNormal;
+        _player.SetMode(GameMode.Survival);
         _surfacePosition = _world.FindSpawn();
         _player.GlobalPosition = _surfacePosition;
-        GD.Print($"SURVIVAL SOAK: initialized main scene, duration={_duration:0}s");
+        GD.Print($"SURVIVAL SOAK: initialized main scene, duration={_duration:0}s, " +
+                $"viewDistance={_world.ViewDistance}, meshWorkers={_world.MaxInFlight}, " +
+                $"lodRadius={_world.LodRadius:0}, difficulty=normal");
     }
 
     public override void _Process(double delta)
     {
+        if (_finishing)
+        {
+            return;
+        }
+
         if (!_started)
         {
             _startup += delta;
@@ -120,7 +160,7 @@ public partial class SurvivalSoakRunner : Node
         if (_reportTimer >= 60.0)
         {
             _reportTimer = 0.0;
-            GD.Print($"SOAK minute={_elapsed / 60.0:0} passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} caveEncounters={_caveEncounters} babiesObserved={_babiesObserved} parentsInLove={_breedingParentA?.InLove == true && _breedingParentB?.InLove == true} noiseInvestigations={_mobs.NoiseInvestigations} invalidPositions={_nonFinitePositionObservations}");
+            GD.Print($"SOAK minute={_elapsed / 60.0:0} passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} feeds={_feedSuccesses} caveEncounters={_caveEncounters} babiesObserved={_babiesObserved} parentsInLove={_breedingParentA?.InLove == true && _breedingParentB?.InLove == true} noiseInvestigations={_mobs.NoiseInvestigations} invalidPositions={_nonFinitePositionObservations}");
         }
 
         if (_elapsed >= _duration)
@@ -131,6 +171,8 @@ public partial class SurvivalSoakRunner : Node
 
     private void StartScenario()
     {
+        Settings.Difficulty = Settings.DifficultyNormal;
+        _player.SetMode(GameMode.Survival);
         _started = true;
         _world.TimeOfDay = 0.78;
         _mobs.WeatherRef!.Current = Weather.State.Storm;
@@ -287,8 +329,12 @@ public partial class SurvivalSoakRunner : Node
         _player.EmitSignal(Player.SignalName.BlockPlaced, soundOrigin, (int)BlockId.Torch);
         _noiseStimuli += 2;
 
-        _player.Inventory.Add(ItemId.Wheat, 16);
-        _player.Inventory.Add(ItemId.Seeds, 8);
+        // New worlds fill all nine hotbar slots with the starter kit. Reserve
+        // the final two slots explicitly; Inventory.Add would put food in the
+        // backpack, while Mob.TryFeed intentionally requires the selected
+        // hotbar stack. Restock only this private test inventory as needed.
+        EnsureHotbarFeedReserve(ItemId.Wheat, 8, Inventory.HotbarSize - 2);
+        EnsureHotbarFeedReserve(ItemId.Seeds, 8, Inventory.HotbarSize - 1);
         int wheatSlot = FindHotbarSlot(ItemId.Wheat);
         int seedSlot = FindHotbarSlot(ItemId.Seeds);
         if (wheatSlot < 0)
@@ -311,8 +357,22 @@ public partial class SurvivalSoakRunner : Node
             if (slot >= 0)
             {
                 _player.Select(slot);
-                bool interacted = animal.Interact(_player);
+                if (animal.Interact(_player))
+                {
+                    _feedSuccesses++;
+                }
             }
+        }
+    }
+
+    private int _feedSuccesses;
+
+    private void EnsureHotbarFeedReserve(ItemId id, int reserve, int slot)
+    {
+        ItemStack current = _player.Inventory.Hotbar[slot];
+        if (current.Id != id || current.Count < reserve)
+        {
+            _player.Inventory.Set(slot, ItemDb.New(id, reserve));
         }
     }
 
@@ -326,18 +386,118 @@ public partial class SurvivalSoakRunner : Node
         return -1;
     }
 
-    private void Finish()
+    private async void Finish()
     {
+        if (_finishing)
+        {
+            return;
+        }
+
+        _finishing = true;
         _world.SaveNow();
-        // Short smoke runs validate stable creature runtime and acoustic
-        // perception. The default one-hour soak additionally requires a birth.
-        bool requiresBirth = _duration >= 1800.0;
-        bool passed = _hasCave && _caveEncounters > 0
-                && (!requiresBirth || (_breedingPairStaged && _babiesObserved > 0))
-                && _mobs.PassiveCount > 0 && _noiseStimuli > 0
-                && _mobs.NoiseInvestigations > 0 && _nonFinitePositionObservations == 0;
-        GD.Print($"SURVIVAL SOAK {(passed ? "PASS" : "INCOMPLETE")}: elapsed={_elapsed:0}s passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} caveEncounters={_caveEncounters} babyObservations={_babiesObserved} noiseStimuli={_noiseStimuli} noiseInvestigations={_mobs.NoiseInvestigations} invalidPositions={_nonFinitePositionObservations}");
+        WorldSave? savedWorld = WorldStore.ReadJson<WorldSave>(
+                WorldStore.WorldSavePath(_soakWorldDir), WorldStore.Json);
+        PlayerSave? savedPlayer = WorldStore.ReadJson<PlayerSave>(
+                WorldStore.PlayerSavePath(_soakWorldDir), WorldStore.Json);
+        bool savesReloaded = savedWorld is not null && savedPlayer is not null
+                && savedPlayer.Mode == "survival";
+        int passive = _mobs.PassiveCount;
+        int hostile = _mobs.HostileCount;
+
+        // Creature runtime, acoustic perception, feeding, breeding and save
+        // reload all have to hold for a soak to count as a pass.
+        bool passed = _hasCave && _caveEncounters > 0 && _feedSuccesses >= 2
+                && _babiesObserved > 0 && passive > 0 && savesReloaded
+                && _noiseStimuli > 0 && _mobs.NoiseInvestigations > 0
+                && _nonFinitePositionObservations == 0;
+
+        // Let VoxelWorld/FarLod exit hooks wait for and release every worker task
+        // group before the engine starts global shutdown.
+        _main.QueueFree();
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        bool cleaned = CleanupSoakWorld();
+        passed &= cleaned;
+        GD.Print($"SURVIVAL SOAK {(passed ? "PASS" : "INCOMPLETE")}: elapsed={_elapsed:0}s passive={passive} hostile={hostile} feeds={_feedSuccesses} caveEncounters={_caveEncounters} babyObservations={_babiesObserved} noiseStimuli={_noiseStimuli} noiseInvestigations={_mobs.NoiseInvestigations} invalidPositions={_nonFinitePositionObservations} savesReloaded={savesReloaded} tempWorldCleaned={cleaned}");
         GetTree().Quit(passed ? 0 : 1);
         SetProcess(false);
+    }
+
+    public override void _ExitTree()
+    {
+        // Also remove a private test world if the soak is interrupted.
+        CleanupSoakWorld();
+    }
+
+    private bool CleanupSoakWorld()
+    {
+        if (_soakWorldDir.Length == 0)
+        {
+            return true;
+        }
+
+        string directory = _soakWorldDir;
+        bool success = RemoveSoakDirectory(directory);
+        if (success)
+        {
+            _soakWorldDir = "";
+        }
+        else
+        {
+            GD.PushError($"SURVIVAL SOAK: failed to remove temporary world at {directory}");
+        }
+
+        return success;
+    }
+
+    private static bool RemoveSoakDirectory(string path)
+    {
+        string absolutePath = ProjectSettings.GlobalizePath(path);
+        if (!DirAccess.DirExistsAbsolute(absolutePath))
+        {
+            return true;
+        }
+
+        string[] files;
+        string[] directories;
+        using (DirAccess? access = DirAccess.Open(path))
+        {
+            if (access == null)
+            {
+                GD.PushError($"SURVIVAL SOAK: could not open temporary directory {path}");
+                return false;
+            }
+
+            files = access.GetFiles();
+            directories = access.GetDirectories();
+        }
+
+        bool success = true;
+        foreach (string file in files)
+        {
+            string filePath = ProjectSettings.GlobalizePath($"{path}/{file}");
+            if (DirAccess.RemoveAbsolute(filePath) != Error.Ok
+                    && FileAccess.FileExists($"{path}/{file}"))
+            {
+                success = false;
+            }
+        }
+
+        foreach (string childDirectory in directories)
+        {
+            if (!RemoveSoakDirectory($"{path}/{childDirectory}"))
+            {
+                success = false;
+            }
+        }
+
+        if (!success)
+        {
+            return false;
+        }
+
+        Error removed = DirAccess.RemoveAbsolute(absolutePath);
+        return removed == Error.Ok || !DirAccess.DirExistsAbsolute(absolutePath);
     }
 }

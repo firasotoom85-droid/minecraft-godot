@@ -66,6 +66,27 @@ public static class FurnaceTests
         TestAssert.Equal(15.0f, ItemDb.FuelSeconds(ItemId.Planks), "planks are a short fuel");
         TestAssert.Equal(0.0f, ItemDb.FuelSeconds(ItemId.Stone), "stone is not fuel");
         TestAssert.Equal(ItemId.Glass, ItemDb.SmeltsTo(ItemId.Sand), "sand smelts to glass");
+
+        // Regression: a large frame/tick that crosses a fuel boundary must
+        // carry the five seconds after the first coal into the next coal item.
+        FurnaceData fuelBoundary = new()
+        {
+            Input = new ItemStack(ItemId.RawIron, 9, 0),
+            Fuel = new ItemStack(ItemId.Coal, 2, 0),
+        };
+        TestAssert.Check(fuelBoundary.Tick(85.0f),
+                "furnace advances across the first coal fuel boundary");
+        TestAssert.Equal(8, fuelBoundary.Output.Count,
+                "first eighty seconds of coal smelt eight items");
+        TestAssert.Equal(1, fuelBoundary.Input.Count,
+                "five seconds after the coal boundary remain partial smelt progress");
+        TestAssert.Equal(5.0f, fuelBoundary.SmeltTime,
+                "elapsed time after a fuel boundary is carried into the next burn");
+        fuelBoundary.Tick(5.0f);
+        TestAssert.Equal(9, fuelBoundary.Output.Count,
+                "carried partial progress completes the ninth smelt");
+        TestAssert.Check(fuelBoundary.Input.IsEmpty,
+                "the input is consumed after the carried-progress smelt");
     }
 }
 

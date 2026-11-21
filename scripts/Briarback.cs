@@ -72,8 +72,8 @@ public partial class Briarback : Wanderer
                         && GlobalPosition.DistanceSquaredTo(player.GlobalPosition) < 3.2f * 3.2f)
                 {
                     _attackCooldown = 1.8;
-                    if (player.ApplyDamage(new DamageInfo(2.5f, DamageKind.Melee,
-                            GlobalPosition, 3.6f, 1.5f)))
+                    if (player.ApplyDamage(new DamageInfo(MobCombatRules.DamageForDifficulty(2.5f, 3.25f),
+                            DamageKind.Melee, GlobalPosition, 3.6f, 1.5f)))
                     {
                         Manager?.Lunge(this);
                     }

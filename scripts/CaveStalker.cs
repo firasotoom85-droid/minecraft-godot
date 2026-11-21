@@ -94,7 +94,9 @@ public partial class CaveStalker : Mob
         if (distance < 1.85f && MobCombatRules.CanAttack((float)_attackCooldown, true))
         {
             _attackCooldown = 1.15;
-            if (player.ApplyDamage(new DamageInfo(3.0f * DarknessDangerMultiplier(3.0f, 1.18f), DamageKind.Melee,
+            float damage = MobCombatRules.DamageForDifficulty(3.0f, 3.6f)
+                    * DarknessDangerMultiplier(3.0f, 1.18f);
+            if (player.ApplyDamage(new DamageInfo(damage, DamageKind.Melee,
                     GlobalPosition, 4.2f, 2.2f)))
             {
                 Manager?.Puff(player.GlobalPosition + new Vector3(0, 0.8f, 0),

@@ -101,7 +101,7 @@ public partial class Rot : Mob
                     {
                         _attackCd = AttackCooldown;
                         int packSize = Manager?.HostilesNear<Rot>(GlobalPosition, 9.0f) ?? 1;
-                        float damage = (Settings.Difficulty == Settings.DifficultyHard ? 2.7f : 1.9f)
+                        float damage = MobCombatRules.DamageForDifficulty(1.9f, 2.7f)
                                 + Mathf.Min(packSize - 1, 3) * 0.35f;
                         if (player.ApplyDamage(new DamageInfo(
                                 damage, DamageKind.Melee, GlobalPosition, 3.5f, 2.0f)))

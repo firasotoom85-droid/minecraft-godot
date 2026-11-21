@@ -15,8 +15,11 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
-      - name: Build (0 warnings expected)
-        run: dotnet build -c Debug
+      - name: Debug build (0 warnings expected)
+        run: dotnet build -c Debug --nologo
+
+      - name: Release build (0 warnings expected)
+        run: dotnet build minecraft.csproj -c Release --nologo
 
       - name: Cache Godot mono
         uses: actions/cache@v4

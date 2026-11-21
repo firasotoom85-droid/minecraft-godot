@@ -99,3 +99,13 @@ force-pushed.
 - Partial-height building blocks (slabs, stairs) do not exist in any branch.
   The mesher and collision path remain cube-only.
 - The draft `redesign/ui-overhaul` direction is not merged (see above).
+
+
+## Follow-up: survival progression audit — 2026-11-21
+
+The independent survival/combat balance audit is documented in
+[`SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md`](SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md).
+It fixes combat wear/invulnerability edge cases, peaceful-mode hostile cleanup,
+normal/hard damage consistency, lapis access and furnace time carry. Persisted
+IDs, generator versions and save schemas are unchanged. Its final 60-minute
+real-scene soak outcome is recorded in that report.

@@ -696,6 +696,21 @@ public partial class Mob : CharacterBody3D, IDamageable
 /// <summary>Shared deterministic gates for hostile attacks and visible telegraphs.</summary>
 public static class MobCombatRules
 {
+    /// <summary>Centralizes normal/hard attack scaling so every hostile archetype has a deliberate hard-mode value.</summary>
+    public static float DamageForDifficulty(float normalDamage, float hardDamage) =>
+            Settings.Difficulty == Settings.DifficultyPeaceful ? 0.0f
+            : Settings.Difficulty == Settings.DifficultyHard ? hardDamage : normalDamage;
+
+    public static int HostilePopulationCap => Settings.Difficulty switch
+    {
+        Settings.DifficultyPeaceful => 0,
+        Settings.DifficultyHard => 10,
+        _ => 7,
+    };
+
+    public static int ExperienceReward(Mob mob) =>
+            mob is EmberWarden ? 25 : mob.IsPassive ? 1 : 5;
+
     public static bool CanAttack(float cooldownRemaining, bool hasLineOfSight) =>
             cooldownRemaining <= 0.0f && hasLineOfSight;
 

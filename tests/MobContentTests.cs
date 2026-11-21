@@ -102,6 +102,8 @@ public static class MobContentTests
                 "terrain impact prevents projectile damage through walls");
         TestAssert.Check(!MobProjectileRules.ShouldDamagePlayer(false, false),
                 "non-player overlap cannot take projectile damage");
+        TestAssert.Check(!MobProjectileRules.ShouldDamagePlayer(true, false, true),
+                "hostile projectiles cannot damage players in peaceful mode");
 
         // Wildlife uses the existing food inventory and persisted item ids.
         TestAssert.Check(sheep.IsPassive, "sheep uses passive wildlife behavior");
