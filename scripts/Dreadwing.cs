@@ -109,7 +109,7 @@ public partial class Dreadwing : Mob
             if (_windup <= 0.0f)
             {
                 _attackCooldown = 2.0;
-                if (distance < 2.7f && player.ApplyDamage(new DamageInfo(3.0f,
+                if (distance < 2.7f && player.ApplyDamage(new DamageInfo(MobCombatRules.DamageForDifficulty(3.0f, 3.6f),
                         DamageKind.Melee, GlobalPosition, 3.0f, 2.0f)))
                 {
                     Manager?.Lunge(this);

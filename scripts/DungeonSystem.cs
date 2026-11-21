@@ -33,6 +33,12 @@ public partial class DungeonSystem : Node
             return;
         }
 
+        if (Settings.Difficulty == Settings.DifficultyPeaceful)
+        {
+            _hud?.HideBoss();
+            return;
+        }
+
         if (_warden is not null && IsInstanceValid(_warden) && !_warden.Dead)
         {
             _hud?.ShowBoss("EMBER WARDEN", _warden.Health, _warden.MaxHealth);

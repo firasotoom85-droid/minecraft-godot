@@ -2,6 +2,36 @@ using Godot;
 
 namespace Minecraft;
 
+/// <summary>Atomic inventory-side barter rules shared by the trader UI and progression tests.</summary>
+public static class TraderTradeRules
+{
+    public static bool CanExecute(Inventory inventory, ItemId give, int giveCount,
+            ItemId get, int getCount) =>
+            give != ItemId.None && get != ItemId.None && giveCount > 0 && getCount > 0
+            && inventory.CountOf(give) >= giveCount && inventory.CanFit(get, getCount);
+
+    public static bool TryExecute(Inventory inventory, ItemId give, int giveCount,
+            ItemId get, int getCount)
+    {
+        if (!CanExecute(inventory, give, giveCount, get, getCount)
+                || !inventory.Consume(give, giveCount))
+        {
+            return false;
+        }
+
+        // CanFit is checked before consuming, so this add must be all-or-nothing.
+        // Keep a defensive rollback in case inventory rules change in the future.
+        int leftover = inventory.Add(get, getCount);
+        if (leftover > 0)
+        {
+            inventory.Add(give, giveCount);
+            return false;
+        }
+
+        return true;
+    }
+}
+
 /// <summary>Barter panel for the wandering trader. Trades use gold as currency.</summary>
 public partial class TraderUi : CanvasLayer, IModalUi
 {
@@ -14,6 +44,7 @@ public partial class TraderUi : CanvasLayer, IModalUi
         new("Buy 4 Wheat Seeds ← 1 Gold Ingot", ItemId.GoldIngot, 1, ItemId.Seeds, 4),
         new("Buy 4 Glass ← 1 Gold Ingot", ItemId.GoldIngot, 1, ItemId.Glass, 4),
         new("Buy 8 Wool ← 1 Gold Ingot", ItemId.GoldIngot, 1, ItemId.Wool, 8),
+        new("Buy 1 Lapis Lazuli ← 2 Gold Ingots", ItemId.GoldIngot, 2, ItemId.LapisLazuli, 1),
     ];
 
     private Player _player = null!;
@@ -129,18 +160,23 @@ public partial class TraderUi : CanvasLayer, IModalUi
 
     private void TryTrade(Offer offer)
     {
-        if (_player.Inventory.CountOf(offer.Give) < offer.GiveCount)
+        int available = _player.Inventory.CountOf(offer.Give);
+        if (available < offer.GiveCount)
         {
-            _hud.ShowToast($"Need {offer.GiveCount - _player.Inventory.CountOf(offer.Give)} more {ItemDb.NameOf(offer.Give)}");
+            _hud.ShowToast($"Need {offer.GiveCount - available} more {ItemDb.NameOf(offer.Give)}");
             return;
         }
 
-        _player.Inventory.Consume(offer.Give, offer.GiveCount);
-        int leftover = _player.Inventory.Add(offer.Get, offer.GetCount);
-        if (leftover > 0)
+        if (!_player.Inventory.CanFit(offer.Get, offer.GetCount))
         {
-            _player.Inventory.Add(offer.Give, offer.GiveCount);
-            _hud.ShowToast("Inventory full");
+            _hud.ShowToast("Make room for the trade output");
+            return;
+        }
+
+        if (!TraderTradeRules.TryExecute(_player.Inventory, offer.Give, offer.GiveCount,
+                offer.Get, offer.GetCount))
+        {
+            _hud.ShowToast("Trade could not be completed");
             return;
         }
 

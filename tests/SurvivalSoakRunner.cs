@@ -43,6 +43,8 @@ public partial class SurvivalSoakRunner : Node
         _world = _main.GetNode<VoxelWorld>("World");
         _player = _main.GetNode<Player>("Player");
         _mobs = _main.GetNode<Mobs>("Mobs");
+        Settings.Difficulty = Settings.DifficultyNormal;
+        _player.SetMode(GameMode.Survival);
         _surfacePosition = _world.FindSpawn();
         _player.GlobalPosition = _surfacePosition;
         GD.Print($"SURVIVAL SOAK: initialized main scene, duration={_duration:0}s");
@@ -121,6 +123,8 @@ public partial class SurvivalSoakRunner : Node
 
     private void StartScenario()
     {
+        Settings.Difficulty = Settings.DifficultyNormal;
+        _player.SetMode(GameMode.Survival);
         _started = true;
         _world.TimeOfDay = 0.78;
         _mobs.WeatherRef!.Current = Weather.State.Storm;

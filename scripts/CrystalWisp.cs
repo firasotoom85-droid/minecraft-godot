@@ -85,7 +85,8 @@ public partial class CrystalWisp : Mob
             {
                 _shotCooldown = 2.8;
                 Manager?.FireProjectile(GlobalPosition + new Vector3(0, 0.6f, 0),
-                        player.GlobalPosition + new Vector3(0, 1.0f, 0), 2.5f,
+                        player.GlobalPosition + new Vector3(0, 1.0f, 0),
+                        MobCombatRules.DamageForDifficulty(2.5f, 3.0f),
                         new Color(0.42f, 0.88f, 1.0f), 8.5f, "mobcrystal");
             }
         }

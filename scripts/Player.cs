@@ -620,6 +620,12 @@ public partial class Player : CharacterBody3D, IDamageable
     /// <summary>All incoming hurt routes here; creative and invulnerability refuse it.</summary>
     public bool ApplyDamage(in DamageInfo info)
     {
+        // Refuse invalid/deferred hits before shield durability or feedback can be consumed.
+        if (!EquipmentProgression.ShouldProcessIncomingDamage(info.Amount, Mode, Stats.Invulnerable))
+        {
+            return false;
+        }
+
         float amount = info.Amount;
         ItemStack held = Inventory.Hotbar[Selected];
         if (Mode == GameMode.Survival && EquipmentProgression.BlocksWithShield(held, -GlobalTransform.Basis.Z, GlobalPosition, info))
@@ -629,13 +635,13 @@ public partial class Player : CharacterBody3D, IDamageable
             return false;
         }
         // Armor protects against physical/environmental hits, not hunger or drowning.
-        if (info.Kind is not (DamageKind.Drown or DamageKind.Starve))
+        if (EquipmentProgression.ShouldDamageArmor(info.Kind))
         {
             amount *= 1.0f - ArmorReduction;
         }
 
         bool applied = Stats.ApplyDamage(amount, Mode);
-        if (applied)
+        if (applied && EquipmentProgression.ShouldDamageArmor(info.Kind))
         {
             DamageArmor();
         }
@@ -673,15 +679,7 @@ public partial class Player : CharacterBody3D, IDamageable
         }
     }
 
-    private float ArmorReduction
-    {
-        get
-        {
-            float remaining = 1.0f - Mathf.Clamp(ArmorPoints * 0.04f, 0.0f, 0.80f);
-            foreach (ItemStack piece in Inventory.Armor) remaining *= EquipmentProgression.ProtectionMultiplier(piece);
-            return 1.0f - remaining;
-        }
-    }
+    private float ArmorReduction => 1.0f - EquipmentProgression.ArmorDamageMultiplier(Inventory);
 
     /// <summary>Every landed hit wears each equipped piece by one point.</summary>
     private void DamageArmor()
@@ -866,12 +864,38 @@ public partial class Player : CharacterBody3D, IDamageable
     /// <summary>One melee swing: tool tier picks the damage, swing cadence is capped.</summary>
     private void Swing(IDamageable target)
     {
-        double now=Time.GetTicksMsec()/1000.0; ItemStack held=Inventory.Hotbar[Selected]; WeaponInfo? weapon=ItemDb.WeaponOf(held.Id);
-        double cooldown=weapon is { AttackSpeed: > 0 } w?w.AttackSpeed:SwingCooldown; if(now-_lastSwing<cooldown)return;
-        _lastSwing=now;StartPunch();float damage=(weapon?.Damage??(1+(ItemDb.ToolOf(held.Id)?.Tier??0)))+EquipmentProgression.SharpnessBonus(held);
-        bool critical=!IsOnFloor()&&Velocity.Y< -0.1f;if(critical)damage*=1.5f;float knockback=weapon?.Knockback??3;
-        bool landed=target.ApplyDamage(new DamageInfo(damage,DamageKind.Melee,GlobalPosition,knockback,1.5f));
-        if(landed&&weapon is not null)Inventory.DamageEquipment(Selected);if(landed&&critical)EmitSignal(SignalName.Notice,"Critical hit!");
+        double now = Time.GetTicksMsec() / 1000.0;
+        ItemStack held = Inventory.Hotbar[Selected];
+        WeaponInfo? weapon = ItemDb.WeaponOf(held.Id);
+        ToolInfo? tool = ItemDb.ToolOf(held.Id);
+        double cooldown = weapon is { AttackSpeed: > 0 } w ? w.AttackSpeed : SwingCooldown;
+        if (now - _lastSwing < cooldown)
+        {
+            return;
+        }
+
+        _lastSwing = now;
+        StartPunch();
+        float damage = (weapon?.Damage ?? (1.0f + (tool?.Tier ?? 0)))
+                + EquipmentProgression.SharpnessBonus(held);
+        bool critical = !IsOnFloor() && Velocity.Y < -0.1f;
+        if (critical)
+        {
+            damage *= 1.5f;
+        }
+
+        float knockback = weapon?.Knockback ?? 3.0f;
+        bool landed = target.ApplyDamage(new DamageInfo(
+                damage, DamageKind.Melee, GlobalPosition, knockback, 1.5f));
+        if (landed && EquipmentProgression.ShouldConsumeMeleeDurability(held.Id))
+        {
+            Inventory.DamageEquipment(Selected);
+        }
+
+        if (landed && critical)
+        {
+            EmitSignal(SignalName.Notice, "Critical hit!");
+        }
     }
 
     public Vector3I TargetBlock()

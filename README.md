@@ -186,12 +186,42 @@ loss. Breath recovers above water; mining is slower while fully submerged.
 
 Survival combat includes tiered swords, a bow with gravity-driven arrow projectiles,
 front-facing shield blocks against melee and ranged attacks, and armor mitigation.
-Mob defeats award experience; Crystal Wisps can drop lapis lazuli. Craft an **Enchanting Table** from two diamonds, two iron ingots, and one lapis lazuli;
-right-click it to open the dedicated station. Its **Enchant / Upgrade** panel applies Sharpness, Protection, and Unbreaking (I–III)
-using experience levels and lapis, and upgrades supported gear while preserving
-its remaining durability and enchantments. Experience and enchantment levels are
-stored in the existing player/inventory save files; old saves default these fields
-to zero.
+Mob defeats award experience; Crystal Wisps remain a renewable lapis source, and
+the wandering trader now sells one lapis for two gold ingots as a predictable
+fallback. Craft an **Enchanting Table** from two diamonds, two iron ingots, and
+one lapis lazuli; right-click it to open the dedicated station. Its **Enchant /
+Upgrade** panel applies Sharpness, Protection, and Unbreaking (I–III) using
+experience levels and lapis, and upgrades supported gear while preserving its
+remaining durability and enchantments. Failed trades do not consume currency
+when the output cannot fit in the inventory.
+
+The progression is wood → stone → iron → diamond, with mining harvest gates
+preserved: stone picks unlock iron ore, while iron picks unlock gold and diamond
+ore. Ore is depth-banded with seeded V7 veins; mountains have denser gold and
+diamond hash sampling. One coal burns for 80 seconds and smelts eight items at
+ten seconds each; logs burn for 60 seconds, planks for 15, and sticks for five.
+Furnace updates carry elapsed time across fuel boundaries, including larger
+frame steps. Raw meat is low-value food; cooked meat restores 5–7 hunger and
+heals one health, and bread offers a farmable five-hunger/one-health option.
+
+Armor points reduce physical damage by four percent per point, capped at 80%
+base mitigation; Protection then reduces the remaining damage by four percent
+per enchantment level on each piece. Full iron armor has 15 points (60% base
+reduction) and full diamond armor has 20 (80%). Starvation and drowning bypass
+armor mitigation and do not wear armor. Other landed physical/environmental hits
+wear equipped armor; successful shield blocks wear the shield. Tools used as
+emergency melee weapons also consume their durability on a landed hit.
+
+Peaceful mode suppresses hostile spawns, cancels pending hostile attacks,
+removes hostile projectiles and keeps the Ember Warden dormant.
+Normal and hard share the same enemy health pools and encounter structure; hard
+raises hostile damage and increases the surface/cave hostile population cap from
+seven to ten. The Warden has 120 health, two add-summon thresholds, deals four
+(normal) or five (hard) damage with its slam, and guarantees an Ember Core plus
+25 experience on defeat. Experience and enchantment levels are stored in the
+existing player/inventory save files; old saves default these fields to zero.
+See [`docs/SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md`](docs/SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md)
+for the balance table, deterministic scenarios and verification record.
 
 ## World saves
 

@@ -92,7 +92,7 @@ public partial class EmberWarden : Mob
                 if (d < SlamRange && _slamCd <= 0.0)
                 {
                     _slamCd = SlamCooldown;
-                    float damage = Settings.Difficulty == Settings.DifficultyHard ? 5.0f : 4.0f;
+                    float damage = MobCombatRules.DamageForDifficulty(4.0f, 5.0f);
                     if (player.ApplyDamage(new DamageInfo(
                             damage, DamageKind.Melee, GlobalPosition, 5.0f, 3.0f)))
                     {
@@ -104,7 +104,7 @@ public partial class EmberWarden : Mob
                 else if (d < VolleyRange && _volleyCd <= 0.0)
                 {
                     _volleyCd = VolleyCooldown;
-                    float damage = Settings.Difficulty == Settings.DifficultyHard ? 3.0f : 2.0f;
+                    float damage = MobCombatRules.DamageForDifficulty(2.0f, 3.0f);
                     if (player.ApplyDamage(new DamageInfo(
                             damage, DamageKind.Fire, GlobalPosition, 1.0f, 0.5f)))
                     {

@@ -85,31 +85,53 @@ public partial class Mobs : Node
         bool dark = DayNight.IsNight(World.TimeOfDay) || IsStorm;
         if (Settings.Difficulty == Settings.DifficultyPeaceful && _hostiles.Count > 0)
         {
-            foreach (Mob mob in _hostiles)
+            // Remove before QueueFree: deletion is deferred until the frame
+            // boundary, so validity filtering here would retain the wrapper
+            // and let the next frame read its disposed Node3D properties.
+            for (int i = _hostiles.Count - 1; i >= 0; i--)
             {
-                Puff(mob.GlobalPosition + new Vector3(0, 1.0f, 0), new Color(0.30f, 0.26f, 0.38f));
+                Mob mob = _hostiles[i];
+                _hostiles.RemoveAt(i);
+                if (!GodotObject.IsInstanceValid(mob))
+                {
+                    continue;
+                }
+
+                Vector3 position = mob.GlobalPosition;
+                Puff(position + new Vector3(0, 1.0f, 0), new Color(0.30f, 0.26f, 0.38f));
                 mob.QueueFree();
             }
-
-            _hostiles.Clear();
         }
         else if (!dark)
         {
             // Surface-only hostiles retreat at dawn. Cave fauna and the
             // dungeon boss are not affected by the surface day/night cycle.
-            foreach (Mob mob in _hostiles)
+            // Remove each surface actor from the population before deferred
+            // freeing so it cannot be revisited on the next population tick.
+            for (int i = _hostiles.Count - 1; i >= 0; i--)
             {
-                if (mob is EmberWarden or CaveStalker or CrystalWisp or Dreadwing
-                        || IsUnderground(mob.GlobalPosition))
+                Mob mob = _hostiles[i];
+                if (!GodotObject.IsInstanceValid(mob))
+                {
+                    _hostiles.RemoveAt(i);
+                    continue;
+                }
+
+                if (mob is EmberWarden or CaveStalker or CrystalWisp or Dreadwing)
                 {
                     continue;
                 }
 
-                Puff(mob.GlobalPosition + new Vector3(0, 1.0f, 0), new Color(0.28f, 0.24f, 0.36f));
+                Vector3 position = mob.GlobalPosition;
+                if (IsUnderground(position))
+                {
+                    continue;
+                }
+
+                _hostiles.RemoveAt(i);
+                Puff(position + new Vector3(0, 1.0f, 0), new Color(0.28f, 0.24f, 0.36f));
                 mob.QueueFree();
             }
-
-            _hostiles.RemoveAll(mob => !IsInstanceValid(mob));
         }
 
         _timer -= delta;
@@ -133,7 +155,7 @@ public partial class Mobs : Node
         if (_hostileTimer <= 0.0)
         {
             _hostileTimer = IsStorm ? 2.8 : 5.5;
-            int cap = Settings.Difficulty == Settings.DifficultyHard ? 10 : 7;
+            int cap = MobCombatRules.HostilePopulationCap;
             if (Settings.Difficulty != Settings.DifficultyPeaceful && _hostiles.Count < cap)
             {
                 bool underground = IsUnderground(PlayerRef.GlobalPosition);
@@ -609,7 +631,7 @@ public partial class Mobs : Node
         int x = Mathf.FloorToInt(point.X);
         int z = Mathf.FloorToInt(point.Z);
         Biome biome = World.BiomeAt(x, z, World.SurfaceHeight(x, z));
-        int cap = Settings.Difficulty == Settings.DifficultyHard ? 10 : 7;
+        int cap = MobCombatRules.HostilePopulationCap;
         int roll = _rng.RandiRange(0, 99);
 
         // Keep the rare flier to one active encounter at a time.
@@ -663,6 +685,11 @@ public partial class Mobs : Node
     {
         bool hostile = kind is "shade" or "rot" or "hollow" or "warden"
                 or "stalker" or "briarback" or "crystalwisp" or "dreadwing";
+        if (count <= 0 || (hostile && Settings.Difficulty == Settings.DifficultyPeaceful))
+        {
+            return 0;
+        }
+
         int spawned = 0;
         for (int i = 0; i < count; i++)
         {
@@ -710,6 +737,11 @@ public partial class Mobs : Node
     /// <summary>Dungeon hook: place the boss at an exact arena position.</summary>
     public EmberWarden? SpawnWarden(Vector3 pos)
     {
+        if (Settings.Difficulty == Settings.DifficultyPeaceful)
+        {
+            return null;
+        }
+
         EmberWarden warden = new();
         SpawnMob(warden, pos, 0.2f, true);
         return warden;
@@ -718,6 +750,11 @@ public partial class Mobs : Node
     /// <summary>Boss phase hook: summon adds around an arena position.</summary>
     public void SpawnAdds(Vector3 center, int count)
     {
+        if (Settings.Difficulty == Settings.DifficultyPeaceful || count <= 0)
+        {
+            return;
+        }
+
         for (int i = 0; i < count; i++)
         {
             float angle = i * Mathf.Tau / Mathf.Max(count, 1);
@@ -730,19 +767,29 @@ public partial class Mobs : Node
     /// <summary>Respawn/sleep safety: poof hostile mobs within radius of a point.</summary>
     public void ClearHostilesNear(Vector3 pos, float radius)
     {
-        foreach (Mob mob in _hostiles)
+        float radiusSquared = radius * radius;
+        for (int i = _hostiles.Count - 1; i >= 0; i--)
         {
-            if (mob.GlobalPosition.DistanceSquaredTo(pos) > radius * radius)
+            Mob mob = _hostiles[i];
+            if (!GodotObject.IsInstanceValid(mob))
+            {
+                _hostiles.RemoveAt(i);
+                continue;
+            }
+
+            Vector3 mobPosition = mob.GlobalPosition;
+            if (mobPosition.DistanceSquaredTo(pos) > radiusSquared)
             {
                 continue;
             }
 
-            Puff(mob.GlobalPosition + new Vector3(0, 1.0f, 0),
+            // QueueFree is deferred; remove from the live-population collection
+            // before the node becomes a disposed wrapper on a later frame.
+            _hostiles.RemoveAt(i);
+            Puff(mobPosition + new Vector3(0, 1.0f, 0),
                     new Color(0.30f, 0.26f, 0.38f));
             mob.QueueFree();
         }
-
-        _hostiles.RemoveAll(mob => !IsInstanceValid(mob));
     }
 
     // -----------------------------------------------------------------------
@@ -751,6 +798,11 @@ public partial class Mobs : Node
 
     private void OnMobDied(Mob mob)
     {
+        // Remove synchronously while the dying actor is still valid. Mob.Die
+        // queues deletion after raising this event, which is too late for
+        // deferred validity-based pruning in the population manager.
+        _passive.Remove(mob);
+        _hostiles.Remove(mob);
         Vector3 pos = mob.GlobalPosition + new Vector3(0, 0.7f, 0);
         bool passive = mob.IsPassive;
         Puff(pos, passive ? new Color(0.90f, 0.88f, 0.84f)
@@ -767,7 +819,7 @@ public partial class Mobs : Node
         SoundRef?.Play(sound, pos, passive ? 1.0f : 0.9f, -2.0f);
 
         if (PlayerRef == null) return;
-        int experience = mob is EmberWarden ? 25 : passive ? 1 : 5;
+        int experience = MobCombatRules.ExperienceReward(mob);
         PlayerRef.Stats.AddExperience(experience);
         PlayerRef.EmitSignal(Player.SignalName.Notice, $"+{experience} XP");
         if (mob.Loot.Length == 0) return;

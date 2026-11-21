@@ -134,7 +134,7 @@ public partial class Shade : Mob
                     if (MobCombatRules.CanAttack((float)_attackCd, visible))
                     {
                         _attackCd = AttackCooldown;
-                        float damage = Settings.Difficulty == Settings.DifficultyHard ? 3.0f : 2.0f;
+                        float damage = MobCombatRules.DamageForDifficulty(2.0f, 3.0f);
                         bool hit = player.ApplyDamage(new DamageInfo(
                                 damage, DamageKind.Melee, GlobalPosition, 4.0f, 2.5f));
                         if (hit)
