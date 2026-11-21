@@ -127,10 +127,16 @@ public partial class Villager : Mob
         return $"{greeting}\n{role}";
     }
 
-    public VillagerSave ToSave() => new(
-            ResidentId, DisplayName, (int)Profession,
-            [GlobalPosition.X, GlobalPosition.Y, GlobalPosition.Z],
-            [Home.X, Home.Y, Home.Z],
-            [_work.X, _work.Y, _work.Z],
-            Health, TradesCompleted);
+    public VillagerSave ToSave()
+    {
+        // VillageSystem snapshots residents from _ExitTree after the scene has
+        // already removed them from the tree; Position remains valid there.
+        Vector3 position = IsInsideTree() ? GlobalPosition : Position;
+        return new VillagerSave(
+                ResidentId, DisplayName, (int)Profession,
+                [position.X, position.Y, position.Z],
+                [Home.X, Home.Y, Home.Z],
+                [_work.X, _work.Y, _work.Z],
+                Health, TradesCompleted);
+    }
 }

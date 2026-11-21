@@ -37,9 +37,17 @@ public partial class TestRunner : Node
         RunSuite("fluid-world", () => FluidWorldTests.Run(this));
         RunSuite("boats-buckets", () => BoatBucketTests.Run(this));
         RunSuite("save", SaveTests.Run);
+        RunSuite("integration", () => IntegrationTests.Run(this));
         RunSuite("world-archives", WorldArchiveTests.Run);
         RunSuite("worldgen", () => WorldgenTests.Run(this));
         await RunSuiteAsync("mob-perception", () => MobPerceptionTests.Run(this));
+
+        // Tests queue-free their temporary worlds, mobs and physics bodies.
+        // Give the tree two frames so deferred deletion runs before shutdown;
+        // otherwise Godot reports those still-queued nodes as leaked objects.
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
         GD.Print($"minecraft tests: {TestAssert.Checks} checks, {TestAssert.Failures} failures");
         GetTree().Quit(TestAssert.Failures == 0 ? 0 : 1);
     }
@@ -100,5 +108,14 @@ public static class TestAssert
     public static void Empty(System.Collections.Generic.List<string> errors, string message)
     {
         Check(errors.Count == 0, $"{message}: {string.Join("; ", errors)}");
+    }
+
+    /// <summary>Release synchronously created node fixtures at the end of a suite.</summary>
+    public static void FreeAll(params GodotObject[] objects)
+    {
+        foreach (GodotObject value in objects)
+        {
+            if (GodotObject.IsInstanceValid(value)) value.Free();
+        }
     }
 }

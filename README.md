@@ -126,6 +126,13 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
+The integrated 2026-11-21 suite reports **4,192 checks, 0 failures** across 27
+suites, with 0 build warnings. It includes the combined save round-trip
+(shapes + villagers + quests + boats), quest reward wiring, fluid/shape
+boundaries, legacy saves, every pinned block/item ID and V1–V8 golden chunk
+hashes. The headless runner and a verbose real-scene soak both exit without
+leaked ObjectDB instances or RIDs.
+
 ### World-generation visual validation
 
 V8 was inspected in the real 3D game scene using Godot 4.7.2 .NET, Forward+
@@ -133,6 +140,12 @@ Vulkan rendering and an NVIDIA GPU. Baseline and V8 captures use matching
 coordinates for a steep river bank, river valley, mountain, forest and cave
 region. The paired images and findings are in
 [`docs/worldgen/V8_VISUAL_VALIDATION.md`](docs/worldgen/V8_VISUAL_VALIDATION.md).
+
+A fresh integrated-build capture at seed 1337 (V8, river valley at 512,-372)
+rendered 49 chunks at 1600×900, and a second capture at the deterministic seed
+1337 village (-684,1303) showed generated houses, paths and farmland in the
+real scene. Both exited without off-tree transform errors after the resident
+save path was fixed. These inspection frames were not committed as new assets.
 
 Capture another seed/coordinate from the real scene with:
 
@@ -382,8 +395,8 @@ completion and reward claims persist in `world.json`.
   across every biome, preset and UI state.
 - **Soak coverage is headless.** The 5- and 60-minute survival soaks exercise
   the real main scene, physics, mobs, weather, saves and cleanup, but they do not
-  replace a human combat, building or visual playtest. The 60-minute result is
-  recorded below when the run completes.
+  replace a human combat, building or visual playtest. The five-minute run is
+  recorded below; the one-hour run uses the same pass criteria.
 - **High-end hardware not measured.** Performance was recorded on the MX230
   laptop only; no RTX 4060-class machine was available for comparison.
 - **Debug-build meshing cost.** Chunk mesh builds are expensive in Debug on the
@@ -423,7 +436,8 @@ negative-coordinate chunk boundary, emitter removal, actual player mining and
 placement signals, acoustic investigation, parent following, freed-reference
 pruning, and a terrain physics blocker. The opt-in survival soak also injects
 sound stimuli and checks creature positions and observed acoustic investigations.
-A five-minute main-scene soak has passed with capped populations, eight cave
-encounters, 254 sound investigations, and no non-finite creature positions.
-The runner defaults to one hour; that full 3600-second run remains a separate
-long-duration validation target.
+A five-minute main-scene soak passed with capped populations, eight cave
+encounters, 218 sound investigations, 22,621 juvenile observations, successful
+save/reload, temporary-world cleanup and no non-finite creature positions. The
+runner defaults to one hour; that full 3600-second run is recorded in the
+integration report and is separate from a human combat or visual playtest.

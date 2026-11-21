@@ -32,8 +32,16 @@ public partial class BoatSystem : Node
     public override void _Process(double delta)
     {
         if (_world == null) return;
-        foreach (Boat boat in _boats)
+        for (int i = _boats.Count - 1; i >= 0; i--)
         {
+            Boat boat = _boats[i];
+            if (!GodotObject.IsInstanceValid(boat))
+            {
+                _lastDirtyPositions.Remove(boat);
+                _boats.RemoveAt(i);
+                continue;
+            }
+
             Vector3 position = boat.GlobalPosition;
             if (!_lastDirtyPositions.TryGetValue(boat, out Vector3 last)
                     || last.DistanceSquaredTo(position) >= 4.0f)

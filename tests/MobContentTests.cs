@@ -182,5 +182,9 @@ public static class MobContentTests
         TestAssert.Check(shade.Loot.Length > 0, "Shade has a loot table");
         TestAssert.Check(rot.Loot.Length > 0, "Rot has a loot table");
         TestAssert.Check(hollow.Loot.Length > 0, "Hollow has a loot table");
+
+        TestAssert.FreeAll(cow, pig, chicken, rot, hollow, sheep, sheepPartner,
+                briarback, stalker, wisp, dreadwing, shade,
+                sheepFeeder, partnerFeeder, cowFeeder, chickenFeeder);
     }
 }

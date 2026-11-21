@@ -120,7 +120,9 @@ public static class VillageStructures
 
             if (dx == 0 || dz == 0)
             {
-                put(x + dx, y + 1, z + dz, BlockId.Water);
+                // Source water sits level with the farmland, one block below
+                // the crops, and the outer dirt rim keeps it from spilling.
+                put(x + dx, y, z + dz, BlockId.Water);
                 continue;
             }
 

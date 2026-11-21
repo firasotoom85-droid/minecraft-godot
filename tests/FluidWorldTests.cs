@@ -56,6 +56,7 @@ public static class FluidWorldTests
         TestAssert.Equal(BlockId.Cobblestone, world.GetBlock(3, 50, 4),
                 "water contact converts adjacent lava to cobblestone");
 
+        fluids.Free();
         host.RemoveChild(world);
         world.QueueFree();
         DirAccess.RemoveAbsolute(dir + "/manifest.json");

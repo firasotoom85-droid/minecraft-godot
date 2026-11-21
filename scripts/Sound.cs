@@ -881,6 +881,27 @@ public partial class Sound : Node
         return wav;
     }
 
+    public override void _ExitTree()
+    {
+        // Release active playbacks and the generated stream cache before the
+        // audio server shuts down. Voice players are children of this node and
+        // are freed with the rest of the main scene.
+        foreach (AudioStreamPlayer3D voice in _voicePlayers)
+        {
+            voice.Stop();
+            voice.Stream = null;
+        }
+
+        foreach (AudioStreamPlayer player in new[] { _wind, _rain, _crickets, _thunderPlayer })
+        {
+            if (player == null) continue;
+            player.Stop();
+            player.Stream = null;
+        }
+
+        _streams.Clear();
+    }
+
     private static AudioStreamWav SynthThunder()
     {
         const double seconds = 3.4;

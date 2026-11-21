@@ -23,5 +23,6 @@ public static class FishingTests
         Trader trader = new();
         TestAssert.Equal("Wanderer", trader.DisplayName, "trader name");
         TestAssert.Equal(20.0f, trader.MaxHealth, "trader health");
+        trader.Free();
     }
 }

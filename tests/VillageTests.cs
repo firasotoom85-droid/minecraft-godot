@@ -11,6 +11,7 @@ public static class VillageTests
     {
         CheckBiomeThemes();
         CheckDeterministicVillageStampAndChunkSeams();
+        CheckIrrigatedFarmStaysContained();
         CheckRosterAndSchedules();
         CheckGoldTrades();
         CheckQuestStages();
@@ -69,6 +70,27 @@ public static class VillageTests
                 "village block output is deterministic");
     }
 
+    private static void CheckIrrigatedFarmStaysContained()
+    {
+        VillageInfo site = new(VillageTheme.Plains, 32, 64, 32, 0, 0, 0xFA44u);
+        Dictionary<Vector3I, BlockId> blocks = [];
+        VillageStructures.Stamp(site, (x, y, z, id) => blocks[new Vector3I(x, y, z)] = id);
+
+        // Farm centre is a water channel level with the farmland; the crop row
+        // above it must stay clear and the outer dirt rim must hold the water.
+        int farmX = site.X + 17;
+        int farmZ = site.Z + 1;
+        TestAssert.Equal(BlockId.Water, blocks[new Vector3I(farmX, site.Y, farmZ)],
+                "farm channel is a source at farmland height");
+        TestAssert.Check(!blocks.ContainsKey(new Vector3I(farmX, site.Y + 1, farmZ)),
+                "no water sits above the farm channel");
+        TestAssert.Equal(BlockId.Dirt, blocks[new Vector3I(farmX + 4, site.Y, farmZ)],
+                "farm rim is solid dirt beside the channel");
+        BlockId crop = blocks.GetValueOrDefault(new Vector3I(farmX + 1, site.Y + 1, farmZ + 1));
+        TestAssert.Check(crop is BlockId.Wheat0 or BlockId.Wheat1,
+                "crops occupy the farmland row");
+    }
+
     private static void CheckRosterAndSchedules()
     {
         VillageInfo site = new(VillageTheme.Forest, -420, 72, 128, -2, 0, 654321u);
@@ -85,6 +107,14 @@ public static class VillageTests
         TestAssert.Equal(VillagerSchedule.Activity.Work, VillagerSchedule.ActivityAt(0.4), "morning schedule goes to work");
         TestAssert.Equal(VillagerSchedule.Activity.Gathering, VillagerSchedule.ActivityAt(0.62), "afternoon schedule gathers");
         TestAssert.Equal(VillagerSchedule.Activity.Home, VillagerSchedule.ActivityAt(0.8), "evening schedule returns home");
+
+        Villager detached = new(first[0], first[0].Id);
+        detached.Position = new Vector3(3.25f, 74.5f, -8.75f);
+        VillagerSave snapshot = detached.ToSave();
+        Vector3 savedPosition = new(snapshot.Position![0], snapshot.Position[1], snapshot.Position[2]);
+        TestAssert.Equal(new Vector3(3.25f, 74.5f, -8.75f), savedPosition,
+                "resident snapshot uses a valid local transform when saved off-tree");
+        detached.Free();
     }
 
     private static void CheckGoldTrades()
