@@ -98,7 +98,6 @@ public partial class QuestSystem : Node
         _world.Flags[flag] = true;
         _world.MarkDirty();
         Report(QuestObjectiveKind.ExploreBiome, biome.ToString(), 1);
-        Report(QuestObjectiveKind.ExploreBiome, "any", 1);
     }
 
     public IReadOnlyList<QuestDefinition> AvailableFor(VillagerProfession profession)

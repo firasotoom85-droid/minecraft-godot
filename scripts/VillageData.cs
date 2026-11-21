@@ -59,10 +59,10 @@ public static class VillageGenerator
         (VillagerProfession Profession, int X, int Z, int WorkX, int WorkZ)[] residents =
         [
             (VillagerProfession.Farmer, 9, -9, 17, 1),
-            (VillagerProfession.Blacksmith, -9, 9, -9, 9),
-            (VillagerProfession.Librarian, 9, 9, 9, 9),
+            (VillagerProfession.Blacksmith, -9, 9, -7, 7),
+            (VillagerProfession.Librarian, 9, 9, 11, 7),
             (VillagerProfession.Merchant, -9, -9, 0, 0),
-            (VillagerProfession.Guard, 0, -16, 0, 0),
+            (VillagerProfession.Guard, 0, -16, 0, -16),
         ];
         VillagerSpawnInfo[] roster = new VillagerSpawnInfo[residents.Length];
         for (int i = 0; i < residents.Length; i++)

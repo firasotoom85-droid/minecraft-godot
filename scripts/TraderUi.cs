@@ -200,8 +200,13 @@ public partial class TraderUi : CanvasLayer, IModalUi
             return;
         }
 
-        _player.RecordTrade();
-        _villager?.RecordTrade();
+        // The route quest specifically asks for trades with village residents;
+        // wandering-trader barter remains separate from village reputation.
+        if (_villager != null)
+        {
+            _player.RecordTrade();
+            _villager.RecordTrade();
+        }
         _player.Inventory.RaiseChanged();
         _hud.ShowToast($"+{offer.GetCount} {ItemDb.NameOf(offer.Get)}");
         Refresh();

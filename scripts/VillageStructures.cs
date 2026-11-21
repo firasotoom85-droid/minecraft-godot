@@ -40,11 +40,12 @@ public static class VillageStructures
             put(x + dx, y + 4, z + dz, BlockId.Torch);
         }
 
-        House(put, x - 9, y, z - 9, log, wall, roof, floor, BlockId.Chest);
-        House(put, x + 9, y, z - 9, log, wall, roof, floor, BlockId.Furnace);
-        House(put, x - 9, y, z + 9, log, wall, roof, floor, BlockId.CraftingTable);
-        House(put, x + 9, y, z + 9, log, wall, roof, floor, BlockId.Chest);
-        House(put, x, y, z - 16, log, wall, roof, floor, BlockId.Furnace);
+        // Match workstations to the deterministic resident home/work anchors.
+        House(put, x - 9, y, z - 9, log, wall, roof, floor, BlockId.Chest);          // merchant
+        House(put, x + 9, y, z - 9, log, wall, roof, floor, BlockId.Chest);          // farmer
+        House(put, x - 9, y, z + 9, log, wall, roof, floor, BlockId.Furnace);        // blacksmith
+        House(put, x + 9, y, z + 9, log, wall, roof, floor, BlockId.CraftingTable); // librarian
+        GuardPost(put, x, y, z - 16, log);
         Farm(put, x + 17, y, z + 1, village.Theme);
 
         for (int dx = -2; dx <= 2; dx++)
@@ -52,6 +53,25 @@ public static class VillageStructures
             if (Math.Abs(dx) == 2 || Math.Abs(dz) == 2)
                 put(x + dx, y + 1, z + dz, BlockId.Cobblestone);
         put(x, y + 1, z, BlockId.Water);
+    }
+
+    private static void GuardPost(Action<int, int, int, BlockId> put,
+            int x, int y, int z, BlockId log)
+    {
+        for (int dx = -2; dx <= 2; dx++)
+        for (int dz = -2; dz <= 2; dz++)
+            put(x + dx, y, z + dz, BlockId.Cobblestone);
+
+        foreach (int sx in new[] { -2, 2 })
+        foreach (int sz in new[] { -2, 2 })
+        {
+            for (int dy = 1; dy <= 4; dy++)
+                put(x + sx, y + dy, z + sz, log);
+            put(x + sx, y + 5, z + sz, BlockId.Torch);
+        }
+
+        for (int dx = -2; dx <= 2; dx++)
+            put(x + dx, y + 4, z, BlockId.Planks);
     }
 
     private static void House(Action<int, int, int, BlockId> put,
