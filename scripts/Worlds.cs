@@ -25,16 +25,17 @@ public sealed record LegacySave(
     float[]? Player,
     double Time);
 
-/// <summary>World state (version 3): block edits, world clock, container
-/// inventories, furnace states and per-world flags. Every field past Time is
-/// optional so v2 saves load unchanged.</summary>
+/// <summary>World state. All fields after Time are optional so v2/v3 saves
+/// continue to load; village residents and quest progress are world-local.</summary>
 public sealed record WorldSave(
     int Version,
     Dictionary<string, Dictionary<string, BlockId>>? Edits,
     double Time,
     Dictionary<string, List<ItemStackSave>>? Containers = null,
     Dictionary<string, bool>? Flags = null,
-    Dictionary<string, FurnaceSave>? Furnaces = null);
+    Dictionary<string, FurnaceSave>? Furnaces = null,
+    Dictionary<string, VillagerSave>? Villagers = null,
+    Dictionary<string, QuestProgressSave>? Quests = null);
 
 /// <summary>Per-player state. Experience is optional and defaults to zero for legacy saves.</summary>
 public sealed record PlayerSave(
@@ -65,8 +66,8 @@ public sealed record FurnaceSave(
 /// </summary>
 public static class WorldStore
 {
-    public const int CurrentGenVersion = 7;
-    public const int WorldFormatVersion = 3;
+    public const int CurrentGenVersion = 8;
+    public const int WorldFormatVersion = 4;
     public const string WorldsRoot = "user://worlds";
     private const string LegacySavePath = "user://minecraft_save.json";
 

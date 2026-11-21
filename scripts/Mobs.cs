@@ -30,6 +30,8 @@ public partial class Mobs : Node
     public int PassiveCount => _passive.Count;
     public int HostileCount => _hostiles.Count;
 
+    public event System.Action<Mob>? MobDefeated;
+
     public EmberWarden? ActiveWarden
     {
         get
@@ -171,6 +173,23 @@ public partial class Mobs : Node
     // -----------------------------------------------------------------------
     // Shared local perception: herd cohesion, flight response and alerts.
     // -----------------------------------------------------------------------
+
+    /// <summary>Threat-only steering for villagers; the player is not treated as hostile.</summary>
+    public Vector3 HostileThreatDirection(Mob source, float radius)
+    {
+        Vector3 flee = Vector3.Zero;
+        float radiusSquared = radius * radius;
+        foreach (Mob threat in _hostiles)
+        {
+            if (!IsInstanceValid(threat) || threat.Dead || threat == source) continue;
+            Vector3 away = source.GlobalPosition - threat.GlobalPosition;
+            away.Y = 0.0f;
+            float distanceSquared = away.LengthSquared();
+            if (distanceSquared > 0.001f && distanceSquared < radiusSquared)
+                flee += away.Normalized() * (1.0f - Mathf.Sqrt(distanceSquared) / radius);
+        }
+        return flee.LengthSquared() > 0.01f ? flee.Normalized() : Vector3.Zero;
+    }
 
     public Vector3 FleeDirection(Mob source, float radius)
     {
@@ -751,6 +770,7 @@ public partial class Mobs : Node
 
     private void OnMobDied(Mob mob)
     {
+        MobDefeated?.Invoke(mob);
         Vector3 pos = mob.GlobalPosition + new Vector3(0, 0.7f, 0);
         bool passive = mob.IsPassive;
         Puff(pos, passive ? new Color(0.90f, 0.88f, 0.84f)
@@ -789,6 +809,7 @@ public partial class Mobs : Node
             int gained = count - leftover;
             if (gained > 0)
             {
+                PlayerRef.RecordGathered(id, gained);
                 PlayerRef.EmitSignal(Player.SignalName.Notice,
                         $"+{gained} {ItemDb.NameOf(id)}");
             }

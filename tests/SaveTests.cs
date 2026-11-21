@@ -85,8 +85,8 @@ public static class SaveTests
 
         WorldSave upgraded = new(WorldStore.WorldFormatVersion, old?.Edits, old?.Time ?? 0.5);
         string upgradedJson = JsonSerializer.Serialize(upgraded, WorldStore.Json);
-        TestAssert.Check(upgradedJson.Contains("\"version\":3"), "upgraded save writes version 3");
-        TestAssert.Equal(7, WorldStore.CurrentGenVersion, "new worlds use generator version 7");
+        TestAssert.Check(upgradedJson.Contains("\"version\":4"), "upgraded save writes version 4");
+        TestAssert.Equal(8, WorldStore.CurrentGenVersion, "new worlds use generator version 8");
 
         string worldDir = WorldStore.Create("Management Test", 424242);
         TestAssert.Check(WorldStore.Rename(worldDir, "Renamed World"), "world rename succeeds");

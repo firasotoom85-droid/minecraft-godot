@@ -222,12 +222,35 @@ to zero.
 Each world lives in `user://worlds/<id>/`:
 
 - `manifest.json` — seed, generator version, preset, spawn, play time.
-- `world.json` — edits, time, containers, furnaces, flags.
+- `world.json` — edits, time, containers, furnaces, flags, discovered villagers, and multi-stage quest progress.
 - `player.json` — position, inventory, mode, health, hunger, respawn, experience, and optional per-item enchantment levels.
 
 Writes are atomic (temp file + rename) and keep two rotating backups. Old
 worlds remain loadable: block/item ids are append-only and worldgen changes are
 gated behind generator versions.
+
+
+## Villages, residents and quests
+
+Generator V8 adds deterministic Plains, Forest, Snow and Desert settlements
+without changing the V7 terrain sampler. Villages are placed on dry, low-slope
+clearings and avoid existing surface structures, campfire clearings, cave
+openings and nearby underground chambers. Chunk-clipped houses, roads, a
+central square, light posts, chests, workstations and irrigated farms are
+stamped from the same site seed, including at negative chunk coordinates.
+Worlds generated with V1–V7 keep their original terrain and structure placement.
+
+Five named residents populate each discovered village: farmers, merchants,
+blacksmiths, librarians and guards. They follow home/work/gathering schedules,
+use the shared mob movement and obstacle-steering code, flee nearby hostiles,
+and offer profession-specific trades using the existing Gold Ingot economy.
+Resident identity, profession, home/work anchors, health, position and trade
+history are saved in optional V4 world fields.
+
+Talking to residents opens their trading and quest panel. The reusable quest
+service supports exploration, gathering, crafting, trading, combat and dungeon
+objectives, including multi-stage rewards. Quest acceptance, stage progress,
+completion and reward claims persist in `world.json`.
 
 ## Known limitations
 
