@@ -110,6 +110,13 @@ public static class MobPerceptionTests
             TestAssert.Check(manager.NoiseInvestigations > 0,
                     "manager records actual creature sound investigations");
 
+            Sheep queuedForDeletion = new();
+            TestAssert.Check(Mobs.IsTrackedMobUsable(queuedForDeletion),
+                    "live creature references are accepted by population maintenance");
+            queuedForDeletion.Free();
+            TestAssert.Check(!Mobs.IsTrackedMobUsable(queuedForDeletion),
+                    "freed creature references are rejected before population dereference");
+
             host.AddChild(parent);
             host.AddChild(juvenile);
             parent.SetPhysicsProcess(false);
