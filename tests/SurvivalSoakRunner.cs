@@ -298,7 +298,11 @@ public partial class SurvivalSoakRunner : Node
             if (slot >= 0)
             {
                 _player.Select(slot);
-                animal.Interact(_player);
+                bool interacted = animal.Interact(_player);
+                if (animal == _breedingParentA || animal == _breedingParentB)
+                {
+                    GD.Print($"SOAK BREED FEED: species={animal.DisplayName} selected={_player.Selected} slotItem={_player.Inventory.Hotbar[_player.Selected].Id} food={animal.BreedingFood} interacted={interacted} inLove={animal.InLove}");
+                }
             }
         }
     }
