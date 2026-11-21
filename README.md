@@ -57,6 +57,30 @@ The project is a long-running solo build with an extensive design log in
   and an automatic quality governor.
 - **Deterministic saves** — per-world folders, atomic writes, rotating backups,
   and byte-parity anchors so old worlds never change under new worldgen.
+- **Portable world management** — checksummed ZIP export/import, duplicate-name
+  handling, staged imports with path-traversal and archive-expansion protection,
+  backup browsing and safe restore, and per-world playtime/size metadata.
+
+
+## World management and portability
+
+Open **Play** and choose **Manage** on a world to view its seed, generator
+version, cumulative playtime, last-played timestamp, disk size, and available
+restore points. **Backups / Export** lists the rotating save snapshots and
+restores a selected valid snapshot only after confirmation; the current file is
+preserved as a safety backup during restoration.
+
+Use **Export ZIP** to create a portable archive containing the complete world
+folder, metadata, and available save backups. Use **Import ZIP** from the world
+selection screen to validate and import an archive. Imports are extracted to a
+staging directory, checked against the archive's SHA-256 file index, and only
+then moved into the worlds folder. Existing worlds are not overwritten; a
+name suffix is assigned when an imported world has a duplicate name. Archives
+with unsafe paths, links, unsupported save/generator versions, corrupt data
+without a valid backup, or excessive expanded size are rejected.
+
+Older manifests without a playtime field continue to load with zero playtime;
+existing world-save versions and generator versions are not rewritten by import.
 
 ## Requirements
 
