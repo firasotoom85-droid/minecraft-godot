@@ -126,7 +126,7 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-The integrated 2026-11-21 suite reports **4,217 checks, 0 failures** across 27
+The integrated 2026-11-21 suite reports **4,238 checks, 0 failures** across 28
 suites, with 0 build warnings. It includes the combined save round-trip
 (shapes + villagers + quests + boats), quest reward wiring, fluid/shape
 boundaries, legacy saves, every pinned block/item ID and V1–V8 golden chunk
@@ -134,6 +134,23 @@ hashes. The headless runner and a verbose real-scene soak both exit without
 leaked ObjectDB instances or RIDs. The project-specific reliability audit,
 including seven confirmed fixes and the remaining manual-coverage gaps, is in
 [`docs/RELIABILITY_AUDIT_2026-11-21.md`](docs/RELIABILITY_AUDIT_2026-11-21.md).
+
+### Performance benchmarking
+
+An opt-in runner at `res://tests/PerformanceRunner.tscn` benchmarks the real
+main scene with a disposable V8 world and deterministic routes for open
+terrain, dense forest, mountain/river, villages, caves, ocean, storms, hostile
+encounters and fast exploration. It exports a JSON summary plus per-frame CSV
+under `user://benchmarks/`. The report includes frame-time percentiles,
+Godot process/physics timings, process/managed memory and GC, VRAM, draw calls,
+mesh-build distribution, chunk counts and queue high-water marks. It does not
+write to the selected player world.
+
+See [`docs/PERFORMANCE_BENCHMARKS.md`](docs/PERFORMANCE_BENCHMARKS.md) for
+arguments, repeatability requirements and interpretation. Headless runs are
+for lifecycle smoke tests only, not rendered performance measurements. The
+existing `docs/PERF_BASELINE.md` numbers remain historical until controlled
+Debug/Release runs are captured on the reference laptop and desktop.
 
 ### Reliability audit
 
@@ -292,7 +309,7 @@ worlds load without a vehicle list.
 | `scenes/` | `main.tscn` (game) and `main_menu.tscn` |
 | `shaders/` | Water shader |
 | `tests/` | Headless test runner and suites |
-| `docs/` | Performance baseline notes |
+| `docs/` | Performance baselines, benchmark procedure and audits |
 | `addons/godot_ai/` | Editor MCP assistant addon (development tooling) |
 | `PLAN.md` | Completed milestone log (M0–M4b) |
 | `ROADMAP.md` | Forward plan (M5–M10) and progress log |
@@ -412,8 +429,11 @@ completion and reward claims persist in `world.json`.
   recorded below; the one-hour run uses the same pass criteria.
 - **High-end hardware not measured.** Performance was recorded on the MX230
   laptop only; no RTX 4060-class machine was available for comparison.
-- **Debug-build meshing cost.** Chunk mesh builds are expensive in Debug on the
-  MX230; release builds are faster. See `docs/PERF_BASELINE.md`.
+- **Controlled performance retest pending.** A repeatable runner now exists
+  with fixed seeds/routes and JSON/CSV output, but no new comparable Release
+  baseline has been recorded yet. The historical 30.6 FPS result is a single
+  unseeded Debug measurement. See `docs/PERFORMANCE_BENCHMARKS.md` and
+  `docs/PERF_BASELINE.md`.
 
 ## License
 

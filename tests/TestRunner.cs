@@ -15,6 +15,7 @@ public partial class TestRunner : Node
     {
         GD.Print("minecraft tests: start");
         RunSuite("content", ContentTests.Run);
+        RunSuite("performance-benchmark", PerformanceBenchmarkTests.Run);
         RunSuite("block-shapes", () => BlockShapeTests.Run(this));
         RunSuite("lighting", LightingTests.Run);
         RunSuite("mining", MiningTests.Run);

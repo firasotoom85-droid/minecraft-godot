@@ -4,10 +4,11 @@ Generated 2026-10-21 from a code audit of the current project plus the
 progress recorded in `PLAN.md`. `PLAN.md` remains the historical progress log
 (M0–M4b); this file is the forward plan.
 
-**Baseline note:** no build or playtest was run while writing this plan. The
-current-state claims come from the source and `PLAN.md`; the first work item in
-M5 is to verify the build, record a performance baseline, and start the test
-harness.
+**Baseline note:** this roadmap began as a source audit before the M5
+verification work. The current test status and historical performance
+measurements are recorded below and in `docs/PERF_BASELINE.md`; the new
+repeatable benchmark procedure is in `docs/PERFORMANCE_BENCHMARKS.md`. A
+controlled Release baseline on both reference machines is still pending.
 
 ---
 
@@ -62,7 +63,7 @@ shapes occupy `BlockId` 46–51 and `ItemId` 91–96. Transportation occupies
   [`docs/RELIABILITY_AUDIT_2026-11-21.md`](docs/RELIABILITY_AUDIT_2026-11-21.md).
 
 **Verification.** Godot 4.7.2 .NET Debug and ExportRelease builds complete with
-0 warnings and 0 errors. The headless suite reports **4,217 checks, 0
+0 warnings and 0 errors. The headless suite reports **4,238 checks, 0
 failures**, including legacy save loading, all pinned IDs, V1–V8 golden chunks,
 block-shape persistence, deterministic village generation, live resident
 spawning/interaction and cross-system save/quest/fluid interaction. The
@@ -72,6 +73,22 @@ under a lock. Real-scene validation is recorded below. Visual verification
 remains limited to the existing V8 GPU capture set plus fresh integrated river
 and village captures; the integrated village, boat and shape presentation has
 not had a complete human visual playthrough.
+
+### Performance benchmark runner increment — 2026-11-21
+
+- Added an opt-in real-scene benchmark with nine seeded workloads: open
+  terrain, wooded biome, mountain/river signal, village, cave, ocean, storm,
+  hostile encounter and fast exploration. Each workload runs in its own
+  disposable current-generator world and follows a precomputed route.
+- JSON and per-frame CSV reports include frame percentiles, process/physics
+  time, memory/GC, video memory, scene/render counters, mesh-build distribution
+  and streaming queue high-water marks. The runner closes the main scene before
+  deleting the test world.
+- Added percentile regression tests. Debug build: 0 warnings / 0 errors.
+  Headless suite: 4,238 checks / 0 failures.
+- **Not yet measured:** this harness increment does not itself establish new
+  rendered FPS targets. Controlled multi-run Debug/Release captures on the
+  MX230 and RTX 4060 remain required before tuning thresholds.
 
 ### Delivery validation
 
@@ -367,10 +384,14 @@ moved.
 
 **5.4 Performance baseline**
 
-- Fixed seed + camera path + `VD8/HIGH`; record FPS p50/p1, mesh ms, RAM/VRAM,
-  chunk count.
-- Set gates: no >10% regression per milestone; target ≥50 FPS release at
-  HIGH/VD8 on the MX230.
+- [x] Add `tests/PerformanceRunner.tscn` with deterministic V8 worlds and
+  fixed routes for nine workloads; write JSON summary and per-frame CSV.
+- [x] Capture frame p50/p95/p99/worst, process/physics time, RSS/managed heap,
+  managed allocations/GC, Debug static memory, VRAM, draw calls/primitives,
+  mesh-build distribution, chunk counts and queue high-water marks.
+- [ ] Record repeated Debug and Release runs at fixed resolution on the MX230
+  and RTX 4060 reference systems; establish variance before adding a regression
+  gate. Headless timing is not an FPS baseline.
 
 **5.5 Stabilization**
 
