@@ -946,15 +946,15 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   smelting, equipment, enchantment, upgrade, combat, boss phase thresholds,
   death, overflow and save/load path. The suite drives the Warden through its full
   health pool and verifies the single defeat event, XP reward and Ember Core.
+  Weapon damage/cadence and armor points/durability are asserted against tier data.
 - Compatibility: no `BlockId`, `ItemId`, worldgen-version, player-save or
   furnace-save fields were added, removed, reordered or repurposed.
-- **Verification:** Debug build 0 warnings / 0 errors; full Godot 4.7.2 Mono
-  suite 1,331 checks / 0 failures; Debug and Release builds both have zero
-  warnings/errors. Shutdown allocation counts match the pre-audit
-  runner baseline (18 ObjectDB / 17 Jolt test-harness objects).
-- **Real-scene soak:** 3,600-second normal-survival main-scene soak was rerun
-  after the population cleanup fix; at documentation update it had passed 10
-  simulated minutes without runtime errors. Final PASS/INCOMPLETE result is
-  recorded in the verification report after completion.
+- **Last verified revision (`58c1c7d`):** GitHub Actions Debug build and
+  headless suite succeeded with 1,353 checks / 0 failures. The test process
+  reported the same baseline shutdown allocations (18 ObjectDB / 17 Jolt).
+- **Follow-up verification:** the herd-slot reservation, worker-group release,
+  expanded tier assertions and isolated soak cleanup are being verified by the
+  post-commit Debug/Release CI and real-scene smoke/soak runs; their results are
+  recorded in the audit report rather than inferred from the previous revision.
 - See `docs/SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md` for detailed values,
   findings, reproducible steps and test evidence.

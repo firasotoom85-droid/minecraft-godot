@@ -102,6 +102,14 @@ Found and fixed during audit:
   deletion. A later tick could read `GlobalPosition` from a disposed wrapper.
   Mob death, dawn retreat and peaceful cleanup now remove entries synchronously
   before `QueueFree`.
+- Natural spawns filled the complete ten-animal passive cap, and
+  `TryBreedPassives` refused to breed at that count. The wild-herd target is now
+  eight while the breeding hard cap remains ten, reserving two offspring slots
+  without allowing unbounded population growth.
+- Completed voxel worker groups were marked inactive without calling
+  `WorkerThreadPool.WaitForGroupTaskCompletion`, leaving group handles allocated
+  at scene shutdown. Completed batches are now explicitly waited/released before
+  another batch is dispatched or the scene exits.
 - A pick/axe/shovel/hoe could be used as an emergency melee weapon (2–5 base
   damage from wood through diamond) but landed hits did not consume its
   durability. It now shares the existing weapon durability path and Unbreaking
@@ -227,21 +235,23 @@ and resource acquisition are tested at the harvest/recipe boundaries, not by
 walking a player through a full seeded world. The 60-minute real-scene soak is a
 separate runtime stability/AI/population/save scenario; it does not claim a human
 combat playtest or visual gameplay sign-off. The soak starts the real main scene
-in Normal Survival, detects a generated cave, alternates surface/cave and
-storm/daylight cycles, feeds passive herds, observes breeding, records per-minute
-population counts, and writes the world before exit.
+in Normal Survival using a private `user://tests/survival-soak-*` world (never
+borrowing the user's last-played world), detects a generated cave, alternates
+surface/cave and storm/daylight cycles, feeds naturally spawned passive herds,
+observes breeding within the reserved two population slots,
+records per-minute population counts, saves and reads back both world/player
+save files, then removes the temporary test directory.
 
 ## Verification record
 
 | Check | Result |
 |---|---|
-| Baseline build on Godot 4.7.2 Mono / .NET 9 | 0 warnings, 0 errors |
-| Audit Debug build | 0 warnings, 0 errors |
-| Audit Release build (`minecraft.csproj`) | 0 warnings, 0 errors |
-| Baseline full headless suite | 1,236 checks, 0 failures |
-| Audit full headless suite | 1,331 checks, 0 failures |
-| Audit test shutdown allocations | 18 ObjectDB / 17 Jolt (same as baseline test harness) |
-| Soak | **Running after population cleanup fix; final duration/result updated after completion.** |
+| Last verified audit commit (`58c1c7d`) — Debug build and full headless suite | Build succeeded; 1,353 checks, 0 failures |
+| Follow-up worktree changes — Debug and Release builds | Awaiting the post-commit CI run |
+| Follow-up worktree changes — full headless suite | Awaiting the post-commit CI run |
+| Baseline test shutdown allocations | 18 ObjectDB / 17 Jolt (same as the pre-audit test harness) |
+| Isolated soak smoke | Pending execution on the updated branch |
+| 60-minute normal-survival real-scene soak | Pending smoke success; no PASS claimed yet |
 
 Commands:
 

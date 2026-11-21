@@ -2232,6 +2232,10 @@ public partial class VoxelWorld : Node3D
 
         if (_groupActive && WorkerThreadPool.IsGroupTaskCompleted(_group))
         {
+            // Completion does not release the WorkerThreadPool group handle.
+            // Wait once to reclaim it before dispatching the next batch or
+            // quitting the scene; otherwise shutdown reports live Group objects.
+            WorkerThreadPool.WaitForGroupTaskCompletion(_group);
             _groupActive = false;
         }
 

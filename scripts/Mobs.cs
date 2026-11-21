@@ -3,6 +3,18 @@ using Godot;
 
 namespace Minecraft;
 
+/// <summary>Population reservations keep natural herds from filling every breeding slot.</summary>
+public static class MobPopulationRules
+{
+    public const int PassiveLimit = 10;
+    public const int WildPassiveTarget = 8;
+
+    public static bool CanSpawnWildGroup(int population) => population < WildPassiveTarget;
+    public static bool CanBreed(int population) => population >= 2 && population < PassiveLimit;
+    public static int LimitWildGroup(int population, int requested) =>
+            Mathf.Clamp(requested, 0, Mathf.Max(0, WildPassiveTarget - population));
+}
+
 /// <summary>
 /// Population and ecology director. It owns bounded populations, biome/cave
 /// spawning, herd relationships, breeding, hostile alerts and transient shots.
@@ -10,7 +22,7 @@ namespace Minecraft;
 /// </summary>
 public partial class Mobs : Node
 {
-    private const int PassiveTarget = 10;
+    private const int PassiveTarget = MobPopulationRules.PassiveLimit;
     private const float PassiveSpawnMin = 18.0f;
     private const float PassiveSpawnMax = 40.0f;
     private const float PassiveDespawn = 120.0f;
@@ -138,7 +150,7 @@ public partial class Mobs : Node
         if (_timer <= 0.0)
         {
             _timer = 2.5;
-            if (_passive.Count < PassiveTarget)
+            if (MobPopulationRules.CanSpawnWildGroup(_passive.Count))
             {
                 SpawnPassiveGroup();
             }
@@ -433,7 +445,8 @@ public partial class Mobs : Node
 
     private void SpawnPassiveGroup()
     {
-        if (World == null || PlayerRef == null)
+        if (World == null || PlayerRef == null
+                || !MobPopulationRules.CanSpawnWildGroup(_passive.Count))
         {
             return;
         }
@@ -469,8 +482,8 @@ public partial class Mobs : Node
 
         HerdProfile herd = HerdProfile.For(prototype);
         int groupSize = _rng.RandiRange(herd.Minimum, herd.Maximum);
-        groupSize = Mathf.Min(groupSize, PassiveTarget - _passive.Count);
-        for (int i = 0; i < groupSize && _passive.Count < PassiveTarget; i++)
+        groupSize = MobPopulationRules.LimitWildGroup(_passive.Count, groupSize);
+        for (int i = 0; i < groupSize && MobPopulationRules.CanSpawnWildGroup(_passive.Count); i++)
         {
             Vector3 spawn = point;
             if (i > 0)
@@ -507,7 +520,7 @@ public partial class Mobs : Node
 
     private void TryBreedPassives()
     {
-        if (_passive.Count < 2 || _passive.Count >= PassiveTarget)
+        if (!MobPopulationRules.CanBreed(_passive.Count))
         {
             return;
         }

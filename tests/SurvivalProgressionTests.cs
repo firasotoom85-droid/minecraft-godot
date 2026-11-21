@@ -23,6 +23,50 @@ public static class SurvivalProgressionTests
 
     public static void Run()
     {
+        TestAssert.Equal(8, MobPopulationRules.WildPassiveTarget,
+                "wild herds leave two slots open for offspring");
+        TestAssert.Check(MobPopulationRules.CanSpawnWildGroup(7)
+                && !MobPopulationRules.CanSpawnWildGroup(8),
+                "natural spawning stops at the reserved eight-animal target");
+        TestAssert.Equal(2, MobPopulationRules.LimitWildGroup(8 - 2, 5),
+                "wild group sizes are clamped to the reserved population target");
+        TestAssert.Check(MobPopulationRules.CanBreed(8)
+                && MobPopulationRules.CanBreed(9)
+                && !MobPopulationRules.CanBreed(10),
+                "breeding can use reserved slots but never exceeds the ten-animal cap");
+
+        // Verify the weapon/armor tier values that drive the damage/mitigation balance.
+        TestAssert.Equal(4.0f, ItemDb.WeaponOf(ItemId.WoodSword)!.Value.Damage,
+                "wood sword deals four base damage");
+        TestAssert.Equal(5.0f, ItemDb.WeaponOf(ItemId.StoneSword)!.Value.Damage,
+                "stone sword deals five base damage");
+        TestAssert.Equal(6.0f, ItemDb.WeaponOf(ItemId.IronSword)!.Value.Damage,
+                "iron sword deals six base damage");
+        TestAssert.Equal(7.0f, ItemDb.WeaponOf(ItemId.DiamondSword)!.Value.Damage,
+                "diamond sword deals seven base damage");
+        TestAssert.Equal(8.0f, ItemDb.WeaponOf(ItemId.EmberBlade)!.Value.Damage,
+                "Ember Blade deals eight base damage");
+        TestAssert.Equal(5.0f, ItemDb.WeaponOf(ItemId.Bow)!.Value.Damage,
+                "bow arrows deal five base damage");
+        TestAssert.Equal(0.85f, ItemDb.WeaponOf(ItemId.WoodSword)!.Value.AttackSpeed,
+                "wood sword uses its starter attack cadence");
+        TestAssert.Equal(0.55f, ItemDb.WeaponOf(ItemId.DiamondSword)!.Value.AttackSpeed,
+                "diamond sword uses its faster end-tier attack cadence");
+        TestAssert.Equal(2, ItemDb.ArmorOf(ItemId.IronHelmet)!.Value.Points,
+                "iron helmet contributes two armor points");
+        TestAssert.Equal(6, ItemDb.ArmorOf(ItemId.IronChestplate)!.Value.Points,
+                "iron chestplate contributes six armor points");
+        TestAssert.Equal(5, ItemDb.ArmorOf(ItemId.IronLegs)!.Value.Points,
+                "iron leggings contribute five armor points");
+        TestAssert.Equal(2, ItemDb.ArmorOf(ItemId.IronBoots)!.Value.Points,
+                "iron boots contribute two armor points");
+        TestAssert.Equal(8, ItemDb.ArmorOf(ItemId.DiamondChestplate)!.Value.Points,
+                "diamond chestplate contributes eight armor points");
+        TestAssert.Equal(300, ItemDb.ArmorOf(ItemId.IronChestplate)!.Value.Durability,
+                "iron chestplate has three hundred durability");
+        TestAssert.Equal(600, ItemDb.ArmorOf(ItemId.DiamondChestplate)!.Value.Durability,
+                "diamond chestplate has six hundred durability");
+
         // 1. A genuine empty inventory, followed by the first wood/tool chain.
         Inventory inventory = new();
         TestAssert.Equal(0, inventory.FirstEmptySlot(), "new survival inventory starts empty");

@@ -86,24 +86,32 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 ```
 
 `scripts/verify.sh` builds the project and runs
-`res://tests/TestRunner.tscn`; it exits non-zero on failure. The runner prints
-one line per suite and a final check/failure count. If `GODOT` is unset, the
-script looks on `PATH` and in common install locations.
+`res://tests/TestRunner.tscn`; it exits non-zero on failure or on the default
+300-second test timeout. The timeout can be changed with
+`GODOT_TEST_TIMEOUT=seconds`. The runner prints one line per suite and a final
+check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
+common install locations.
 
 ### Long-duration survival soak
 
-An opt-in integration runner loads the real game scene and exercises multiple
-herds, breeding, hostile encounters, cave fauna, day/night transitions, and
-storm shelter behavior. It logs population/cave encounter counts every minute
-and saves the world at completion. Run a 60-minute soak with:
+An opt-in integration runner loads the real main scene in Normal Survival and
+exercises naturally spawned herds, feeding/breeding, hostile encounters, cave
+fauna, weather and day/night cycles. It uses an isolated
+`user://tests/survival-soak-*` world, verifies the world/player saves can be
+read back, then removes that temporary directory; it never saves over the
+player's selected world. Population and cave-encounter counts are logged every
+minute. Run a 60-minute soak with:
 
 ```bash
 GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 bash scripts/soak-survival.sh 3600
 ```
 
-Use a shorter duration such as `300` for a smoke run. The soak is deliberately
-separate from the fast CI unit suite; it must complete with a cave encounter,
-observed juvenile, and live passive population to report PASS.
+Use `300` for a five-minute smoke run. The runner reports PASS only when it
+finds a generated cave, records cave encounters and a juvenile, retains a live
+passive population, reads back both save files, and removes the temporary world.
+The script bounds runtime to duration + 300 seconds by default; override that
+with `SOAK_TIMEOUT_SECONDS`. The soak remains separate from the fast headless
+suite and is not a human combat or visual gameplay playtest.
 
 ## Controls
 
@@ -206,7 +214,8 @@ heals one health, and bread offers a farmable five-hunger/one-health option.
 
 Armor points reduce physical damage by four percent per point, capped at 80%
 base mitigation; Protection then reduces the remaining damage by four percent
-per enchantment level on each piece. Full iron armor has 15 points (60% base
+per enchantment level on each piece. Unbreaking I/II/III prevents 50%/66.7%/75%
+of equipment wear. Full iron armor has 15 points (60% base
 reduction) and full diamond armor has 20 (80%). Starvation and drowning bypass
 armor mitigation and do not wear armor. Other landed physical/environmental hits
 wear equipped armor; successful shield blocks wear the shield. Tools used as
@@ -216,8 +225,11 @@ Peaceful mode suppresses hostile spawns, cancels pending hostile attacks,
 removes hostile projectiles and keeps the Ember Warden dormant.
 Normal and hard share the same enemy health pools and encounter structure; hard
 raises hostile damage and increases the surface/cave hostile population cap from
-seven to ten. The Warden has 120 health, two add-summon thresholds, deals four
-(normal) or five (hard) damage with its slam, and guarantees an Ember Core plus
+seven to ten. Natural passive herds target eight animals, reserving two slots
+for breeding offspring under the ten-animal population limit. The Warden has
+120 health, summons two adds below 66% health
+and three below 33%, deals four (normal) or five (hard) damage with its slam,
+and guarantees an Ember Core plus
 25 experience on defeat. Experience and enchantment levels are stored in the
 existing player/inventory save files; old saves default these fields to zero.
 See [`docs/SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md`](docs/SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md)

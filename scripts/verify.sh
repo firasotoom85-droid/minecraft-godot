@@ -30,5 +30,16 @@ if [[ -z "${GODOT:-}" || ! -x "$GODOT" ]]; then
     exit 2
 fi
 
+TEST_TIMEOUT="${GODOT_TEST_TIMEOUT:-300}"
+if [[ ! "$TEST_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
+    echo "verify: GODOT_TEST_TIMEOUT must be a positive integer number of seconds." >&2
+    exit 2
+fi
+if ! command -v timeout >/dev/null 2>&1; then
+    echo "verify: the 'timeout' utility is required to bound a failed headless run." >&2
+    exit 2
+fi
+
 dotnet build -c Debug
-"$GODOT" --headless --path . res://tests/TestRunner.tscn
+timeout --signal=TERM --kill-after=15 "$TEST_TIMEOUT" \
+    "$GODOT" --headless --path . res://tests/TestRunner.tscn
