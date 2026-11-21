@@ -32,6 +32,7 @@ public partial class TestRunner : Node
         RunSuite("fluids", FluidTests.Run);
         RunSuite("fluid-world", () => FluidWorldTests.Run(this));
         RunSuite("save", SaveTests.Run);
+        RunSuite("world-archives", WorldArchiveTests.Run);
         RunSuite("worldgen", () => WorldgenTests.Run(this));
         GD.Print($"minecraft tests: {TestAssert.Checks} checks, {TestAssert.Failures} failures");
         GetTree().Quit(TestAssert.Failures == 0 ? 0 : 1);
