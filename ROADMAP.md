@@ -1074,6 +1074,35 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   suite passes the equipment, save and combat regressions. Live enchanting and
   ballistic-arrow playtesting was not performed.
 
+## 16b. Directional wood surfaces and shape texel consistency — 2026-11-21
+
+- Reworked procedural oak and birch log end grain with offset/warped growth
+  rings, a defined pith, subtle radial checks and species-matched sapwood. Oak
+  bark now has longer vertical fissures and restrained knots; birch bark retains
+  its characteristic dark marks with fine vertical streaks.
+- Appended atlas tiles 49–51 for plank top, long-grain side and cut-end views.
+  Existing atlas dimensions, earlier tile indices and the legacy crafting-table
+  texture remain unchanged. Oak planks, slabs and stairs now select those
+  directional faces instead of stretching one generic building tile over every
+  side.
+- Partial-shape and cube-to-shape boundary faces derive UVs from the full
+  block-local coordinate frame. A half-height/half-width face therefore samples
+  only its corresponding half of the texture rather than repeating a complete
+  tile at double texel density. East/west stairs rotate their tread grain and
+  swap side/end faces to follow their facing.
+- The existing ItemDb.Icon → first-person HeldItem sprite path naturally picks
+  the plank side-grain tile; no extra scene node or per-frame work was introduced.
+- No persisted block/item IDs, save fields, generator rules, world mutations,
+  greedy merge keys or chunk-streaming behavior changed. Original procedural
+  assets remain self-authored and are built into the existing atlas.
+- Added painter/layout tests plus real mesher-payload UV checks in both greedy
+  texture-array and per-face atlas modes, including clipped cube faces adjacent
+  to partial shapes.
+
+- Added an optional live-scene GPU capture fixture with close and distant
+  views of a disposable wood exhibit. Both views were rendered through the
+  production Forward+ pipeline on the NVIDIA MX230 and inspected successfully.
+
 ## 17. Integration of V7, UI and equipment — 2026-11-21
 
 - Merged `worldgen/v7-release-candidate` (PR #29),

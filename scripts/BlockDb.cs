@@ -80,6 +80,10 @@ public static class BlockDb
     private const int TPlanksBuilding = 46;
     private const int TCobbleBuilding = 47;
     private const int TBrickBuilding = 48;
+    // Append new art tiles without shifting any existing atlas coordinates.
+    private const int TPlanksTop = 49;
+    private const int TPlanksSide = 50;
+    private const int TPlanksEnd = 51;
 
     /// <summary>
     /// One block's definition; the tiles array is indexed by face (FACE order).
@@ -107,7 +111,8 @@ public static class BlockDb
         new("Oak Leaves", true, false, [TLeaves, TLeaves, TLeaves, TLeaves, TLeaves, TLeaves],
                 0.2f, ToolKind.Hoe, Drops: false),
         new("Water", false, true, [TWater, TWater, TWater, TWater, TWater, TWater], 0.0f, Drops: false),
-        new("Planks", true, false, [TPlanks, TPlanks, TPlanks, TPlanks, TPlanks, TPlanks],
+        new("Planks", true, false,
+                [TPlanksTop, TPlanksTop, TPlanksEnd, TPlanksEnd, TPlanksSide, TPlanksSide],
                 2.0f, ToolKind.Axe),
         new("Cobblestone", true, false, [TCobblestone, TCobblestone, TCobblestone, TCobblestone, TCobblestone, TCobblestone],
                 2.0f, ToolKind.Pick, 1),
@@ -178,7 +183,7 @@ public static class BlockDb
                 [TEnchantTop, TEnchantSide, TEnchantSide, TEnchantSide, TEnchantSide, TEnchantSide],
                 3.0f, ToolKind.Pick, 2),
         new("Oak Planks Slab", true, false,
-                [TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding],
+                [TPlanksTop, TPlanksTop, TPlanksEnd, TPlanksEnd, TPlanksSide, TPlanksSide],
                 2.0f, ToolKind.Axe),
         new("Cobblestone Slab", true, false,
                 [TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding],
@@ -187,7 +192,7 @@ public static class BlockDb
                 [TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding],
                 1.5f, ToolKind.Pick, 1),
         new("Oak Planks Stairs", true, false,
-                [TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding, TPlanksBuilding],
+                [TPlanksTop, TPlanksTop, TPlanksEnd, TPlanksEnd, TPlanksSide, TPlanksSide],
                 2.0f, ToolKind.Axe),
         new("Cobblestone Stairs", true, false,
                 [TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding, TCobbleBuilding],
@@ -550,6 +555,54 @@ public static class BlockDb
             rect.Position.Y + inset + uv.Y * (rect.Size.Y - inset * 2.0f));
     }
 
+    /// <summary>
+    /// Convert a block-local point on one of the canonical cube faces to the
+    /// same oriented 0..1 UV used by FaceUvs. Unlike a face-corner lookup, this
+    /// also preserves texture density on half-block micro-faces.
+    /// </summary>
+    public static Vector2 FaceUvAt(int face, Vector3 localPosition) => face switch
+    {
+        0 or 1 => new Vector2(localPosition.X, localPosition.Z),
+        2 => new Vector2(1.0f - localPosition.Z, 1.0f - localPosition.Y),
+        3 => new Vector2(localPosition.Z, 1.0f - localPosition.Y),
+        4 => new Vector2(localPosition.X, 1.0f - localPosition.Y),
+        5 => new Vector2(1.0f - localPosition.X, 1.0f - localPosition.Y),
+        _ => Vector2.Zero,
+    };
+
+    /// <summary>
+    /// Shape-face tile selection. Stairs turn their board run with their facing:
+    /// odd facings expose the long-grain faces on X and cut ends on Z.
+    /// </summary>
+    public static int ShapeFaceTile(BlockId id, byte state, int face)
+    {
+        if ((uint)face >= 6 || !IsDefined(id)) return -1;
+        int[] tiles = Defs[(int)id].Tiles;
+        if (id == BlockId.PlanksStairs && (state & BlockShapes.StairFacingMask) % 2 != 0)
+        {
+            if (face is 2 or 3) return tiles[4];
+            if (face is 4 or 5) return tiles[2];
+        }
+
+        return tiles[face];
+    }
+
+    /// <summary>
+    /// Block-specific UV orientation in the full unit-cube coordinate frame.
+    /// East/west oak stairs rotate their tread grain to follow the stair width.
+    /// </summary>
+    public static Vector2 BlockFaceUvAt(BlockId id, byte state, int face, Vector3 localPosition)
+    {
+        Vector2 uv = FaceUvAt(face, localPosition);
+        if (id == BlockId.PlanksStairs && face is 0 or 1
+                && (state & BlockShapes.StairFacingMask) % 2 != 0)
+        {
+            uv = new Vector2(uv.Y, 1.0f - uv.X);
+        }
+
+        return uv;
+    }
+
     private const string LitAtlasShader = @"
 shader_type spatial;
 render_mode cull_back, depth_draw_opaque, specular_disabled, alpha_to_coverage;
@@ -803,6 +856,9 @@ void fragment() {
         PaintBuildingTexture(img, TPlanksBuilding, new Color(0.49f, 0.32f, 0.18f), rng, 8);
         PaintBuildingTexture(img, TCobbleBuilding, new Color(0.43f, 0.44f, 0.45f), rng, 11);
         PaintBuildingTexture(img, TBrickBuilding, new Color(0.58f, 0.25f, 0.19f), rng, 7);
+        PaintPlanksTop(img, TPlanksTop, rng);
+        PaintPlanksSide(img, TPlanksSide, rng);
+        PaintPlanksEnd(img, TPlanksEnd, rng);
         return img;
     }
 
@@ -968,51 +1024,89 @@ void fragment() {
 
     private static void PaintLogSide(Image img, RandomNumberGenerator rng)
     {
-        for (int x = 0; x < TilePx; x++)
-        {
-            float shade = rng.RandfRange(-0.045f, 0.045f);
-            for (int y = 0; y < TilePx; y++)
-            {
-                Color c = new(0.42f + shade, 0.31f + shade * 0.8f, 0.19f + shade * 0.5f);
-                Px(img, TLogSide, x, y, Jitter(rng, c, 0.015f));
-            }
-        }
-
-        for (int i = 0; i < 12; i++)
-        {
-            int x = rng.RandiRange(0, TilePx - 1);
-            int h = rng.RandiRange(8, 24);
-            int y0 = rng.RandiRange(0, TilePx - h);
-            for (int y = y0; y < y0 + h; y++)
-            {
-                Px(img, TLogSide, x, y, new Color(0.33f, 0.24f, 0.14f));
-            }
-        }
-    }
-
-    private static void PaintLogTop(Image img, RandomNumberGenerator rng)
-    {
         for (int y = 0; y < TilePx; y++)
         {
             for (int x = 0; x < TilePx; x++)
             {
-                float d = new Vector2(x - TilePx / 2.0f + 0.5f, y - TilePx / 2.0f + 0.5f).Length();
-                Color c;
-                if (d > TilePx / 2.0f - 1.5f)
-                {
-                    c = Jitter(rng, new Color(0.36f, 0.27f, 0.17f), 0.03f);
-                }
-                else
-                {
-                    float ring = Mathf.Sin(d * 1.2f) * 0.5f + 0.5f;
-                    c = new Color(0.55f, 0.42f, 0.26f).Lerp(new Color(0.44f, 0.33f, 0.20f), ring);
-                    c = Jitter(rng, c, 0.015f);
-                }
+                float flow = Mathf.Sin(y * 0.19f + x * 0.11f) * 0.7f
+                        + Mathf.Sin(y * 0.43f - x * 0.07f) * 0.3f;
+                float groove = Mathf.Sin(x * 1.35f + flow * 0.42f);
+                float shade = groove * 0.018f + Mathf.Sin(x * 0.31f + flow) * 0.012f;
+                Color c = new(0.43f + shade, 0.315f + shade * 0.82f, 0.195f + shade * 0.58f);
+                Px(img, TLogSide, x, y, Jitter(rng, c, 0.012f));
+            }
+        }
 
-                Px(img, TLogTop, x, y, c);
+        // Long, irregular bark fissures reinforce the trunk's vertical direction.
+        for (int x = 2; x < TilePx; x += 5)
+        {
+            float phase = rng.RandfRange(0.0f, Mathf.Tau);
+            for (int y = 0; y < TilePx; y++)
+            {
+                int drift = Mathf.RoundToInt(Mathf.Sin(y * 0.16f + phase) * 0.7f);
+                int px = Math.Clamp(x + drift, 0, TilePx - 1);
+                if (rng.Randf() < 0.78f)
+                    Px(img, TLogSide, px, y, new Color(0.32f, 0.235f, 0.145f));
+                if (px + 1 < TilePx && rng.Randf() < 0.22f)
+                    Px(img, TLogSide, px + 1, y, new Color(0.51f, 0.385f, 0.235f));
+            }
+        }
+
+        // Sparse knots stay small and low-contrast so they do not turn into
+        // noisy specks when a trunk is viewed from a distance.
+        for (int knot = 0; knot < 2; knot++)
+        {
+            int cx = rng.RandiRange(5, TilePx - 6);
+            int cy = rng.RandiRange(4, TilePx - 5);
+            for (int y = -2; y <= 2; y++)
+            for (int x = -2; x <= 2; x++)
+            {
+                float d = new Vector2(x, y).Length();
+                if (d <= 2.2f)
+                    Px(img, TLogSide, cx + x, cy + y,
+                            d < 0.9f ? new Color(0.31f, 0.22f, 0.13f)
+                                    : new Color(0.47f, 0.35f, 0.21f));
             }
         }
     }
+
+    private static void PaintLogTop(Image img, RandomNumberGenerator rng) =>
+        PaintLogEndGrain(img, TLogTop,
+                new Color(0.60f, 0.45f, 0.29f),
+                new Color(0.40f, 0.29f, 0.17f),
+                new Color(0.73f, 0.56f, 0.36f), rng);
+
+    private static void PaintLogEndGrain(Image img, int tile, Color sapwood,
+            Color ringDark, Color ringLight, RandomNumberGenerator rng)
+    {
+        float center = (TilePx - 1) * 0.5f;
+        for (int y = 0; y < TilePx; y++)
+        for (int x = 0; x < TilePx; x++)
+        {
+            float dx = x - center;
+            float dy = y - center;
+            float angle = Mathf.Atan2(dy, dx);
+            float radius = Mathf.Sqrt(dx * dx * 0.94f + dy * dy * 1.08f);
+            float warp = Mathf.Sin(angle * 3.0f + 0.45f) * 0.38f
+                    + Mathf.Sin(angle * 5.0f - 0.8f) * 0.16f;
+            float rings = Mathf.Sin((radius + warp) * 1.75f + Mathf.Sin(angle * 2.0f) * 0.12f);
+            Color c = sapwood.Lerp(rings < 0.0f ? ringDark : ringLight, 0.42f + Mathf.Abs(rings) * 0.18f);
+            if (radius > TilePx * 0.5f - 2.2f)
+                c = new Color(0.31f, 0.225f, 0.14f);
+            else if (radius < 1.15f)
+                c = new Color(0.34f, 0.245f, 0.15f);
+
+            // Three fine radial checks and faint rays keep the rings organic.
+            float ray = Mathf.Abs(Mathf.Sin(angle * 3.0f + 0.18f));
+            if (radius > 3.0f && radius < 13.8f && ray < 0.035f)
+                c = c.Lerp(ringDark, 0.38f);
+            else if (radius > 4.0f && ray < 0.11f)
+                c = c.Lerp(ringLight, 0.12f);
+
+            Px(img, tile, x, y, Jitter(rng, c, 0.012f));
+        }
+    }
+
     /// <summary>Soft white wool: fluffy noise with scattered curl marks.</summary>
     private static void PaintWool(Image img, RandomNumberGenerator rng)
     {
@@ -1031,6 +1125,12 @@ void fragment() {
     private static void PaintBirchSide(Image img, RandomNumberGenerator rng)
     {
         FillNoise(img, TBirchSide, new Color(0.87f, 0.86f, 0.80f), 0.02f, 1.0f, rng);
+        for (int x = 2; x < TilePx; x += 7)
+        for (int y = 0; y < TilePx; y++)
+        {
+            if (rng.Randf() < 0.55f)
+                Px(img, TBirchSide, x, y, new Color(0.81f, 0.80f, 0.74f));
+        }
         for (int i = 0; i < 12; i++)
         {
             int x = rng.RandiRange(0, TilePx - 1);
@@ -1043,27 +1143,35 @@ void fragment() {
         }
     }
 
-    private static void PaintBirchTop(Image img, RandomNumberGenerator rng)
-    {
-        for (int y = 0; y < TilePx; y++)
-        {
-            for (int x = 0; x < TilePx; x++)
-            {
-                float d = new Vector2(x - TilePx / 2.0f + 0.5f, y - TilePx / 2.0f + 0.5f).Length();
-                Color c;
-                if (d > TilePx / 2.0f - 1.5f)
-                {
-                    c = Jitter(rng, new Color(0.80f, 0.79f, 0.74f), 0.02f);
-                }
-                else
-                {
-                    float ring = Mathf.Sin(d * 1.1f) * 0.5f + 0.5f;
-                    c = new Color(0.90f, 0.88f, 0.80f).Lerp(new Color(0.78f, 0.75f, 0.65f), ring);
-                    c = Jitter(rng, c, 0.012f);
-                }
+    private static void PaintBirchTop(Image img, RandomNumberGenerator rng) =>
+        PaintBirchEndGrain(img, rng);
 
-                Px(img, TBirchTop, x, y, c);
-            }
+    private static void PaintBirchEndGrain(Image img, RandomNumberGenerator rng)
+    {
+        float center = (TilePx - 1) * 0.5f;
+        Color pale = new(0.88f, 0.85f, 0.76f);
+        Color dark = new(0.66f, 0.62f, 0.52f);
+        Color light = new(0.95f, 0.92f, 0.84f);
+        for (int y = 0; y < TilePx; y++)
+        for (int x = 0; x < TilePx; x++)
+        {
+            float dx = x - center;
+            float dy = y - center;
+            float angle = Mathf.Atan2(dy, dx);
+            float radius = Mathf.Sqrt(dx * dx + dy * dy * 1.06f);
+            float warp = Mathf.Sin(angle * 3.0f + 0.3f) * 0.34f
+                    + Mathf.Sin(angle * 5.0f) * 0.14f;
+            float rings = Mathf.Sin((radius + warp) * 1.65f);
+            Color c = pale.Lerp(rings < 0.0f ? dark : light, 0.28f + Mathf.Abs(rings) * 0.2f);
+            if (radius > TilePx * 0.5f - 2.0f)
+                c = new Color(0.72f, 0.68f, 0.58f);
+            else if (radius < 1.15f)
+                c = new Color(0.60f, 0.56f, 0.47f);
+
+            if (radius > 3.0f && radius < 13.8f
+                    && Mathf.Abs(Mathf.Sin(angle * 3.0f + 0.18f)) < 0.032f)
+                c = c.Lerp(dark, 0.34f);
+            Px(img, TBirchTop, x, y, Jitter(rng, c, 0.01f));
         }
     }
 
@@ -1129,6 +1237,109 @@ void fragment() {
 
                 Px(img, tile, x, y, Jitter(rng, c, 0.025f));
             }
+        }
+    }
+
+    private static void PaintPlanksTop(Image img, int tile, RandomNumberGenerator rng)
+    {
+        Color[] boards =
+        [
+            new Color(0.65f, 0.48f, 0.29f),
+            new Color(0.62f, 0.45f, 0.27f),
+            new Color(0.67f, 0.50f, 0.31f),
+            new Color(0.63f, 0.46f, 0.28f),
+        ];
+        for (int y = 0; y < TilePx; y++)
+        for (int x = 0; x < TilePx; x++)
+        {
+            int board = y / 8;
+            int localY = y % 8;
+            Color baseColor = boards[board];
+            float grain = Mathf.Sin(y * 2.1f + Mathf.Sin(x * 0.21f + board) * 0.45f) * 0.018f;
+            float fleck = Mathf.Sin(x * 0.73f + y * 0.37f) * 0.006f;
+            Color c = new(baseColor.R + grain + fleck, baseColor.G + grain * 0.82f + fleck,
+                    baseColor.B + grain * 0.55f + fleck * 0.7f);
+            if (localY == 0 || localY == 7)
+                c = new Color(0.39f, 0.275f, 0.16f);
+            else if (localY == 1)
+                c = c.Lerp(new Color(0.80f, 0.62f, 0.39f), 0.18f);
+            Px(img, tile, x, y, Jitter(rng, c, 0.008f));
+        }
+
+        // Tiny low-contrast knots are aligned to board courses rather than
+        // scattered noise, and remain readable after nearest minification.
+        for (int knot = 0; knot < 2; knot++)
+        {
+            int cx = rng.RandiRange(5, TilePx - 6);
+            int cy = rng.RandiRange(0, 3) * 8 + 4;
+            for (int y = -1; y <= 1; y++)
+            for (int x = -2; x <= 2; x++)
+            {
+                float distance = new Vector2(x / 2.0f, y).Length();
+                if (distance <= 1.0f)
+                    Px(img, tile, cx + x, cy + y,
+                            distance < 0.3f ? new Color(0.42f, 0.30f, 0.18f)
+                                    : new Color(0.71f, 0.53f, 0.32f));
+            }
+        }
+    }
+
+    private static void PaintPlanksSide(Image img, int tile, RandomNumberGenerator rng)
+    {
+        Color[] boards =
+        [
+            new Color(0.57f, 0.405f, 0.24f),
+            new Color(0.55f, 0.39f, 0.23f),
+            new Color(0.59f, 0.425f, 0.25f),
+            new Color(0.56f, 0.40f, 0.235f),
+        ];
+        for (int y = 0; y < TilePx; y++)
+        for (int x = 0; x < TilePx; x++)
+        {
+            int board = y / 8;
+            int localY = y % 8;
+            float grain = Mathf.Sin(x * 0.55f + Mathf.Sin(x * 0.12f + board) * 0.6f) * 0.012f;
+            Color c = boards[board] + new Color(grain, grain * 0.8f, grain * 0.5f);
+            if (localY == 0 || localY == 7)
+                c = new Color(0.35f, 0.245f, 0.145f);
+            else if (localY == 1)
+                c = c.Lerp(new Color(0.69f, 0.49f, 0.29f), 0.1f);
+            Px(img, tile, x, y, Jitter(rng, c, 0.006f));
+        }
+
+        for (int knot = 0; knot < 2; knot++)
+        {
+            int cx = rng.RandiRange(5, TilePx - 6);
+            int cy = rng.RandiRange(0, 3) * 8 + 4;
+            Px(img, tile, cx - 1, cy, new Color(0.40f, 0.28f, 0.16f));
+            Px(img, tile, cx, cy, new Color(0.34f, 0.24f, 0.14f));
+            Px(img, tile, cx + 1, cy, new Color(0.40f, 0.28f, 0.16f));
+        }
+    }
+
+    private static void PaintPlanksEnd(Image img, int tile, RandomNumberGenerator rng)
+    {
+        // Four board ends occupy the same vertical courses as the side-grain tile.
+        for (int y = 0; y < TilePx; y++)
+        for (int x = 0; x < TilePx; x++)
+        {
+            int board = y / 8;
+            float dx = (x - 15.5f) * 0.9f;
+            float dy = (y % 8 - 3.5f) * 1.8f;
+            float radius = Mathf.Sqrt(dx * dx + dy * dy);
+            float rings = Mathf.Sin(radius * 1.5f + Mathf.Sin(Mathf.Atan2(dy, dx) * 3.0f) * 0.2f);
+            Color baseColor = board % 2 == 0
+                    ? new Color(0.62f, 0.45f, 0.27f)
+                    : new Color(0.59f, 0.42f, 0.25f);
+            Color c = baseColor.Lerp(rings < 0.0f
+                    ? new Color(0.43f, 0.30f, 0.18f)
+                    : new Color(0.72f, 0.53f, 0.32f), 0.22f + Mathf.Abs(rings) * 0.16f);
+            if (radius < 0.9f) c = new Color(0.39f, 0.275f, 0.16f);
+            if (y % 8 == 0 || y % 8 == 7) c = new Color(0.36f, 0.25f, 0.15f);
+            if (radius > 4.0f && radius < 7.5f
+                    && Mathf.Abs(Mathf.Sin(Mathf.Atan2(dy, dx) * 2.0f)) < 0.035f)
+                c = c.Lerp(new Color(0.38f, 0.265f, 0.15f), 0.28f);
+            Px(img, tile, x, y, Jitter(rng, c, 0.008f));
         }
     }
 

@@ -285,7 +285,7 @@ public static class Mesher
                         if (partialNeighbor && fullCube && !isTrans)
                         {
                             EmitCubeFaceAgainstPartial(pad, statePad, lightPad, neighborIndex, f, tile,
-                                    b, opaque, collision, kk, cornerLight);
+                                    id, state, b, opaque, collision, kk, cornerLight);
                             continue;
                         }
 
@@ -369,10 +369,10 @@ public static class Mesher
 
     private static void EmitCubeFaceAgainstPartial(
             byte[] pad, byte[] statePad, byte[] lightPad, int neighborIndex, int face,
-            int tile, Vector3 blockOrigin, SurfaceData surf, List<Vector3> collision,
+            int tile, BlockId blockId, byte blockState, Vector3 blockOrigin,
+            SurfaceData surf, List<Vector3> collision,
             Span<float> kk, Span<byte> cornerLight)
     {
-        int ui = (tile * 6 + face) * 4;
         int vi = face * 4;
         int uAxis = _uAxis[face];
         int vAxis = _vAxis[face];
@@ -388,8 +388,8 @@ public static class Mesher
                 p[vAxis] = (v + p[vAxis]) * 0.5f;
                 points[vertex] = blockOrigin + p;
             }
-            EmitLitFace(pad, lightPad, neighborIndex, face, ui, tile,
-                    points, surf, collision, kk, cornerLight);
+            EmitLitFace(pad, lightPad, neighborIndex, face, tile, blockId, blockState,
+                    blockOrigin, points, surf, collision, kk, cornerLight);
         }
     }
 
@@ -398,7 +398,6 @@ public static class Mesher
             BlockId id, byte state, SurfaceData surf, List<Vector3> collision,
             Span<float> kk, Span<byte> cornerLight)
     {
-        int tileBase = (int)id * 6;
         Span<Vector3> points = stackalloc Vector3[4];
         for (int cy = 0; cy < 2; cy++)
         for (int cz = 0; cz < 2; cz++)
@@ -422,21 +421,21 @@ public static class Mesher
                 if (!BlockShapes.FaceExposed(id, state, cx, cy, cz, face, neighbor, neighborState))
                     continue;
 
-                int tile = BlockDb.Tiles[tileBase + face];
+                int tile = BlockDb.ShapeFaceTile(id, state, face);
                 if (tile < 0) continue;
                 Vector3 cellOrigin = blockOrigin + new Vector3(cx * 0.5f, cy * 0.5f, cz * 0.5f);
                 int vi = face * 4;
                 for (int vertex = 0; vertex < 4; vertex++)
                     points[vertex] = cellOrigin + BlockDb.FaceVerts[vi + vertex] * 0.5f;
-                int ui = (tile * 6 + face) * 4;
-                EmitLitFace(pad, lightPad, index + FaceOff[face], face, ui, tile,
-                        points, surf, collision, kk, cornerLight);
+                EmitLitFace(pad, lightPad, index + FaceOff[face], face, tile, id, state,
+                        blockOrigin, points, surf, collision, kk, cornerLight);
             }
         }
     }
 
     private static void EmitLitFace(
-            byte[] pad, byte[] lightPad, int neighborIndex, int face, int uvIndex, int textureTile,
+            byte[] pad, byte[] lightPad, int neighborIndex, int face, int textureTile,
+            BlockId blockId, byte blockState, Vector3 blockOrigin,
             Span<Vector3> points, SurfaceData surf, List<Vector3>? collision,
             Span<float> kk, Span<byte> cornerLight)
     {
@@ -460,7 +459,11 @@ public static class Mesher
             surf.Vertex.Add(points[tri]);
             surf.Normal.Add(normal);
             surf.Color.Add(VoxelLighting.VertexColor(cornerLight[tri], kk[tri]));
-            surf.Uv.Add(BlockDb.UvLut[uvIndex + tri]);
+            Vector2 localUv = BlockDb.BlockFaceUvAt(blockId, blockState, face,
+                    points[tri] - blockOrigin);
+            surf.Uv.Add(Greedy
+                    ? localUv
+                    : BlockDb.MapUv(BlockDb.TileUvRect(textureTile), localUv));
             if (Greedy)
                 surf.Uv2.Add(new Vector2(textureTile, 0.0f));
         }

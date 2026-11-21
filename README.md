@@ -26,6 +26,12 @@ The project is a long-running solo build with an extensive design log in
   collision, ray selection and placement. Partial faces are split only at shape
   boundaries; full cubes retain the greedy path. Shape surfaces use the regular
   atlas, AO and voxel-light pipeline, with procedurally painted original textures.
+- **Directional wood surfaces** — oak and birch logs have distinct, irregular
+  end grain and vertical bark; oak planks use dedicated top, long-grain side and
+  cut-end tiles. Slabs and stairs sample the same block-relative texel scale as
+  full cubes, and stair grain follows its facing. The existing nearest-filtered
+  atlas and texture-array materials remain in use, including the first-person
+  held-item icon path.
 - **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
   voxels, warm multi-source propagation with opaque occlusion, cave darkness and
   live place/break updates across chunk boundaries. Emitter edits incrementally
@@ -291,11 +297,19 @@ worlds load without a vehicle list.
 | `scripts/` | Gameplay and engine code (C#), plus `verify.sh` |
 | `scenes/` | `main.tscn` (game) and `main_menu.tscn` |
 | `shaders/` | Water shader |
-| `tests/` | Headless test runner and suites |
+| `tests/` | Headless test runner, suites, and GPU-backed wood-art capture scene |
 | `docs/` | Performance baseline notes |
 | `addons/godot_ai/` | Editor MCP assistant addon (development tooling) |
 | `PLAN.md` | Completed milestone log (M0–M4b) |
 | `ROADMAP.md` | Forward plan (M5–M10) and progress log |
+
+For a production-renderer inspection of directional wood textures, run
+`godot --path . res://tests/WoodArtVisualCapture.tscn -- 1337`. It builds a
+disposable test world through `VoxelWorld.SetBlock` and writes close and distant
+captures to `user://wood-art-validation-close.png` and
+`user://wood-art-validation-distant.png`. This is a manual visual check rather
+than part of the headless test suite; run it with the same Godot renderer and
+hardware profile you intend to validate.
 
 ## Combat equipment and enchantments
 
