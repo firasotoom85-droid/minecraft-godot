@@ -11,6 +11,16 @@ harness.
 
 ---
 
+## Current follow-up implementation — 2026-11-21 (cave ore readability)
+
+- Refined the four existing ore atlas tiles with larger, stepped deposits,
+  restrained mineral highlights and a one-pixel shadow edge. The shared atlas
+  keeps world faces, inventory icons and held-item sprites visually consistent.
+- Kept ore fully opaque and non-emissive; no through-wall glow, dynamic lights,
+  mesh changes, new persisted IDs, save changes or generator-version changes.
+- Added content regression checks for each ore's light/opacity contract and a
+  minimum high-contrast pixel coverage in each existing atlas tile.
+
 ## Integrated 1.0 snapshot — 2026-11-21
 
 Six open feature branches were merged into `integration/v1.0-full` from
