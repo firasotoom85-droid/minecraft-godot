@@ -30,8 +30,13 @@ public sealed class WorldGenV8
     private readonly FastNoiseLite _caveEntrances;
 
     public WorldGenV8(int seed, string preset)
+            : this(seed, preset, new WorldGenV7(seed, preset))
     {
-        _features = new WorldGenV7(seed, preset);
+    }
+
+    public WorldGenV8(int seed, string preset, WorldGenV7 features)
+    {
+        _features = features;
         _preset = preset;
 
         _continent = CreateNoise(seed, 0x434F4E54u,
@@ -243,7 +248,7 @@ public partial class VoxelWorld
     {
         if (_genVersion >= WorldGenV8.Version)
         {
-            _worldGenV8 = new WorldGenV8(_manifest.Seed, _preset);
+            _worldGenV8 = new WorldGenV8(_manifest.Seed, _preset, GeneratorV7);
         }
     }
 

@@ -86,13 +86,13 @@ Latest warmed 8-chunk timing sample on the validation machine:
 
 | Generator | Mean chunk data time |
 |---|---:|
-| V7 | 8.08 ms |
-| V8 | 8.62 ms |
+| V7 | 7.03 ms |
+| V8 | 7.33 ms |
 
-This run measured V8 at approximately 7% slower than V7. Timing varies with CPU scheduling and JIT state; the test warms each generator before timing. Chunk streaming and greedy meshing implementations were not changed.
+This run measured V8 at approximately 4% slower than V7. Timing varies with CPU scheduling and JIT state; the test warms each generator before timing. Chunk streaming and greedy meshing implementations were not changed.
 
 ## Scope and remaining manual review
 
 Generator versions 1–7 are retained. The V7 source file is unchanged, its golden hashes are pinned, and existing world format / persisted IDs are not modified. New worlds use generator V8. No block or item IDs were added.
 
-These captures are a representative visual audit, not a complete art-direction sign-off. More seed/preset combinations, longer exploration routes, and caves viewed from inside the underground network still merit manual playtesting.
+These captures are a representative visual audit, not a complete art-direction sign-off. Ore veins, surface landmarks and underground structures retain their deterministic V7 placement rules and are covered by V7/V8 chunk-seam regression tests, but they do not yet have dedicated close-up GPU screenshots in this report. A biome-boundary close-up and longer exploration routes also remain useful manual follow-up checks; caves should still be reviewed from inside the underground network.
