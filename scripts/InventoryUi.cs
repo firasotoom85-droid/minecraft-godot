@@ -25,8 +25,13 @@ public partial class InvSlot : Panel
 
     private TextureRect _icon = null!;
     private Label _count = null!;
+    private bool _hovered;
+    private bool _hasStack;
+    private bool _dragStarted;
+    private bool _suppressClick;
 
     public event Action<InvSlot, MouseButton>? Clicked;
+    public event Action<InvSlot, InvSlot>? Dropped;
 
     public override void _Ready()
     {
@@ -49,7 +54,9 @@ public partial class InvSlot : Panel
         _count.AddThemeConstantOverride("outline_size", 4);
         _count.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight, LayoutPresetMode.Minsize, 2);
         AddChild(_count);
-        AddThemeStyleboxOverride("panel", Style(false));
+        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle());
+        MouseEntered += OnMouseEntered;
+        MouseExited += OnMouseExited;
     }
 
     public void ShowStack(ItemStack stack, bool selected)
@@ -59,6 +66,8 @@ public partial class InvSlot : Panel
             return;
         }
 
+        _hasStack = !stack.IsEmpty;
+        TooltipText = stack.IsEmpty ? "" : $"{ItemDb.NameOf(stack.Id)}\n{(ItemDb.ToolOf(stack.Id) is { } toolInfo ? $"Durability: {stack.Durability}/{toolInfo.Durability}" : $"Count: {stack.Count}")}";
         _icon.Texture = stack.IsEmpty ? null : ItemDb.Icon(stack.Id);
         _icon.Visible = !stack.IsEmpty;
         if (stack.IsEmpty)
@@ -74,26 +83,80 @@ public partial class InvSlot : Panel
             _count.Text = stack.Count > 1 ? stack.Count.ToString() : "";
         }
 
-        AddThemeStyleboxOverride("panel", Style(selected));
+        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(selected, _hovered));
     }
 
-    private static StyleBoxFlat Style(bool selected)
+    private void OnMouseEntered()
     {
-        StyleBoxFlat sb = new()
-        {
-            BgColor = selected ? new Color(0.10f, 0.10f, 0.13f, 0.90f) : new Color(0.06f, 0.06f, 0.08f, 0.78f),
-            BorderColor = selected ? new Color(1, 1, 1, 0.95f) : new Color(0.35f, 0.35f, 0.38f, 0.85f),
-        };
-        sb.SetBorderWidthAll(selected ? 3 : 2);
-        sb.SetCornerRadiusAll(5);
-        return sb;
+        _hovered = true;
+        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(false, true));
     }
+
+    private void OnMouseExited()
+    {
+        _hovered = false;
+        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle());
+    }
+
+    public override Variant _GetDragData(Vector2 atPosition)
+    {
+        if (!_hasStack) return default;
+        _dragStarted = true;
+        Panel preview = new()
+        {
+            CustomMinimumSize = new Vector2(48, 48),
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        preview.AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(true, false));
+        TextureRect icon = new()
+        {
+            Texture = _icon.Texture,
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            TextureFilter = CanvasItem.TextureFilterEnum.Nearest,
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        icon.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect, LayoutPresetMode.Minsize, 5);
+        preview.AddChild(icon);
+        SetDragPreview(preview);
+        return Variant.From(this);
+    }
+
+    public override bool _CanDropData(Vector2 atPosition, Variant data) =>
+        data.AsGodotObject() is InvSlot source && source != this && source._hasStack;
+
+    public override void _DropData(Vector2 atPosition, Variant data)
+    {
+        if (data.AsGodotObject() is InvSlot source && source != this)
+        {
+            source._dragStarted = false;
+            source._suppressClick = true;
+            _suppressClick = true;
+            source.CallDeferred(nameof(ClearSuppressedClick));
+            CallDeferred(nameof(ClearSuppressedClick));
+            Dropped?.Invoke(source, this);
+        }
+    }
+
+    public void ClearSuppressedClick() => _suppressClick = false;
 
     public override void _GuiInput(InputEvent @event)
     {
-        if (@event is InputEventMouseButton button && button.Pressed)
+        if (@event is InputEventMouseButton button && !button.Pressed)
         {
+            if (_suppressClick || _dragStarted)
+            {
+                _suppressClick = false;
+                _dragStarted = false;
+                AcceptEvent();
+                return;
+            }
             Clicked?.Invoke(this, button.ButtonIndex);
+            AcceptEvent();
+        }
+        else if (@event.IsActionPressed("ui_accept"))
+        {
+            Clicked?.Invoke(this, MouseButton.Left);
             AcceptEvent();
         }
     }
@@ -112,13 +175,16 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     private Hud _hud = null!;
 
     private Control _root = null!;
+    private CenterContainer _center = null!;
     private Label _title = null!;
     private GridContainer _craftGrid = null!;
     private GridContainer _backpackGrid = null!;
     private HBoxContainer _hotbarRow = null!;
     private VBoxContainer _containerBox = null!;
+    private PanelContainer _containerPanel = null!;
     private GridContainer _containerGrid = null!;
     private VBoxContainer _furnaceBox = null!;
+    private PanelContainer _furnacePanel = null!;
     private ProgressBar _furnaceProgress = null!;
     private InvSlot _resultSlot = null!;
     private VBoxContainer _recipeList = null!;
@@ -148,6 +214,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         Layer = 9;
         AddToGroup(UiFocus.ModalGroup);
         Build();
+        GetViewport().SizeChanged += ApplyResponsiveScale;
+        ApplyResponsiveScale();
         _player.TableUsed += () => Open(3);
         _player.Inventory.Changed += () =>
         {
@@ -180,23 +248,25 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         dim.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _root.AddChild(dim);
 
-        CenterContainer center = new();
-        center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        center.MouseFilter = Control.MouseFilterEnum.Ignore;
-        _root.AddChild(center);
+        _center = new CenterContainer();
+        _center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _center.MouseFilter = Control.MouseFilterEnum.Ignore;
+        _root.AddChild(_center);
 
         VBoxContainer box = new();
         box.AddThemeConstantOverride("separation", 10);
         _containerBox = BuildContainer();
-        _containerBox.Visible = false;
-        box.AddChild(_containerBox);
+        _containerPanel = MenuSkin.Wrap(_containerBox);
+        _containerPanel.Visible = false;
+        box.AddChild(_containerPanel);
         _furnaceBox = BuildFurnace();
-        _furnaceBox.Visible = false;
-        box.AddChild(_furnaceBox);
+        _furnacePanel = MenuSkin.Wrap(_furnaceBox);
+        _furnacePanel.Visible = false;
+        box.AddChild(_furnacePanel);
         _title = MenuSkin.Title("INVENTORY", 18);
         box.AddChild(_title);
         box.AddChild(BuildColumns());
-        center.AddChild(MenuSkin.Wrap(box));
+        _center.AddChild(MenuSkin.Wrap(box));
 
         _cursorIcon = new TextureRect
         {
@@ -218,6 +288,16 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _cursorCount.AddThemeConstantOverride("outline_size", 4);
         _root.AddChild(_cursorCount);
         BuildRecipeRows();
+    }
+
+    private void ApplyResponsiveScale()
+    {
+        if (_center == null || !IsInstanceValid(_center)) return;
+        Vector2 viewport = GetViewport().GetVisibleRect().Size;
+        if (viewport.X <= 0 || viewport.Y <= 0) return;
+        float scale = Mathf.Clamp(Mathf.Min(viewport.X / 1450.0f, viewport.Y / 900.0f), 0.68f, 1.0f);
+        _center.PivotOffset = viewport * 0.5f;
+        _center.Scale = Vector2.One * scale;
     }
 
     private VBoxContainer BuildContainer()
@@ -396,8 +476,11 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             Kind = kind,
             Index = index,
             CustomMinimumSize = new Vector2(SlotPx, SlotPx),
+            FocusMode = Control.FocusModeEnum.All,
         };
+        slot.AddThemeStyleboxOverride("focus", MenuSkin.SlotStyle(true));
         slot.Clicked += OnSlotClicked;
+        slot.Dropped += OnSlotDropped;
         return slot;
     }
 
@@ -407,22 +490,15 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (GetTree().Paused)
-        {
+        if (GetTree().Paused || @event is InputEventKey { Echo: true })
             return;
-        }
 
-        if (@event is not InputEventKey key || !key.Pressed || key.Echo)
-        {
-            return;
-        }
-
-        if (key.IsActionPressed("inventory"))
+        if (@event.IsActionPressed("inventory"))
         {
             Toggle();
             GetViewport().SetInputAsHandled();
         }
-        else if (_open && key.Keycode == Key.Escape)
+        else if (_open && @event.IsActionPressed("ui_cancel"))
         {
             Close();
             GetViewport().SetInputAsHandled();
@@ -455,8 +531,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         _container = _player.World.GetContainer(pos);
-        _containerBox.Visible = true;
-        _furnaceBox.Visible = false;
+        _containerPanel.Visible = true;
+        _furnacePanel.Visible = false;
         _furnace = null;
         _title.Text = "INVENTORY";
         Refresh();
@@ -476,9 +552,9 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         _furnace = _player.World.GetFurnace(pos);
-        _containerBox.Visible = false;
+        _containerPanel.Visible = false;
         _container = null;
-        _furnaceBox.Visible = true;
+        _furnacePanel.Visible = true;
         _title.Text = "INVENTORY";
         _furnaceRefreshTimer = 0.0;
         Refresh();
@@ -499,9 +575,9 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _open = true;
         _craftSize = size;
         _title.Text = size == 3 ? "CRAFTING TABLE" : "INVENTORY";
-        _containerBox.Visible = false;
+        _containerPanel.Visible = false;
         _container = null;
-        _furnaceBox.Visible = false;
+        _furnacePanel.Visible = false;
         _furnace = null;
         _craftGrid.Columns = size;
         foreach (Node child in _craftGrid.GetChildren())
@@ -518,15 +594,16 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         Input.MouseMode = Input.MouseModeEnum.Visible;
         _player.InputLocked = true;
         Refresh();
+        UiFocus.FocusFirst(_backpackSlots[0]);
     }
 
     private void Close()
     {
         _open = false;
         _root.Visible = false;
-        _containerBox.Visible = false;
+        _containerPanel.Visible = false;
         _container = null;
-        _furnaceBox.Visible = false;
+        _furnacePanel.Visible = false;
         _furnace = null;
         ReturnCraftItems();
         GiveCursorBack();
@@ -576,6 +653,13 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     private void OnSlotClicked(InvSlot slot, MouseButton button)
     {
+        if (button == MouseButton.Left && Input.IsKeyPressed(Key.Shift) && TransferSlotToInventory(slot))
+        {
+            _player.Inventory.RaiseChanged();
+            Refresh();
+            return;
+        }
+
         switch (slot.Kind)
         {
             case SlotKind.Result:
@@ -621,6 +705,70 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         _player.Inventory.RaiseChanged();
+    }
+
+    private bool TransferSlotToInventory(InvSlot slot)
+    {
+        if (slot.Kind is SlotKind.Backpack or SlotKind.Hotbar or SlotKind.Armor or SlotKind.Result)
+            return false;
+
+        ItemStack stack = ReadSlot(slot);
+        if (stack.IsEmpty) return false;
+        int leftover = _player.Inventory.Add(stack);
+        int moved = stack.Count - leftover;
+        if (moved <= 0) return false;
+        WriteSlot(slot, leftover <= 0 ? ItemStack.Empty : stack with { Count = leftover });
+        return true;
+    }
+
+    private ItemStack ReadSlot(InvSlot slot) => slot.Kind switch
+    {
+        SlotKind.Craft => _craft[slot.Index],
+        SlotKind.Backpack => _player.Inventory.Backpack[slot.Index],
+        SlotKind.Hotbar => _player.Inventory.Hotbar[slot.Index],
+        SlotKind.Armor => _player.Inventory.Armor[slot.Index],
+        SlotKind.Container when _container != null => _container.Slots[slot.Index],
+        SlotKind.FurnaceInput when _furnace != null => _furnace.Input,
+        SlotKind.FurnaceFuel when _furnace != null => _furnace.Fuel,
+        SlotKind.FurnaceOutput when _furnace != null => _furnace.Output,
+        _ => ItemStack.Empty,
+    };
+
+    private void WriteSlot(InvSlot slot, ItemStack stack)
+    {
+        switch (slot.Kind)
+        {
+            case SlotKind.Craft: _craft[slot.Index] = stack; break;
+            case SlotKind.Backpack: _player.Inventory.Backpack[slot.Index] = stack; break;
+            case SlotKind.Hotbar: _player.Inventory.Hotbar[slot.Index] = stack; break;
+            case SlotKind.Armor: _player.Inventory.Armor[slot.Index] = stack; break;
+            case SlotKind.Container when _container != null: _container.Slots[slot.Index] = stack; break;
+            case SlotKind.FurnaceInput when _furnace != null: _furnace.Input = stack; break;
+            case SlotKind.FurnaceFuel when _furnace != null: _furnace.Fuel = stack; break;
+            case SlotKind.FurnaceOutput when _furnace != null: _furnace.Output = stack; break;
+        }
+    }
+
+    private void OnSlotDropped(InvSlot source, InvSlot target)
+    {
+        if (!_cursor.IsEmpty || source.Kind == SlotKind.Result
+                || target.Kind is SlotKind.Result or SlotKind.FurnaceOutput)
+            return;
+        if (source.Kind == target.Kind && source.Index == target.Index)
+            return;
+
+        ItemStack moving = ReadSlot(source);
+        ItemStack destination = ReadSlot(target);
+        int sourceArmorSlot = source.Kind == SlotKind.Armor ? source.Index : -1;
+        int targetArmorSlot = target.Kind == SlotKind.Armor ? target.Index : -1;
+        if (!InventoryStackTransfer.TryTransfer(ref moving, ref destination,
+                    sourceArmorSlot, targetArmorSlot))
+            return;
+
+        WriteSlot(source, moving);
+        WriteSlot(target, destination);
+        _player.Inventory.RaiseChanged();
+        Refresh();
     }
 
     private void ClickStack(ref ItemStack slot, MouseButton button)

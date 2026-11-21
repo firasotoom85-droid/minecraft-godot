@@ -798,35 +798,9 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   opacity edits, and saved emitter restoration after chunk unload/reload.
 - No persisted IDs, save formats, world-generation versions, meshing rules or
   chunk-streaming policies were changed.
-- **CI verification:** commit `8530e46` passed the Godot 4.7.2 .NET build
-  with **0 warnings / 0 errors** and the headless suite with **1,028 checks,
-  0 failures**. This run includes the pooled incremental region buffers and
-  world-level unload/reload regressions.
-
-
-- **2026-11-20 — Mob ecology medium/low-priority implementation.**
-  - Species profiles now produce distinct flock sizes, spacing and cohesion:
-    chickens form larger, tighter flocks; sheep use stronger cohesion; cattle
-    and pigs form smaller groups.
-  - Passive animals have a slowly draining hunger meter and seek nearby grass
-    or snowy grass. Grazing commits the existing grass-to-dirt mutation through
-    `VoxelWorld.SetBlock` and restores hunger.
-  - Sheep, cows, pigs and chickens now use separate pivoted leg meshes with
-    alternating gait animation instead of relying only on body bobbing.
-  - Cave Stalkers, Crystal Wisps and Hollows sample cached voxel sky/block
-    light on their AI tick and use species-specific detection thresholds.
-  - Projectile impact gates now explicitly distinguish terrain termination
-    from player damage; tests cover terrain stops and blocked-through-wall hits.
-  - Passive animals rest at night and seek nearby roofed positions during rain
-    and storms, while threat response takes priority.
-  - Added an opt-in real-scene survival soak runner and
-    `bash scripts/soak-survival.sh 3600`. It loads the main scene, seeds herds
-    and hostile mobs, feeds adults to exercise breeding, alternates cave/surface
-    and day/night conditions, and reports population/cave/juvenile observations.
-  - **Verification pending:** CI build/test for the latest ecology changes and
-    an actual 60-minute Godot 4.7.2 .NET soak have not yet completed. The soak
-    must be run on a machine with Godot .NET installed; the fast unit suite
-    does not substitute for it.
+- **Verification:** pending the final CI run for this follow-up; run the
+  Godot 4.7.2 .NET build and headless suite before considering the change
+  complete.
 
 
 ## 14. Fluid simulation follow-up — 2026-11-20
@@ -834,9 +808,8 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - Replaced the recurring full-window flow pass with a deduplicated active-cell queue, bounded per-tick work, and periodic source pulses. Loaded fluid discovery runs when the player changes chunk or moves into a new vertical band.
 - Unloaded neighbours are treated as unknown; water cannot flow into them or recede merely because a chunk is not loaded. World-height limits remain known solid boundaries.
 - Added source-water regeneration when two horizontal sources border a water cell above a solid floor. Flowing water remains non-source; adjacent lava reacts through `SetBlock`.
-- Successful world block edits wake neighbouring fluid cells, so player edits and fluid mutations both reschedule nearby flow without a volume-wide scan.
 - Swimming vertical input respects floor/ceiling contacts. Underwater visibility blends with immersion, lava has a separate warm fog environment, and low-pass filtering no longer affects Master/UI audio.
-- Added generated-world integration coverage for source regeneration, flowing-water creation, impermeable terrain, lava reaction and an unloaded chunk edge, plus collision/source-rule unit checks.
+- Added generated-world integration coverage for source regeneration, lateral spread, impermeable terrain, lava reaction and an unloaded chunk edge, plus collision/source-rule unit checks.
 - **Verification pending:** run `dotnet build -c Debug` and `scripts/verify.sh` with Godot 4.7.2 .NET; no runtime/performance soak has been performed in this environment.
 
 ---
@@ -865,3 +838,14 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - **Hardware profiling pending:** CI timings are correctness diagnostics, not
   a substitute for fixed-seed profiling on the target MX230 and desktop GPU.
 
+## 15. M8 UX interface and controller continuation — 2026-11-20
+
+- Unified the menu and gameplay visual language with square pixel-art panels, muted green borders, warm highlights, crisp focus/hover states and high contrast hotbar/crosshair treatment.
+- Added responsive scaling to main menu, pause/settings, controls and inventory; chest and furnace panels now use the shared framed surface.
+- Inventory slots show item name/count/durability, support hover feedback, Shift-click transfer, and native drag-and-drop across player inventory, crafting, chest and furnace slots. Armor destinations validate equipment type, and furnace output can be dragged into inventory.
+- Added additive controller bindings for movement, camera look, jump, sprint, mining, placement, block pick, hotbar cycling, creative flight, inventory, pause, minimap and journal. Controller button overrides persist separately from keyboard settings and can be rebound in the Controls panel.
+- Added focus initialization and controller confirm/cancel support across the main menu, pause, controls, inventory and achievement journal.
+- First-person arm now displays the selected item icon and animates it with the existing swing, swimming, movement bob and landing presentation.
+- Added keybind regression checks for controller defaults, remapping, conflict detection, reset behavior and preservation of controller events during keyboard rebinding.
+- Compatibility: no persisted IDs, save schema, world generation, voxel mutation, meshing or chunk streaming changes.
+- **Verification pending:** the current branch has not yet been built or run through `scripts/verify.sh` in this environment. CI and in-game validation remain required, including a controller smoke test and visual review at 1920×1080 and 1280×720.

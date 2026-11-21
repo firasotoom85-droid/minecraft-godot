@@ -79,7 +79,9 @@ public partial class TraderUi : CanvasLayer, IModalUi
             return;
         }
 
-        if (_open && @event is InputEventKey key && key.Pressed && !key.Echo && key.Keycode == Key.Escape)
+        if (_open && @event is InputEventKey key && (!key.Pressed || key.Echo))
+            return;
+        if (_open && @event.IsActionPressed("ui_cancel"))
         {
             Close();
             GetViewport().SetInputAsHandled();
@@ -93,6 +95,7 @@ public partial class TraderUi : CanvasLayer, IModalUi
         Input.MouseMode = Input.MouseModeEnum.Visible;
         _player.InputLocked = true;
         Refresh();
+        UiFocus.FocusFirst(_root);
     }
 
     private void Close()

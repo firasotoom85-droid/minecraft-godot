@@ -50,6 +50,38 @@ public static class InventoryTests
         Inventory roomy = new();
         TestAssert.Check(roomy.CanFit(ItemId.Stone, Inventory.SlotCount * 64), "empty inventory fits full stacks");
         TestAssert.Check(!roomy.CanFit(ItemId.Stone, Inventory.SlotCount * 64 + 1), "no room past the slot count");
+        ItemStack dragSource = ItemDb.New(ItemId.Stone, 10);
+        ItemStack dragTarget = ItemStack.Empty;
+        TestAssert.Check(InventoryStackTransfer.TryTransfer(ref dragSource, ref dragTarget),
+                "drag moves a stack into an empty slot");
+        TestAssert.Check(dragSource.IsEmpty, "drag empties the source slot");
+        TestAssert.Equal(10, dragTarget.Count, "drag preserves the full stack count");
+
+        dragSource = ItemDb.New(ItemId.Stone, 10);
+        dragTarget = ItemDb.New(ItemId.Stone, 60);
+        TestAssert.Check(InventoryStackTransfer.TryTransfer(ref dragSource, ref dragTarget),
+                "drag merges matching stacks");
+        TestAssert.Equal(64, dragTarget.Count, "drag merge respects max stack size");
+        TestAssert.Equal(6, dragSource.Count, "drag merge leaves the correct remainder");
+
+        dragSource = ItemDb.New(ItemId.Dirt, 3);
+        dragTarget = ItemDb.New(ItemId.Stone, 5);
+        TestAssert.Check(InventoryStackTransfer.TryTransfer(ref dragSource, ref dragTarget),
+                "drag swaps different item stacks");
+        TestAssert.Equal(ItemId.Stone, dragSource.Id, "swap returns the previous target to source");
+        TestAssert.Equal(ItemId.Dirt, dragTarget.Id, "swap moves source item to target");
+
+        dragSource = ItemDb.New(ItemId.IronHelmet, 1);
+        dragTarget = ItemStack.Empty;
+        TestAssert.Check(!InventoryStackTransfer.TryTransfer(ref dragSource, ref dragTarget, -1, 1),
+                "armor cannot be dragged into the wrong equipment slot");
+        TestAssert.Equal(ItemId.IronHelmet, dragSource.Id, "invalid armor drop preserves source");
+        TestAssert.Check(dragTarget.IsEmpty, "invalid armor drop leaves target empty");
+        TestAssert.Check(InventoryStackTransfer.TryTransfer(ref dragSource, ref dragTarget, -1, 0),
+                "armor can be dragged into its matching equipment slot");
+        TestAssert.Check(dragSource.IsEmpty, "valid armor drop clears source");
+        TestAssert.Equal(ItemId.IronHelmet, dragTarget.Id, "valid armor drop equips the correct item");
+
 
         Inventory partial = new();
         partial.Set(0, ItemDb.New(ItemId.Stone, 60));

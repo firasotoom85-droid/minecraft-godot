@@ -179,14 +179,14 @@ public partial class Hud : CanvasLayer
         root.AddChild(cross);
         Control wrap = new()
         {
-            CustomMinimumSize = new Vector2(20, 20),
+            CustomMinimumSize = new Vector2(24, 24),
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
         cross.AddChild(wrap);
-        Bar(wrap, new Vector2(0, 8), new Vector2(20, 4), new Color(0, 0, 0, 0.55f));     // outline h
-        Bar(wrap, new Vector2(8, 0), new Vector2(4, 20), new Color(0, 0, 0, 0.55f));     // outline v
-        Bar(wrap, new Vector2(0, 9), new Vector2(20, 2), new Color(1, 1, 1, 0.95f));     // h
-        Bar(wrap, new Vector2(9, 0), new Vector2(2, 20), new Color(1, 1, 1, 0.95f));     // v
+        Bar(wrap, new Vector2(0, 10), new Vector2(24, 4), new Color(0, 0, 0, 0.68f));
+        Bar(wrap, new Vector2(10, 0), new Vector2(4, 24), new Color(0, 0, 0, 0.68f));
+        Bar(wrap, new Vector2(0, 11), new Vector2(24, 2), new Color(1, 1, 1, 0.98f));
+        Bar(wrap, new Vector2(11, 0), new Vector2(2, 24), new Color(1, 1, 1, 0.98f));
     }
 
     private static void Bar(Control parent, Vector2 pos, Vector2 size, Color color)
@@ -362,17 +362,7 @@ public partial class Hud : CanvasLayer
         }
     }
 
-    private static StyleBoxFlat SlotStyle(bool selected)
-    {
-        StyleBoxFlat sb = new()
-        {
-            BgColor = selected ? new Color(0.10f, 0.10f, 0.13f, 0.80f) : new Color(0.06f, 0.06f, 0.08f, 0.62f),
-            BorderColor = selected ? new Color(1, 1, 1, 0.95f) : new Color(0.35f, 0.35f, 0.38f, 0.85f),
-        };
-        sb.SetBorderWidthAll(selected ? 3 : 2);
-        sb.SetCornerRadiusAll(6);
-        return sb;
-    }
+    private static StyleBoxFlat SlotStyle(bool selected) => MenuSkin.SlotStyle(selected);
 
     // -----------------------------------------------------------------------
     // Survival bars (hearts / hunger / breath) + damage vignette + death screen
@@ -799,48 +789,33 @@ public partial class Hud : CanvasLayer
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (@event is not InputEventKey key || !key.Pressed || key.Echo)
-        {
+        if (@event is InputEventKey key && (!key.Pressed || key.Echo))
             return;
-        }
 
         if (_deathPanel.Visible)
         {
-            // Keyboard fallback: the death screen must never depend on a click.
-            if (key.Keycode is Key.Enter or Key.R)
+            if (@event.IsActionPressed("ui_accept")
+                    || (@event is InputEventKey deathKey && deathKey.Keycode == Key.R))
             {
                 PlayerRef?.Respawn();
                 GetViewport().SetInputAsHandled();
             }
-
             return;
         }
 
         if (PlayerRef?.InputLocked == true || PlayerRef?.Stats.Dead == true)
-        {
             return;
-        }
 
-        if (key.IsActionPressed("toggle_info"))
-        {
+        if (@event.IsActionPressed("toggle_info"))
             _infoPanel.Visible = !_infoPanel.Visible;
-        }
-        else if (key.IsActionPressed("toggle_help"))
-        {
+        else if (@event.IsActionPressed("toggle_help"))
             _helpPanel.Visible = !_helpPanel.Visible;
-        }
-        else if (key.IsActionPressed("toggle_map"))
-        {
+        else if (@event.IsActionPressed("toggle_map"))
             _mapPanel.Visible = !_mapPanel.Visible;
-        }
-        else if (key.IsActionPressed("map_zoom_in"))
-        {
+        else if (@event.IsActionPressed("map_zoom_in"))
             _minimap.ZoomIn();
-        }
-        else if (key.IsActionPressed("map_zoom_out"))
-        {
+        else if (@event.IsActionPressed("map_zoom_out"))
             _minimap.ZoomOut();
-        }
     }
 
     // -----------------------------------------------------------------------
