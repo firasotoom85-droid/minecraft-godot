@@ -15,7 +15,7 @@ scene as a separate process for each scenario:
 dotnet build -c Debug
 godot --path . res://tests/PerformanceRunner.tscn -- \
   --scenario=open-terrain --seed=1337 --warmup=15 --duration=30 \
-  --preset=1 --view-distance=8 --resolution=1280x720 \
+  --preset=0 --view-distance=5 --resolution=1280x720 \
   --commit="$(git rev-parse HEAD)"
 ```
 
@@ -27,15 +27,23 @@ defines `Debug`, `ExportDebug` and `ExportRelease`, but not a solution-level
 dotnet build minecraft.csproj -c Release
 ```
 
-Only label a run as Release when Godot is actually loading the Release assembly;
-confirm the report's `buildConfiguration` field. Do not merely pass a label
-for a Debug assembly. The optional `--build` argument can override the reported
-configuration when launching a separately built artifact. Keep the Godot
-version, renderer, window size, V-Sync state, graphics preset, view distance,
-seed and camera scenario fixed when comparing commits. Close overlays and other GPU-heavy applications; keep
-the benchmark window focused. Run each configuration at least three times and
-compare the per-run results (prefer the median run) rather than selecting the
-best result.
+For a standalone command-line launch, this project's Godot runtime loads
+.godot/mono/temp/bin/Debug/minecraft.dll by default. To test a Release build,
+direct Release output to the runtime path selected by this project:
+
+    dotnet build minecraft.csproj -c Release -o .godot/mono/temp/bin/Debug --nologo
+    godot --path . res://tests/PerformanceRunner.tscn -- --scenario=open-terrain
+
+Alternatively, select Release in the Godot editor's build-configuration
+selector before launching. Confirm the report's buildConfiguration field.
+The optional --build argument can override the reported value for a separately
+verified artifact; never use it to relabel a Debug assembly as Release.
+
+Keep the Godot version, renderer, window size, V-Sync state, graphics preset,
+view distance, seed and camera scenario fixed when comparing commits. Close
+overlays and other GPU-heavy applications, keep the benchmark window focused,
+and run each configuration at least three times. Compare the per-run results
+(prefer the median) rather than selecting the best result.
 
 Interactive runs set the requested window size (default 1280×720), disable
 V-Sync and remove the engine FPS cap. The player remains in the real
@@ -54,6 +62,12 @@ initial chunks, then performs the requested warm-up before sampling. The
 default warm-up is 15 seconds and the default measurement is 30 seconds.
 Duration is clamped to 5–600 seconds. The quality governor is disabled and
 greedy meshing is enabled for every run.
+
+The graphics presets are ordered from LOW to MAX FSR2. New installations
+default to LOW (index 0) with a five-chunk view radius. Version-1 settings are
+migrated so legacy LOW/HIGH/ULTRA/MAX/MAX FSR2 selections keep their original
+meaning; custom view distances are retained. BALANCED occupies index 1, so do
+not reuse the old integer mapping in external tools.
 
 ## Scenarios
 
@@ -83,13 +97,22 @@ with an error rather than recording a mislabeled workload.
 | `--seed` | `1337` | World seed |
 | `--warmup` | `15` | Warm-up seconds, 0–300 |
 | `--duration` | `30` | Measurement seconds, 5–600 |
-| `--preset` | `1` | Graphics preset index: 0 LOW, 1 HIGH, 2 ULTRA, 3 MAX, 4 MAX FSR2 |
-| `--view-distance` | `8` | Chunk view distance, 2–24 |
+| `--preset` | `0` | Graphics preset index: 0 LOW, 1 BALANCED, 2 HIGH, 3 ULTRA, 4 MAX, 5 MAX FSR2 |
+| `--view-distance` | `5` | Chunk view distance, 2–24 |
 | `--resolution` | `1280x720` | Interactive window size in pixels; ignored in headless mode |
 | `--build` | detected | Build label stored in the report; pass only when verified against the assembly |
 | `--route-radius` | scenario-specific | Circular route radius in metres, 4–512 |
 | `--route-speed` | scenario-specific | Route speed in metres/second, 0.1–32 |
 | `--commit` | `unknown` | Git SHA to store in the report |
+
+## Reference-hardware comparison
+
+The three-repeat MX230 Release comparison for the immediate optimization pass
+is documented in
+[PERFORMANCE_MILESTONE_2_MX230.md](PERFORMANCE_MILESTONE_2_MX230.md). Use it as
+a controlled baseline for that exact Godot version, renderer, resolution,
+preset, view distance, seed and scenario. It is not an RTX 4060 baseline and
+should not be generalized to other presets or GPUs.
 
 ## Reports
 

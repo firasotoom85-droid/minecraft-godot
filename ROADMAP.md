@@ -5,10 +5,11 @@ progress recorded in `PLAN.md`. `PLAN.md` remains the historical progress log
 (M0–M4b); this file is the forward plan.
 
 **Baseline note:** this roadmap began as a source audit before the M5
-verification work. The current test status and historical performance
-measurements are recorded below and in `docs/PERF_BASELINE.md`; the new
-repeatable benchmark procedure is in `docs/PERFORMANCE_BENCHMARKS.md`. A
-controlled Release baseline on both reference machines is still pending.
+verification work. Historical measurements remain in docs/PERF_BASELINE.md;
+the repeatable procedure is in docs/PERFORMANCE_BENCHMARKS.md. The MX230 now
+has a controlled Release baseline and Milestone 2 comparison in
+docs/PERFORMANCE_MILESTONE_2_MX230.md. The equivalent RTX 4060 comparison
+remains pending.
 
 ---
 
@@ -63,7 +64,7 @@ shapes occupy `BlockId` 46–51 and `ItemId` 91–96. Transportation occupies
   [`docs/RELIABILITY_AUDIT_2026-11-21.md`](docs/RELIABILITY_AUDIT_2026-11-21.md).
 
 **Verification.** Godot 4.7.2 .NET Debug and ExportRelease builds complete with
-0 warnings and 0 errors. The headless suite reports **4,238 checks, 0
+0 warnings and 0 errors. The headless suite reports **4,276 checks, 0
 failures**, including legacy save loading, all pinned IDs, V1–V8 golden chunks,
 block-shape persistence, deterministic village generation, live resident
 spawning/interaction and cross-system save/quest/fluid interaction. The
@@ -85,10 +86,38 @@ not had a complete human visual playthrough.
   and streaming queue high-water marks. The runner closes the main scene before
   deleting the test world.
 - Added percentile regression tests. Debug build: 0 warnings / 0 errors.
-  Headless suite: 4,238 checks / 0 failures.
-- **Not yet measured:** this harness increment does not itself establish new
-  rendered FPS targets. Controlled multi-run Debug/Release captures on the
-  MX230 and RTX 4060 remain required before tuning thresholds.
+  Headless suite at the benchmark-runner increment: 4,238 checks / 0 failures.
+
+### Performance Milestone 2 — MX230 immediate optimizations — 2026-11-21
+
+- Main-menu preview now covers a 5×5 area (25 chunks instead of 81), uses
+  render-only chunk meshes (no collision triangles or physics shapes), disables
+  menu-only shadows and screen-space/volumetric effects, uses 80% render scale,
+  and is capped at 30 FPS. Previous frame cap and viewport settings are restored
+  when the menu leaves the scene tree; gameplay reapplies its selected preset.
+  A live MX230 capture confirmed the scene remains visually readable.
+- Removed three temporary arrays from the per-frame cloud update. Day/night
+  caches the player's biome tint and surface height by voxel column and shares
+  that sample for cave-depth checks. Weather samples ground-splash height only
+  while raining and when its snapped four-metre anchor changes.
+- Added a BALANCED preset and set LOW (5-chunk view, 80% render scale, 45 m
+  shadows, 1K atlas, expensive screen-space effects disabled) as the new-install
+  default for the MX230. Versioned the user graphics-setting mapping so old
+  preset selections and custom view distances migrate without changing meaning.
+- Added graphics migration, render-only chunk and mesh-payload regression tests.
+  V1–V8 generation, persisted block/item IDs, world saves, gameplay collision,
+  greedy meshing and chunk streaming remain intact.
+- **Controlled hardware comparison:** Godot 4.7.2 .NET Release, MX230 /
+  i7-1065G7, Vulkan Forward+, 1280×720, V8 seed 1337, LOW preset, view 5,
+  5 s warm-up and 20 s measurement, three runs per workload. Median FPS rose
+  9.4% in open terrain (68.9 → 75.3) and 9.1% in heavy rain (67.5 → 73.7).
+  p95 frame time improved by 9.1% and 7.1%, respectively. Heavy-rain p99
+  shifted from 16.8 ms to 19.9 ms; it remains below the 70 ms target, but the
+  tail should be monitored in longer captures. Exact results and limitations
+  are in docs/PERFORMANCE_MILESTONE_2_MX230.md.
+- **Verification:** Debug and Release builds each report 0 warnings / 0 errors;
+  headless suite: 4,276 checks / 0 failures across 29 suites. Three matched
+  rendered Release runs completed for each benchmark workload.
 
 ### Delivery validation
 
