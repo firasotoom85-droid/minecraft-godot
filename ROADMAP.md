@@ -1288,3 +1288,37 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   mip-chain payload is estimated at about 1.33 MiB versus 1.00 MiB without
   mipmaps for 256 RGBA8 32×32 layers (approximately 0.33 MiB additional
   texture data).
+## 21. Soil, grass and farmland transitions — 2026-11-21
+
+- Refined the existing procedural 32px atlas tiles rather than replacing the
+  art pipeline: grass sides now use a deeper, irregular turf band with a broken
+  dark-soil seam; farmland furrows have stronger shadow/ridge contrast and the
+  vertical face has a distinct dark tilled cap over its soil body.
+- Added face-aware atlas tile/color access. The existing icon/particle color
+  API retains its prior side-tile behavior; far LOD now samples upward-facing
+  tiles for terrain tops and side-facing tiles for coarse edges.
+- Split far-LOD slope skirts into a one-block surface-material cap and an
+  underlying substrate segment, so grassy/farmed edges transition into dirt
+  instead of stretching one surface tint down the entire slope.
+- Extended the derived per-column edit-top cache to retain the visible top
+  BlockId as well as its height. Far LOD now shows edited farmland, exposed
+  dirt and other edited top blocks after chunk unload. The cache rebuilds from
+  the existing sparse block edits on load; the original height-only lookup
+  remains available.
+- Compatibility: no persisted BlockId or ItemId values changed; no save fields
+  or generator rules were added; V1–V8 remain frozen. All voxel changes still
+  flow through the existing VoxelWorld.SetBlock path. Greedy meshing and
+  chunk streaming were not altered.
+- Added TerrainMaterialTests for face-tile assignments, face-color separation,
+  grass/soil row contrast, farmland furrow/cap contrast, and icon-color
+  compatibility. Added edit-cache round-trip/removal regressions to the shape
+  persistence integration test.
+- Performance characteristics: atlas averages are computed and cached once on
+  the main thread before LOD workers run; LOD worker builds use fixed color
+  tables and stack-allocated quad points. The edit material cache adds one
+  byte per column in each edited chunk; extra skirt quads are emitted only
+  where a coarse edge drops by more than one block. No per-frame terrain scans
+  or physics work were added.
+- **Verification:** Godot 4.7.2 .NET / .NET 9 Debug build and headless suite
+  pass; the completed run reports 4,247 checks and 0 failures. No generator,
+  save-format or persisted-ID migrations are required.
