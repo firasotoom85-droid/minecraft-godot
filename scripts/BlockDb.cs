@@ -834,21 +834,10 @@ void fragment() {
                     atlas,
                     new Rect2I((tile % AtlasCols) * TilePx, (tile / AtlasCols) * TilePx, TilePx, TilePx),
                     Vector2I.Zero);
-<<<<<<< HEAD
-            // Generate each tile's mip chain independently. Generating mipmaps
-            // on the packed atlas would average across tile borders and bleed
-            // neighbouring block art into distant faces.
+            // Generate each tile's mip chain independently; atlas mipmaps would bleed across tile borders.
             Error mipmapError = slice.GenerateMipmaps();
             if (mipmapError != Error.Ok)
-            {
                 GD.PushWarning($"minecraft: mipmap generation failed for tile {tile} ({mipmapError})");
-            }
-=======
-            // Mipmaps are generated per isolated tile, never from the atlas.
-            // This prevents distant minification from bleeding adjacent atlas
-            // tiles into one another while keeping the 32px source art intact.
-            slice.GenerateMipmaps();
->>>>>>> 1a609f2 (Unify voxel material response across rendering paths)
             layers.Add(slice);
         }
 

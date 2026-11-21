@@ -460,19 +460,14 @@ public static class Mesher
         {
             surf.Vertex.Add(points[tri]);
             surf.Normal.Add(normal);
-<<<<<<< HEAD
-            surf.Color.Add(VoxelLighting.VertexColor(cornerLight[tri], kk[tri]));
+            Color litColor = VoxelLighting.VertexColor(cornerLight[tri], kk[tri]);
+            surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B,
+                    (float)MaterialResponse.ForTile(textureTile)));
             Vector2 localUv = BlockDb.BlockFaceUvAt(blockId, blockState, face,
                     points[tri] - blockOrigin);
             surf.Uv.Add(Greedy
                     ? localUv
                     : BlockDb.MapUv(BlockDb.TileUvRect(textureTile), localUv));
-=======
-            Color litColor = VoxelLighting.VertexColor(cornerLight[tri], kk[tri]);
-            surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B,
-                    (float)MaterialResponse.ForTile(textureTile)));
-            surf.Uv.Add(BlockDb.UvLut[uvIndex + tri]);
->>>>>>> 1a609f2 (Unify voxel material response across rendering paths)
             if (Greedy)
                 surf.Uv2.Add(new Vector2(textureTile, 0.0f));
         }

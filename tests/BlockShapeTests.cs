@@ -220,7 +220,6 @@ public static class BlockShapeTests
                 "shape surfaces carry AO and voxel-light color for every emitted vertex");
         TestAssert.Equal(perFace.Opaque.Vertex.Count, perFace.Opaque.Uv.Count,
                 "shape surfaces carry atlas UVs for every emitted vertex");
-<<<<<<< HEAD
         TestAssert.Check(CheckBlockUvMapping(perFace.Opaque, new Vector3(2, 100, 2),
                     BlockId.PlanksSlab, BlockShapes.SlabBottom, false) > 0,
                 "slab micro-faces use block-relative atlas UVs instead of repeating a full tile");
@@ -230,13 +229,11 @@ public static class BlockShapeTests
         TestAssert.Check(CheckBlockUvMapping(perFace.Opaque, new Vector3(11, 100, 4),
                     BlockId.Stone, 0, false, faceFilter: 2) > 0,
                 "cube faces clipped against a slab keep the original full-cube texel density");
-=======
         TestAssert.Check(perFace.Opaque.Color.Exists(c => Mathf.IsEqualApprox(c.A,
                         (float)SurfaceFamily.Wood)),
                 "wood faces carry their response family in vertex alpha");
         TestAssert.Equal(0, perFace.Opaque.Uv2.Count,
                 "per-face atlas meshes do not allocate a texture-array UV channel");
->>>>>>> 1a609f2 (Unify voxel material response across rendering paths)
         Chunk? geometryChunk = null;
         foreach (Node child in world.GetChildren())
             if (child is Chunk candidate && candidate.ChunkPos == Vector2I.Zero)
@@ -272,7 +269,6 @@ public static class BlockShapeTests
                 "greedy and split opaque faces carry texture-array tile indices");
         TestAssert.Equal(greedy.Opaque.Vertex.Count, greedy.Opaque.Color.Count,
                 "greedy and split shape faces preserve AO/voxel-light attributes");
-<<<<<<< HEAD
         TestAssert.Check(CheckBlockUvMapping(greedy.Opaque, new Vector3(2, 100, 2),
                     BlockId.PlanksSlab, BlockShapes.SlabBottom, true) > 0,
                 "greedy texture-array slab faces preserve full-block UV scale and tile layer");
@@ -282,11 +278,9 @@ public static class BlockShapeTests
         TestAssert.Check(CheckBlockUvMapping(greedy.Opaque, new Vector3(11, 100, 4),
                     BlockId.Stone, 0, true, faceFilter: 2) > 0,
                 "greedy texture-array clipped cube faces retain continuous tile coordinates");
-=======
         TestAssert.Check(greedy.Opaque.Color.Exists(c => Mathf.IsEqualApprox(c.A,
                         (float)SurfaceFamily.Wood)),
                 "greedy faces preserve the same material-response family tags");
->>>>>>> 1a609f2 (Unify voxel material response across rendering paths)
         double greedyArea = SurfaceArea(greedy.Opaque);
         TestAssert.Check(Math.Abs(perFaceArea - greedyArea) < 0.001,
                 "greedy and per-face meshing preserve equal surface area around shapes");
