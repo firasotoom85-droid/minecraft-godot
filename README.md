@@ -330,7 +330,11 @@ when the output cannot fit in the inventory.
 The progression is wood → stone → iron → diamond, with mining harvest gates
 preserved: stone picks unlock iron ore, while iron picks unlock gold and diamond
 ore. Ore is depth-banded with seeded V7 veins; mountains have denser gold and
-diamond hash sampling. One coal burns for 80 seconds and smelts eight items at
+diamond hash sampling. Ore atlas deposits use larger stepped mineral clusters
+with restrained edge shading and highlights so the four resources remain
+distinct at cave depth and at distance. Ore stays fully opaque and emits no
+block light; solid cave walls continue to hide valuable veins. One coal burns
+for 80 seconds and smelts eight items at
 ten seconds each; logs burn for 60 seconds, planks for 15, and sticks for five.
 Furnace updates carry elapsed time across fuel boundaries, including larger
 frame steps. Raw meat is low-value food; cooked meat restores 5–7 hunger and

@@ -1488,20 +1488,47 @@ void fragment() {
     private static void PaintOre(Image img, int tile, Color oreColor, RandomNumberGenerator rng)
     {
         PaintStone(img, tile, rng);
-        int count = 8 + rng.RandiRange(0, 4);
+
+        // Ore is a surface marking, not a light source. Larger, connected
+        // angular deposits survive the atlas mip chain and remain recognizable
+        // when a 32 px tile is viewed at distance. A dark edge and a restrained
+        // highlight give each deposit shape without introducing emissive pixels.
+        int count = 5 + rng.RandiRange(0, 2);
         for (int i = 0; i < count; i++)
         {
-            int cx = rng.RandiRange(0, TilePx - 5);
-            int cy = rng.RandiRange(0, TilePx - 5);
-            int w = 3 + rng.RandiRange(0, 1);
-            int h = 3 + rng.RandiRange(0, 1);
-            for (int y = 0; y < h; y++)
+            int cx = rng.RandiRange(2, TilePx - 8);
+            int cy = rng.RandiRange(2, TilePx - 8);
+            int w = 5 + rng.RandiRange(0, 2);
+            int h = 4 + rng.RandiRange(0, 2);
+            Color shadow = oreColor.Lerp(new Color(0.12f, 0.13f, 0.15f), 0.38f);
+            Color highlight = oreColor.Lerp(Colors.White, 0.22f);
+
+            for (int y = -1; y <= h; y++)
+            for (int x = -1; x <= w; x++)
             {
-                for (int x = 0; x < w; x++)
+                int px = cx + x;
+                int py = cy + y;
+                if ((uint)px >= TilePx || (uint)py >= TilePx) continue;
+
+                bool inside = x >= 0 && x < w && y >= 0 && y < h;
+                if (!inside)
                 {
-                    Px(img, tile, (cx + x) % TilePx, (cy + y) % TilePx,
-                            Jitter(rng, oreColor, 0.06f));
+                    // One-pixel mineral shadow separates the deposit from stone.
+                    if (x == -1 || x == w || y == -1 || y == h)
+                        Px(img, tile, px, py, Jitter(rng, shadow, 0.025f));
+                    continue;
                 }
+
+                // Small stepped cuts keep the deposits crystalline rather than
+                // reading as rounded blobs; the center remains broad at distance.
+                bool cutCorner = (x == 0 || x == w - 1) && (y == 0 || y == h - 1)
+                        && rng.Randf() < 0.55f;
+                if (cutCorner) continue;
+
+                Color deposit = oreColor;
+                if (y == 0 || (x == 1 && y > 0)) deposit = highlight;
+                else if (x == w - 1 || y == h - 1) deposit = shadow;
+                Px(img, tile, px, py, Jitter(rng, deposit, 0.035f));
             }
         }
     }
