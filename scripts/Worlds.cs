@@ -16,7 +16,8 @@ public sealed record WorldManifest(
     long CreatedUtc,
     long PlayedUtc,
     string? Mode = null,
-    string? Preset = null);
+    string? Preset = null,
+    long PlaytimeSeconds = 0);
 
 /// <summary>Legacy combined save (v1). Read only while migrating an old save.</summary>
 public sealed record LegacySave(
