@@ -28,6 +28,8 @@ public partial class SurvivalSoakRunner : Node
     private int _noiseStimuli;
     private int _nonFinitePositionObservations;
     private bool _breedingPairStaged;
+    private Wanderer? _breedingParentA;
+    private Wanderer? _breedingParentB;
 
     public override void _Ready()
     {
@@ -118,7 +120,7 @@ public partial class SurvivalSoakRunner : Node
         if (_reportTimer >= 60.0)
         {
             _reportTimer = 0.0;
-            GD.Print($"SOAK minute={_elapsed / 60.0:0} passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} caveEncounters={_caveEncounters} noiseInvestigations={_mobs.NoiseInvestigations} invalidPositions={_nonFinitePositionObservations}");
+            GD.Print($"SOAK minute={_elapsed / 60.0:0} passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} caveEncounters={_caveEncounters} babiesObserved={_babiesObserved} parentsInLove={_breedingParentA?.InLove == true && _breedingParentB?.InLove == true} noiseInvestigations={_mobs.NoiseInvestigations} invalidPositions={_nonFinitePositionObservations}");
         }
 
         if (_elapsed >= _duration)
@@ -154,7 +156,7 @@ public partial class SurvivalSoakRunner : Node
         }
 
         FeedHerds();
-        GD.Print($"SURVIVAL SOAK: scenario started; caveFound={_hasCave}, caveEncounters={_caveEncounters}, breedingPairStaged={_breedingPairStaged}");
+        GD.Print($"SURVIVAL SOAK: scenario started; caveFound={_hasCave}, caveEncounters={_caveEncounters}, breedingPairStaged={_breedingPairStaged}, parentsInLove={_breedingParentA?.InLove == true && _breedingParentB?.InLove == true}");
     }
 
     private bool StageBreedingPair()
@@ -182,6 +184,10 @@ public partial class SurvivalSoakRunner : Node
 
         first.GlobalPosition = firstPosition;
         second.GlobalPosition = secondPosition;
+        first.Home = firstPosition;
+        second.Home = secondPosition;
+        _breedingParentA = first;
+        _breedingParentB = second;
 
         // Reserve exactly one slot for the newborn without exceeding the
         // production population cap; all unrelated surviving herds remain intact.
