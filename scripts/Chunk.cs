@@ -17,6 +17,9 @@ public partial class Chunk : StaticBody3D
     public VoxelWorld? World { get; private set; }
     public Vector2I ChunkPos { get; private set; } = Vector2I.Zero;
     public byte[] Blocks { get; private set; } = [];
+    // Most chunks contain only default shape states; keep this empty until a
+    // non-default orientation/half is actually stored in the chunk.
+    public byte[] BlockStates { get; private set; } = System.Array.Empty<byte>();
 
     private MeshInstance3D _meshOpaque = null!;
     private MeshInstance3D _meshGlass = null!;
@@ -63,24 +66,31 @@ public partial class Chunk : StaticBody3D
     public void Generate()
     {
         Blocks = World!.ChunkData(ChunkPos);
+        BlockStates = World.ChunkBlockStates(ChunkPos);
     }
 
-    public bool SetBlockLocal(int x, int y, int z, BlockId id)
+    public bool SetBlockLocal(int x, int y, int z, BlockId id) => SetBlockLocal(x, y, z, id, 0);
+
+    public bool SetBlockLocal(int x, int y, int z, BlockId id, byte state)
     {
         if (x < 0 || x >= SX || y < 0 || y >= World!.Height || z < 0 || z >= SZ)
-        {
             return false;
-        }
 
         int i = Index(x, y, z);
-        if ((BlockId)Blocks[i] == id)
-        {
+        state = BlockShapes.NormalizeState(id, state);
+        byte oldState = BlockStates.Length == 0 ? (byte)0 : BlockStates[i];
+        if ((BlockId)Blocks[i] == id && oldState == state)
             return false;
-        }
 
         Blocks[i] = (byte)id;
+        if (state != 0 && BlockStates.Length == 0)
+            BlockStates = new byte[Blocks.Length];
+        if (BlockStates.Length > 0)
+            BlockStates[i] = state;
         return true;
     }
+
+    public void ReleaseBlockStates() => BlockStates = System.Array.Empty<byte>();
 
     /// <summary>Apply a Mesher.Build() payload: meshes, materials, collider.</summary>
     public void ApplyPayload(MeshPayload payload)

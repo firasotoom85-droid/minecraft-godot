@@ -100,7 +100,9 @@ public partial class VoxelWorld : Node3D
     public bool HasChunk(Vector2I cp) => _chunks.ContainsKey(cp);
 
     private readonly Dictionary<Vector2I, byte[]> _dataCache = new();
-    private readonly Dictionary<Vector2I, Dictionary<int, BlockId>> _edits = new();  // persisted
+    private readonly Dictionary<Vector2I, Dictionary<int, BlockId>> _edits = new();  // persisted block IDs
+    private readonly Dictionary<Vector2I, Dictionary<int, byte>> _blockStateEdits = new(); // optional persisted shape state
+    private readonly Dictionary<Vector2I, byte[]> _blockStateCache = new();
     private readonly Dictionary<Vector3I, byte> _lightSources = [];  // all block emitters, 0..15
     private readonly HashSet<Vector2I> _sourceScannedChunks = [];
     private readonly Dictionary<Vector2I, byte[]> _skyLightCache = [];
@@ -1723,8 +1725,45 @@ public partial class VoxelWorld : Node3D
         return (BlockId)ChunkData(cp)[lx + lz * ChunkX + y * ChunkX * ChunkZ];
     }
 
-    public bool SetBlock(int x, int y, int z, BlockId id)
+    /// <summary>Backward-compatible reads: absent state entries are state zero.</summary>
+    public byte GetBlockState(int x, int y, int z)
     {
+        if (y < 0 || y >= Height) return 0;
+        Vector2I cp = new(Mathf.FloorToInt(x / (float)ChunkX), Mathf.FloorToInt(z / (float)ChunkZ));
+        int lx = x - cp.X * ChunkX;
+        int lz = z - cp.Y * ChunkZ;
+        int index = lx + lz * ChunkX + y * ChunkX * ChunkZ;
+        lock (_mutex)
+            return _blockStateEdits.TryGetValue(cp, out Dictionary<int, byte>? states)
+                && states.TryGetValue(index, out byte state) ? state : (byte)0;
+    }
+
+    /// <summary>State array aligned with ChunkData; default-state chunks allocate no dense buffer.</summary>
+    public byte[] ChunkBlockStates(Vector2I cp)
+    {
+        lock (_mutex)
+        {
+            if (_blockStateCache.TryGetValue(cp, out byte[]? cached)) return cached;
+            if (!_blockStateEdits.TryGetValue(cp, out Dictionary<int, byte>? edits) || edits.Count == 0)
+            {
+                _blockStateCache[cp] = System.Array.Empty<byte>();
+                return System.Array.Empty<byte>();
+            }
+
+            byte[] states = new byte[ChunkX * Height * ChunkZ];
+            foreach ((int index, byte state) in edits)
+                if ((uint)index < (uint)states.Length) states[index] = state;
+            _blockStateCache[cp] = states;
+            return states;
+        }
+    }
+
+    public bool SetBlock(int x, int y, int z, BlockId id) => SetBlock(x, y, z, id, 0);
+
+    /// <summary>All block and shape-state edits pass through this mutation seam.</summary>
+    public bool SetBlock(int x, int y, int z, BlockId id, byte state)
+    {
+        state = BlockShapes.NormalizeState(id, state);
         if (y <= 0 || y >= Height)
         {
             return false;
@@ -1749,7 +1788,7 @@ public partial class VoxelWorld : Node3D
             // Chunk.Blocks is also read by worker meshing. Mutate it while
             // holding the snapshot lock so payload data and EditEpoch agree.
             byte oldBlock = c.Blocks[i];
-            if (!c.SetBlockLocal(lx, y, lz, id))
+            if (!c.SetBlockLocal(lx, y, lz, id, state))
             {
                 return false;
             }
@@ -1766,6 +1805,22 @@ public partial class VoxelWorld : Node3D
 
                 d[i] = id;
                 _dataCache[cp] = c.Blocks;
+                if (state == 0)
+                {
+                    if (_blockStateEdits.TryGetValue(cp, out Dictionary<int, byte>? existingStates)
+                            && existingStates.Remove(i) && existingStates.Count == 0)
+                    {
+                        _blockStateEdits.Remove(cp);
+                        c.ReleaseBlockStates();
+                    }
+                }
+                else
+                {
+                    if (!_blockStateEdits.TryGetValue(cp, out Dictionary<int, byte>? stateEdits))
+                        _blockStateEdits[cp] = stateEdits = [];
+                    stateEdits[i] = state;
+                }
+                _blockStateCache[cp] = c.BlockStates;
                 UpdateEditTop(cp, lx, lz, c.Blocks);
 
                 byte oldOpacity = oldBlock < BlockDb.LightOpacity.Length
@@ -2429,6 +2484,7 @@ public partial class VoxelWorld : Node3D
         {
             bool Outside(Vector2I cp) => Mathf.Abs(cp.X - pcp.X) > limit + 1 || Mathf.Abs(cp.Y - pcp.Y) > limit + 1;
             foreach (Vector2I cp in _dataCache.Keys.Where(Outside).ToArray()) _dataCache.Remove(cp);
+            foreach (Vector2I cp in _blockStateCache.Keys.Where(Outside).ToArray()) _blockStateCache.Remove(cp);
             foreach (Vector2I cp in _skyLightCache.Keys.Where(Outside).ToArray()) _skyLightCache.Remove(cp);
             foreach (Vector2I cp in _blockLightCache.Keys.Where(Outside).ToArray()) _blockLightCache.Remove(cp);
             foreach (Vector2I cp in _voxelLightCache.Keys.Where(Outside).ToArray()) _voxelLightCache.Remove(cp);
@@ -2490,13 +2546,19 @@ public partial class VoxelWorld : Node3D
             }
         }
 
+        Dictionary<string, Dictionary<string, byte>> blockStatesOut = [];
+        foreach ((Vector2I cp, Dictionary<int, byte> states) in _blockStateEdits)
+            if (states.Count > 0)
+                blockStatesOut[$"{cp.X},{cp.Y}"] = states.ToDictionary(e => e.Key.ToString(), e => e.Value);
+
         WorldSave world = new(
                 WorldStore.WorldFormatVersion,
                 editsOut,
                 TimeOfDay,
                 containers,
                 Flags.Count == 0 ? null : Flags,
-                furnaces);
+                furnaces,
+                blockStatesOut.Count == 0 ? null : blockStatesOut);
         bool worldSaved = WorldStore.WriteAtomic(
                 WorldStore.WorldSavePath(_worldDir),
                 JsonSerializer.Serialize(world, WorldStore.Json));
@@ -2614,6 +2676,30 @@ public partial class VoxelWorld : Node3D
                 }
 
                 _edits[new Vector2I(cx, cz)] = edits;
+            }
+        }
+
+        // Optional, backward-compatible shape extension. Only valid non-zero
+        // states on a persisted shape block are accepted; older saves omit it.
+        if (world?.BlockStates != null)
+        {
+            foreach ((string key, Dictionary<string, byte> inner) in world.BlockStates)
+            {
+                string[] parts = key.Split(',');
+                if (parts.Length != 2 || !int.TryParse(parts[0], out int cx)
+                        || !int.TryParse(parts[1], out int cz)) continue;
+                Vector2I cp = new(cx, cz);
+                if (!_edits.TryGetValue(cp, out Dictionary<int, BlockId>? blocks)) continue;
+                Dictionary<int, byte> states = [];
+                foreach ((string index, byte state) in inner)
+                {
+                    if (!int.TryParse(index, out int i) || (uint)i >= (uint)(ChunkX * Height * ChunkZ)
+                            || !blocks.TryGetValue(i, out BlockId id) || !BlockShapes.IsShape(id)
+                            || state == 0 || !BlockShapes.IsValidState(id, state))
+                        continue;
+                    states[i] = state;
+                }
+                if (states.Count > 0) _blockStateEdits[cp] = states;
             }
         }
 

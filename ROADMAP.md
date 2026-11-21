@@ -74,6 +74,35 @@ Godot/.NET build and headless execution have not yet been run for this
 increment; CI verification is required before treating the feature as fully
 validated.
 
+### Advanced voxel building increment — 2026-11-21
+
+- Added append-only block IDs 46–51 and item IDs for oak-planks, cobblestone
+  and brick slabs/stairs; existing persisted IDs are unchanged.
+- Added a reusable 2×2×2 block-shape definition for bottom/top/double slabs and
+  four stair facings with upside-down placement. The same occupancy model
+  drives ray intersections, player overlap checks and exposed-face meshing.
+- Added non-greedy partial-shape geometry and matching collision triangles.
+  Full cubes and double slabs retain greedy meshing; cube faces adjacent to a
+  partial shape are split only along the shared boundary. Shape faces use the
+  existing atlas UVs, face normals, AO and packed voxel lighting.
+- Placement uses the targeted face and hit position; stairs follow player
+  facing, slabs select their half, and a matching placed slab completes a
+  double slab. Double slabs drop two slab items when mined.
+- Added recipes, procedural original block textures, inventory mappings,
+  descriptions/tooltips, shape-aware selection outlines and slab mining cracks.
+- World-save format v4 stores non-default shape states in an optional sparse
+  extension. Old saves default missing states to zero; world-generation
+  versions and existing block/item IDs are not changed.
+- Added regression tests for shape occupancy, face culling, ray intersections,
+  player overlap, orientation, recipes, hardness metadata and save compatibility.
+
+**Verification (2026-11-21):** Godot 4.7.2 .NET Debug and Release builds
+succeed with 0 warnings and 0 errors. The headless suite passes **1,351 checks,
+0 failures**, including real chunk mesh creation, greedy/per-face surface-area
+parity, rendered/collision triangle coverage, non-default shape save/reload,
+and state-buffer release after the last stateful edit. A manual visual playtest
+remains recommended before merging.
+
 ## 1. Current state
 
 ### Survival equipment increment — 2026-11-20

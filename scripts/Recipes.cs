@@ -104,6 +104,13 @@ public static class Recipes
         new("Shield", ["IPI", "IPI", ".I."], Key(('I', ItemId.IronIngot), ('P', ItemId.Planks)), ItemId.Shield, 1),
         new("Ember Blade", [".D.", "DSD", ".E."], Key(('D', ItemId.Diamond), ('S', ItemId.Stick), ('E', ItemId.EmberCore)), ItemId.EmberBlade, 1),
         new("Enchanting Table", [".D.", "ILI", ".D."], Key(('D', ItemId.Diamond), ('I', ItemId.IronIngot), ('L', ItemId.LapisLazuli)), ItemId.EnchantingTable, 1),
+
+        new("Oak Slabs", ["PPP"], Key(('P', ItemId.Planks)), ItemId.PlanksSlab, 6),
+        new("Cobblestone Slabs", ["CCC"], Key(('C', ItemId.Cobblestone)), ItemId.CobblestoneSlab, 6),
+        new("Brick Slabs", ["BBB"], Key(('B', ItemId.Brick)), ItemId.BrickSlab, 6),
+        new("Oak Stairs", ["P..", "PP.", "PPP"], Key(('P', ItemId.Planks)), ItemId.PlanksStairs, 4),
+        new("Cobblestone Stairs", ["C..", "CC.", "CCC"], Key(('C', ItemId.Cobblestone)), ItemId.CobblestoneStairs, 4),
+        new("Brick Stairs", ["B..", "BB.", "BBB"], Key(('B', ItemId.Brick)), ItemId.BrickStairs, 4),
     ];
 
     /// <summary>
