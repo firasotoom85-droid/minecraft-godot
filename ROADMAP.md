@@ -971,7 +971,9 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   The survival soak now produces mining/placement noise and reports acoustic
   investigations plus non-finite creature positions.
 - Verification on Godot 4.7.2 .NET / .NET 9: build succeeds with 0 warnings
-  and 0 errors; headless suites pass with 1,238 checks and 0 failures.
+  and 0 errors; headless suites pass with 1,238 checks and 0 failures. GitHub
+  Actions CI also passed on the tested code commit (the later changes are
+  documentation-only).
 - Runtime validation: the five-minute main-scene survival soak completed with
   SURVIVAL SOAK PASS (300 simulated seconds, 10 passive, 11 hostile, 8 cave
   encounters, 254 sound investigations, 0 invalid creature positions).
