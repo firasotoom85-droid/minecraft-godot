@@ -20,6 +20,11 @@ public static class MobPerceptionTests
         MobPerceptionProbe probe = new();
         Sheep parent = new();
         Sheep juvenile = new();
+        Fx fx = new();
+        Sound sound = new();
+        Weather weather = new();
+        Chicken chicken = new();
+        Cow cow = new();
         Node3D target = new();
         StaticBody3D wall = new()
         {
@@ -72,7 +77,7 @@ public static class MobPerceptionTests
 
             // The player is deliberately kept out of the tree: this test only
             // emits its existing signals and does not need its camera/viewmodel.
-            manager.Setup(world, player, new Fx(), new Sound(), new Weather());
+            manager.Setup(world, player, fx, sound, weather);
             Vector3 noisePosition = new(-16.5f, 54.0f, 0.5f);
             player.EmitSignal(Player.SignalName.MiningTick, noisePosition, (int)BlockId.Stone);
             TestAssert.Check(manager.TryGetRecentNoise(noisePosition + new Vector3(4, 0, 0),
@@ -124,7 +129,7 @@ public static class MobPerceptionTests
             // Test above the generated terrain roof so only the fixture wall
             // participates in the visibility ray.
             target.GlobalPosition = new Vector3(-9, 61, 0.5f);
-            wall.GlobalPosition = new Vector3(-16, 62.15f, 0.5f);
+            wall.Position = new Vector3(-16, 62.15f, 0.5f);
             wall.AddChild(new CollisionShape3D
             {
                 Shape = new BoxShape3D { Size = new Vector3(1.0f, 3.0f, 3.0f) },
@@ -136,14 +141,15 @@ public static class MobPerceptionTests
             TestAssert.Check(!probe.CanSee(target),
                     "cached blocked visibility remains consistent during its short validity window");
 
-            wall.QueueFree();
+            host.RemoveChild(wall);
+            wall.Free();
             target.GlobalPosition = new Vector3(-8, 61, 0.5f);
             await host.ToSignal(host.GetTree(), SceneTree.SignalName.PhysicsFrame);
             TestAssert.Check(probe.CanSee(target),
                     "line of sight refreshes after obstruction removal and target movement");
 
-            TestAssert.Check(Wanderer.FlightProfileFor(new Chicken()).SpeedMultiplier
-                            > Wanderer.FlightProfileFor(new Cow()).SpeedMultiplier,
+            TestAssert.Check(Wanderer.FlightProfileFor(chicken).SpeedMultiplier
+                            > Wanderer.FlightProfileFor(cow).SpeedMultiplier,
                     "small birds use a stronger flight burst than cattle");
             TestAssert.Check(Mobs.HerdAlignmentDirection(new Vector3(1, 0, 0)).X > 0.2f,
                     "herd steering adds a bounded shared-heading alignment term");
@@ -177,8 +183,14 @@ public static class MobPerceptionTests
             }
             if (GodotObject.IsInstanceValid(manager)) manager.Free();
             if (GodotObject.IsInstanceValid(player)) player.Free();
+            if (GodotObject.IsInstanceValid(fx)) fx.Free();
+            if (GodotObject.IsInstanceValid(sound)) sound.Free();
+            if (GodotObject.IsInstanceValid(weather)) weather.Free();
+            if (GodotObject.IsInstanceValid(chicken)) chicken.Free();
+            if (GodotObject.IsInstanceValid(cow)) cow.Free();
             host.RemoveChild(world);
             world.Free();
+            await host.ToSignal(host.GetTree(), SceneTree.SignalName.PhysicsFrame);
             DirAccess.RemoveAbsolute(directory + "/manifest.json");
             DirAccess.RemoveAbsolute(directory);
         }
