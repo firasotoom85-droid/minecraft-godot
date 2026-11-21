@@ -105,7 +105,7 @@ public static class WorldArchive
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         ZipArchiveEntry entry = zip.CreateEntry(relative, CompressionLevel.Fastest);
-                        using Stream input = new FileStream(absolute, FileMode.Open, FileAccess.Read,
+                        using Stream input = new FileStream(absolute, FileMode.Open, IoFileAccess.Read,
                                 FileShare.Read, BufferSize, FileOptions.SequentialScan);
                         using Stream entryStream = entry.Open();
                         using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -535,8 +535,8 @@ public static class WorldBackupStore
             return new WorldBackupRestoreResult(false, "The selected file is not a recognized world backup.");
 
         string target = worldDirectory.TrimEnd('/') + "/" + baseName;
-        string content = FileAccess.GetFileAsString(selected.Path);
-        if (content.Length == 0 && FileAccess.GetFileAsBytes(selected.Path).Length != 0)
+        string content = Godot.FileAccess.GetFileAsString(selected.Path);
+        if (content.Length == 0 && Godot.FileAccess.GetFileAsBytes(selected.Path).Length != 0)
             return new WorldBackupRestoreResult(false, "The backup could not be read.");
 
         // WriteAtomic moves the current version into .bak before committing the
