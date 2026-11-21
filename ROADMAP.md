@@ -1224,6 +1224,10 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   array, shape-face UV mapping and selected-item first-person icon path. The
   atlas and close-range UV scale were already consistent; the missing piece was
   distance filtering in the default greedy renderer.
+- Standardize procedural base-noise and speckle accents on coherent 2×2
+  texel clusters across terrain/material families, preserving the prior
+  approximate speckle coverage. Structural grain, seams and silhouettes retain
+  their intentional finer pixel accents.
 - Generate mipmaps independently for each texture-array tile before creating
   the array. The greedy shader now uses nearest-mipmap filtering: native texels
   remain crisp nearby, while smaller prefiltered levels suppress distant

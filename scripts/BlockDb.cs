@@ -30,6 +30,10 @@ public static class BlockDb
     public const int AtlasCols = 16;
     public const int TileCount = AtlasCols * AtlasCols;
     public const int TilePx = 32;
+    // Shared smallest authored noise/speckle unit across terrain materials.
+    // Structural accents (grain, seams, foliage silhouettes) may still use
+    // individual pixels where their shape requires it.
+    public const int TextureDetailPx = 2;
 
     private const int TGrassTop = 0;
     private const int TGrassSide = 1;
@@ -827,13 +831,15 @@ void fragment() {
     private static void FillNoise(Image img, int tile, Color baseColor, float amount, float alpha,
             RandomNumberGenerator rng)
     {
-        for (int y = 0; y < TilePx; y++)
+        for (int y = 0; y < TilePx; y += TextureDetailPx)
         {
-            for (int x = 0; x < TilePx; x++)
+            for (int x = 0; x < TilePx; x += TextureDetailPx)
             {
                 Color c = Jitter(rng, baseColor, amount);
                 c.A *= alpha;
-                Px(img, tile, x, y, c);
+                for (int dy = 0; dy < TextureDetailPx; dy++)
+                for (int dx = 0; dx < TextureDetailPx; dx++)
+                    Px(img, tile, x + dx, y + dy, c);
             }
         }
     }
@@ -872,10 +878,15 @@ void fragment() {
     private static void Speckle(Image img, int tile, Color c, int count, float amount,
             RandomNumberGenerator rng)
     {
-        for (int i = 0; i < count; i++)
+        int clusterCount = Math.Max(1, count / (TextureDetailPx * TextureDetailPx));
+        for (int i = 0; i < clusterCount; i++)
         {
-            Px(img, tile, rng.RandiRange(0, TilePx - 1), rng.RandiRange(0, TilePx - 1),
-                    Jitter(rng, c, amount));
+            int x = rng.RandiRange(0, TilePx / TextureDetailPx - 1) * TextureDetailPx;
+            int y = rng.RandiRange(0, TilePx / TextureDetailPx - 1) * TextureDetailPx;
+            Color speckle = Jitter(rng, c, amount);
+            for (int dy = 0; dy < TextureDetailPx; dy++)
+            for (int dx = 0; dx < TextureDetailPx; dx++)
+                Px(img, tile, x + dx, y + dy, speckle);
         }
     }
 
