@@ -255,7 +255,7 @@ save files, then removes the temporary test directory.
 | First controlled-load smoke | Scene, cave, hostiles, save read-back and temp cleanup passed; feeding failed because food was in backpack rather than hotbar ([run 44900043965](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44900043965)) |
 | Corrected 5-minute real-scene smoke | **PASS** — 300s, passive=10, feeds=144, caveEncounters=8, babyObservations=5,519, savesReloaded=true, tempWorldCleaned=true ([run 44900680833](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44900680833)) |
 | Real-scene smoke shutdown | 9 CanvasItem RIDs and 28 ObjectDB instances reported at engine exit; soak result and cleanup still passed |
-| 60-minute normal-survival real-scene soak | Queued after the 5-minute smoke PASS; result pending |
+| 60-minute normal-survival real-scene soak | Running on verified code revision `c27e31a`; final result pending ([run 44901217578](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44901217578)) |
 
 Commands:
 

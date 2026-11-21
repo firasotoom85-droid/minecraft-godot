@@ -959,6 +959,7 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   ([run 44900680833](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44900680833)).
   The smoke still reports 9 CanvasItem RIDs and 28 ObjectDB instances at engine
   exit; recorded as shutdown warnings. The 3,600-second normal-survival soak is
-  dispatched separately against the verified code revision.
+  running against the verified code revision
+  ([run 44901217578](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44901217578)); no full-hour PASS is claimed yet.
 - See `docs/SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md` for detailed values,
   findings, reproducible steps and test evidence.
