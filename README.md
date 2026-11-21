@@ -14,8 +14,9 @@ The project is a long-running solo build with an extensive design log in
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
   climate-shaped continents, smooth river valleys, mountain ranges, multi-form
   caves, aquifers, magma pockets, depth-aware ore veins, biome-specific trees,
-  surface ruins and underground chambers. New worlds use generator V7; older
-  generator versions retain their frozen terrain rules and golden chunk hashes.
+  surface ruins and underground chambers. New worlds use generator V8, with
+  broader river banks, improved cave entrances and denser forest canopies.
+  Generator versions 1–7 retain their frozen terrain rules and save compatibility.
 - **Greedy meshing** — merged coplanar quads cut triangle count roughly in half;
   per-face meshing remains available for comparison. Vertex-light and AO samples
   are part of the merge key, preserving lighting boundaries.
@@ -89,6 +90,24 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 `res://tests/TestRunner.tscn`; it exits non-zero on failure. The runner prints
 one line per suite and a final check/failure count. If `GODOT` is unset, the
 script looks on `PATH` and in common install locations.
+
+### World-generation visual validation
+
+V8 was inspected in the real 3D game scene using Godot 4.7.2 .NET, Forward+
+Vulkan rendering and an NVIDIA GPU. Baseline and V8 captures use matching
+coordinates for a steep river bank, river valley, mountain, forest and cave
+region. The paired images and findings are in
+[`docs/worldgen/V8_VISUAL_VALIDATION.md`](docs/worldgen/V8_VISUAL_VALIDATION.md).
+
+Capture another seed/coordinate from the real scene with:
+
+```bash
+godot --path . res://tests/WorldgenVisualCapture.tscn -- 1337 8 512 -372 res://docs/worldgen/screenshots/custom-v8.png
+```
+
+Arguments are seed, generator version, world X, world Z and output PNG path.
+The capture scene waits for surrounding chunks to stream before saving the
+1600×900 viewport image.
 
 ### Long-duration survival soak
 
@@ -211,10 +230,10 @@ gated behind generator versions.
   shapes are not implemented; the mesher and collision path are cube-only. No
   feature branch contained a block-shape implementation, so this remains future
   work rather than an integrated feature.
-- **V7 visual validation is headless only.** Automated tests cover biome
-  distribution, chunk seams, river banks, mountains and cave readability
-  numerically; rendered terrain was not reviewed on a GPU during this
-  integration.
+- **Visual validation is representative, not exhaustive.** V8 has matched
+  GPU-rendered before/after captures for river, steep-bank, mountain, forest and
+  cave locations across four seeds. More biome/preset combinations and long
+  exploration routes still need manual review.
 - **Long soak coverage.** The opt-in survival soak runs the real scene and
   exercises herds, hostiles, caves, weather and saving. Its juvenile-breeding
   observation depends on the player standing near the herd; a 300 s headless run

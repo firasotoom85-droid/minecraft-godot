@@ -64,7 +64,7 @@ public sealed record FurnaceSave(
 /// </summary>
 public static class WorldStore
 {
-    public const int CurrentGenVersion = 7;
+    public const int CurrentGenVersion = WorldGenV8.Version;
     public const int WorldFormatVersion = 3;
     public const string WorldsRoot = "user://worlds";
     private const string LegacySavePath = "user://minecraft_save.json";

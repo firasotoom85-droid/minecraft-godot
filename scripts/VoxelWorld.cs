@@ -210,8 +210,9 @@ public partial class VoxelWorld : Node3D
         _islandNoise.FractalType = FastNoiseLite.FractalTypeEnum.Fbm;
         _islandNoise.FractalOctaves = 2;
 
-        // V7 owns independent noise resources; legacy noise stays frozen.
+        // V7 and V8 own independent noise resources; legacy noise stays frozen.
         InitializeWorldGenV7();
+        InitializeWorldGenV8();
 
         _farLod = new FarLod();
         _farLod.Name = "FarLod";
@@ -264,6 +265,12 @@ public partial class VoxelWorld : Node3D
 
     public (int Height, Biome Biome) SurfaceSampleAt(int wx, int wz)
     {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            WorldGenV7.SurfaceSample sample = GeneratorV8.SampleSurface(wx, wz, SeaLevel);
+            return (sample.Height, sample.Biome);
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             WorldGenV7.SurfaceSample sample = GeneratorV7.SampleSurface(wx, wz, SeaLevel);
@@ -276,6 +283,11 @@ public partial class VoxelWorld : Node3D
 
     public int SurfaceHeight(int wx, int wz)
     {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            return GeneratorV8.SurfaceHeight(wx, wz, SeaLevel);
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             return GeneratorV7.SurfaceHeight(wx, wz, SeaLevel);
@@ -333,6 +345,11 @@ public partial class VoxelWorld : Node3D
 
     public bool IsCave(int x, int y, int z, int h)
     {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            return GeneratorV8.IsCave(x, y, z, h);
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             return GeneratorV7.IsCave(x, y, z, h);
@@ -387,6 +404,11 @@ public partial class VoxelWorld : Node3D
     /// decorators), which halves the noise work per column.</summary>
     public Biome BiomeAt(int x, int z, int h)
     {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            return GeneratorV8.BiomeAt(x, z, h, SeaLevel);
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             return GeneratorV7.BiomeAt(x, z, h, SeaLevel);
@@ -483,6 +505,11 @@ public partial class VoxelWorld : Node3D
             return BlockId.Air;
         }
 
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            return BlockAtV8(x, y, z, h, biome);
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             return BlockAtV7(x, y, z, h, biome);
@@ -557,9 +584,11 @@ public partial class VoxelWorld : Node3D
     }
 
     /// <summary>True in sky-preset worlds where floating land exists at (x, z).</summary>
-    public bool IslandAt(int x, int z) => _genVersion >= WorldGenV7.Version
-            ? GeneratorV7.IsIsland(x, z)
-            : _islandNoise.GetNoise2D(x, z) > 0.05;
+    public bool IslandAt(int x, int z) => _genVersion >= WorldGenV8.Version
+            ? GeneratorV8.IsIsland(x, z)
+            : _genVersion >= WorldGenV7.Version
+                    ? GeneratorV7.IsIsland(x, z)
+                    : _islandNoise.GetNoise2D(x, z) > 0.05;
 
     /// <summary>True for the gen v5 floating-islands preset (minimap/LOD skip empty sky).</summary>
     public bool IsSky => _preset == "sky";
@@ -577,6 +606,11 @@ public partial class VoxelWorld : Node3D
 
     public TreeInfo? GetTreeAt(int tx, int tz)
     {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            return GetTreeAtV8(tx, tz);
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             return GetTreeAtV7(tx, tz);
@@ -625,7 +659,13 @@ public partial class VoxelWorld : Node3D
 
         int h;
         Biome biome;
-        if (_genVersion >= WorldGenV7.Version)
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            WorldGenV7.SurfaceSample surface = GeneratorV8.SampleSurface(tx, tz, SeaLevel);
+            h = surface.Height;
+            biome = surface.Biome;
+        }
+        else if (_genVersion >= WorldGenV7.Version)
         {
             WorldGenV7.SurfaceSample surface = GeneratorV7.SampleSurface(tx, tz, SeaLevel);
             h = surface.Height;
@@ -658,8 +698,10 @@ public partial class VoxelWorld : Node3D
         // byte-identical forever; newer worlds use our own frozen integer hash.
         ulong rngSeed = _genVersion <= 1
                 ? (ulong)((uint)GD.Hash(new Vector2I(cx, cz)) ^ 0x1D872B41u)
-                : _genVersion >= WorldGenV7.Version
-                        ? GeneratorV7.CoordinateHash(cx, 19532, cz, 0x43414D50u)
+                : _genVersion >= WorldGenV8.Version
+                        ? GeneratorV8.CoordinateHash(cx, 19532, cz, 0x43414D50u)
+                        : _genVersion >= WorldGenV7.Version
+                                ? GeneratorV7.CoordinateHash(cx, 19532, cz, 0x43414D50u)
                         : (ulong)(Hash3(cx, 19532, cz) & 0x7FFFFFFFFFFFFFFFL);
         // Thread-local generator: the sequence must stay identical, but the
         // object is pure scratch and is reached ~9 times per generated chunk.
@@ -674,7 +716,13 @@ public partial class VoxelWorld : Node3D
 
         int h;
         Biome biome;
-        if (_genVersion >= WorldGenV7.Version)
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            WorldGenV7.SurfaceSample surface = GeneratorV8.SampleSurface(x, z, SeaLevel);
+            h = surface.Height;
+            biome = surface.Biome;
+        }
+        else if (_genVersion >= WorldGenV7.Version)
         {
             WorldGenV7.SurfaceSample surface = GeneratorV7.SampleSurface(x, z, SeaLevel);
             h = surface.Height;
@@ -767,6 +815,11 @@ public partial class VoxelWorld : Node3D
     /// <summary>Structure site for one cell, or null (kind 0 tower / 1 ruin / 2 mine).</summary>
     public StructureInfo? GetStructureSite(int cx, int cz)
     {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            return GetStructureSiteV8(cx, cz);
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             return GetStructureSiteV7(cx, cz);
@@ -966,7 +1019,13 @@ public partial class VoxelWorld : Node3D
                 int wz = oz + z;
                 int h;
                 Biome biome;
-                if (_genVersion >= WorldGenV7.Version)
+                if (_genVersion >= WorldGenV8.Version)
+                {
+                    WorldGenV7.SurfaceSample sample = GeneratorV8.SampleSurface(wx, wz, SeaLevel);
+                    h = sample.Height;
+                    biome = sample.Biome;
+                }
+                else if (_genVersion >= WorldGenV7.Version)
                 {
                     WorldGenV7.SurfaceSample sample = GeneratorV7.SampleSurface(wx, wz, SeaLevel);
                     h = sample.Height;
@@ -1235,6 +1294,12 @@ public partial class VoxelWorld : Node3D
 
     private void StampDecorators(byte[] data, int strideY, int ox, int oz)
     {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            StampDecoratorsV8(data, strideY, ox, oz);
+            return;
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             StampDecoratorsV7(data, strideY, ox, oz);
