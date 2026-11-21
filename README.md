@@ -19,6 +19,10 @@ The project is a long-running solo build with an extensive design log in
 - **Greedy meshing** — merged coplanar quads cut triangle count roughly in half;
   per-face meshing remains available for comparison. Vertex-light and AO samples
   are part of the merge key, preserving lighting boundaries.
+- **Readable glass** — dedicated alpha-blended chunk surface with bounds-center
+  transparency sorting, front-face culling to avoid double-blended internal
+  faces, and a restrained original atlas treatment that stays clear across
+  close and distant views. Glass keeps the existing voxel-light and atlas path.
 - **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
   voxels, warm multi-source propagation with opaque occlusion, cave darkness and
   live place/break updates across chunk boundaries. Emitter edits incrementally

@@ -554,7 +554,7 @@ void fragment() {
 
     private const string LitGlassShader = @"
 shader_type spatial;
-render_mode blend_mix, cull_disabled, depth_draw_opaque, specular_disabled;
+render_mode blend_mix, cull_back, depth_draw_opaque, specular_disabled;
 
 uniform sampler2D atlas : source_color, filter_nearest, repeat_disable;
 uniform float sky_light_energy = 1.0;
@@ -568,7 +568,7 @@ void fragment() {
     vec3 illumination = vec3(0.05) + vec3(1.0, 0.98, 0.92) * sky + warm * block * 0.4;
     ALBEDO = tex.rgb * illumination * shade;
     EMISSION = tex.rgb * warm * block * 0.72;
-    ALPHA = tex.a * 0.72;
+    ALPHA = tex.a * 0.58;
     ROUGHNESS = 0.18;
 }
 ";
@@ -1227,10 +1227,13 @@ void fragment() {
         {
             for (int x = 0; x < TilePx; x++)
             {
-                Color c = new(0.85f, 0.95f, 1.0f, 0.16f);
-                if (x < 2 || y < 2 || x >= TilePx - 2 || y >= TilePx - 2)
+                // Keep the pane body nearly clear. A one-pixel cool edge and
+                // restrained diagonal glint make the surface legible without
+                // drawing a bright grid across large multi-block windows.
+                Color c = new(0.85f, 0.95f, 1.0f, 0.12f);
+                if (x == 0 || y == 0 || x == TilePx - 1 || y == TilePx - 1)
                 {
-                    c = new Color(0.80f, 0.93f, 1.0f, 0.62f);
+                    c = new Color(0.80f, 0.93f, 1.0f, 0.34f);
                 }
 
                 Px(img, TGlass, x, y, c);
@@ -1239,7 +1242,7 @@ void fragment() {
 
         for (int i = 0; i < 8; i++)
         {
-            Px(img, TGlass, 6 + i, 6 + i, new Color(1, 1, 1, 0.45f));
+            Px(img, TGlass, 6 + i, 6 + i, new Color(1, 1, 1, 0.30f));
         }
     }
 
