@@ -279,6 +279,77 @@ public static class SurvivalProgressionTests
         TestAssert.Equal(419, shieldInventory.Get(0).Durability,
                 "a successful shield block consumes one durability point");
 
+        // Exercise the actual player damage route, not only its helper rules.
+        Player shieldPlayer = new()
+        {
+            Mode = GameMode.Survival,
+        };
+        shieldPlayer.Inventory.Set(0, ItemDb.New(ItemId.Shield, 1));
+        TestAssert.Check(!shieldPlayer.ApplyDamage(frontHit),
+                "the player damage pipeline blocks a frontal projectile with a held shield");
+        TestAssert.Equal(PlayerStats.MaxHealth, shieldPlayer.Stats.Health,
+                "a frontal shield block prevents health loss");
+        TestAssert.Equal(419, shieldPlayer.Inventory.Get(0).Durability,
+                "a frontal shield block wears the held shield once");
+        TestAssert.Check(shieldPlayer.ApplyDamage(rearHit),
+                "the player damage pipeline accepts a projectile from behind");
+        TestAssert.Equal(16.0f, shieldPlayer.Stats.Health,
+                "a rear projectile deals its full damage without armor");
+        TestAssert.Equal(419, shieldPlayer.Inventory.Get(0).Durability,
+                "an unblocked rear hit does not wear the shield");
+        shieldPlayer.Free();
+
+        Player armoredPlayer = new()
+        {
+            Mode = GameMode.Survival,
+        };
+        armoredPlayer.Inventory.Armor[0] = ItemDb.New(ItemId.IronHelmet, 1);
+        armoredPlayer.Inventory.Armor[1] = ItemDb.New(ItemId.IronChestplate, 1);
+        armoredPlayer.Inventory.Armor[2] = ItemDb.New(ItemId.IronLegs, 1);
+        armoredPlayer.Inventory.Armor[3] = ItemDb.New(ItemId.IronBoots, 1);
+        TestAssert.Check(armoredPlayer.ApplyDamage(new DamageInfo(10.0f, DamageKind.Melee)),
+                "the player damage pipeline accepts a physical hit in armor");
+        TestAssert.Equal(16.0f, armoredPlayer.Stats.Health,
+                "full iron armor reduces ten physical damage to four");
+        TestAssert.Equal(199, armoredPlayer.Inventory.Armor[0].Durability,
+                "a mitigated hit wears the equipped helmet once");
+        TestAssert.Equal(299, armoredPlayer.Inventory.Armor[1].Durability,
+                "a mitigated hit wears the equipped chestplate once");
+        TestAssert.Equal(249, armoredPlayer.Inventory.Armor[2].Durability,
+                "a mitigated hit wears the equipped leggings once");
+        TestAssert.Equal(179, armoredPlayer.Inventory.Armor[3].Durability,
+                "a mitigated hit wears the equipped boots once");
+        TestAssert.Check(armoredPlayer.ApplyDamage(new DamageInfo(4.0f, DamageKind.Starve)),
+                "starvation still damages the player through the survival pipeline");
+        TestAssert.Equal(12.0f, armoredPlayer.Stats.Health,
+                "starvation bypasses armor mitigation");
+        TestAssert.Equal(199, armoredPlayer.Inventory.Armor[0].Durability,
+                "starvation does not wear armor that did not mitigate it");
+        armoredPlayer.Free();
+
+        Player invulnerablePlayer = new()
+        {
+            Mode = GameMode.Survival,
+        };
+        invulnerablePlayer.Inventory.Set(0, ItemDb.New(ItemId.Shield, 1));
+        invulnerablePlayer.Stats.InvulnUntil = Time.GetTicksMsec() / 1000.0 + 1.0;
+        TestAssert.Check(!invulnerablePlayer.ApplyDamage(frontHit),
+                "respawn invulnerability rejects a hit before shield resolution");
+        TestAssert.Equal(420, invulnerablePlayer.Inventory.Get(0).Durability,
+                "an invulnerable player does not consume shield durability");
+        invulnerablePlayer.Free();
+
+        Player creativePlayer = new()
+        {
+            Mode = GameMode.Creative,
+        };
+        creativePlayer.Inventory.Set(0, ItemDb.New(ItemId.Shield, 1));
+        TestAssert.Check(!creativePlayer.ApplyDamage(frontHit),
+                "creative mode rejects a hit before shield resolution");
+        TestAssert.Equal(420, creativePlayer.Inventory.Get(0).Durability,
+                "creative hits do not consume shield durability");
+        creativePlayer.Free();
+
         // 8. Melee and ranged hits both use the shared mob damage interface.
         Shade meleeTarget = new();
         meleeTarget.Health = meleeTarget.MaxHealth;
