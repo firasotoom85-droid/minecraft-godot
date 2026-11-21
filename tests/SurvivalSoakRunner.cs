@@ -291,6 +291,19 @@ public partial class SurvivalSoakRunner : Node
         _player.Inventory.Add(ItemId.Seeds, 8);
         int wheatSlot = FindHotbarSlot(ItemId.Wheat);
         int seedSlot = FindHotbarSlot(ItemId.Seeds);
+        if (wheatSlot < 0)
+        {
+            wheatSlot = 0;
+            _player.Inventory.Hotbar[wheatSlot] = ItemDb.New(ItemId.Wheat, 16);
+        }
+
+        if (seedSlot < 0)
+        {
+            seedSlot = wheatSlot == 1 ? 0 : 1;
+            _player.Inventory.Hotbar[seedSlot] = ItemDb.New(ItemId.Seeds, 8);
+        }
+
+        _player.Inventory.RaiseChanged();
         foreach (Node child in _mobs.GetChildren())
         {
             if (child is not Wanderer animal || animal.IsBaby || animal.InLove) continue;
