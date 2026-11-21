@@ -946,6 +946,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         Recipes.ConsumeFromGrid(_craft, _craftSize, match.Recipe, match.Row, match.Col);
+        _player.RecordCrafted(match.Recipe.Result, match.Recipe.ResultCount);
         _player.Inventory.RaiseChanged();
     }
 
@@ -967,6 +968,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             return;
         }
 
+        _player.RecordCrafted(recipe.Result, recipe.ResultCount);
         _hud.ShowToast($"Crafted {ItemDb.NameOf(recipe.Result)}");
         _player.Inventory.RaiseChanged();
     }

@@ -26,8 +26,9 @@ public sealed record LegacySave(
     double Time);
 
 /// <summary>World state (version 4): block edits, clock, inventories, furnace
-/// state, flags, and an optional sparse block-state extension. The optional
-/// extension defaults to empty so v1-v3 saves load without conversion.</summary>
+/// state, flags, an optional sparse block-state extension, village residents
+/// and quest progress. Every field after Time is optional so v1-v3 saves load
+/// without conversion.</summary>
 public sealed record WorldSave(
     int Version,
     Dictionary<string, Dictionary<string, BlockId>>? Edits,
@@ -35,7 +36,9 @@ public sealed record WorldSave(
     Dictionary<string, List<ItemStackSave>>? Containers = null,
     Dictionary<string, bool>? Flags = null,
     Dictionary<string, FurnaceSave>? Furnaces = null,
-    Dictionary<string, Dictionary<string, byte>>? BlockStates = null);
+    Dictionary<string, Dictionary<string, byte>>? BlockStates = null,
+    Dictionary<string, VillagerSave>? Villagers = null,
+    Dictionary<string, QuestProgressSave>? Quests = null);
 
 /// <summary>Per-player state. Experience is optional and defaults to zero for legacy saves.</summary>
 public sealed record PlayerSave(

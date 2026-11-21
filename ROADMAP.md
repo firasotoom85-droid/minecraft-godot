@@ -128,6 +128,27 @@ remains recommended before merging.
   overhead). Further manual exploration across all biomes and presets remains
   planned.
 
+### Village and quest progression — 2026-11-21
+
+- **Generator V8 villages:** deterministic Plains, Forest, Snow and Desert
+  settlement sites reuse the frozen V7 terrain/biome sampler. Placement rejects
+  shorelines, steep ground, cave openings, existing structures, campfire
+  clearings and intersecting underground chambers. Chunk-clipped architecture
+  adds houses, roads, a gathering square, light posts, storage, workstations and
+  irrigated farms.
+- **Residents:** five deterministic named villagers per settlement use the
+  existing Mob movement, gravity and collision controller. Profession-specific
+  schedules, dialogue and gold-based trade offers connect to the existing
+  trader UI. Villagers flee nearby hostile creatures and persist identity,
+  profession, position, health, home/work anchors and completed trades.
+- **Quest architecture:** reusable objective/stage definitions cover biome
+  discovery, gathering, crafting, trading, combat and dungeon clears.
+  Multi-stage progress and reward claims are optional V4 world-save fields;
+  older worlds remain readable.
+- **Verification:** automated coverage exercises deterministic village stamping
+  and chunk seams, biome eligibility, trades, schedules, quest progression and
+  save round-trips. A GPU playthrough and population soak remain outstanding.
+
 ## 1. Current state
 
 ### Survival equipment increment — 2026-11-20

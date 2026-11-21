@@ -88,6 +88,8 @@ public partial class VoxelWorld : Node3D
     public readonly Dictionary<string, Container> Containers = [];
     public readonly Dictionary<string, FurnaceData> Furnaces = [];
     public readonly Dictionary<string, bool> Flags = [];
+    public readonly Dictionary<string, VillagerSave> Villagers = [];
+    public readonly Dictionary<string, QuestProgressSave> Quests = [];
 
     /// <summary>New worlds default to survival; pre-M2 worlds stay creative.</summary>
     public string DefaultMode => _manifest.Mode == "survival" ? "survival" : "creative";
@@ -1137,6 +1139,11 @@ public partial class VoxelWorld : Node3D
             if (_genVersion >= WorldGenV7.Version)
             {
                 StampUndergroundStructuresV7(data, strideY, ox, oz);
+            }
+
+            if (_genVersion >= 8)
+            {
+                StampVillagesV8(data, strideY, ox, oz);
             }
         }
 
@@ -2627,7 +2634,9 @@ public partial class VoxelWorld : Node3D
                 containers,
                 Flags.Count == 0 ? null : Flags,
                 furnaces,
-                blockStatesOut.Count == 0 ? null : blockStatesOut);
+                blockStatesOut.Count == 0 ? null : blockStatesOut,
+                Villagers.Count == 0 ? null : Villagers,
+                Quests.Count == 0 ? null : Quests);
         bool worldSaved = WorldStore.WriteAtomic(
                 WorldStore.WorldSavePath(_worldDir),
                 JsonSerializer.Serialize(world, WorldStore.Json));
@@ -2832,6 +2841,31 @@ public partial class VoxelWorld : Node3D
                     };
                     furnace.LoadFrom(saved.Slots);
                     Furnaces[key] = furnace;
+                }
+            }
+
+            if (world.Villagers != null)
+            {
+                foreach ((string key, VillagerSave saved) in world.Villagers)
+                {
+                    if (saved != null && saved.Id == key
+                            && saved.Position is { Length: 3 }
+                            && saved.Home is { Length: 3 }
+                            && saved.Work is { Length: 3 })
+                    {
+                        Villagers[key] = saved;
+                    }
+                }
+            }
+
+            if (world.Quests != null)
+            {
+                foreach ((string key, QuestProgressSave saved) in world.Quests)
+                {
+                    if (saved != null && saved.Stage >= 0 && saved.Progress >= 0)
+                    {
+                        Quests[key] = saved;
+                    }
                 }
             }
         }

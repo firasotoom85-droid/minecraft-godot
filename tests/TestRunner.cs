@@ -28,6 +28,7 @@ public partial class TestRunner : Node
         RunSuite("mobs", MobContentTests.Run);
         RunSuite("achievements", AchievementTests.Run);
         RunSuite("dungeon", () => DungeonTests.Run(this));
+        RunSuite("villages-quests", VillageTests.Run);
         RunSuite("fishing", FishingTests.Run);
         RunSuite("keybinds", KeybindTests.Run);
         RunSuite("recipes", RecipeTests.Run);

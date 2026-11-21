@@ -47,6 +47,11 @@ public partial class Player : CharacterBody3D, IDamageable
     [Signal] public delegate void SleptEventHandler();
     [Signal] public delegate void TraderUsedEventHandler();
     [Signal] public delegate void NoticeEventHandler(string text);
+
+    public event System.Action<Villager>? VillagerInteracted;
+    public event System.Action<ItemId, int>? ItemGathered;
+    public event System.Action<ItemId, int>? ItemCrafted;
+    public event System.Action<int>? TradeCompleted;
     [Signal] public delegate void AteEventHandler();
     [Signal] public delegate void CampfireUsedEventHandler(string message);
     [Signal] public delegate void RespawnedEventHandler();
@@ -72,6 +77,23 @@ public partial class Player : CharacterBody3D, IDamageable
     public bool Dead => Stats.Dead;
 
     public Inventory Inventory { get; } = new();
+
+    public void InteractVillager(Villager villager) => VillagerInteracted?.Invoke(villager);
+
+    public void RecordGathered(ItemId item, int count)
+    {
+        if (item != ItemId.None && count > 0) ItemGathered?.Invoke(item, count);
+    }
+
+    public void RecordCrafted(ItemId item, int count)
+    {
+        if (item != ItemId.None && count > 0) ItemCrafted?.Invoke(item, count);
+    }
+
+    public void RecordTrade(int count = 1)
+    {
+        if (count > 0) TradeCompleted?.Invoke(count);
+    }
 
     public Camera3D Camera = null!;
     public RayCast3D Ray = null!;
@@ -1460,10 +1482,10 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        if (Inventory.Add(id, count) > 0)
-        {
-            EmitSignal(SignalName.InventoryFull);
-        }
+        int leftover = Inventory.Add(id, count);
+        int gained = count - leftover;
+        if (gained > 0) RecordGathered(id, gained);
+        if (leftover > 0) EmitSignal(SignalName.InventoryFull);
     }
 
     private void DamageTool()
