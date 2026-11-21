@@ -170,6 +170,7 @@ public partial class Shade : Mob
         }
 
         Timer -= delta;
+        if (Timer <= 0.0)
         {
             (Walking, Timer) = Walking
                     ? (false, GD.RandRange(1.0, 3.5))
