@@ -140,6 +140,10 @@ public partial class Mobs : Node
                 * (1.0f - ageSeconds / NoiseLifetime);
     }
 
+    /// <summary>Queued/freed mobs must never be dereferenced from a population list.</summary>
+    internal static bool IsTrackedMobUsable(Mob? mob) =>
+            mob != null && GodotObject.IsInstanceValid(mob);
+
     public override void _Process(double delta)
     {
         if (World == null || PlayerRef == null)
@@ -147,12 +151,16 @@ public partial class Mobs : Node
             return;
         }
 
+        // QueueFree is deferred. Prune every frame so references queued for deletion
+        // on the previous frame cannot be read during day/night or population logic.
+        // Both collections are strictly population-capped, so this scan is bounded.
+        _passive.RemoveAll(static mob => !IsTrackedMobUsable(mob));
+        _hostiles.RemoveAll(static mob => !IsTrackedMobUsable(mob));
+
         _maintenanceTimer -= delta;
         if (_maintenanceTimer <= 0.0)
         {
             _maintenanceTimer = 0.5;
-            _passive.RemoveAll(static mob => !GodotObject.IsInstanceValid(mob));
-            _hostiles.RemoveAll(static mob => !GodotObject.IsInstanceValid(mob));
             Vector3 playerPosition = PlayerRef.GlobalPosition;
             _passive.RemoveAll(mob => DespawnFar(mob, playerPosition, PassiveDespawn));
             _hostiles.RemoveAll(mob => DespawnFar(mob, playerPosition, HostileDespawn));
