@@ -103,6 +103,31 @@ parity, rendered/collision triangle coverage, non-default shape save/reload,
 and state-buffer release after the last stateful edit. A manual visual playtest
 remains recommended before merging.
 
+## Implementation snapshot — 2026-11-21 (World generation V8)
+
+- Added an isolated V8 terrain path for newly created worlds. V1–V7 generator
+  source and legacy chunk hashes remain frozen; world format and persisted block
+  and item IDs are unchanged.
+- Widened the river-bank blend while retaining the V7 deterministic river
+  fields and evaluating the surface in one pass. The fixed steep-bank sample at
+  seed 11235813 changed from a 38-block to an 18-block height step across 8 blocks.
+- Increased deterministic tree density in dense forest, jungle, taiga, swamp
+  and birch biomes; opened additional shallow cave mouths; reused the existing
+  V7 ore, aquifer, magma and underground-structure rules.
+- Reduced fog and height haze only in V8 world environments. Existing V1–V7
+  worlds retain their prior environment values.
+- Added V8 biome, river, cave, tree-density, generation-order and cross-chunk
+  regression coverage, plus a real-scene GPU capture harness.
+- Matched before/after Forward+ captures cover a steep river bank, river valley,
+  mountain, forest and cave across four fixed seeds. See
+  `docs/worldgen/V8_VISUAL_VALIDATION.md`.
+- Verification: Godot 4.7.2 .NET build succeeds with 0 warnings/0 errors;
+  the headless suite passes **1,213 checks, 0 failures**, including three pinned
+  V7 golden chunk hashes. Latest warmed 8-chunk profile measured V7 at
+  7.03 ms/chunk and V8 at 7.33 ms/chunk on the validation machine (about 4%
+  overhead). Further manual exploration across all biomes and presets remains
+  planned.
+
 ## 1. Current state
 
 ### Survival equipment increment — 2026-11-20

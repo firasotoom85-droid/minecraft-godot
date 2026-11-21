@@ -5,8 +5,9 @@ namespace Minecraft;
 /// <summary>Shared sky/lighting environment used by the game and the menu backdrop.</summary>
 public static class WorldEnvironmentFactory
 {
-    public static Godot.Environment Build()
+    public static Godot.Environment Build(int generatorVersion = WorldStore.CurrentGenVersion)
     {
+        bool improvedWorldgenLighting = generatorVersion >= WorldGenV8.Version;
         ProceduralSkyMaterial skyMat = new()
         {
             SkyTopColor = new Color(0.22f, 0.44f, 0.80f),
@@ -33,14 +34,14 @@ public static class WorldEnvironmentFactory
             TonemapMode = Godot.Environment.ToneMapper.Filmic,
             FogEnabled = true,
             FogLightColor = new Color(0.66f, 0.78f, 0.95f),
-            FogDensity = 0.0035f,
-            FogSkyAffect = 0.15f,
-            FogAerialPerspective = 0.5f,
+            FogDensity = improvedWorldgenLighting ? 0.00065f : 0.0035f,
+            FogSkyAffect = improvedWorldgenLighting ? 0.08f : 0.15f,
+            FogAerialPerspective = improvedWorldgenLighting ? 0.20f : 0.5f,
             FogHeight = 30.0f,
-            FogHeightDensity = 0.012f,
+            FogHeightDensity = improvedWorldgenLighting ? 0.0015f : 0.012f,
             SsaoEnabled = true,
             SsaoRadius = 1.2f,
-            SsaoIntensity = 1.4f,
+            SsaoIntensity = improvedWorldgenLighting ? 1.25f : 1.4f,
             SsrEnabled = true,
             SsrMaxSteps = 64,
             GlowEnabled = true,
@@ -48,8 +49,8 @@ public static class WorldEnvironmentFactory
             GlowBloom = 0.04f,
             GlowHdrThreshold = 0.9f,
             VolumetricFogEnabled = true,
-            VolumetricFogDensity = 0.0028f,
-            VolumetricFogLength = 140.0f,
+            VolumetricFogDensity = improvedWorldgenLighting ? 0.00025f : 0.0028f,
+            VolumetricFogLength = improvedWorldgenLighting ? 180.0f : 140.0f,
             VolumetricFogAlbedo = new Color(0.9f, 0.95f, 1.0f),
         };
     }
