@@ -257,3 +257,32 @@ licenses; see [`addons/godot_ai/LICENSE`](addons/godot_ai/LICENSE).
 ## Fluid simulation internals
 
 Water uses a deduplicated active-cell queue with bounded per-tick work rather than rescanning the local volume every tick. Unloaded chunk neighbours are treated as unknown rather than air; source blocks are periodically rescheduled, and successful world block edits wake nearby fluid cells. Two horizontal sources over a solid floor can regenerate a source. All fluid changes still pass through `VoxelWorld.SetBlock`. Swimming buoyancy respects floor/ceiling contacts. Underwater and lava fog use separate blended environments, and underwater low-pass filtering is limited to SFX/ambient buses so master/UI audio remains clear.
+
+## Creature perception and cave stealth
+
+Cave Stalkers, Crystal Wisps, Hollows and nocturnal Dreadwings use the existing
+packed sky/block voxel-light maps to decide when to acquire a target. Nearby
+torches can suppress dark-adapted detection; the Cave Stalker gains a modest
+pounce and bite bonus in very low light. Creature light samples and terrain
+line-of-sight results are cached briefly and invalidated when the sampled cell
+or observer/target positions change.
+
+Mining ticks, completed block breaks, placements and footsteps feed a bounded
+24-event acoustic ring owned by the existing mob director. Hostiles investigate
+recent audible events when they have no current visual target, retain a short
+last-seen position when sight is lost, and stop pursuing directly through
+terrain. Passive herds add heading alignment and species-specific flight
+profiles; newborns retain both parents as guardians and follow the nearest
+living parent when separated. Existing grazing, hunger, rest, weather shelter,
+breeding, combat, population caps and chunk streaming remain in their original
+systems.
+
+The mob-perception integration suite covers a torch-lit cave straddling a
+negative-coordinate chunk boundary, emitter removal, actual player mining and
+placement signals, acoustic investigation, parent following, freed-reference
+pruning, and a terrain physics blocker. The opt-in survival soak also injects
+sound stimuli and checks creature positions and observed acoustic investigations.
+A five-minute main-scene soak has passed with capped populations, eight cave
+encounters, 254 sound investigations, and no non-finite creature positions.
+The runner defaults to one hour; that full 3600-second run remains a separate
+long-duration validation target.

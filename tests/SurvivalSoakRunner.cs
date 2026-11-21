@@ -25,6 +25,11 @@ public partial class SurvivalSoakRunner : Node
     private bool _inCave;
     private int _caveEncounters;
     private int _babiesObserved;
+    private int _noiseStimuli;
+    private int _nonFinitePositionObservations;
+    private bool _breedingPairStaged;
+    private Wanderer? _breedingParentA;
+    private Wanderer? _breedingParentB;
 
     public override void _Ready()
     {
@@ -100,17 +105,22 @@ public partial class SurvivalSoakRunner : Node
 
         foreach (Node child in _mobs.GetChildren())
         {
-            if (child is Mob { IsBaby: true })
+            if (child is Mob mob)
             {
-                _babiesObserved++;
-                break;
+                Vector3 position = mob.GlobalPosition;
+                if (!float.IsFinite(position.X) || !float.IsFinite(position.Y)
+                        || !float.IsFinite(position.Z))
+                    _nonFinitePositionObservations++;
+
+                if (mob.IsBaby)
+                    _babiesObserved++;
             }
         }
 
         if (_reportTimer >= 60.0)
         {
             _reportTimer = 0.0;
-            GD.Print($"SOAK minute={_elapsed / 60.0:0} passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} caveEncounters={_caveEncounters}");
+            GD.Print($"SOAK minute={_elapsed / 60.0:0} passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} caveEncounters={_caveEncounters} babiesObserved={_babiesObserved} parentsInLove={_breedingParentA?.InLove == true && _breedingParentB?.InLove == true} noiseInvestigations={_mobs.NoiseInvestigations} invalidPositions={_nonFinitePositionObservations}");
         }
 
         if (_elapsed >= _duration)
@@ -131,10 +141,10 @@ public partial class SurvivalSoakRunner : Node
             _inCave = true;
         }
 
-        _mobs.SpawnKind("cow", 3);
-        _mobs.SpawnKind("sheep", 4);
-        _mobs.SpawnKind("pig", 3);
-        _mobs.SpawnKind("chicken", 4);
+        // Use naturally streamed herds instead of overfilling the manager's
+        // passive cap with debug spawns. Stage one real nearby pair so breeding
+        // can be observed deterministically during shorter smoke-soak runs.
+        _breedingPairStaged = StageBreedingPair();
         _mobs.SpawnKind("shade", 2);
         _mobs.SpawnKind("rot", 2);
         _mobs.SpawnKind("hollow", 2);
@@ -146,7 +156,94 @@ public partial class SurvivalSoakRunner : Node
         }
 
         FeedHerds();
-        GD.Print($"SURVIVAL SOAK: scenario started; caveFound={_hasCave}, caveEncounters={_caveEncounters}");
+        GD.Print($"SURVIVAL SOAK: scenario started; caveFound={_hasCave}, caveEncounters={_caveEncounters}, breedingPairStaged={_breedingPairStaged}, parentsInLove={_breedingParentA?.InLove == true && _breedingParentB?.InLove == true}");
+    }
+
+    private bool StageBreedingPair()
+    {
+        Wanderer? first = null;
+        Wanderer? second = null;
+        foreach (Node child in _mobs.GetChildren())
+        {
+            if (child is not Wanderer animal || animal.IsBaby)
+                continue;
+
+            if (first == null)
+                first = animal;
+            else if (animal.GetType() == first.GetType())
+            {
+                second = animal;
+                break;
+            }
+        }
+
+        if (first == null || second == null
+                || !TryFindBreedingPairPositions(out Vector3 firstPosition,
+                        out Vector3 secondPosition))
+            return false;
+
+        first.GlobalPosition = firstPosition;
+        second.GlobalPosition = secondPosition;
+        first.Home = firstPosition;
+        second.Home = secondPosition;
+        _breedingParentA = first;
+        _breedingParentB = second;
+
+        // Reserve exactly one slot for the newborn without exceeding the
+        // production population cap; all unrelated surviving herds remain intact.
+        int excess = Mathf.Max(0, _mobs.PassiveCount - 9);
+        foreach (Node child in _mobs.GetChildren())
+        {
+            if (excess <= 0) break;
+            if (child is Wanderer animal && animal != first && animal != second && !animal.IsBaby)
+            {
+                animal.QueueFree();
+                excess--;
+            }
+        }
+
+        return true;
+    }
+
+    private bool TryFindBreedingPairPositions(out Vector3 first, out Vector3 second)
+    {
+        first = Vector3.Zero;
+        second = Vector3.Zero;
+        int originX = Mathf.FloorToInt(_surfacePosition.X);
+        int originZ = Mathf.FloorToInt(_surfacePosition.Z);
+        for (int radius = 0; radius <= 18; radius += 2)
+        {
+            for (int dz = -radius; dz <= radius; dz++)
+            for (int dx = -radius; dx <= radius; dx++)
+            {
+                int x = originX + dx;
+                int z = originZ + dz;
+                int yA = _world.SurfaceHeight(x, z);
+                int yB = _world.SurfaceHeight(x + 1, z);
+                if (yA != yB || !HasBreedingSpace(x, yA, z)
+                        || !HasBreedingSpace(x + 1, yB, z))
+                    continue;
+
+                first = new Vector3(x + 0.5f, yA + 1.0f, z + 0.5f);
+                second = new Vector3(x + 1.5f, yB + 1.0f, z + 0.5f);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool HasBreedingSpace(int x, int surface, int z)
+    {
+        Vector2I chunk = new(Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX),
+                Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ));
+        if (!_world.HasChunk(chunk) || surface < 1 || surface >= _world.Height - 3)
+            return false;
+
+        return BlockDb.DefOf(_world.GetBlock(x, surface, z)).Solid
+                && _world.GetBlock(x, surface + 1, z) == BlockId.Air
+                && _world.GetBlock(x, surface + 2, z) == BlockId.Air
+                && _world.GetBlock(x, surface + 3, z) == BlockId.Air;
     }
 
     private bool TryFindCave(out Vector3 position)
@@ -185,10 +282,28 @@ public partial class SurvivalSoakRunner : Node
 
     private void FeedHerds()
     {
+        Vector3 soundOrigin = _player.GlobalPosition + new Vector3(0, 1.0f, 0);
+        _player.EmitSignal(Player.SignalName.MiningTick, soundOrigin, (int)BlockId.Stone);
+        _player.EmitSignal(Player.SignalName.BlockPlaced, soundOrigin, (int)BlockId.Torch);
+        _noiseStimuli += 2;
+
         _player.Inventory.Add(ItemId.Wheat, 16);
         _player.Inventory.Add(ItemId.Seeds, 8);
         int wheatSlot = FindHotbarSlot(ItemId.Wheat);
         int seedSlot = FindHotbarSlot(ItemId.Seeds);
+        if (wheatSlot < 0)
+        {
+            wheatSlot = 0;
+            _player.Inventory.Hotbar[wheatSlot] = ItemDb.New(ItemId.Wheat, 16);
+        }
+
+        if (seedSlot < 0)
+        {
+            seedSlot = wheatSlot == 1 ? 0 : 1;
+            _player.Inventory.Hotbar[seedSlot] = ItemDb.New(ItemId.Seeds, 8);
+        }
+
+        _player.Inventory.RaiseChanged();
         foreach (Node child in _mobs.GetChildren())
         {
             if (child is not Wanderer animal || animal.IsBaby || animal.InLove) continue;
@@ -196,7 +311,7 @@ public partial class SurvivalSoakRunner : Node
             if (slot >= 0)
             {
                 _player.Select(slot);
-                animal.Interact(_player);
+                bool interacted = animal.Interact(_player);
             }
         }
     }
@@ -214,9 +329,14 @@ public partial class SurvivalSoakRunner : Node
     private void Finish()
     {
         _world.SaveNow();
-        bool passed = _hasCave && _caveEncounters > 0 && _babiesObserved > 0
-                && _mobs.PassiveCount > 0;
-        GD.Print($"SURVIVAL SOAK {(passed ? "PASS" : "INCOMPLETE")}: elapsed={_elapsed:0}s passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} caveEncounters={_caveEncounters} babyObservations={_babiesObserved}");
+        // Short smoke runs validate stable creature runtime and acoustic
+        // perception. The default one-hour soak additionally requires a birth.
+        bool requiresBirth = _duration >= 1800.0;
+        bool passed = _hasCave && _caveEncounters > 0
+                && (!requiresBirth || (_breedingPairStaged && _babiesObserved > 0))
+                && _mobs.PassiveCount > 0 && _noiseStimuli > 0
+                && _mobs.NoiseInvestigations > 0 && _nonFinitePositionObservations == 0;
+        GD.Print($"SURVIVAL SOAK {(passed ? "PASS" : "INCOMPLETE")}: elapsed={_elapsed:0}s passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} caveEncounters={_caveEncounters} babyObservations={_babiesObserved} noiseStimuli={_noiseStimuli} noiseInvestigations={_mobs.NoiseInvestigations} invalidPositions={_nonFinitePositionObservations}");
         GetTree().Quit(passed ? 0 : 1);
         SetProcess(false);
     }
