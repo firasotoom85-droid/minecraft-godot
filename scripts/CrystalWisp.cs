@@ -14,7 +14,7 @@ public partial class CrystalWisp : Mob
         MaxHealth = 9.0f;
         Speed = 2.1f;
         DisplayName = "Crystal Wisp";
-        Loot = [(ItemId.Coal, 1, 2, 1.0f), (ItemId.GoldIngot, 0, 1, 0.22f)];
+        Loot = [(ItemId.Coal, 1, 2, 1.0f), (ItemId.GoldIngot, 0, 1, 0.22f), (ItemId.LapisLazuli, 1, 3, 0.55f)];
     }
 
     protected override bool UsesGravity => false;

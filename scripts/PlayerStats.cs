@@ -19,6 +19,8 @@ public sealed class PlayerStats
     public float Hunger { get; private set; } = MaxHunger;
     public float Breath { get; private set; } = MaxBreath;
     public bool Dead { get; private set; }
+    public int Experience { get; private set; }
+    public int ExperienceLevel => LevelForExperience(Experience);
 
     /// <summary>Seconds (engine clock) before damage is accepted again.</summary>
     public double InvulnUntil;
@@ -54,6 +56,38 @@ public sealed class PlayerStats
             Died?.Invoke();
         }
 
+        return true;
+    }
+
+    public static int ExperienceAtLevel(int level)
+    {
+        level = Math.Max(level, 0);
+        if (level <= 16) return level * level + 6 * level;
+        if (level <= 31) return (int)(2.5 * level * level - 40.5 * level + 360);
+        return (int)(4.5 * level * level - 162.5 * level + 2220);
+    }
+
+    private static int LevelForExperience(int experience)
+    {
+        int level = 0;
+        while (level < 1000 && ExperienceAtLevel(level + 1) <= experience) level++;
+        return level;
+    }
+
+    public void AddExperience(int amount)
+    {
+        if (amount <= 0 || Dead) return;
+        Experience = Math.Clamp(Experience + amount, 0, 1_000_000);
+        Changed?.Invoke();
+    }
+
+    public bool TrySpendLevels(int levels)
+    {
+        if (levels <= 0) return true;
+        int current = ExperienceLevel;
+        if (current < levels) return false;
+        Experience = Math.Max(Experience - (ExperienceAtLevel(current) - ExperienceAtLevel(current - levels)), 0);
+        Changed?.Invoke();
         return true;
     }
 
@@ -207,12 +241,13 @@ public sealed class PlayerStats
     }
 
     /// <summary>Restore persisted values; a negative hunger sentinel means the field was absent in an old save.</summary>
-    public void Load(float health, float hunger)
+    public void Load(float health, float hunger, int experience = 0)
     {
         Health = health > 0.0f ? Mathf.Clamp(health, 1.0f, MaxHealth) : MaxHealth;
         Hunger = hunger >= 0.0f ? Mathf.Clamp(hunger, 0.0f, MaxHunger) : MaxHunger;
         Breath = MaxBreath;
         Dead = false;
+        Experience = Math.Clamp(experience, 0, 1_000_000);
         Changed?.Invoke();
     }
 }

@@ -10,6 +10,7 @@ public readonly record struct ToolInfo(ToolKind Kind, int Tier, float Speed, int
 
 /// <summary>Armor behaviour: slot 0 helmet .. 3 boots, defense points and durability.</summary>
 public readonly record struct ArmorInfo(int Slot, int Points, int Durability, int Tier);
+public readonly record struct WeaponInfo(float Damage, float AttackSpeed, int Durability, int Tier, float Knockback = 3.0f);
 
 /// <summary>
 /// Item database: names, stack sizes, block↔item mapping, tool stats and
@@ -37,6 +38,7 @@ public static class ItemDb
         (ItemId.Furnace, BlockId.Furnace),
         (ItemId.Bed, BlockId.Bed),
         (ItemId.Ladder, BlockId.Ladder),
+        (ItemId.EnchantingTable, BlockId.EnchantingTable),
     ];
 
     private static readonly Dictionary<BlockId, ItemId> BlockToItem =
@@ -116,6 +118,8 @@ public static class ItemDb
             ItemId.FishingRod => "Fishing Rod",
             ItemId.RawFish => "Raw Fish",
             ItemId.CookedFish => "Cooked Fish",
+            ItemId.WoodSword => "Wooden Sword", ItemId.StoneSword => "Stone Sword", ItemId.IronSword => "Iron Sword", ItemId.DiamondSword => "Diamond Sword",
+            ItemId.Bow => "Bow", ItemId.Arrow => "Arrow", ItemId.Shield => "Shield", ItemId.EmberBlade => "Ember Blade", ItemId.LapisLazuli => "Lapis Lazuli",
             _ => id.ToString(),
         };
     }
@@ -211,13 +215,29 @@ public static class ItemDb
         _ => null,
     };
 
+    public static WeaponInfo? WeaponOf(ItemId id) => id switch
+    {
+        ItemId.WoodSword => new(4, 0.85f, 70, 1, 2.8f), ItemId.StoneSword => new(5, 0.72f, 150, 2, 3.2f),
+        ItemId.IronSword => new(6, 0.62f, 320, 3, 3.5f), ItemId.DiamondSword => new(7, 0.55f, 900, 4, 4.0f),
+        ItemId.EmberBlade => new(8, 0.52f, 1200, 5, 4.5f), ItemId.Bow => new(5, 0.8f, 384, 2, 0),
+        ItemId.Shield => new(0, 0, 420, 2, 0), _ => null,
+    };
+    public static string DescriptionOf(ItemId id) => id switch
+    {
+        ItemId.WoodSword => "Fast starter weapon; limited durability.", ItemId.StoneSword => "Reliable cave weapon with improved stopping force.",
+        ItemId.IronSword => "Durable blade forged from smelted iron.", ItemId.DiamondSword => "Rare, powerful blade for deep expeditions.",
+        ItemId.EmberBlade => "A Warden-forged end-game blade.", ItemId.Bow => "Ranged weapon; consumes one arrow per shot.",
+        ItemId.Arrow => "Bow ammunition crafted from gravel, sticks and feathers.", ItemId.Shield => "Blocks frontal melee and ranged hits while held; blocking wears it.", ItemId.LapisLazuli => "A blue mineral used to power enchantments.", ItemId.EnchantingTable => "A crafted station for enchanting and upgrading equipment.",
+        _ => id.ToString(),
+    };
     public static int MaxStack(ItemId id) =>
-        id == ItemId.FishingRod || ToolOf(id) != null || ArmorOf(id) != null ? 1 : 64;
+        id == ItemId.FishingRod || ToolOf(id) != null || ArmorOf(id) != null || WeaponOf(id) != null ? 1 : 64;
 
     /// <summary>A fresh stack; tools and armor start at full durability.</summary>
     public static ItemStack New(ItemId id, int count) =>
         ToolOf(id) is { } tool ? new ItemStack(id, 1, tool.Durability)
         : ArmorOf(id) is { } armor ? new ItemStack(id, 1, armor.Durability)
+        : WeaponOf(id) is { } weapon ? new ItemStack(id, 1, weapon.Durability)
         : new ItemStack(id, count, 0);
 
     /// <summary>The pre-items hotbar, handed to saves that never had an inventory.</summary>
@@ -293,6 +313,10 @@ public static class ItemDb
         {
             PaintArmor(img, armor);
         }
+        else if (WeaponOf(id) is { } weapon)
+        {
+            PaintWeapon(img, id, weapon);
+        }
         else
         {
             switch (id)
@@ -365,6 +389,11 @@ public static class ItemDb
                 case ItemId.CookedFish:
                     PaintMutton(img, new Color(0.70f, 0.52f, 0.26f), new Color(0.92f, 0.78f, 0.46f));
                     break;
+                case ItemId.Arrow:
+                    Rect(img, 6, 15, 20, 2, new Color(0.72f, 0.72f, 0.74f)); Rect(img, 24, 12, 5, 8, new Color(0.78f, 0.78f, 0.80f)); break;
+                case ItemId.LapisLazuli:
+                    PaintBlob(img, new Color(0.12f, 0.30f, 0.86f), new Color(0.06f, 0.14f, 0.52f), 125);
+                    break;
                 case ItemId.Diamond:
                     PaintDiamond(img);
                     break;
@@ -430,6 +459,17 @@ public static class ItemDb
                 Rect(img, 18, 8, 4, 4, head);
                 break;
         }
+    }
+
+    private static void PaintWeapon(Image img, ItemId id, WeaponInfo weapon)
+    {
+        Color metal = weapon.Tier switch { 1 => new Color(0.62f, 0.43f, 0.25f), 2 => new Color(0.62f, 0.64f, 0.68f), 3 => new Color(0.84f, 0.86f, 0.90f), 4 => new Color(0.30f, 0.88f, 0.90f), _ => new Color(1, 0.48f, 0.12f) };
+        Color wood = new(0.42f, 0.25f, 0.13f);
+        if (id == ItemId.Bow) { for (int y=3;y<29;y++) Rect(img, y<16?10-(y-3)/3:6+(y-16)/3, y, 3, 2, wood); Rect(img,12,3,1,26,Colors.Beige); return; }
+        if (id == ItemId.Shield) { Rect(img,6,4,20,23,wood); Rect(img,9,7,14,17,metal); return; }
+        for(int i=0;i<18;i++) Rect(img,24-i,27-i,3,3,wood);
+        Rect(img,5,4,6,22,metal); Rect(img,2,5,12,4,metal.Lightened(0.12f)); Rect(img,8,3,7,4,metal);
+        if(id==ItemId.EmberBlade) Rect(img,4,8,8,3,new Color(1,0.55f,0.1f));
     }
 
     private static void PaintFishingRod(Image img)

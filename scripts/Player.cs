@@ -40,6 +40,7 @@ public partial class Player : CharacterBody3D, IDamageable
     [Signal] public delegate void ToolBrokeEventHandler();
     [Signal] public delegate void InventoryFullEventHandler();
     [Signal] public delegate void TableUsedEventHandler();
+    [Signal] public delegate void EnchantingTableUsedEventHandler();
     [Signal] public delegate void ChestUsedEventHandler(Vector3I pos);
     [Signal] public delegate void FurnaceUsedEventHandler(Vector3I pos);
     [Signal] public delegate void SleptEventHandler();
@@ -620,6 +621,13 @@ public partial class Player : CharacterBody3D, IDamageable
     public bool ApplyDamage(in DamageInfo info)
     {
         float amount = info.Amount;
+        ItemStack held = Inventory.Hotbar[Selected];
+        if (Mode == GameMode.Survival && EquipmentProgression.BlocksWithShield(held, -GlobalTransform.Basis.Z, GlobalPosition, info))
+        {
+            Inventory.DamageEquipment(Selected);
+            EmitSignal(SignalName.Notice, "Blocked");
+            return false;
+        }
         // Armor protects against physical/environmental hits, not hunger or drowning.
         if (info.Kind is not (DamageKind.Drown or DamageKind.Starve))
         {
@@ -665,7 +673,15 @@ public partial class Player : CharacterBody3D, IDamageable
         }
     }
 
-    private float ArmorReduction => Mathf.Min(ArmorPoints * 0.04f, 0.80f);
+    private float ArmorReduction
+    {
+        get
+        {
+            float remaining = 1.0f - Mathf.Clamp(ArmorPoints * 0.04f, 0.0f, 0.80f);
+            foreach (ItemStack piece in Inventory.Armor) remaining *= EquipmentProgression.ProtectionMultiplier(piece);
+            return 1.0f - remaining;
+        }
+    }
 
     /// <summary>Every landed hit wears each equipped piece by one point.</summary>
     private void DamageArmor()
@@ -679,6 +695,7 @@ public partial class Player : CharacterBody3D, IDamageable
                 continue;
             }
 
+            if (EquipmentProgression.DurabilityDamage(stack, GD.Randf()) == 0) continue;
             int durability = stack.Durability - 1;
             if (durability <= 0)
             {
@@ -728,7 +745,7 @@ public partial class Player : CharacterBody3D, IDamageable
     }
 
     /// <summary>Restore persisted player state; null mode keeps the world default.</summary>
-    public void LoadFromSave(string? mode, float health, float hunger, Vector3? respawn)
+    public void LoadFromSave(string? mode, float health, float hunger, Vector3? respawn, int experience = 0)
     {
         if (mode == "survival")
         {
@@ -739,7 +756,7 @@ public partial class Player : CharacterBody3D, IDamageable
             Mode = GameMode.Creative;
         }
 
-        Stats.Load(health, hunger);
+        Stats.Load(health, hunger, experience);
         RespawnPoint = respawn;
     }
 
@@ -807,6 +824,13 @@ public partial class Player : CharacterBody3D, IDamageable
     /// <summary>LMB press: mine the closest voxel target or swing at a mob.</summary>
     public void AttackOrStartMining()
     {
+        if (Inventory.Hotbar[Selected].Id == ItemId.Bow)
+        {
+            FireBow();
+            ResetMining();
+            return;
+        }
+
         if (World == null)
         {
             ResetMining();
@@ -842,16 +866,12 @@ public partial class Player : CharacterBody3D, IDamageable
     /// <summary>One melee swing: tool tier picks the damage, swing cadence is capped.</summary>
     private void Swing(IDamageable target)
     {
-        double now = Time.GetTicksMsec() / 1000.0;
-        if (now - _lastSwing < SwingCooldown)
-        {
-            return;
-        }
-
-        _lastSwing = now;
-        StartPunch();
-        float damage = 1.0f + (ItemDb.ToolOf(Inventory.Hotbar[Selected].Id)?.Tier ?? 0);
-        target.ApplyDamage(new DamageInfo(damage, DamageKind.Melee, GlobalPosition, 3.0f, 1.5f));
+        double now=Time.GetTicksMsec()/1000.0; ItemStack held=Inventory.Hotbar[Selected]; WeaponInfo? weapon=ItemDb.WeaponOf(held.Id);
+        double cooldown=weapon is { AttackSpeed: > 0 } w?w.AttackSpeed:SwingCooldown; if(now-_lastSwing<cooldown)return;
+        _lastSwing=now;StartPunch();float damage=(weapon?.Damage??(1+(ItemDb.ToolOf(held.Id)?.Tier??0)))+EquipmentProgression.SharpnessBonus(held);
+        bool critical=!IsOnFloor()&&Velocity.Y< -0.1f;if(critical)damage*=1.5f;float knockback=weapon?.Knockback??3;
+        bool landed=target.ApplyDamage(new DamageInfo(damage,DamageKind.Melee,GlobalPosition,knockback,1.5f));
+        if(landed&&weapon is not null)Inventory.DamageEquipment(Selected);if(landed&&critical)EmitSignal(SignalName.Notice,"Critical hit!");
     }
 
     public Vector3I TargetBlock()
@@ -984,6 +1004,14 @@ public partial class Player : CharacterBody3D, IDamageable
 
         Vector3I bp = TargetBlock();
         return World.GetBlock(bp.X, bp.Y, bp.Z) == BlockId.CraftingTable;
+    }
+
+    /// <summary>True when the ray currently rests on an enchanting table in reach.</summary>
+    public bool EnchantingTableInReach()
+    {
+        if (World == null || !Ray.IsColliding() || Ray.GetCollider() is Mob) return false;
+        Vector3I bp = TargetBlock();
+        return World.GetBlock(bp.X, bp.Y, bp.Z) == BlockId.EnchantingTable;
     }
 
     /// <summary>True when the ray currently rests on a furnace in reach.</summary>
@@ -1386,10 +1414,35 @@ public partial class Player : CharacterBody3D, IDamageable
         }
     }
 
+    private void FireBow()
+    {
+        if (Inventory.Hotbar[Selected].Id != ItemId.Bow) return;
+        double now = Time.GetTicksMsec() / 1000.0;
+        if (now - _lastSwing < 0.8) return;
+        if (Mode == GameMode.Survival && !Inventory.Consume(ItemId.Arrow, 1))
+        {
+            EmitSignal(SignalName.Notice, "Need arrows to fire");
+            return;
+        }
+        _lastSwing = now;
+        if (Mode == GameMode.Survival) Inventory.DamageEquipment(Selected);
+        StartPunch();
+        ArrowProjectile arrow = new();
+        Node parent = GetTree().CurrentScene ?? this;
+        parent.AddChild(arrow);
+        Vector3 direction = -Camera.GlobalTransform.Basis.Z;
+        arrow.Launch(this, Camera.GlobalPosition + direction * 0.65f, direction);
+    }
     public void PlaceBlock()
     {
         if (World == null)
         {
+            return;
+        }
+
+        if (Inventory.Hotbar[Selected].Id == ItemId.Bow)
+        {
+            FireBow();
             return;
         }
 
@@ -1435,6 +1488,12 @@ public partial class Player : CharacterBody3D, IDamageable
         if (FurnaceInReach())
         {
             EmitSignal(SignalName.FurnaceUsed, TargetBlock());
+            return;
+        }
+
+        if (EnchantingTableInReach())
+        {
+            EmitSignal(SignalName.EnchantingTableUsed);
             return;
         }
 
@@ -1594,6 +1653,17 @@ public partial class Player : CharacterBody3D, IDamageable
         {
             ResetMining();
             _mineTimer = 0.0;
+            return;
+        }
+
+        if (Inventory.Hotbar[Selected].Id == ItemId.Bow)
+        {
+            _mineTimer -= delta;
+            if (_mineTimer <= 0.0)
+            {
+                _mineTimer = 0.8;
+                FireBow();
+            }
             return;
         }
 

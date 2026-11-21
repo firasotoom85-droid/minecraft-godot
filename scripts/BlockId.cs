@@ -57,4 +57,7 @@ public enum BlockId : byte
     FlowingWater5 = 42,
     FlowingWater6 = 43,
     FlowingWater7 = 44,
+
+    // M7 equipment progression (appended after the flowing-water range).
+    EnchantingTable = 45,
 }

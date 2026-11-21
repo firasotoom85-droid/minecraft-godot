@@ -95,6 +95,15 @@ public static class Recipes
                 Key(('P', ItemId.Diamond), ('S', ItemId.Stick)), ItemId.DiamondAxe, 1),
         new("Diamond Shovel", [".P.", ".S.", ".S."],
                 Key(('P', ItemId.Diamond), ('S', ItemId.Stick)), ItemId.DiamondShovel, 1),
+        new("Wooden Sword", ["P", "P", "S"], Key(('P', ItemId.Planks), ('S', ItemId.Stick)), ItemId.WoodSword, 1),
+        new("Stone Sword", ["P", "P", "S"], Key(('P', ItemId.Cobblestone), ('S', ItemId.Stick)), ItemId.StoneSword, 1),
+        new("Iron Sword", ["I", "I", "S"], Key(('I', ItemId.IronIngot), ('S', ItemId.Stick)), ItemId.IronSword, 1),
+        new("Diamond Sword", ["D", "D", "S"], Key(('D', ItemId.Diamond), ('S', ItemId.Stick)), ItemId.DiamondSword, 1),
+        new("Bow", [".S.", "S.W", ".S."], Key(('S', ItemId.Stick), ('W', ItemId.Wool)), ItemId.Bow, 1),
+        new("Arrows", ["G", "S", "F"], Key(('G', ItemId.Gravel), ('S', ItemId.Stick), ('F', ItemId.Feather)), ItemId.Arrow, 4),
+        new("Shield", ["IPI", "IPI", ".I."], Key(('I', ItemId.IronIngot), ('P', ItemId.Planks)), ItemId.Shield, 1),
+        new("Ember Blade", [".D.", "DSD", ".E."], Key(('D', ItemId.Diamond), ('S', ItemId.Stick), ('E', ItemId.EmberCore)), ItemId.EmberBlade, 1),
+        new("Enchanting Table", [".D.", "ILI", ".D."], Key(('D', ItemId.Diamond), ('I', ItemId.IronIngot), ('L', ItemId.LapisLazuli)), ItemId.EnchantingTable, 1),
     ];
 
     /// <summary>

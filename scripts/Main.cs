@@ -53,7 +53,7 @@ public partial class Main : Node3D
         _player.Position = _world.SavedPlayerPos ?? _world.FindSpawn();
         _player.Inventory.LoadFrom(_world.SavedInventory);
         _player.Select(_world.SavedSelected);
-        _player.LoadFromSave(_world.SavedMode ?? _world.DefaultMode, _world.SavedHealth, _world.SavedHunger, _world.SavedRespawn);
+        _player.LoadFromSave(_world.SavedMode ?? _world.DefaultMode, _world.SavedHealth, _world.SavedHunger, _world.SavedRespawn, _world.SavedExperience);
 
         _gfx = AddSystem(new Gfx());
         _gfx.Setup(_world, _sun, _worldEnv);

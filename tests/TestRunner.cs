@@ -20,6 +20,7 @@ public partial class TestRunner : Node
         RunSuite("containers", ContainerTests.Run);
         RunSuite("furnaces", FurnaceTests.Run);
         RunSuite("armor", ArmorTests.Run);
+        RunSuite("equipment", EquipmentTests.Run);
         RunSuite("farming", FarmingTests.Run);
         RunSuite("mobs", MobContentTests.Run);
         RunSuite("achievements", AchievementTests.Run);

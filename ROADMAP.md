@@ -50,6 +50,14 @@ in-game high-population performance soak also remains outstanding.
 
 ## 1. Current state
 
+### Survival equipment increment — 2026-11-20
+
+- Appended persisted IDs for tiered swords, bow, arrows, shield and Ember Blade.
+- Added weapon damage, cadence, durability and knockback metadata, procedural pixel-art icons and item descriptions.
+- Added crafting recipes for swords, bow, arrows, shield and the Ember Blade using the rare Ember Core.
+- Melee uses weapon stats and airborne critical hits; bow attacks consume arrows; held shields block frontal melee attacks and wear on a block.
+- Existing inventory durability serialization applies to weapons without changing old save formats.
+
 ### Already built
 
 `PLAN.md` records M0–M4b as complete, and the corresponding code exists:
@@ -849,3 +857,27 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - Added keybind regression checks for controller defaults, remapping, conflict detection, reset behavior and preservation of controller events during keyboard rebinding.
 - Compatibility: no persisted IDs, save schema, world generation, voxel mutation, meshing or chunk streaming changes.
 - **Verification pending:** the current branch has not yet been built or run through `scripts/verify.sh` in this environment. CI and in-game validation remain required, including a controller smoke test and visual review at 1920×1080 and 1280×720.
+## 16. Combat equipment progression — 2026-11-20
+
+- Added experience points and levels; hostile/passive mob defeats award XP and
+  Crystal Wisps provide a renewable but uncommon lapis lazuli source.
+- Added Sharpness, Protection, and Unbreaking levels I–III with escalating
+  experience-level/lapis costs. Enchantments affect melee damage, armor
+  mitigation, and durability wear respectively.
+- Added a craftable Enchanting Table block (two diamonds, two iron ingots,
+  and one lapis lazuli); right-click opens the dedicated Enchant / Upgrade panel.
+  Supported swords, iron armor,
+  and iron tools can be upgraded one tier while preserving durability ratio
+  and enchantments. The selected hotbar item is the current target.
+- Player bow use now spawns a ballistic arrow with gravity and swept collision;
+  arrows damage mobs through the shared damage interface and report impact
+  feedback. Hostile projectiles now use a distinct projectile damage type.
+- Shields block frontal hostile projectiles as well as melee attacks and lose
+  durability on a successful block. Unbreaking also reduces tool, weapon,
+  shield, and armor wear.
+- Save extensions are optional JSON fields: legacy player files load with zero
+  experience and legacy inventory stacks load with no enchantments. No old IDs
+  were reordered or reused.
+- Added regression coverage for enchant costs/eligibility, upgrade preservation,
+  save round-trips, unbreaking odds, and shield facing. Build, headless tests,
+  and live playtesting remain pending CI verification.

@@ -38,7 +38,7 @@ public sealed class Container
             ItemStack s = Slots[i];
             if (!s.IsEmpty)
             {
-                data.Add(new ItemStackSave(i, (int)s.Id, s.Count, s.Durability));
+                data.Add(new ItemStackSave(i, (int)s.Id, s.Count, s.Durability, s.Sharpness, s.Protection, s.Unbreaking));
             }
         }
 
@@ -57,7 +57,7 @@ public sealed class Container
         {
             if (s.Slot >= 0 && s.Slot < Slots.Length && s.Count > 0)
             {
-                Slots[s.Slot] = new ItemStack((ItemId)s.Id, s.Count, s.Durability);
+                Slots[s.Slot] = new ItemStack((ItemId)s.Id, s.Count, s.Durability, s.Sharpness, s.Protection, s.Unbreaking);
             }
         }
     }

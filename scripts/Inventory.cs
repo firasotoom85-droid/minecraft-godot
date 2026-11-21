@@ -46,25 +46,17 @@ public sealed class Inventory
     /// Consume one durability point from a tool in an inventory slot.
     /// Returns true only when the tool breaks and its slot is cleared.
     /// </summary>
-    public bool DamageTool(int slot)
+    public bool DamageEquipment(int slot)
     {
-        if ((uint)slot >= SlotCount)
-        {
-            return false;
-        }
-
+        if ((uint)slot >= SlotCount) return false;
         ItemStack stack = Get(slot);
-        if (stack.IsEmpty || ItemDb.ToolOf(stack.Id) is null)
-        {
-            return false;
-        }
-
-        int durability = stack.Durability - 1;
-        bool broke = durability <= 0;
-        Set(slot, broke ? ItemStack.Empty : stack with { Durability = durability });
-        Changed?.Invoke();
-        return broke;
+        int max = ItemDb.ToolOf(stack.Id)?.Durability ?? ItemDb.ArmorOf(stack.Id)?.Durability ?? ItemDb.WeaponOf(stack.Id)?.Durability ?? 0;
+        if (stack.IsEmpty || max <= 0) return false;
+        if (EquipmentProgression.DurabilityDamage(stack, Godot.GD.Randf()) == 0) return false;
+        int durability = stack.Durability - 1; bool broke = durability <= 0;
+        Set(slot, broke ? ItemStack.Empty : stack with { Durability = durability }); Changed?.Invoke(); return broke;
     }
+    public bool DamageTool(int slot) => DamageEquipment(slot);
 
     /// <summary>Add a stack, preserving durability (tools). Returns leftover count.</summary>
     public int Add(ItemStack stack)
@@ -285,7 +277,7 @@ public sealed class Inventory
             ItemStack s = Get(i);
             if (!s.IsEmpty)
             {
-                list.Add(new ItemStackSave(i, (int)s.Id, s.Count, s.Durability));
+                list.Add(new ItemStackSave(i, (int)s.Id, s.Count, s.Durability, s.Sharpness, s.Protection, s.Unbreaking));
             }
         }
 
@@ -309,7 +301,7 @@ public sealed class Inventory
             {
                 if (s.Slot >= 0 && s.Slot < SaveSlotCount && s.Count > 0)
                 {
-                    Set(s.Slot, new ItemStack((ItemId)s.Id, s.Count, s.Durability));
+                    Set(s.Slot, new ItemStack((ItemId)s.Id, s.Count, s.Durability, s.Sharpness, s.Protection, s.Unbreaking));
                 }
             }
         }

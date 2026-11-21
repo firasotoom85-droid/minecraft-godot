@@ -104,17 +104,17 @@ public sealed class FurnaceData
         List<ItemStackSave> data = [];
         if (!Input.IsEmpty)
         {
-            data.Add(new ItemStackSave(0, (int)Input.Id, Input.Count, Input.Durability));
+            data.Add(new ItemStackSave(0, (int)Input.Id, Input.Count, Input.Durability, Input.Sharpness, Input.Protection, Input.Unbreaking));
         }
 
         if (!Fuel.IsEmpty)
         {
-            data.Add(new ItemStackSave(1, (int)Fuel.Id, Fuel.Count, Fuel.Durability));
+            data.Add(new ItemStackSave(1, (int)Fuel.Id, Fuel.Count, Fuel.Durability, Fuel.Sharpness, Fuel.Protection, Fuel.Unbreaking));
         }
 
         if (!Output.IsEmpty)
         {
-            data.Add(new ItemStackSave(2, (int)Output.Id, Output.Count, Output.Durability));
+            data.Add(new ItemStackSave(2, (int)Output.Id, Output.Count, Output.Durability, Output.Sharpness, Output.Protection, Output.Unbreaking));
         }
 
         return data;

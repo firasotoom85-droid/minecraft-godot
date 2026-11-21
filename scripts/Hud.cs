@@ -42,6 +42,7 @@ public partial class Hud : CanvasLayer
     private readonly TextureRect[] _slotIcons = new TextureRect[Inventory.HotbarSize];
     private readonly Label[] _slotCounts = new Label[Inventory.HotbarSize];
     private Label _heldLabel = null!;
+    private Label _experienceLabel = null!;
     private double _heldTime;
     private ColorRect _waterOverlay = null!;
     private ColorRect _vignette = null!;
@@ -303,6 +304,7 @@ public partial class Hud : CanvasLayer
             _statsBound = true;
             p.Stats.Damaged += amount => _vignetteStrength = Mathf.Min(_vignetteStrength + 0.25f + amount * 0.03f, 0.75f);
             p.Stats.Died += ShowDeath;
+            p.Stats.Changed += RefreshSurvival;
             p.Stats.Respawned += HideDeath;
         }
 
@@ -417,6 +419,10 @@ public partial class Hud : CanvasLayer
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         });
+        _experienceLabel = new Label { Text = "XP 0", MouseFilter = Control.MouseFilterEnum.Ignore };
+        _experienceLabel.AddThemeColorOverride("font_color", new Color(0.48f, 0.88f, 0.42f));
+        _experienceLabel.AddThemeFontSizeOverride("font_size", 13);
+        _statsRow.AddChild(_experienceLabel);
 
         _breathRow = new HBoxContainer
         {
@@ -568,6 +574,7 @@ public partial class Hud : CanvasLayer
         }
 
         PlayerStats stats = PlayerRef.Stats;
+        _experienceLabel.Text = $"XP {stats.ExperienceLevel}";
         bool survival = PlayerRef.Mode == GameMode.Survival;
         _statsRow.Visible = survival;
         if (!survival)

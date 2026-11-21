@@ -766,10 +766,11 @@ public partial class Mobs : Node
         };
         SoundRef?.Play(sound, pos, passive ? 1.0f : 0.9f, -2.0f);
 
-        if (PlayerRef == null || mob.Loot.Length == 0)
-        {
-            return;
-        }
+        if (PlayerRef == null) return;
+        int experience = mob is EmberWarden ? 25 : passive ? 1 : 5;
+        PlayerRef.Stats.AddExperience(experience);
+        PlayerRef.EmitSignal(Player.SignalName.Notice, $"+{experience} XP");
+        if (mob.Loot.Length == 0) return;
 
         foreach ((ItemId id, int min, int max, float chance) in mob.Loot)
         {
