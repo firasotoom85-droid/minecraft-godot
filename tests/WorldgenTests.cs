@@ -67,10 +67,18 @@ public static class WorldgenTests
         DirAccess.RemoveAbsolute(v5Dir);
 
         CheckLegacyGoldenHashes(host);
+        CheckV7GoldenHashes(host);
+        CheckV8GoldenHashes(host);
         CheckV7BiomeDistribution();
         ProfileV7ColumnSampling();
         CheckV7Determinism(host);
-        CheckV7ChunkBoundaries(host);
+        CheckChunkBoundaries(host, WorldGenV7.Version);
+        CheckV8BiomeDistribution();
+        CheckV8TerrainQuality();
+        CheckV8Determinism(host);
+        CheckV8TreeDensity(host);
+        CheckV8VillageGeneration(host);
+        CheckChunkBoundaries(host, WorldGenV8.Version);
         ProfileChunkGeneration(host);
     }
 
@@ -109,6 +117,70 @@ public static class WorldgenTests
             DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
             DirAccess.RemoveAbsolute(dir);
         }
+    }
+
+    private static void CheckV7GoldenHashes(Node host)
+    {
+        const int seed = 11235813;
+        string dir = $"user://tests/world-v7-golden-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(dir);
+        WorldStore.WriteManifest(dir, new WorldManifest(
+                "V7 golden", seed, WorldGenV7.Version,
+                WorldStore.DeriveNoiseSeeds(seed), 0, 0, "survival", "normal"));
+        GameSession.Instance.SelectWorld(dir);
+
+        VoxelWorld world = new();
+        host.AddChild(world);
+        (Vector2I Chunk, string Hash)[] anchors =
+        [
+            (new(-8, -31), "2b817767839b3e6be4d2869a87a5b693ecc9f45ff5999e7564ade6e4bf7dc4e8"),
+            (new(32, -24), "824a32b2508b44082388336abc9d870fbaa4c51c3221b8b1c86e2ccc02cac92e"),
+            (new(0, 0), "7b57ebc8abfd9bd5b2f4ae1ed43ce04a26ca372e752b83d9c90ec63571d6c73b"),
+        ];
+        foreach ((Vector2I chunk, string expected) in anchors)
+        {
+            string actual = Convert.ToHexString(
+                    SHA256.HashData(world.ChunkData(chunk))).ToLowerInvariant();
+            TestAssert.Equal(expected, actual,
+                    $"V7 golden chunk {chunk} remains byte-identical after V8 integration");
+        }
+
+        host.RemoveChild(world);
+        world.QueueFree();
+        DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+        DirAccess.RemoveAbsolute(dir);
+    }
+
+    private static void CheckV8GoldenHashes(Node host)
+    {
+        const int seed = 11235813;
+        string dir = $"user://tests/world-v8-golden-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(dir);
+        WorldStore.WriteManifest(dir, new WorldManifest(
+                "V8 golden", seed, WorldGenV8.Version,
+                WorldStore.DeriveNoiseSeeds(seed), 0, 0, "survival", "normal"));
+        GameSession.Instance.SelectWorld(dir);
+
+        VoxelWorld world = new();
+        host.AddChild(world);
+        (Vector2I Chunk, string Hash)[] anchors =
+        [
+            (new Vector2I(-8, -31), "fb838e2920caee58aea90d7ed8f5395cebc971bad3cf482cbfabf4d531e5184d"),
+            (new Vector2I(32, -24), "ce826ae17057b2d089f394e5716a716c39005f9da62a5bd9a22e49056dc9da6f"),
+            (new Vector2I(0, 0), "b5c21e174eb865f5a20dea280826aacfef7ad83d36bfc2e4eba4a2e0d74f7d4f"),
+        ];
+        foreach ((Vector2I chunk, string expected) in anchors)
+        {
+            string actual = Convert.ToHexString(
+                    SHA256.HashData(world.ChunkData(chunk))).ToLowerInvariant();
+            TestAssert.Equal(expected, actual,
+                    $"V8 golden chunk {chunk} remains byte-identical");
+        }
+
+        host.RemoveChild(world);
+        world.QueueFree();
+        DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+        DirAccess.RemoveAbsolute(dir);
     }
 
     private static void CheckV7BiomeDistribution()
@@ -195,13 +267,13 @@ public static class WorldgenTests
         }
     }
 
-    private static void CheckV7ChunkBoundaries(Node host)
+    private static void CheckChunkBoundaries(Node host, int version)
     {
         const int seed = 1357911;
-        string dir = $"user://tests/world-v7-boundaries-{Time.GetTicksUsec()}";
+        string dir = $"user://tests/world-v{version}-boundaries-{Time.GetTicksUsec()}";
         DirAccess.MakeDirRecursiveAbsolute(dir);
         WorldStore.WriteManifest(dir, new WorldManifest(
-                "V7 boundaries", seed, WorldGenV7.Version,
+                $"V{version} boundaries", seed, version,
                 WorldStore.DeriveNoiseSeeds(seed), 0, 0, "survival", "normal"));
         GameSession.Instance.SelectWorld(dir);
 
@@ -255,7 +327,7 @@ public static class WorldgenTests
         }
 
         TestAssert.Check(foundCrossChunkTree,
-                "V7 tree canopies stamp correctly across chunk seams");
+                $"V{version} tree canopies stamp correctly across chunk seams");
 
         // Search a compact set of neighbouring chunks for a same-material ore
         // continuation crossing the seam. This exercises the neighbour-cell
@@ -292,7 +364,7 @@ public static class WorldgenTests
         }
 
         TestAssert.Check(foundOreSeam,
-                "V7 ore vein stamping produces a continuous ore seam across neighbouring chunks");
+                $"V{version} ore vein stamping produces a continuous ore seam across neighbouring chunks");
 
         // Find a surface structure whose template crosses a chunk boundary and
         // compare the actual generated voxels on both sides to the template.
@@ -360,7 +432,7 @@ public static class WorldgenTests
         }
 
         TestAssert.Check(foundStructureSeam,
-                "V7 surface structure templates stamp blocks on both sides of chunk seams");
+                $"V{version} surface structure templates stamp blocks on both sides of chunk seams");
 
         // Resolve an underground room near a chunk boundary directly from its
         // deterministic cell seed, then verify its floor in both generated chunks.
@@ -408,14 +480,368 @@ public static class WorldgenTests
         }
 
         TestAssert.Check(foundUndergroundSeam,
-                "V7 underground chambers stamp their floor across chunk seams");
-
-        CheckV7TerrainProfiles();
+                $"V{version} underground chambers stamp their floor across chunk seams");
 
         host.RemoveChild(world);
         world.QueueFree();
         DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
         DirAccess.RemoveAbsolute(dir);
+    }
+
+    private static void CheckV8BiomeDistribution()
+    {
+        int[] seeds = [1337, 777, 24681357, -90817263];
+        int[] counts = new int[13];
+        foreach (int seed in seeds)
+        {
+            WorldGenV8 generator = new(seed, "normal");
+            for (int z = -512; z <= 512; z += 8)
+            {
+                for (int x = -512; x <= 512; x += 8)
+                {
+                    WorldGenV7.SurfaceSample sample = generator.SampleSurface(x, z, 40);
+                    counts[(int)sample.Biome]++;
+                }
+            }
+        }
+
+        string[] names =
+        [
+            "Plains", "Desert", "Snow", "Birch", "DenseForest", "Taiga",
+            "Jungle", "Swamp", "Ocean", "Beach", "Mountain", "FlowerPlains", "Meadow",
+        ];
+        for (int i = 0; i < counts.Length; i++)
+        {
+            TestAssert.Check(counts[i] > 0, $"V8 worlds contain biome {names[i]}");
+        }
+
+        GD.Print($"WORLDGEN_V8_BIOMES seeds={string.Join(",", seeds)} counts={string.Join(",", counts)}");
+    }
+
+    private static void CheckV8TerrainQuality()
+    {
+        const int seed = 11235813;
+        WorldGenV7 legacy = new(seed, "normal");
+        WorldGenV8 improved = new(seed, "normal");
+
+        int oldA = legacy.SurfaceHeight(-128, -488, 40);
+        int oldB = legacy.SurfaceHeight(-120, -488, 40);
+        int newA = improved.SurfaceHeight(-128, -488, 40);
+        int newB = improved.SurfaceHeight(-120, -488, 40);
+        int oldSlope = Math.Abs(oldA - oldB);
+        int newSlope = Math.Abs(newA - newB);
+        GD.Print($"WORLDGEN_V8_RIVER_BANK seed={seed} v7={oldA}/{oldB} v8={newA}/{newB} slope={oldSlope}->{newSlope}");
+        TestAssert.Check(newSlope < oldSlope,
+                "V8 widens and softens the steep V7 river-bank transition");
+
+        Godot.Environment legacyEnvironment = WorldEnvironmentFactory.Build(WorldGenV7.Version);
+        Godot.Environment modernEnvironment = WorldEnvironmentFactory.Build(WorldGenV8.Version);
+        TestAssert.Equal(0.0035f, legacyEnvironment.FogDensity,
+                "V7 retains its original atmospheric fog density");
+        TestAssert.Equal(0.00065f, modernEnvironment.FogDensity,
+                "V8 uses the clearer atmospheric fog profile");
+        TestAssert.Check(modernEnvironment.VolumetricFogDensity
+                        < legacyEnvironment.VolumetricFogDensity,
+                "V8 reduces volumetric haze without changing legacy worlds");
+
+        int oldCaveSamples = 0;
+        int newCaveSamples = 0;
+        foreach (int caveSeed in new[] { 1337, 777, 24681357, -90817263 })
+        {
+            WorldGenV7 v7 = new(caveSeed, "normal");
+            WorldGenV8 v8 = new(caveSeed, "normal");
+            for (int z = -256; z <= 256; z += 8)
+            {
+                for (int x = -256; x <= 256; x += 8)
+                {
+                    int surface = v7.SurfaceHeight(x, z, 40);
+                    if (surface < 50)
+                    {
+                        continue;
+                    }
+
+                    for (int depth = 1; depth <= 10; depth += 2)
+                    {
+                        int y = surface - depth;
+                        if (v7.IsCave(x, y, z, surface))
+                        {
+                            oldCaveSamples++;
+                        }
+                        if (v8.IsCave(x, y, z, surface))
+                        {
+                            newCaveSamples++;
+                        }
+                    }
+                }
+            }
+        }
+
+        GD.Print($"WORLDGEN_V8_CAVE_ENTRANCES v7_samples={oldCaveSamples} v8_samples={newCaveSamples}");
+        TestAssert.Check(newCaveSamples > oldCaveSamples,
+                "V8 creates additional deterministic shallow cave entrances");
+
+        int mountainColumns = 0;
+        WorldGenV8 mountainSurvey = new(777, "normal");
+        for (int z = -512; z <= 512; z += 8)
+        {
+            for (int x = -512; x <= 512; x += 8)
+            {
+                if (mountainSurvey.SampleSurface(x, z, 40).Biome == Biome.Mountain)
+                {
+                    mountainColumns++;
+                }
+            }
+        }
+        TestAssert.Check(mountainColumns > 0,
+                "V8 preserves elevated mountain regions");
+    }
+
+    private static void CheckV8Determinism(Node host)
+    {
+        const int seed = 24681357;
+        int[] seeds = WorldStore.DeriveNoiseSeeds(seed);
+        string firstDir = $"user://tests/world-v8-order-a-{Time.GetTicksUsec()}";
+        string secondDir = $"user://tests/world-v8-order-b-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(firstDir);
+        DirAccess.MakeDirRecursiveAbsolute(secondDir);
+        WorldStore.WriteManifest(firstDir, new WorldManifest(
+                "V8 order A", seed, WorldGenV8.Version, seeds, 0, 0, "survival", "normal"));
+        WorldStore.WriteManifest(secondDir, new WorldManifest(
+                "V8 order B", seed, WorldGenV8.Version, seeds, 0, 0, "survival", "normal"));
+
+        Vector2I[] positions =
+        [
+            new(-3, 2), new(2, -4), new(-1, -1), new(0, 0), new(1, 0), new(0, 1),
+        ];
+        string[] hashes = new string[positions.Length];
+        GameSession.Instance.SelectWorld(firstDir);
+        VoxelWorld first = new();
+        host.AddChild(first);
+        TestAssert.Equal(128, first.Height, "V8 retains 128-block world height");
+        TestAssert.Equal(40, first.SeaLevel, "V8 retains sea level 40");
+        for (int i = 0; i < positions.Length; i++)
+        {
+            hashes[i] = Convert.ToHexString(SHA256.HashData(first.ChunkData(positions[i])));
+        }
+        host.RemoveChild(first);
+        first.QueueFree();
+
+        GameSession.Instance.SelectWorld(secondDir);
+        VoxelWorld second = new();
+        host.AddChild(second);
+        for (int i = positions.Length - 1; i >= 0; i--)
+        {
+            string hash = Convert.ToHexString(SHA256.HashData(second.ChunkData(positions[i])));
+            TestAssert.Equal(hashes[i], hash,
+                    $"V8 chunk {positions[i]} is invariant under reversed generation order");
+        }
+        host.RemoveChild(second);
+        second.QueueFree();
+
+        foreach (string dir in new[] { firstDir, secondDir })
+        {
+            DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+            DirAccess.RemoveAbsolute(dir);
+        }
+    }
+
+    private static void CheckV8TreeDensity(Node host)
+    {
+        const int seed = 24681357;
+        string v7Dir = $"user://tests/world-v7-tree-density-{Time.GetTicksUsec()}";
+        string v8Dir = $"user://tests/world-v8-tree-density-{Time.GetTicksUsec()}";
+        foreach (string dir in new[] { v7Dir, v8Dir })
+        {
+            DirAccess.MakeDirRecursiveAbsolute(dir);
+        }
+        WorldStore.WriteManifest(v7Dir, new WorldManifest(
+                "V7 tree density", seed, WorldGenV7.Version,
+                WorldStore.DeriveNoiseSeeds(seed), 0, 0, "survival", "normal"));
+        WorldStore.WriteManifest(v8Dir, new WorldManifest(
+                "V8 tree density", seed, WorldGenV8.Version,
+                WorldStore.DeriveNoiseSeeds(seed), 0, 0, "survival", "normal"));
+
+        int CountTrees(string dir)
+        {
+            GameSession.Instance.SelectWorld(dir);
+            VoxelWorld world = new();
+            host.AddChild(world);
+            int count = 0;
+            for (int z = 104; z < 152; z++)
+            {
+                for (int x = 168; x < 216; x++)
+                {
+                    if (world.GetTreeAt(x, z) is not null)
+                    {
+                        count++;
+                    }
+                }
+            }
+            host.RemoveChild(world);
+            world.QueueFree();
+            return count;
+        }
+
+        int oldCount = CountTrees(v7Dir);
+        int newCount = CountTrees(v8Dir);
+        GD.Print($"WORLDGEN_V8_FOREST_TREES seed={seed} v7={oldCount} v8={newCount}");
+        TestAssert.Check(newCount > oldCount,
+                "V8 increases tree density in a fixed dense-forest region");
+
+        foreach (string dir in new[] { v7Dir, v8Dir })
+        {
+            DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+            DirAccess.RemoveAbsolute(dir);
+        }
+    }
+
+    private static void CheckV8VillageGeneration(Node host)
+    {
+        const int seed = 1337;
+        int[] seeds = WorldStore.DeriveNoiseSeeds(seed);
+        string firstDir = $"user://tests/world-v8-village-a-{Time.GetTicksUsec()}";
+        string secondDir = $"user://tests/world-v8-village-b-{Time.GetTicksUsec()}";
+        foreach (string dir in new[] { firstDir, secondDir })
+        {
+            DirAccess.MakeDirRecursiveAbsolute(dir);
+            WorldStore.WriteManifest(dir, new WorldManifest(
+                    "V8 village", seed, WorldGenV8.Version, seeds, 0, 0, "survival", "normal"));
+        }
+
+        GameSession.Instance.SelectWorld(firstDir);
+        VoxelWorld first = new();
+        host.AddChild(first);
+
+        VillageInfo? site = null;
+        for (int cellZ = -4; cellZ <= 4 && site == null; cellZ++)
+        {
+            for (int cellX = -4; cellX <= 4 && site == null; cellX++)
+            {
+                site = first.GetVillageSite(cellX, cellZ);
+            }
+        }
+
+        TestAssert.Check(site is not null, "V8 seed 1337 contains a deterministic village site");
+        if (site is not { } village)
+        {
+            host.RemoveChild(first);
+            first.QueueFree();
+            foreach (string dir in new[] { firstDir, secondDir })
+            {
+                DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+                DirAccess.RemoveAbsolute(dir);
+            }
+            return;
+        }
+
+        TestAssert.Check(VillageGenerator.ThemeForBiome(
+                        first.BiomeAt(village.X, village.Z, village.Y)) == village.Theme,
+                "village site uses the theme of its biome");
+        TestAssert.Check(village.Y > first.SeaLevel + 3,
+                "village site stays above the shoreline");
+
+        // No surface structure or campfire may sit inside the settlement.
+        int structureCell = VoxelWorld.StructureCell;
+        int minStructureX = Mathf.FloorToInt((village.X - 52) / (float)structureCell);
+        int maxStructureX = Mathf.FloorToInt((village.X + 52) / (float)structureCell);
+        int minStructureZ = Mathf.FloorToInt((village.Z - 52) / (float)structureCell);
+        int maxStructureZ = Mathf.FloorToInt((village.Z + 52) / (float)structureCell);
+        for (int cz = minStructureZ; cz <= maxStructureZ; cz++)
+        for (int cx = minStructureX; cx <= maxStructureX; cx++)
+        {
+            if (first.GetStructureSite(cx, cz) is not { } structure) continue;
+            int dx = structure.X - village.X;
+            int dz = structure.Z - village.Z;
+            TestAssert.Check(dx * dx + dz * dz >= 52 * 52,
+                    "village site does not overlap a surface structure");
+        }
+
+        // Generate every chunk that the settlement touches in order, then the
+        // same chunks in reverse order in an independent world.
+        int minChunkX = Mathf.FloorToInt((village.X - VillageStructures.Radius) / (float)VoxelWorld.ChunkX);
+        int maxChunkX = Mathf.FloorToInt((village.X + VillageStructures.Radius) / (float)VoxelWorld.ChunkX);
+        int minChunkZ = Mathf.FloorToInt((village.Z - VillageStructures.Radius) / (float)VoxelWorld.ChunkZ);
+        int maxChunkZ = Mathf.FloorToInt((village.Z + VillageStructures.Radius) / (float)VoxelWorld.ChunkZ);
+        Dictionary<Vector2I, string> orderedHashes = [];
+        for (int cz = minChunkZ; cz <= maxChunkZ; cz++)
+        for (int cx = minChunkX; cx <= maxChunkX; cx++)
+        {
+            Vector2I chunk = new(cx, cz);
+            orderedHashes[chunk] = Convert.ToHexString(SHA256.HashData(first.ChunkData(chunk)));
+        }
+
+        int chunksWithVillageBlocks = 0;
+        int bedCount = 0, chestCount = 0, furnaceCount = 0, tableCount = 0, farmCount = 0, torchCount = 0;
+        for (int cz = minChunkZ; cz <= maxChunkZ; cz++)
+        for (int cx = minChunkX; cx <= maxChunkX; cx++)
+        {
+            int chunkVillageBlocks = 0;
+            int ox = cx * VoxelWorld.ChunkX;
+            int oz = cz * VoxelWorld.ChunkZ;
+            for (int z = oz; z < oz + VoxelWorld.ChunkZ; z++)
+            for (int x = ox; x < ox + VoxelWorld.ChunkX; x++)
+            for (int y = Math.Max(1, village.Y - 2); y <= Math.Min(first.Height - 1, village.Y + 8); y++)
+            {
+                BlockId id = first.GetBlock(x, y, z);
+                switch (id)
+                {
+                    case BlockId.Bed: bedCount++; chunkVillageBlocks++; break;
+                    case BlockId.Chest: chestCount++; chunkVillageBlocks++; break;
+                    case BlockId.Furnace: furnaceCount++; chunkVillageBlocks++; break;
+                    case BlockId.CraftingTable: tableCount++; chunkVillageBlocks++; break;
+                    case BlockId.Farmland: farmCount++; chunkVillageBlocks++; break;
+                    case BlockId.Torch: torchCount++; chunkVillageBlocks++; break;
+                }
+            }
+            if (chunkVillageBlocks > 0) chunksWithVillageBlocks++;
+        }
+
+        TestAssert.Check(bedCount >= 4, "generated village contains resident beds");
+        TestAssert.Check(chestCount >= 2, "generated village contains storage");
+        TestAssert.Check(furnaceCount >= 1, "generated village contains a furnace");
+        TestAssert.Check(tableCount >= 1, "generated village contains a crafting table");
+        TestAssert.Check(farmCount >= 20, "generated village contains farmland");
+        TestAssert.Check(torchCount >= 4, "generated village contains light posts");
+        TestAssert.Check(chunksWithVillageBlocks >= 2,
+                "village structures stamp across more than one chunk");
+
+        // The well and farm must not place water above the settlement surface.
+        TestAssert.Equal(BlockId.Water, first.GetBlock(village.X, village.Y + 1, village.Z),
+                "village well is a contained source");
+        TestAssert.Equal(BlockId.Water, first.GetBlock(village.X + 17, village.Y, village.Z + 1),
+                "village farm channel sits level with the farmland");
+        TestAssert.Check(first.GetBlock(village.X + 17, village.Y + 1, village.Z + 1) != BlockId.Water,
+                "village farm does not place water above the crops");
+
+        host.RemoveChild(first);
+        first.QueueFree();
+
+        GameSession.Instance.SelectWorld(secondDir);
+        VoxelWorld second = new();
+        host.AddChild(second);
+        VillageInfo? repeated = second.GetVillageSite(village.CellX, village.CellZ);
+        TestAssert.Check(repeated is { } again && again.X == village.X && again.Y == village.Y
+                        && again.Z == village.Z && again.Theme == village.Theme && again.Seed == village.Seed,
+                "village site is byte-identical in an independent world");
+
+        List<Vector2I> reversed = [];
+        for (int cz = maxChunkZ; cz >= minChunkZ; cz--)
+        for (int cx = maxChunkX; cx >= minChunkX; cx--)
+            reversed.Add(new Vector2I(cx, cz));
+        foreach (Vector2I chunk in reversed)
+        {
+            string hash = Convert.ToHexString(SHA256.HashData(second.ChunkData(chunk)));
+            TestAssert.Equal(orderedHashes[chunk], hash,
+                    $"village chunk {chunk} is invariant under reversed generation order");
+        }
+
+        host.RemoveChild(second);
+        second.QueueFree();
+        foreach (string dir in new[] { firstDir, secondDir })
+        {
+            DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+            DirAccess.RemoveAbsolute(dir);
+        }
     }
 
     private static void CheckV7TerrainProfiles()
@@ -513,8 +939,8 @@ public static class WorldgenTests
             new(-2, -2), new(-1, -2), new(0, -2), new(1, -2),
             new(-2, -1), new(-1, -1), new(0, -1), new(1, -1),
         ];
-        double[] elapsed = new double[2];
-        int[] versions = [6, WorldGenV7.Version];
+        double[] elapsed = new double[3];
+        int[] versions = [6, WorldGenV7.Version, WorldGenV8.Version];
         for (int v = 0; v < versions.Length; v++)
         {
             int version = versions[v];
@@ -526,6 +952,9 @@ public static class WorldgenTests
             GameSession.Instance.SelectWorld(dir);
             VoxelWorld world = new();
             host.AddChild(world);
+            // Warm the generator, noise wrappers and chunk-data path before
+            // timing, so the V8/V7 comparison excludes first-use JIT cost.
+            _ = world.ChunkData(new Vector2I(20, 20));
             Stopwatch timer = Stopwatch.StartNew();
             foreach (Vector2I chunk in chunks)
             {
@@ -540,9 +969,9 @@ public static class WorldgenTests
             DirAccess.RemoveAbsolute(dir);
         }
 
-        GD.Print($"WORLDGEN_CHUNK_PROFILE chunks={chunks.Length} v6_ms_per_chunk={elapsed[0]:F2} v7_ms_per_chunk={elapsed[1]:F2} ratio={(elapsed[1] / Math.Max(0.001, elapsed[0])):F2}x");
-        TestAssert.Check(elapsed[0] > 0.0 && elapsed[1] > 0.0,
-                "legacy and V7 chunk generation profiling completed");
+        GD.Print($"WORLDGEN_CHUNK_PROFILE chunks={chunks.Length} v6_ms_per_chunk={elapsed[0]:F2} v7_ms_per_chunk={elapsed[1]:F2} v8_ms_per_chunk={elapsed[2]:F2} v8_vs_v7={(elapsed[2] / Math.Max(0.001, elapsed[1])):F2}x");
+        TestAssert.Check(elapsed[0] > 0.0 && elapsed[1] > 0.0 && elapsed[2] > 0.0,
+                "V6, V7 and V8 chunk generation profiling completed");
     }
 
     private static void ProfileV7ColumnSampling()

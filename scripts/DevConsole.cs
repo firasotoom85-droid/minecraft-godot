@@ -83,6 +83,13 @@ public partial class DevConsole : CanvasLayer
             return;
         }
 
+        // Do not stack the console over another modal. Closing it would hand
+        // input back while the inventory/pause panel is still visible.
+        if (!_open && _player.InputLocked)
+        {
+            return;
+        }
+
         if (@event is not InputEventKey key || !key.Pressed || key.Echo)
         {
             return;

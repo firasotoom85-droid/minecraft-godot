@@ -1,5 +1,11 @@
 # Integration report — 2026-11-21
 
+> **Historical checkpoint.** This document records the earlier V7 / pixel-art UI
+> / equipment merge. Its test counts, soak observations and gaps describe that
+> checkpoint only. The later six-branch 1.0 integration (creatures, survival,
+> slabs/stairs, V8 + villages/quests, buckets/boats) is documented in
+> `README.md` and the "Integrated 1.0 snapshot" in `ROADMAP.md`.
+
 This document records the merge of the outstanding feature branches into one
 playable build. It is the technical companion to the progress notes in
 `ROADMAP.md`.
@@ -94,8 +100,19 @@ force-pushed.
 - Controller hardware was not available; bindings and focus navigation are
   covered by code and keybind tests, not a physical pad.
 
-## Known gaps
+## Known gaps at this checkpoint
 
-- Partial-height building blocks (slabs, stairs) do not exist in any branch.
-  The mesher and collision path remain cube-only.
-- The draft `redesign/ui-overhaul` direction is not merged (see above).
+- Partial-height building blocks did not exist at this checkpoint. The later
+  1.0 integration added slabs and stairs (BlockId 46–51, ItemId 91–96) with a
+  shared occupancy model, partial meshing, collision, raycasts and save state.
+- The draft `redesign/ui-overhaul` direction was not merged (see above).
+
+
+## Follow-up: survival progression audit — 2026-11-21
+
+The independent survival/combat balance audit is documented in
+[`SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md`](SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md).
+It fixes combat wear/invulnerability edge cases, peaceful-mode hostile cleanup,
+normal/hard damage consistency, lapis access and furnace time carry. Persisted
+IDs, generator versions and save schemas are unchanged. Its final 60-minute
+real-scene soak outcome is recorded in that report.

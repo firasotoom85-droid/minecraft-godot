@@ -1,3 +1,4 @@
+using System;
 using Godot;
 
 namespace Minecraft;
@@ -46,10 +47,16 @@ public partial class Player : CharacterBody3D, IDamageable
     [Signal] public delegate void SleptEventHandler();
     [Signal] public delegate void TraderUsedEventHandler();
     [Signal] public delegate void NoticeEventHandler(string text);
+
+    public event System.Action<Villager>? VillagerInteracted;
+    public event System.Action<ItemId, int>? ItemGathered;
+    public event System.Action<ItemId, int>? ItemCrafted;
+    public event System.Action<int>? TradeCompleted;
     [Signal] public delegate void AteEventHandler();
     [Signal] public delegate void CampfireUsedEventHandler(string message);
     [Signal] public delegate void RespawnedEventHandler();
     [Signal] public delegate void LandedEventHandler(Vector3 pos, float impact);
+    [Signal] public delegate void BucketUsedEventHandler(Vector3 pos, bool lava, bool collected);
 
     private static readonly string[] HotbarActions =
     [
@@ -71,7 +78,28 @@ public partial class Player : CharacterBody3D, IDamageable
     public bool Dead => Stats.Dead;
 
     public Inventory Inventory { get; } = new();
+    public BoatSystem? Boats;
+    public Boat? CurrentBoat { get; private set; }
+    private Node? _preBoatParent;
 
+    public void InteractVillager(Villager villager) => VillagerInteracted?.Invoke(villager);
+
+    public void RecordGathered(ItemId item, int count)
+    {
+        if (item != ItemId.None && count > 0) ItemGathered?.Invoke(item, count);
+    }
+
+    public void RecordCrafted(ItemId item, int count)
+    {
+        if (item != ItemId.None && count > 0) ItemCrafted?.Invoke(item, count);
+    }
+
+    public void RecordTrade(int count = 1)
+    {
+        if (count > 0) TradeCompleted?.Invoke(count);
+    }
+
+    private CollisionShape3D _bodyCollider = null!;
     public Camera3D Camera = null!;
     public RayCast3D Ray = null!;
 
@@ -79,6 +107,12 @@ public partial class Player : CharacterBody3D, IDamageable
     private double _coyote;
     private double _jumpBuffer;
     private MeshInstance3D _outline = null!;
+    private Mesh _cubeOutlineMesh = null!;
+    private Vector3I _outlinedBlock = new(int.MinValue, 0, 0);
+    private BlockId _outlinedId = BlockId.Air;
+    private byte _outlinedState = byte.MaxValue;
+    private static readonly System.Collections.Generic.Dictionary<(BlockId Id, byte State), Mesh>
+            ShapeOutlineCache = [];
     private Node3D _arm = null!;
     private Sprite3D _heldItemSprite = null!;
     private int _heldItemId = -1;
@@ -136,6 +170,7 @@ public partial class Player : CharacterBody3D, IDamageable
     {
         Camera = GetNode<Camera3D>("Camera3D");
         Ray = GetNode<RayCast3D>("Camera3D/RayCast3D");
+        _bodyCollider = GetNode<CollisionShape3D>("Collision");
         Ray.TargetPosition = new Vector3(0, 0, -Reach);
         Ray.CollisionMask = (uint)(PhysicsLayer.Terrain | PhysicsLayer.Mobs);
         Ray.AddException(this);
@@ -160,10 +195,13 @@ public partial class Player : CharacterBody3D, IDamageable
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (InputLocked || Stats.Dead)
+        if (InputLocked) return;
+        if (CurrentBoat != null)
         {
+            if (@event.IsActionPressed("jump")) CurrentBoat.Dismount();
             return;
         }
+        if (Stats.Dead) return;
 
         if (@event is InputEventMouseMotion motion)
         {
@@ -289,6 +327,11 @@ public partial class Player : CharacterBody3D, IDamageable
 
     public override void _PhysicsProcess(double delta)
     {
+        if (CurrentBoat is { } mounted)
+        {
+            Stats.Update(delta, false, mounted.Velocity.LengthSquared() > 0.1f, Mode);
+            return;
+        }
         if (World == null)
         {
             return;
@@ -620,29 +663,40 @@ public partial class Player : CharacterBody3D, IDamageable
     /// <summary>All incoming hurt routes here; creative and invulnerability refuse it.</summary>
     public bool ApplyDamage(in DamageInfo info)
     {
+        // Refuse invalid/deferred hits before shield durability or feedback can be consumed.
+        if (!EquipmentProgression.ShouldProcessIncomingDamage(info.Amount, Mode, Stats.Invulnerable))
+        {
+            return false;
+        }
+
         float amount = info.Amount;
         ItemStack held = Inventory.Hotbar[Selected];
-        if (Mode == GameMode.Survival && EquipmentProgression.BlocksWithShield(held, -GlobalTransform.Basis.Z, GlobalPosition, info))
+        // Damage can arrive while a player node is being constructed or tested
+        // outside the scene tree; engine transforms are invalid there.
+        bool inTree = IsInsideTree();
+        Vector3 forward = inTree ? -GlobalTransform.Basis.Z : Vector3.Forward;
+        Vector3 position = inTree ? GlobalPosition : Vector3.Zero;
+        if (Mode == GameMode.Survival && EquipmentProgression.BlocksWithShield(held, forward, position, info))
         {
             Inventory.DamageEquipment(Selected);
             EmitSignal(SignalName.Notice, "Blocked");
             return false;
         }
         // Armor protects against physical/environmental hits, not hunger or drowning.
-        if (info.Kind is not (DamageKind.Drown or DamageKind.Starve))
+        if (EquipmentProgression.ShouldDamageArmor(info.Kind))
         {
             amount *= 1.0f - ArmorReduction;
         }
 
         bool applied = Stats.ApplyDamage(amount, Mode);
-        if (applied)
+        if (applied && EquipmentProgression.ShouldDamageArmor(info.Kind))
         {
             DamageArmor();
         }
 
         if (applied && info.Knockback > 0.0f)
         {
-            Vector3 away = GlobalPosition - info.Source;
+            Vector3 away = position - info.Source;
             away.Y = 0.0f;
             if (away.LengthSquared() > 0.001f)
             {
@@ -673,15 +727,7 @@ public partial class Player : CharacterBody3D, IDamageable
         }
     }
 
-    private float ArmorReduction
-    {
-        get
-        {
-            float remaining = 1.0f - Mathf.Clamp(ArmorPoints * 0.04f, 0.0f, 0.80f);
-            foreach (ItemStack piece in Inventory.Armor) remaining *= EquipmentProgression.ProtectionMultiplier(piece);
-            return 1.0f - remaining;
-        }
-    }
+    private float ArmorReduction => 1.0f - EquipmentProgression.ArmorDamageMultiplier(Inventory);
 
     /// <summary>Every landed hit wears each equipped piece by one point.</summary>
     private void DamageArmor()
@@ -721,6 +767,24 @@ public partial class Player : CharacterBody3D, IDamageable
         if (!Stats.Dead)
         {
             return;
+        }
+
+        // Death can happen while seated. The player is reparented under the boat
+        // and its body collider is disabled, so respawning without leaving the
+        // boat would strand the player as a dead-passenger with no movement.
+        if (CurrentBoat is { } mounted)
+        {
+            if (GodotObject.IsInstanceValid(mounted))
+            {
+                if (mounted.Rider == this) mounted.SetRider(null);
+                ExitBoat(mounted, mounted.GlobalPosition + Vector3.Up * 1.1f);
+            }
+            else
+            {
+                CurrentBoat = null;
+                _preBoatParent = null;
+                _bodyCollider.SetDeferred(CollisionShape3D.PropertyName.Disabled, false);
+            }
         }
 
         Stats.ResetForRespawn();
@@ -837,6 +901,13 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
+        if (Ray.IsColliding() && Ray.GetCollider() is Boat boat)
+        {
+            boat.Break(this);
+            ResetMining();
+            return;
+        }
+
         if (!TryGetTargetBlock(out Vector3I bp, out BlockId id))
         {
             ResetMining();
@@ -866,12 +937,38 @@ public partial class Player : CharacterBody3D, IDamageable
     /// <summary>One melee swing: tool tier picks the damage, swing cadence is capped.</summary>
     private void Swing(IDamageable target)
     {
-        double now=Time.GetTicksMsec()/1000.0; ItemStack held=Inventory.Hotbar[Selected]; WeaponInfo? weapon=ItemDb.WeaponOf(held.Id);
-        double cooldown=weapon is { AttackSpeed: > 0 } w?w.AttackSpeed:SwingCooldown; if(now-_lastSwing<cooldown)return;
-        _lastSwing=now;StartPunch();float damage=(weapon?.Damage??(1+(ItemDb.ToolOf(held.Id)?.Tier??0)))+EquipmentProgression.SharpnessBonus(held);
-        bool critical=!IsOnFloor()&&Velocity.Y< -0.1f;if(critical)damage*=1.5f;float knockback=weapon?.Knockback??3;
-        bool landed=target.ApplyDamage(new DamageInfo(damage,DamageKind.Melee,GlobalPosition,knockback,1.5f));
-        if(landed&&weapon is not null)Inventory.DamageEquipment(Selected);if(landed&&critical)EmitSignal(SignalName.Notice,"Critical hit!");
+        double now = Time.GetTicksMsec() / 1000.0;
+        ItemStack held = Inventory.Hotbar[Selected];
+        WeaponInfo? weapon = ItemDb.WeaponOf(held.Id);
+        ToolInfo? tool = ItemDb.ToolOf(held.Id);
+        double cooldown = weapon is { AttackSpeed: > 0 } w ? w.AttackSpeed : SwingCooldown;
+        if (now - _lastSwing < cooldown)
+        {
+            return;
+        }
+
+        _lastSwing = now;
+        StartPunch();
+        float damage = (weapon?.Damage ?? (1.0f + (tool?.Tier ?? 0)))
+                + EquipmentProgression.SharpnessBonus(held);
+        bool critical = !IsOnFloor() && Velocity.Y < -0.1f;
+        if (critical)
+        {
+            damage *= 1.5f;
+        }
+
+        float knockback = weapon?.Knockback ?? 3.0f;
+        bool landed = target.ApplyDamage(new DamageInfo(
+                damage, DamageKind.Melee, GlobalPosition, knockback, 1.5f));
+        if (landed && EquipmentProgression.ShouldConsumeMeleeDurability(held.Id))
+        {
+            Inventory.DamageEquipment(Selected);
+        }
+
+        if (landed && critical)
+        {
+            EmitSignal(SignalName.Notice, "Critical hit!");
+        }
     }
 
     public Vector3I TargetBlock()
@@ -880,10 +977,16 @@ public partial class Player : CharacterBody3D, IDamageable
         return new Vector3I(Mathf.FloorToInt(p.X), Mathf.FloorToInt(p.Y), Mathf.FloorToInt(p.Z));
     }
 
-    private bool TryGetTargetBlock(out Vector3I blockPosition, out BlockId blockId)
+    private bool TryGetTargetBlock(out Vector3I blockPosition, out BlockId blockId) =>
+        TryGetTargetBlock(out blockPosition, out blockId, out _, out _);
+
+    private bool TryGetTargetBlock(out Vector3I blockPosition, out BlockId blockId,
+            out Vector3 hitPoint, out Vector3 hitNormal)
     {
         blockPosition = new Vector3I(int.MinValue, 0, 0);
         blockId = BlockId.Air;
+        hitPoint = Vector3.Zero;
+        hitNormal = Vector3.Zero;
         if (World == null)
         {
             return false;
@@ -909,20 +1012,22 @@ public partial class Player : CharacterBody3D, IDamageable
         }
 
         return TryRaycastVoxels(origin + direction * 0.0001f, direction,
-                maxDistance, out blockPosition, out blockId);
+                maxDistance, out blockPosition, out blockId, out hitPoint, out hitNormal);
     }
 
     /// <summary>
-    /// Amanatides-Woo voxel traversal. Solid cubes are selected by cell entry;
-    /// cross plants are selected only when the ray intersects their visible
-    /// diagonal quads, leaving them non-colliding for player movement.
+    /// Amanatides-Woo traversal. Cubes use cell entry, partial shapes use
+    /// exact sub-voxel AABB intersections, and cross plants use their planes.
     /// </summary>
     private bool TryRaycastVoxels(
             Vector3 origin, Vector3 direction, float maxDistance,
-            out Vector3I blockPosition, out BlockId blockId)
+            out Vector3I blockPosition, out BlockId blockId,
+            out Vector3 hitPoint, out Vector3 hitNormal)
     {
         blockPosition = new Vector3I(int.MinValue, 0, 0);
         blockId = BlockId.Air;
+        hitPoint = Vector3.Zero;
+        hitNormal = Vector3.Zero;
         if (maxDistance < 0.0f)
         {
             return false;
@@ -946,19 +1051,37 @@ public partial class Player : CharacterBody3D, IDamageable
                 : stepZ < 0 ? (origin.Z - z) / -direction.Z : float.PositiveInfinity;
 
         float entryDistance = 0.0f;
+        Vector3 entryNormal = -direction;
         while (entryDistance <= maxDistance)
         {
             float exitDistance = Mathf.Min(nextX, Mathf.Min(nextY, nextZ));
             BlockId current = World!.GetBlock(x, y, z);
             if (current != BlockId.Air && !BlockDb.IsWater(current) && current != BlockId.Lava)
             {
-                if (!BlockDb.IsCross(current)
-                        || BlockDb.RayIntersectsCross(
-                                origin, direction, new Vector3I(x, y, z),
-                                entryDistance, Mathf.Min(exitDistance, maxDistance), out _))
+                Vector3I cell = new(x, y, z);
+                float hitDistance = entryDistance;
+                Vector3 normal = entryNormal;
+                bool hit = true;
+                if (BlockShapes.IsShape(current)
+                        && !BlockShapes.IsFullCube(current, World.GetBlockState(x, y, z)))
                 {
-                    blockPosition = new Vector3I(x, y, z);
+                    hit = BlockShapes.Raycast(origin, direction, cell, current,
+                            World.GetBlockState(x, y, z), entryDistance,
+                            Mathf.Min(exitDistance, maxDistance), out hitDistance, out normal);
+                }
+                else if (BlockDb.IsCross(current))
+                {
+                    hit = BlockDb.RayIntersectsCross(origin, direction, cell,
+                            entryDistance, Mathf.Min(exitDistance, maxDistance), out hitDistance);
+                    normal = -direction;
+                }
+
+                if (hit)
+                {
+                    blockPosition = cell;
                     blockId = current;
+                    hitPoint = origin + direction * hitDistance;
+                    hitNormal = normal;
                     return true;
                 }
             }
@@ -976,16 +1099,19 @@ public partial class Player : CharacterBody3D, IDamageable
             {
                 x += stepX;
                 nextX += deltaX;
+                entryNormal = new Vector3(-stepX, 0.0f, 0.0f);
             }
             if (advanceY)
             {
                 y += stepY;
                 nextY += deltaY;
+                if (!advanceX) entryNormal = new Vector3(0.0f, -stepY, 0.0f);
             }
             if (advanceZ)
             {
                 z += stepZ;
                 nextZ += deltaZ;
+                if (!advanceX && !advanceY) entryNormal = new Vector3(0.0f, 0.0f, -stepZ);
             }
 
             entryDistance = exitDistance;
@@ -1233,6 +1359,28 @@ public partial class Player : CharacterBody3D, IDamageable
         return World.IsCampfireLog(bp.X, bp.Y, bp.Z);
     }
 
+    /// <summary>
+    /// Consume one raw food item and add its cooked result atomically. A full
+    /// inventory must not eat the raw item and silently discard the cooked one.
+    /// </summary>
+    internal static bool TryCook(Inventory inventory, ItemId raw)
+    {
+        if (ItemDb.CooksTo(raw) is not { } cooked || !inventory.Consume(raw, 1))
+        {
+            return false;
+        }
+
+        if (inventory.Add(cooked, 1) == 0)
+        {
+            return true;
+        }
+
+        // The result could not fit; restore the consumed raw item so the failed
+        // action has no net cost.
+        inventory.Add(raw, 1);
+        return false;
+    }
+
     /// <summary>Campfire use: cook the held raw food and/or rest (respawn + heal).</summary>
     private void UseCampfire(ItemStack stack)
     {
@@ -1241,11 +1389,11 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        bool cooked = false;
-        if (ItemDb.CooksTo(stack.Id) is { } cookedId && Inventory.Consume(stack.Id, 1))
+        bool cookable = ItemDb.CooksTo(stack.Id) != null;
+        bool cooked = TryCook(Inventory, stack.Id);
+        if (cookable && !cooked)
         {
-            Inventory.Add(cookedId, 1);
-            cooked = true;
+            EmitSignal(SignalName.Notice, "Make room for the cooked food");
         }
 
         bool rested = false;
@@ -1332,10 +1480,9 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
+        byte brokenState = World.GetBlockState(bp.X, bp.Y, bp.Z);
         if (!World.SetBlock(bp.X, bp.Y, bp.Z, BlockId.Air))
-        {
             return;
-        }
 
         if (id == BlockId.Chest)
         {
@@ -1372,7 +1519,8 @@ public partial class Player : CharacterBody3D, IDamageable
                 ItemId drop = def.Drop != ItemId.None ? def.Drop : ItemDb.BlockItem(id);
                 if (drop != ItemId.None && def.DropCount > 0)
                 {
-                    int leftover = Inventory.Add(drop, def.DropCount);
+                    int dropCount = BlockShapes.DropCount(id, brokenState, def.DropCount);
+                    int leftover = Inventory.Add(drop, dropCount);
                     if (leftover > 0)
                     {
                         EmitSignal(SignalName.InventoryFull);
@@ -1400,10 +1548,10 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        if (Inventory.Add(id, count) > 0)
-        {
-            EmitSignal(SignalName.InventoryFull);
-        }
+        int leftover = Inventory.Add(id, count);
+        int gained = count - leftover;
+        if (gained > 0) RecordGathered(id, gained);
+        if (leftover > 0) EmitSignal(SignalName.InventoryFull);
     }
 
     private void DamageTool()
@@ -1433,6 +1581,34 @@ public partial class Player : CharacterBody3D, IDamageable
         Vector3 direction = -Camera.GlobalTransform.Basis.Z;
         arrow.Launch(this, Camera.GlobalPosition + direction * 0.65f, direction);
     }
+    public void EnterBoat(Boat boat)
+    {
+        if (CurrentBoat != null) return;
+        CurrentBoat = boat;
+        _preBoatParent = GetParent();
+        _bodyCollider.SetDeferred(CollisionShape3D.PropertyName.Disabled, true);
+        Reparent(boat, false);
+        Position = new Vector3(0.0f, 0.48f, 0.0f);
+        Rotation = Vector3.Zero;
+        Velocity = Vector3.Zero;
+        _coyote = 0.0;
+        _jumpBuffer = 0.0;
+    }
+
+    public void ExitBoat(Boat boat, Vector3 position)
+    {
+        if (CurrentBoat != boat) return;
+        Node? destination = _preBoatParent is { } parent && GodotObject.IsInstanceValid(parent)
+                ? parent : boat.GetParent();
+        CurrentBoat = null;
+        _preBoatParent = null;
+        if (destination != null) Reparent(destination, true);
+        GlobalPosition = position;
+        _bodyCollider.SetDeferred(CollisionShape3D.PropertyName.Disabled, false);
+        Velocity = Vector3.Zero;
+        _wasSwimming = false;
+    }
+
     public void PlaceBlock()
     {
         if (World == null)
@@ -1458,6 +1634,25 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
+        if (Ray.IsColliding() && Ray.GetCollider() is Boat boat)
+        {
+            if (!boat.TryBoard(this))
+                EmitSignal(SignalName.Notice, "That boat is occupied or out of reach");
+            return;
+        }
+
+        ItemStack stack = Inventory.Hotbar[Selected];
+        if (BucketMechanics.IsBucket(stack.Id))
+        {
+            UseBucket(stack);
+            return;
+        }
+        if (stack.Id == ItemId.WoodenBoat)
+        {
+            PlaceBoat();
+            return;
+        }
+
         if (!Ray.IsColliding())
         {
             // Aiming at nothing: food still works (eat on the go).
@@ -1469,8 +1664,6 @@ public partial class Player : CharacterBody3D, IDamageable
 
             return;
         }
-
-        ItemStack stack = Inventory.Hotbar[Selected];
 
         // Campfires cook what you hold raw and offer a rest (respawn + heal).
         if (CampfireInReach())
@@ -1538,37 +1731,199 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        Vector3 p = Ray.GetCollisionPoint() + Ray.GetCollisionNormal() * 0.5f;
-        int bx = Mathf.FloorToInt(p.X);
-        int by = Mathf.FloorToInt(p.Y);
-        int bz = Mathf.FloorToInt(p.Z);
+        if (!TryGetTargetBlock(out Vector3I target, out BlockId targetId,
+                    out Vector3 hitPoint, out Vector3 hitNormal))
+            return;
+
+        byte state = 0;
+        Vector3 localHit = hitPoint - new Vector3(target.X, target.Y, target.Z);
+        byte targetState = World.GetBlockState(target.X, target.Y, target.Z);
+        bool combineSlab = BlockShapes.CanCombineSlab(place, targetId, targetState,
+                hitNormal, localHit);
+        Vector3I destination = combineSlab ? target : target + BlockShapes.CellStepFromNormal(hitNormal);
+        if (combineSlab)
+        {
+            state = BlockShapes.SlabDouble;
+        }
+        else if (BlockShapes.Kind(place) == BlockShapeKind.Slab)
+        {
+            state = BlockShapes.SelectSlabState(hitNormal, localHit);
+        }
+        else if (BlockShapes.Kind(place) == BlockShapeKind.Stairs)
+        {
+            state = BlockShapes.StairStateFromPlacement(hitNormal, localHit, GlobalRotation.Y);
+        }
+
+        int bx = destination.X;
+        int by = destination.Y;
+        int bz = destination.Z;
         BlockId existing = World.GetBlock(bx, by, bz);
-        if (existing != BlockId.Air && !BlockDb.IsWater(existing))
-        {
+        if (!combineSlab && existing != BlockId.Air && !BlockDb.IsWater(existing))
             return;
-        }
 
-        if (BlockHitsPlayer(bx, by, bz))
-        {
+        if (BlockHitsPlayer(bx, by, bz, place, state))
             return;
-        }
 
-        if (World.SetBlock(bx, by, bz, place))
+        if (World.SetBlock(bx, by, bz, place, state))
         {
             if (place == BlockId.Chest)
-            {
                 World.GetContainer(new Vector3I(bx, by, bz));
-            }
             else if (place == BlockId.Furnace)
-            {
                 World.GetFurnace(new Vector3I(bx, by, bz));
-            }
 
             StartPunch();
-            EmitSignal(SignalName.BlockPlaced, new Vector3(bx + 0.5f, by + 0.5f, bz + 0.5f), (int)place);
-            Inventory.Hotbar[Selected] = stack.Count <= 1 ? ItemStack.Empty : stack with { Count = stack.Count - 1 };
+            EmitSignal(SignalName.BlockPlaced,
+                    new Vector3(bx + 0.5f, by + 0.5f, bz + 0.5f), (int)place);
+            Inventory.Hotbar[Selected] = stack.Count <= 1
+                    ? ItemStack.Empty : stack with { Count = stack.Count - 1 };
             Inventory.RaiseChanged();
         }
+    }
+
+    private void UseBucket(ItemStack stack)
+    {
+        if (World == null || !TryGetBucketRayHit(
+                    out Vector3I hit, out BlockId hitId, out Vector3I faceNormal))
+        {
+            EmitSignal(SignalName.Notice, "Aim at a source fluid or a block face");
+            return;
+        }
+
+        bool collected;
+        bool lava;
+        Vector3 actionPosition = new(hit.X + 0.5f, hit.Y + 0.5f, hit.Z + 0.5f);
+        if (stack.Id == ItemId.EmptyBucket)
+        {
+            if (!BucketMechanics.TryCollect(World, hit, Inventory, Selected,
+                        out BlockId collectedFluid))
+            {
+                EmitSignal(SignalName.Notice, BlockDb.IsWater(hitId)
+                        ? "Only source water can be collected"
+                        : "Aim at source water or lava");
+                return;
+            }
+
+            collected = true;
+            lava = collectedFluid == BlockId.Lava;
+        }
+        else
+        {
+            if (BlockDb.IsWater(hitId) || hitId == BlockId.Lava || faceNormal == Vector3I.Zero)
+            {
+                EmitSignal(SignalName.Notice, "Aim at an open block face to place fluid");
+                return;
+            }
+
+            Vector3I destination = hit + faceNormal;
+            if (!BucketMechanics.TryPlace(World, destination, Inventory, Selected,
+                        out BlockId placed))
+            {
+                EmitSignal(SignalName.Notice, "There is no open space for that fluid");
+                return;
+            }
+
+            actionPosition = new(destination.X + 0.5f, destination.Y + 0.5f, destination.Z + 0.5f);
+            collected = false;
+            lava = placed == BlockId.Lava;
+        }
+
+        StartPunch();
+        EmitSignal(SignalName.BucketUsed, actionPosition, lava, collected);
+    }
+
+    private void PlaceBoat()
+    {
+        if (Boats == null || World == null
+                || !TryGetBucketRayHit(out Vector3I target, out BlockId id, out _)
+                || !BlockDb.IsWater(id))
+        {
+            EmitSignal(SignalName.Notice, "Aim at a water surface to place the boat");
+            return;
+        }
+
+        if (!Boats.TryPlaceBoat(target, id))
+        {
+            EmitSignal(SignalName.Notice, "The boat needs open, loaded water");
+            return;
+        }
+
+        Inventory.Hotbar[Selected] = ItemStack.Empty;
+        Inventory.RaiseChanged();
+        StartPunch();
+    }
+
+    /// <summary>
+    /// Loaded-only voxel ray for fluids and boat placement. Unlike the normal
+    /// block ray it deliberately stops at water/lava instead of skipping them.
+    /// Unloaded cells are never generated or interpreted as air.
+    /// </summary>
+    private bool TryGetBucketRayHit(out Vector3I position, out BlockId block,
+            out Vector3I faceNormal)
+    {
+        position = new Vector3I(int.MinValue, 0, 0);
+        block = BlockId.Air;
+        faceNormal = Vector3I.Zero;
+        if (World == null) return false;
+
+        Vector3 origin = Camera.GlobalPosition;
+        Vector3 direction = -Camera.GlobalTransform.Basis.Z;
+        if (direction.LengthSquared() < 0.0001f) return false;
+        direction = direction.Normalized();
+        float maxDistance = Reach + 0.02f;
+        if (Ray.IsColliding())
+            maxDistance = Mathf.Min(maxDistance, origin.DistanceTo(Ray.GetCollisionPoint()) + 0.02f);
+
+        int x = Mathf.FloorToInt(origin.X);
+        int y = Mathf.FloorToInt(origin.Y);
+        int z = Mathf.FloorToInt(origin.Z);
+        int sx = direction.X > 0.0f ? 1 : direction.X < 0.0f ? -1 : 0;
+        int sy = direction.Y > 0.0f ? 1 : direction.Y < 0.0f ? -1 : 0;
+        int sz = direction.Z > 0.0f ? 1 : direction.Z < 0.0f ? -1 : 0;
+        float dx = sx == 0 ? float.PositiveInfinity : Mathf.Abs(1.0f / direction.X);
+        float dy = sy == 0 ? float.PositiveInfinity : Mathf.Abs(1.0f / direction.Y);
+        float dz = sz == 0 ? float.PositiveInfinity : Mathf.Abs(1.0f / direction.Z);
+        float tx = sx > 0 ? (x + 1.0f - origin.X) / direction.X
+                : sx < 0 ? (origin.X - x) / -direction.X : float.PositiveInfinity;
+        float ty = sy > 0 ? (y + 1.0f - origin.Y) / direction.Y
+                : sy < 0 ? (origin.Y - y) / -direction.Y : float.PositiveInfinity;
+        float tz = sz > 0 ? (z + 1.0f - origin.Z) / direction.Z
+                : sz < 0 ? (origin.Z - z) / -direction.Z : float.PositiveInfinity;
+
+        float distance = 0.0f;
+        while (distance <= maxDistance)
+        {
+            if (!World.TryGetLoadedBlock(x, y, z, out BlockId current)) return false;
+            if (BlockDb.IsWater(current) || current == BlockId.Lava
+                    || BlockDb.IsSolid(current) && !BlockDb.IsCross(current))
+            {
+                position = new Vector3I(x, y, z);
+                block = current;
+                return true;
+            }
+
+            float next = Mathf.Min(tx, Mathf.Min(ty, tz));
+            if (!float.IsFinite(next) || next > maxDistance) break;
+            if (tx <= next + 0.00001f)
+            {
+                x += sx;
+                tx += dx;
+                faceNormal = new Vector3I(-sx, 0, 0);
+            }
+            else if (ty <= next + 0.00001f)
+            {
+                y += sy;
+                ty += dy;
+                faceNormal = new Vector3I(0, -sy, 0);
+            }
+            else
+            {
+                z += sz;
+                tz += dz;
+                faceNormal = new Vector3I(0, 0, -sz);
+            }
+            distance = next;
+        }
+        return false;
     }
 
     public void PickBlock()
@@ -1612,13 +1967,11 @@ public partial class Player : CharacterBody3D, IDamageable
         }
     }
 
-    private bool BlockHitsPlayer(int bx, int by, int bz)
+    private bool BlockHitsPlayer(int bx, int by, int bz, BlockId id, byte state)
     {
         Vector3 lo = GlobalPosition + new Vector3(-0.32f, 0.0f, -0.32f);
         Vector3 hi = GlobalPosition + new Vector3(0.32f, 1.8f, 0.32f);
-        return bx + 1 > lo.X && bx < hi.X
-                && by + 1 > lo.Y && by < hi.Y
-                && bz + 1 > lo.Z && bz < hi.Z;
+        return BlockShapes.IntersectsAabb(id, state, new Vector3(bx, by, bz), lo, hi);
     }
 
     public void Select(int i)
@@ -1729,7 +2082,18 @@ public partial class Player : CharacterBody3D, IDamageable
         }
 
         _crack.Visible = true;
-        _crack.GlobalPosition = new Vector3(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
+        byte mineState = World.GetBlockState(bp.X, bp.Y, bp.Z);
+        if (BlockShapes.Kind(id) == BlockShapeKind.Slab && mineState != BlockShapes.SlabDouble)
+        {
+            _crack.Scale = new Vector3(1.0f, 0.5f, 1.0f);
+            float centerY = mineState == BlockShapes.SlabTop ? 0.75f : 0.25f;
+            _crack.GlobalPosition = new Vector3(bp.X + 0.5f, bp.Y + centerY, bp.Z + 0.5f);
+        }
+        else
+        {
+            _crack.Scale = Vector3.One;
+            _crack.GlobalPosition = new Vector3(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
+        }
         _crackMat.AlbedoColor = new Color(1, 1, 1, 0.9f);
 
         if (_mineProgress >= 1.0f)
@@ -1811,7 +2175,68 @@ public partial class Player : CharacterBody3D, IDamageable
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
             Visible = false,
         };
+        _cubeOutlineMesh = _outline.Mesh;
         AddChild(_outline);
+    }
+
+    private readonly record struct ShapeOutlineEdge(int Face, Vector3I A, Vector3I B);
+    private static readonly int[] ShapeOutlineEdgeIndices = [0, 1, 1, 2, 2, 3, 3, 0];
+
+    private static Mesh BuildShapeOutline(BlockId id, byte state)
+    {
+        // Toggle matching co-planar micro-face edges so internal half-cell seams
+        // disappear while the outer silhouette and stair risers remain.
+        System.Collections.Generic.Dictionary<ShapeOutlineEdge, (Vector3 A, Vector3 B)> segments = [];
+        Span<Vector3I> gridPoints = stackalloc Vector3I[4];
+        Span<Vector3> localPoints = stackalloc Vector3[4];
+
+        for (int y = 0; y < 2; y++)
+        for (int z = 0; z < 2; z++)
+        for (int x = 0; x < 2; x++)
+        {
+            if (!BlockShapes.Occupied(id, state, x, y, z)) continue;
+            for (int face = 0; face < 6; face++)
+            {
+                if (!BlockShapes.FaceExposed(id, state, x, y, z, face, BlockId.Air, 0))
+                    continue;
+
+                for (int vertex = 0; vertex < 4; vertex++)
+                {
+                    Vector3 unit = BlockDb.FaceVerts[face * 4 + vertex];
+                    Vector3I point = new(x + Mathf.RoundToInt(unit.X),
+                            y + Mathf.RoundToInt(unit.Y), z + Mathf.RoundToInt(unit.Z));
+                    gridPoints[vertex] = point;
+                    localPoints[vertex] = new Vector3(point.X * 0.5f - 0.5f,
+                            point.Y * 0.5f - 0.5f, point.Z * 0.5f - 0.5f);
+                }
+
+                for (int edge = 0; edge < 4; edge++)
+                {
+                    Vector3I a = gridPoints[ShapeOutlineEdgeIndices[edge * 2]];
+                    Vector3I b = gridPoints[ShapeOutlineEdgeIndices[edge * 2 + 1]];
+                    bool ordered = a.X < b.X || (a.X == b.X && (a.Y < b.Y
+                            || (a.Y == b.Y && a.Z <= b.Z)));
+                    ShapeOutlineEdge key = ordered ? new ShapeOutlineEdge(face, a, b)
+                            : new ShapeOutlineEdge(face, b, a);
+                    if (!segments.Remove(key))
+                    {
+                        Vector3 va = localPoints[ShapeOutlineEdgeIndices[edge * 2]];
+                        Vector3 vb = localPoints[ShapeOutlineEdgeIndices[edge * 2 + 1]];
+                        segments[key] = (va, vb);
+                    }
+                }
+            }
+        }
+
+        SurfaceTool st = new();
+        st.Begin(Mesh.PrimitiveType.Lines);
+        foreach ((Vector3 a, Vector3 b) in segments.Values)
+        {
+            st.SetColor(Colors.White);
+            st.AddVertex(a);
+            st.AddVertex(b);
+        }
+        return st.Commit();
     }
 
     private void BuildCrack()
@@ -1901,14 +2326,38 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        if (TryGetTargetBlock(out Vector3I bp, out _))
+        if (TryGetTargetBlock(out Vector3I bp, out BlockId id))
         {
+            byte state = World.GetBlockState(bp.X, bp.Y, bp.Z);
+            if (bp != _outlinedBlock || id != _outlinedId || state != _outlinedState)
+            {
+                _outlinedBlock = bp;
+                _outlinedId = id;
+                _outlinedState = state;
+                if (BlockShapes.IsShape(id) && !BlockShapes.IsFullCube(id, state))
+                {
+                    if (!ShapeOutlineCache.TryGetValue((id, state), out Mesh? shapeOutline))
+                    {
+                        shapeOutline = BuildShapeOutline(id, state);
+                        ShapeOutlineCache[(id, state)] = shapeOutline;
+                    }
+                    _outline.Mesh = shapeOutline;
+                }
+                else
+                {
+                    _outline.Mesh = _cubeOutlineMesh;
+                }
+            }
+
             _outline.GlobalPosition = new Vector3(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
             _outline.Visible = true;
         }
         else
         {
             _outline.Visible = false;
+            _outlinedBlock = new Vector3I(int.MinValue, 0, 0);
+            _outlinedId = BlockId.Air;
+            _outlinedState = byte.MaxValue;
         }
     }
 

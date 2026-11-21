@@ -125,8 +125,21 @@ public partial class Shade : Mob
             toPlayer.Y = 0.0f;
             float d = toPlayer.Length();
             bool visible = HasLineOfSight(player);
+            if (visible) RememberTarget(player.GlobalPosition);
             if (d < ChaseRadius && (IsAlerted || visible))
             {
+                if (!visible)
+                {
+                    if (TryGetRememberedTarget(out Vector3 lastSeen))
+                    {
+                        Vector3 remembered = lastSeen - GlobalPosition;
+                        remembered.Y = 0.0f;
+                        if (remembered.LengthSquared() > 1.0f) return remembered;
+                    }
+
+                    return TryInvestigateSound(out Vector3 soundDirection)
+                            ? soundDirection : Vector3.Zero;
+                }
                 Manager?.AlertHostiles(GlobalPosition, 10.0f, 6.0f);
                 _attackCd -= delta;
                 if (d < AttackRange)
@@ -134,7 +147,7 @@ public partial class Shade : Mob
                     if (MobCombatRules.CanAttack((float)_attackCd, visible))
                     {
                         _attackCd = AttackCooldown;
-                        float damage = Settings.Difficulty == Settings.DifficultyHard ? 3.0f : 2.0f;
+                        float damage = MobCombatRules.DamageForDifficulty(2.0f, 3.0f);
                         bool hit = player.ApplyDamage(new DamageInfo(
                                 damage, DamageKind.Melee, GlobalPosition, 4.0f, 2.5f));
                         if (hit)
@@ -143,7 +156,7 @@ public partial class Shade : Mob
                         }
                     }
 
-                    return visible ? toPlayer.Normalized() * 0.2f : toPlayer;   // no hits through walls
+                    return toPlayer.Normalized() * 0.2f;
                 }
 
                 return toPlayer;
@@ -151,6 +164,11 @@ public partial class Shade : Mob
         }
 
         // No prey: wander around the spawn point like everything else.
+        if (TryInvestigateSound(out Vector3 noiseDirection))
+        {
+            return noiseDirection;
+        }
+
         Timer -= delta;
         if (Timer <= 0.0)
         {

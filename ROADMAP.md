@@ -11,6 +11,89 @@ harness.
 
 ---
 
+## Integrated 1.0 snapshot — 2026-11-21
+
+Six open feature branches were merged into `integration/v1.0-full` from
+`main` at `ce20c91`, in dependency order:
+
+| Stage | Feature | Merge commit |
+|---|---|---|
+| A | Creature intelligence and cave stealth (PR #30) | `be9d640` |
+| B | Survival progression and combat balance (PR #35) | `055e00b` |
+| C | Advanced voxel slabs and stairs (PR #31) | `298b7e6` |
+| D | World generation V8 (PR #34), then villages/quests (PR #32) | `9208b9a`, `152df8d` |
+| E | Water buckets and boats (PR #33) | `e763840` |
+
+**Generator decision.** V8 had never shipped or created persisted worlds
+outside these branches, so the combined V8 terrain and village implementation
+remains generator version **8**. No V9 was introduced. V1–V7 generation code is
+untouched, and golden hashes now pin V1, V3, V5, V6, V7 and V8 chunks. World
+format remains **v4** with optional shape, villager, quest and boat fields.
+
+**Persisted IDs.** `BlockId` 0–45 and `ItemId` 0–90 are unchanged. Building
+shapes occupy `BlockId` 46–51 and `ItemId` 91–96. Transportation occupies
+`ItemId` 97–100 (`EmptyBucket`, `WaterBucket`, `LavaBucket`, `WoodenBoat`).
+`ContentTests` pins every numeric value and checks both ranges stay disjoint.
+
+**Integration fixes.**
+
+- Rebuilt the combined village/V8 generator as one compilation unit; village
+  sites sample the V8 surface, and farm source water sits at farmland height
+  inside a dirt rim.
+- Added a deterministic V8 village test covering site theme/height, structure
+  separation, generated furniture, farm/well water, negative coordinates and
+  reversed chunk-order seams.
+- Added combined save round-trip coverage for shapes, villagers, quests and
+  boats, plus quest reward wiring and a fluid/partial-block boundary test.
+- Kept live `BoatSystem` state authoritative over a stale `SavedBoats` snapshot;
+  boats prune freed nodes and stop at unloaded chunk footprints.
+- Fixed off-tree `Transform3D` errors in `Player.ApplyDamage` by guarding tree
+  membership.
+- Fixed two real shutdown leaks: nine craft-slot panels were created but never
+  parented/reused, and audio playbacks/stream cache survived scene teardown.
+  The headless suite and a verbose real-scene soak now exit with no leaked
+  objects or RIDs.
+- Reliability audit fixes: respawning after dying in a boat now detaches and
+  restores the player; mob death is idempotent across burn/dawn/direct paths;
+  non-stackable inventory overflow returns its true leftover; campfire cooking
+  rolls raw food back when the result cannot fit; world deletion rejects empty,
+  `.` and `..` path segments; quit-time saves flush live villager state before
+  serialization; and console/inventory/pause panels no longer stack. See
+  [`docs/RELIABILITY_AUDIT_2026-11-21.md`](docs/RELIABILITY_AUDIT_2026-11-21.md).
+
+**Verification.** Godot 4.7.2 .NET Debug and ExportRelease builds complete with
+0 warnings and 0 errors. The headless suite reports **4,217 checks, 0
+failures**, including legacy save loading, all pinned IDs, V1–V8 golden chunks,
+block-shape persistence, deterministic village generation, live resident
+spawning/interaction and cross-system save/quest/fluid interaction. The
+warmed 8-chunk worldgen profile measured V7 at 6.46 ms/chunk and V8 at 6.52
+ms/chunk (**1.01×**, within run noise); village site lookup is cached per cell
+under a lock. Real-scene validation is recorded below. Visual verification
+remains limited to the existing V8 GPU capture set plus fresh integrated river
+and village captures; the integrated village, boat and shape presentation has
+not had a complete human visual playthrough.
+
+### Delivery validation
+
+- **Five-minute soak:** PASS at 300 s with 10 passive and 11 hostile creatures,
+  137 successful feeds, 8 cave encounters, 22,621 juvenile observations, 60
+  injected noise stimuli, 218 investigations, 0 invalid positions, successful
+  save/reload and temporary-world cleanup. No leaked objects or RIDs were
+  reported at shutdown.
+- **60-minute soak:** PASS at 3,600 s on the integration revision with 10
+  passive / 51 hostile creatures, 1,758 feeds, 48 cave encounters, 43,181
+  juvenile frame observations, 720 noise stimuli, 572 investigations, 0 invalid
+  positions, save/reload true and temporary-world cleanup true. No runtime
+  errors, warnings, leaked objects or leaked RIDs appeared; RSS peaked near
+  251 MB and returned to ~158 MB under GC.
+- **GPU capture:** seed 1337 V8 river at (512,-372) rendered 49 chunks at
+  1600×900; the deterministic seed 1337 village at (-684,1303) rendered its
+  houses, paths and farmland. The village capture initially reproduced the
+  off-tree transform error, which was fixed in `Villager.ToSave()` and covered
+  by a regression test; the recapture produced zero off-tree errors.
+
+---
+
 ## Implementation snapshot — 2026-11-20
 
 The historical baseline and milestone notes below are retained for context. The
@@ -40,12 +123,11 @@ current mob implementation has since advanced:
   added. Existing item IDs, world-generation versions, block mutation paths,
   greedy meshing and chunk streaming were not changed.
 
-**Verification status (updated 2026-11-21):** the integrated branch builds with
-0 warnings/0 errors and passes the headless suite with **1,182 checks, 0
-failures**, including mob content and ecology rules. A 300 s real-scene soak ran
-without script errors (22 passive mobs, 4 hostiles at night, 8 cave encounters).
-A full one-hour soak and an in-game high-population performance run remain
-outstanding.
+**Historical verification (2026-11-21, superseded by the integrated snapshot
+above):** that checkpoint built with 0 warnings/0 errors and passed **1,182
+checks, 0 failures**, including mob content and ecology rules. A 300 s
+real-scene soak ran without script errors. The final integrated test count,
+worldgen profile and soak results are in the snapshot and delivery log above.
 
 
 ### World portability increment — 2026-11-21
@@ -74,6 +156,82 @@ Godot/.NET build and headless execution have not yet been run for this
 increment; CI verification is required before treating the feature as fully
 validated.
 
+### Advanced voxel building increment — 2026-11-21
+
+- Added append-only block IDs 46–51 and item IDs for oak-planks, cobblestone
+  and brick slabs/stairs; existing persisted IDs are unchanged.
+- Added a reusable 2×2×2 block-shape definition for bottom/top/double slabs and
+  four stair facings with upside-down placement. The same occupancy model
+  drives ray intersections, player overlap checks and exposed-face meshing.
+- Added non-greedy partial-shape geometry and matching collision triangles.
+  Full cubes and double slabs retain greedy meshing; cube faces adjacent to a
+  partial shape are split only along the shared boundary. Shape faces use the
+  existing atlas UVs, face normals, AO and packed voxel lighting.
+- Placement uses the targeted face and hit position; stairs follow player
+  facing, slabs select their half, and a matching placed slab completes a
+  double slab. Double slabs drop two slab items when mined.
+- Added recipes, procedural original block textures, inventory mappings,
+  descriptions/tooltips, shape-aware selection outlines and slab mining cracks.
+- World-save format v4 stores non-default shape states in an optional sparse
+  extension. Old saves default missing states to zero; world-generation
+  versions and existing block/item IDs are not changed.
+- Added regression tests for shape occupancy, face culling, ray intersections,
+  player overlap, orientation, recipes, hardness metadata and save compatibility.
+
+**Verification (2026-11-21):** Godot 4.7.2 .NET Debug and Release builds
+succeed with 0 warnings and 0 errors. The headless suite passes **1,351 checks,
+0 failures**, including real chunk mesh creation, greedy/per-face surface-area
+parity, rendered/collision triangle coverage, non-default shape save/reload,
+and state-buffer release after the last stateful edit. A manual visual playtest
+remains recommended before merging.
+
+## Implementation snapshot — 2026-11-21 (World generation V8)
+
+- Added an isolated V8 terrain path for newly created worlds. V1–V7 generator
+  source and legacy chunk hashes remain frozen; world format and persisted block
+  and item IDs are unchanged.
+- Widened the river-bank blend while retaining the V7 deterministic river
+  fields and evaluating the surface in one pass. The fixed steep-bank sample at
+  seed 11235813 changed from a 38-block to an 18-block height step across 8 blocks.
+- Increased deterministic tree density in dense forest, jungle, taiga, swamp
+  and birch biomes; opened additional shallow cave mouths; reused the existing
+  V7 ore, aquifer, magma and underground-structure rules.
+- Reduced fog and height haze only in V8 world environments. Existing V1–V7
+  worlds retain their prior environment values.
+- Added V8 biome, river, cave, tree-density, generation-order and cross-chunk
+  regression coverage, plus a real-scene GPU capture harness.
+- Matched before/after Forward+ captures cover a steep river bank, river valley,
+  mountain, forest and cave across four fixed seeds. See
+  `docs/worldgen/V8_VISUAL_VALIDATION.md`.
+- Verification: Godot 4.7.2 .NET build succeeds with 0 warnings/0 errors;
+  the headless suite passes **1,213 checks, 0 failures**, including three pinned
+  V7 golden chunk hashes. Latest warmed 8-chunk profile measured V7 at
+  7.03 ms/chunk and V8 at 7.33 ms/chunk on the validation machine (about 4%
+  overhead). Further manual exploration across all biomes and presets remains
+  planned.
+
+### Village and quest progression — 2026-11-21
+
+- **Generator V8 villages:** deterministic Plains, Forest, Snow and Desert
+  settlement sites reuse the frozen V7 terrain/biome sampler. Placement rejects
+  shorelines, steep ground, cave openings, existing structures, campfire
+  clearings and intersecting underground chambers. Chunk-clipped architecture
+  adds houses, roads, a gathering square, light posts, storage, workstations and
+  irrigated farms.
+- **Residents:** five deterministic named villagers per settlement use the
+  existing Mob movement, gravity and collision controller. Profession-specific
+  schedules, dialogue and gold-based trade offers connect to the existing
+  trader UI. Villagers flee nearby hostile creatures and persist identity,
+  profession, position, health, home/work anchors and completed trades.
+- **Quest architecture:** reusable objective/stage definitions cover biome
+  discovery, gathering, crafting, trading, combat and dungeon clears.
+  Multi-stage progress and reward claims are optional V4 world-save fields;
+  older worlds remain readable.
+- **Verification:** automated coverage exercises deterministic village stamping
+  and chunk seams, biome eligibility, trades, schedules, quest progression and
+  save round-trips. GPU worldgen captures and the population soak were added
+  later; see the integrated snapshot and V8 visual-validation document.
+
 ## 1. Current state
 
 ### Survival equipment increment — 2026-11-20
@@ -100,9 +258,9 @@ validated.
 - Minimap, photo mode, procedural textures/audio, adaptive soundscape.
 - Linux and Windows export presets.
 
-### Verified gaps
+### Historical gap audit (pre-M5 baseline; superseded by the integrated snapshot)
 
-| Area | Current state |
+| Area | State at this checkpoint |
 |---|---|
 | Content capacity | 29 block IDs (`BlockId.cs`), `BlockDb.BlockCount = 32` → **3 free IDs**; 33 of 64 atlas tiles used |
 | Content | No torch/light, chest, furnace, farming, armor, ladder, bed, boats, buckets |
@@ -151,8 +309,9 @@ existing “door open” rules, but do not start them before 1.0.
    direct `World.Player` reads.
 4. **Every milestone gate:** 0-warning build, tests green, save round-trip,
    perf baseline, 30-minute soak.
-5. **Scope guard:** no multiplayer, dimensions, non-cube blocks, or mod API
-   before 1.0.
+5. **Scope guard:** no multiplayer, dimensions, or mod API before 1.0.
+   Partial-height building is limited to the implemented slabs and stairs;
+   walls, doors, fences and panes remain future work.
 
 ---
 
@@ -165,7 +324,7 @@ existing “door open” rules, but do not start them before 1.0.
 | **M7** | Living world & goals | 3–4 wk | M6 | Mob roster, dungeon/boss, trader, fishing, achievements |
 | **M8** | UX, platform & 1.0 | 2–3 wk | M5–M7 | Rebinding/gamepad, onboarding, world management, EN/AR, music, release |
 | **M9** | Scale & online | 4–8 wk | 1.0 | Mid-LOD/occlusion, height 256, dimensions, LAN co-op |
-| **M10** | Post-1.0 | ongoing | 1.0 | Data-driven content, villages/quests, non-cube blocks |
+| **M10** | Post-1.0 | ongoing | 1.0 | Data-driven content, deeper NPC economy, more non-cube families |
 
 Estimated 1.0: **9–12 weeks solo + AI**, faster at the pace this project has
 moved.
@@ -384,10 +543,12 @@ content is stable.
 
 - Data-driven content packs: JSON blocks/items/recipes/loot/worldgen
   parameters; texture packs; world templates.
-- Villages/NPC economy and quests (after the trader proves the pattern).
+- Deeper villages/NPC economy and quests (base villages and quests shipped
+  in the 2026-11-21 integration).
 - Non-cube blocks (slabs/stairs/doors) with a block-metadata layer +
   mesher/collision work.
-- Boats, buckets, seasons, redstone-like logic only if playtests ask for them.
+- Seasons and redstone-like logic only if playtests ask for them. Boats and
+  buckets shipped in the 2026-11-21 integration.
 
 ---
 
@@ -397,7 +558,7 @@ content is stable.
 |---|---|
 | **Must** | M5; M6a/b/c; M7 mobs + dungeon/boss + achievements; M8 rebinding/gamepad, onboarding, world management, EN/AR, accessibility, music, release |
 | **Should** | Trader, fishing, companion commands, photo mode v2, richer ambience |
-| **Not now** | Multiplayer, dimensions, villages, non-cube blocks, mod API, web export (verify Godot .NET web support before promising it) |
+| **Not now** | Multiplayer, dimensions, mod API, web export (verify Godot .NET web support before promising it); additional non-cube families such as doors, fences and panes |
 
 ---
 
@@ -470,7 +631,8 @@ content is stable.
 - [ ] Keep multiplayer deferred to post-1.0 (recommended) or make LAN co-op a
 	  1.0 goal?
 - [ ] Music: original/CC0 tracks (recommended) or extend the procedural synth?
-- [ ] Defer doors/stairs/slabs to post-1.0 (recommended)?
+- [x] Slabs and stairs shipped in the 2026-11-21 integration. Doors,
+      trapdoors, fences, gates, panes, plates, buttons and signs remain future work.
 
 When a decision is made, record it in the project’s decision log (`PLAN.md`
 §1 follows the existing `D#` format) so later work does not re-litigate it.
@@ -837,7 +999,7 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   complete.
 
 
-## 14. Fluid simulation follow-up — 2026-11-20
+## 14b. Fluid simulation follow-up — 2026-11-20
 
 - Replaced the recurring full-window flow pass with a deduplicated active-cell queue, bounded per-tick work, and periodic source pulses. Loaded fluid discovery runs when the player changes chunk or moves into a new vertical band.
 - Unloaded neighbours are treated as unknown; water cannot flow into them or recede merely because a chunk is not loaded. World-height limits remain known solid boundaries.
@@ -848,7 +1010,7 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 
 ---
 
-## 14. World generation V7 audit — 2026-11-20
+## 14c. World generation V7 audit — 2026-11-20
 
 - New worlds use the isolated V7 generator; generator versions 1–6 retain their
   existing code paths. Persisted block/item IDs and save schemas are unchanged.
@@ -865,10 +1027,10 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - Added terrain-profile checks for river channels/banks, biome transitions,
   mountain elevations/slopes and cave passages. Added informational CI timings
   for separate vs shared column sampling and full chunk generation.
-- **Visual inspection pending:** CI is headless and does not validate rendered
-  river-bank appearance, biome blending, mountain silhouettes, cave readability
-  or underground-room presentation in the running game. A graphical playtest
-  is still required before treating visual quality as signed off.
+- **Visual inspection:** CI is headless. Paired GPU captures were later added
+  for river banks, biome blending, mountains, forests and caves in
+  `docs/worldgen/V8_VISUAL_VALIDATION.md`; integrated village, boat and
+  building-shape presentation still needs a complete human visual review.
 - **Hardware profiling:** CI timings are correctness diagnostics, not a
   substitute for fixed-seed profiling. One MX230 integration measurement is
   recorded in `docs/PERF_BASELINE.md`; a fixed-seed harness and RTX-class
@@ -939,8 +1101,118 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   merged; see `docs/INTEGRATION_2026-11-21.md` for the full decision log.
 - **Remaining gaps:** no partial-height block shapes (slabs/stairs) exist in any
   branch; V7 terrain was not visually reviewed on a GPU; no RTX-class
-  measurement; the soak's juvenile-breeding observation was not hit in 300 s.
+  measurement; the default 3,600-second survival soak remains to be run. The
+  five-minute smoke soak and normal juvenile-breeding observation now pass.
 - Pull request cleanup (2026-11-21): PRs #29, #24 and #22 are marked merged by
   GitHub; #27, #26 and #19 were closed as superseded with the reasons recorded
   on each PR. All branches remain on the remote; nothing was deleted or
   force-pushed.
+
+## 18. Creature perception and cave stealth — 2026-11-21
+
+- Extended the existing packed voxel-light perception path with short-lived
+  per-creature cell caching. Cave Stalkers, Crystal Wisps and Hollows already
+  used light thresholds; Dreadwings now respect nearby voxel light as well.
+  Dark-adapted Cave Stalkers receive a small low-light pounce/damage bonus.
+- Added short-lived cached terrain visibility, invalidated when either actor
+  moves or the cache expires. Hostile pursuit now uses remembered positions and
+  sound investigation rather than steering directly through blocked terrain.
+- Wired existing mining, block-break, block-place and footstep signals into a
+  fixed 24-entry acoustic ring. Events expire after five seconds; distance,
+  intensity and age determine hearing. No audio engine or per-event scene
+  nodes were added.
+- Newborns retain both parents as guardians and follow the closest living
+  parent while separated. Herd movement now includes bounded heading
+  alignment; chicken, sheep, pig and cow flight distances/speeds differ.
+- Existing grazing, hunger, shelter/rest, breeding, animation, combat, persisted
+  IDs, save formats, generation rules, voxel mutation, greedy meshing and chunk
+  streaming are retained.
+- Added MobPerceptionTests for torch detection/removal across a negative chunk
+  seam, player-signal sound detection, sound investigation, juvenile guardian
+  following, real terrain-layer ray occlusion and visibility-cache refresh.
+  The survival soak now produces mining/placement noise and reports acoustic
+  investigations plus non-finite creature positions.
+- Verification on Godot 4.7.2 .NET / .NET 9: build succeeds with 0 warnings
+  and 0 errors; headless suites pass with 1,238 checks and 0 failures. GitHub
+  Actions CI also passed on the tested code commit (the later changes are
+  documentation-only).
+- Runtime validation: the five-minute main-scene survival soak completed with
+  SURVIVAL SOAK PASS (300 simulated seconds, 10 passive, 11 hostile, 8 cave
+  encounters, 254 sound investigations, 0 invalid creature positions).
+  A 60-second breeding smoke test also passed using normal food interactions.
+- The default 3,600-second soak has not yet been run. Godot reports renderer,
+  worker-pool and ObjectDB resource warnings at soak shutdown; the unchanged
+  baseline test runner also reports ObjectDB/Jolt cleanup leaks, so these are
+  recorded as shutdown diagnostics rather than hidden.
+
+
+## 19. Survival progression and combat balance audit — 2026-11-21
+
+- Audited wood/stone/iron/diamond harvest gates, V7 ore density/vein attempts,
+  mining times, recipes, furnace fuel/smelt values, food/hunger pacing,
+  tool/weapon/armor durability, XP/enchantment costs, arrows/shields, hostile
+  archetypes, difficulty and Warden reward.
+- Fixed melee tool durability: a landed hit with a pickaxe, axe, shovel or hoe
+  now uses the same existing equipment wear path as swords and Unbreaking.
+- Prevented damage rejected by creative mode, death or respawn invulnerability
+  from consuming shield durability. Drowning/starvation still damage health but
+  no longer wear armor that does not mitigate those damage types.
+- Centralized peaceful/normal/hard damage and 0/7/10 hostile population caps
+  for every hostile archetype. Peaceful rejects manual hostile/Warden spawns,
+  cancels pending melee wind-ups, hides the dungeon boss and removes active
+  hostile projectiles.
+- Fixed stale mob wrappers in death, dawn retreat, peaceful cleanup and
+  `ClearHostilesNear`: population lists remove actors synchronously before
+  deferred `QueueFree`.
+- Added a transactional two-gold-to-one-lapis trader offer as a predictable
+  alternative to the Crystal Wisp drop; output-capacity checks happen before
+  the currency is consumed.
+- Fixed furnace elapsed-time loss across fuel boundaries without changing the
+  existing saved timer fields or furnace serialization.
+- Added a cross-system progression suite covering the resource, crafting,
+  smelting, equipment, enchantment, upgrade, combat, boss phase thresholds,
+  death, overflow and save/load path. The suite drives the Warden through its full
+  health pool and verifies the single defeat event, XP reward and Ember Core.
+  Weapon damage/cadence and armor points/durability are asserted against tier data.
+- Compatibility: no `BlockId`, `ItemId`, worldgen-version, player-save or
+  furnace-save fields were added, removed, reordered or repurposed.
+- **Verified code revision (`46c2857`):** GitHub Actions Debug and Release
+  builds both succeeded with 0 warnings / 0 errors; the full headless suite
+  passed **1,397 checks / 0 failures**. The headless test process reported the
+  baseline shutdown allocations (18 ObjectDB / 17 Jolt).
+- **Real-scene smoke:** the controlled 300-second run passed with 10 passive
+  mobs, 144 successful feeds, 8 cave encounters, 5,519 juvenile observations,
+  save read-back and temporary-world cleanup
+  ([run 44900680833](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44900680833)).
+  The smoke still reports 9 CanvasItem RIDs and 28 ObjectDB instances at engine
+  exit; recorded as shutdown warnings. The 3,600-second normal-survival soak is
+  running against the verified code revision
+  ([run 44901217578](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44901217578)); no full-hour PASS is claimed yet.
+- See `docs/SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md` for detailed values,
+  findings, reproducible steps and test evidence.
+
+## 20. Water transportation: buckets and boats — 2026-11-21
+
+- Added unstackable empty, water and lava buckets with generated inventory
+  icons, names and descriptions. Three iron ingots craft an empty bucket;
+  five planks craft a wooden boat.
+- Bucket collection is source-only: flowing water is never converted to a
+  bucket. Collection removes the source through `VoxelWorld.SetBlock` and
+  changes the selected inventory slot only after the world edit succeeds.
+  Filled buckets place a source into a loaded replaceable cell and transform
+  back to empty. Solid blocks, existing fluids and unloaded cells are refused.
+- Added a custom wooden hull, seat and animated oars. Boats use the existing
+  streamed terrain collision, sample source/flow water heights for buoyancy,
+  and provide acceleration, steering, reverse and braking.
+- Player boarding disables the player capsule and attaches the player to the
+  boat; Space dismounts to a loaded clear cell. Left-click removes the boat and
+  returns its item in survival. Vehicle state is an optional world-save field.
+- Boat movement checks the complete hull footprint against loaded chunks and
+  pauses at unloaded boundaries instead of crossing into unbuilt terrain.
+- Added tests for source-only collection, fluid conservation, inventory
+  transformations, invalid placement, recipes, acceleration/steering/braking,
+  collision response, chunk-edge protection, boarding/dismounting, boat removal
+  and save compatibility.
+- **Verification:** Godot 4.7.2 .NET build completed with 0 warnings and
+  0 errors. The final full headless suite passed with 1,247 checks and
+  0 failures. Live interactive playtesting was not performed.

@@ -68,15 +68,28 @@ public sealed class Inventory
 
         if (ItemDb.MaxStack(stack.Id) == 1)
         {
-            int slot = FirstEmptySlot();
-            if (slot < 0)
+            // Non-stackable items occupy one slot each. The old fast path
+            // stored the whole incoming stack in one slot, which could turn a
+            // malformed or transferred multi-count tool into an impossible
+            // stack and hide the real leftover from callers.
+            int unstacked = stack.Count;
+            for (int i = 0; i < SlotCount && unstacked > 0; i++)
             {
-                return stack.Count;
+                if (!Get(i).IsEmpty)
+                {
+                    continue;
+                }
+
+                Set(i, stack with { Count = 1 });
+                unstacked--;
             }
 
-            Set(slot, stack);
-            Changed?.Invoke();
-            return 0;
+            if (unstacked != stack.Count)
+            {
+                Changed?.Invoke();
+            }
+
+            return unstacked;
         }
 
         return Add(stack.Id, stack.Count);

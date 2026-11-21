@@ -88,6 +88,39 @@ public static class EquipmentProgression
     public static float ProtectionMultiplier(ItemStack stack) =>
         1.0f - Mathf.Clamp(stack.Protection, 0, 3) * 0.04f;
 
+    /// <summary>Reject invalid, creative-mode and respawn-grace hits before any equipment can be consumed.</summary>
+    public static bool ShouldProcessIncomingDamage(float amount, GameMode mode, bool invulnerable) =>
+        amount > 0.0f && mode == GameMode.Survival && !invulnerable;
+
+    /// <summary>Starvation and drowning bypass armor mitigation and therefore must not wear armor.</summary>
+    public static bool ShouldDamageArmor(DamageKind kind) =>
+        kind is not (DamageKind.Drown or DamageKind.Starve);
+
+    /// <summary>Tools are valid emergency melee weapons and lose durability on a landed hit.</summary>
+    public static bool ShouldConsumeMeleeDurability(ItemId item) =>
+        ItemDb.WeaponOf(item) is not null || ItemDb.ToolOf(item) is not null;
+
+    /// <summary>Combines base armor points with per-piece Protection without counting enchantments as armor points.</summary>
+    public static float ArmorDamageMultiplier(Inventory inventory)
+    {
+        int points = 0;
+        foreach (ItemStack stack in inventory.Armor)
+        {
+            if (ItemDb.ArmorOf(stack.Id) is { } armor)
+            {
+                points += armor.Points;
+            }
+        }
+
+        float remaining = 1.0f - Mathf.Clamp(points * 0.04f, 0.0f, 0.80f);
+        foreach (ItemStack stack in inventory.Armor)
+        {
+            remaining *= ProtectionMultiplier(stack);
+        }
+
+        return remaining;
+    }
+
     public static float SharpnessBonus(ItemStack stack) => Mathf.Clamp(stack.Sharpness, 0, 3) * 1.0f;
 
     public static ItemId UpgradeTarget(ItemId id) => id switch

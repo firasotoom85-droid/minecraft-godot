@@ -5,6 +5,170 @@ namespace Minecraft;
 
 public static class ContentTests
 {
+    // Persisted identifiers are append-only. These tables pin every id that has
+    // shipped in a save or a chunk array; changing a value here is a data-loss
+    // bug, not a refactor.
+    private static readonly (BlockId Id, int Value)[] PersistedBlocks =
+    [
+        (BlockId.Air, 0),
+        (BlockId.Grass, 1),
+        (BlockId.Dirt, 2),
+        (BlockId.Stone, 3),
+        (BlockId.Sand, 4),
+        (BlockId.Log, 5),
+        (BlockId.Leaves, 6),
+        (BlockId.Water, 7),
+        (BlockId.Planks, 8),
+        (BlockId.Cobblestone, 9),
+        (BlockId.Brick, 10),
+        (BlockId.CoalOre, 11),
+        (BlockId.IronOre, 12),
+        (BlockId.Glass, 13),
+        (BlockId.Bedrock, 14),
+        (BlockId.SnowGrass, 15),
+        (BlockId.Snow, 16),
+        (BlockId.Gravel, 17),
+        (BlockId.GoldOre, 18),
+        (BlockId.DiamondOre, 19),
+        (BlockId.BirchLog, 20),
+        (BlockId.BirchLeaves, 21),
+        (BlockId.Cactus, 22),
+        (BlockId.CraftingTable, 23),
+        (BlockId.Wool, 24),
+        (BlockId.Lava, 25),
+        (BlockId.TallGrass, 26),
+        (BlockId.FlowerRed, 27),
+        (BlockId.FlowerYellow, 28),
+        (BlockId.Torch, 29),
+        (BlockId.Chest, 30),
+        (BlockId.Furnace, 31),
+        (BlockId.Farmland, 32),
+        (BlockId.Wheat0, 33),
+        (BlockId.Wheat1, 34),
+        (BlockId.Wheat2, 35),
+        (BlockId.Bed, 36),
+        (BlockId.Ladder, 37),
+        (BlockId.FlowingWater1, 38),
+        (BlockId.FlowingWater2, 39),
+        (BlockId.FlowingWater3, 40),
+        (BlockId.FlowingWater4, 41),
+        (BlockId.FlowingWater5, 42),
+        (BlockId.FlowingWater6, 43),
+        (BlockId.FlowingWater7, 44),
+        (BlockId.EnchantingTable, 45),
+        (BlockId.PlanksSlab, 46),
+        (BlockId.CobblestoneSlab, 47),
+        (BlockId.BrickSlab, 48),
+        (BlockId.PlanksStairs, 49),
+        (BlockId.CobblestoneStairs, 50),
+        (BlockId.BrickStairs, 51),
+    ];
+
+    private static readonly (ItemId Id, int Value)[] PersistedItems =
+    [
+        (ItemId.None, 0),
+        (ItemId.Grass, 1),
+        (ItemId.Dirt, 2),
+        (ItemId.Stone, 3),
+        (ItemId.Sand, 4),
+        (ItemId.Gravel, 5),
+        (ItemId.Log, 6),
+        (ItemId.BirchLog, 7),
+        (ItemId.Leaves, 8),
+        (ItemId.BirchLeaves, 9),
+        (ItemId.SnowGrass, 10),
+        (ItemId.Snow, 11),
+        (ItemId.Glass, 12),
+        (ItemId.Brick, 13),
+        (ItemId.Cactus, 14),
+        (ItemId.Planks, 15),
+        (ItemId.CraftingTable, 16),
+        (ItemId.Cobblestone, 17),
+        (ItemId.CoalOre, 18),
+        (ItemId.IronOre, 19),
+        (ItemId.GoldOre, 20),
+        (ItemId.DiamondOre, 21),
+        (ItemId.Coal, 22),
+        (ItemId.RawIron, 23),
+        (ItemId.RawGold, 24),
+        (ItemId.Diamond, 25),
+        (ItemId.Stick, 26),
+        (ItemId.WoodPick, 27),
+        (ItemId.WoodAxe, 28),
+        (ItemId.WoodShovel, 29),
+        (ItemId.StonePick, 30),
+        (ItemId.StoneAxe, 31),
+        (ItemId.StoneShovel, 32),
+        (ItemId.IronPick, 33),
+        (ItemId.IronAxe, 34),
+        (ItemId.IronShovel, 35),
+        (ItemId.DiamondPick, 36),
+        (ItemId.DiamondAxe, 37),
+        (ItemId.DiamondShovel, 38),
+        (ItemId.Apple, 39),
+        (ItemId.RawMutton, 40),
+        (ItemId.CookedMutton, 41),
+        (ItemId.Wool, 42),
+        (ItemId.Lava, 43),
+        (ItemId.TallGrass, 44),
+        (ItemId.FlowerRed, 45),
+        (ItemId.FlowerYellow, 46),
+        (ItemId.Torch, 47),
+        (ItemId.Chest, 48),
+        (ItemId.Furnace, 49),
+        (ItemId.IronIngot, 50),
+        (ItemId.GoldIngot, 51),
+        (ItemId.IronHelmet, 52),
+        (ItemId.IronChestplate, 53),
+        (ItemId.IronLegs, 54),
+        (ItemId.IronBoots, 55),
+        (ItemId.DiamondHelmet, 56),
+        (ItemId.DiamondChestplate, 57),
+        (ItemId.DiamondLegs, 58),
+        (ItemId.DiamondBoots, 59),
+        (ItemId.Seeds, 60),
+        (ItemId.Wheat, 61),
+        (ItemId.Bread, 62),
+        (ItemId.WoodHoe, 63),
+        (ItemId.StoneHoe, 64),
+        (ItemId.IronHoe, 65),
+        (ItemId.DiamondHoe, 66),
+        (ItemId.Bed, 67),
+        (ItemId.Ladder, 68),
+        (ItemId.RawBeef, 69),
+        (ItemId.CookedBeef, 70),
+        (ItemId.RawPork, 71),
+        (ItemId.CookedPork, 72),
+        (ItemId.RawChicken, 73),
+        (ItemId.CookedChicken, 74),
+        (ItemId.Leather, 75),
+        (ItemId.Feather, 76),
+        (ItemId.EmberCore, 77),
+        (ItemId.FishingRod, 78),
+        (ItemId.RawFish, 79),
+        (ItemId.CookedFish, 80),
+        (ItemId.WoodSword, 81),
+        (ItemId.StoneSword, 82),
+        (ItemId.IronSword, 83),
+        (ItemId.DiamondSword, 84),
+        (ItemId.Bow, 85),
+        (ItemId.Arrow, 86),
+        (ItemId.Shield, 87),
+        (ItemId.EmberBlade, 88),
+        (ItemId.LapisLazuli, 89),
+        (ItemId.EnchantingTable, 90),
+        (ItemId.PlanksSlab, 91),
+        (ItemId.CobblestoneSlab, 92),
+        (ItemId.BrickSlab, 93),
+        (ItemId.PlanksStairs, 94),
+        (ItemId.CobblestoneStairs, 95),
+        (ItemId.BrickStairs, 96),
+        (ItemId.EmptyBucket, 97),
+        (ItemId.WaterBucket, 98),
+        (ItemId.LavaBucket, 99),
+        (ItemId.WoodenBoat, 100),
+    ];
+
     public static void Run()
     {
         TestAssert.Equal(128, BlockDb.BlockCount, "block table stride");
@@ -12,6 +176,8 @@ public static class ContentTests
         TestAssert.Equal(256, BlockDb.TileCount, "atlas tile count");
 
         TestAssert.Empty(ContentValidation.Validate(), "content tables validate");
+
+        CheckPersistedIds();
 
         BlockDb.EnsureTables();
         TestAssert.Check(BlockDb.IsDefined(BlockId.Air), "air defined");
@@ -47,5 +213,31 @@ public static class ContentTests
         TestAssert.Check(ItemDb.Placeable.Count > 0, "placeable item list is populated");
         TestAssert.Check(Recipes.All.Count > 0, "recipe list is populated");
         TestAssert.Check(BlockDb.Hotbar.Length == Inventory.HotbarSize, "hotbar defaults fill nine slots");
+    }
+
+    private static void CheckPersistedIds()
+    {
+        foreach ((BlockId id, int expected) in PersistedBlocks)
+        {
+            TestAssert.Equal(expected, (int)id,
+                    $"persisted block id {id} remains {expected}");
+        }
+
+        foreach ((ItemId id, int expected) in PersistedItems)
+        {
+            TestAssert.Equal(expected, (int)id,
+                    $"persisted item id {id} remains {expected}");
+        }
+
+        // The two independently proposed ranges must not collide or alias:
+        // building shapes occupy 46-51 / 91-96, transportation occupies 97-100.
+        TestAssert.Equal(52, PersistedBlocks.Length, "persisted block table covers every block id");
+        TestAssert.Equal(101, PersistedItems.Length, "persisted item table covers every item id");
+        TestAssert.Equal(PersistedBlocks.Length, Enum.GetValues<BlockId>().Length,
+                "no block id aliases another");
+        TestAssert.Equal(PersistedItems.Length, Enum.GetValues<ItemId>().Length,
+                "no item id aliases another");
+        TestAssert.Check((int)ItemId.BrickStairs < (int)ItemId.EmptyBucket,
+                "transportation ids follow every building id");
     }
 }

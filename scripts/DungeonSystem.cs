@@ -18,6 +18,8 @@ public partial class DungeonSystem : Node
     private EmberWarden? _warden;
     private double _timer;
 
+    public event System.Action? DungeonCleared;
+
     public void Setup(VoxelWorld world, Player player, Hud hud, Mobs mobs)
     {
         _world = world;
@@ -30,6 +32,12 @@ public partial class DungeonSystem : Node
     {
         if (_world == null || _player == null || _mobs == null)
         {
+            return;
+        }
+
+        if (Settings.Difficulty == Settings.DifficultyPeaceful)
+        {
+            _hud?.HideBoss();
             return;
         }
 
@@ -110,6 +118,7 @@ public partial class DungeonSystem : Node
             _world.MarkDirty();
         }
 
+        DungeonCleared?.Invoke();
         _hud?.HideBoss();
         _hud?.ShowToast("The Ember Warden falls — the Ember Deep is clear");
         _warden = null;

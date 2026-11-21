@@ -170,6 +170,8 @@ public partial class Sound : Node
         player.BlockPlaced += OnPlaced;
         player.Stepped += OnStepped;
         player.Splashed += OnSplashed;
+        player.BucketUsed += (pos, lava, collected) =>
+                Play(lava ? "sizzle" : "splash", pos, collected ? 1.05f : 0.92f, -3.0f);
         player.SwimStroke += pos => Play("splash", pos, 0.78f, -13.0f);
         player.LavaEntered += pos => Play("sizzle", pos, 0.82f, -5.0f);
         player.MiningTick += OnMiningTick;
@@ -877,6 +879,27 @@ public partial class Sound : Node
         wav.LoopBegin = 0;
         wav.LoopEnd = loopEnd;
         return wav;
+    }
+
+    public override void _ExitTree()
+    {
+        // Release active playbacks and the generated stream cache before the
+        // audio server shuts down. Voice players are children of this node and
+        // are freed with the rest of the main scene.
+        foreach (AudioStreamPlayer3D voice in _voicePlayers)
+        {
+            voice.Stop();
+            voice.Stream = null;
+        }
+
+        foreach (AudioStreamPlayer player in new[] { _wind, _rain, _crickets, _thunderPlayer })
+        {
+            if (player == null) continue;
+            player.Stop();
+            player.Stream = null;
+        }
+
+        _streams.Clear();
     }
 
     private static AudioStreamWav SynthThunder()

@@ -2,6 +2,28 @@ using Godot;
 
 namespace Minecraft;
 
+/// <summary>Deterministic health thresholds and summon counts for Ember Warden phases.</summary>
+public static class EmberWardenRules
+{
+    public static int PhaseForHealth(float health, float maxHealth)
+    {
+        if (maxHealth <= 0.0f)
+        {
+            return 1;
+        }
+
+        return health < maxHealth * 0.33f ? 3
+                : health < maxHealth * 0.66f ? 2 : 1;
+    }
+
+    public static int AddsForPhase(int phase) => phase switch
+    {
+        2 => 2,
+        3 => 3,
+        _ => 0,
+    };
+}
+
 /// <summary>
 /// Ember Warden: the Ember Deep boss. A slow, heavy bruiser with a slam,
 /// a short-range ember burst, and two add-summon phases. It drops the unique
@@ -92,7 +114,7 @@ public partial class EmberWarden : Mob
                 if (d < SlamRange && _slamCd <= 0.0)
                 {
                     _slamCd = SlamCooldown;
-                    float damage = Settings.Difficulty == Settings.DifficultyHard ? 5.0f : 4.0f;
+                    float damage = MobCombatRules.DamageForDifficulty(4.0f, 5.0f);
                     if (player.ApplyDamage(new DamageInfo(
                             damage, DamageKind.Melee, GlobalPosition, 5.0f, 3.0f)))
                     {
@@ -104,7 +126,7 @@ public partial class EmberWarden : Mob
                 else if (d < VolleyRange && _volleyCd <= 0.0)
                 {
                     _volleyCd = VolleyCooldown;
-                    float damage = Settings.Difficulty == Settings.DifficultyHard ? 3.0f : 2.0f;
+                    float damage = MobCombatRules.DamageForDifficulty(2.0f, 3.0f);
                     if (player.ApplyDamage(new DamageInfo(
                             damage, DamageKind.Fire, GlobalPosition, 1.0f, 0.5f)))
                     {
@@ -113,17 +135,18 @@ public partial class EmberWarden : Mob
                     }
                 }
 
-                if (!_phaseTwo && Health < MaxHealth * 0.66f)
+                int phase = EmberWardenRules.PhaseForHealth(Health, MaxHealth);
+                if (!_phaseTwo && phase >= 2)
                 {
                     _phaseTwo = true;
-                    Manager?.SpawnAdds(GlobalPosition, 2);
+                    Manager?.SpawnAdds(GlobalPosition, EmberWardenRules.AddsForPhase(2));
                     Manager?.Puff(GlobalPosition + new Vector3(0, 1.5f, 0), new Color(0.85f, 0.24f, 0.10f));
                 }
 
-                if (!_phaseThree && Health < MaxHealth * 0.33f)
+                if (!_phaseThree && phase >= 3)
                 {
                     _phaseThree = true;
-                    Manager?.SpawnAdds(GlobalPosition, 3);
+                    Manager?.SpawnAdds(GlobalPosition, EmberWardenRules.AddsForPhase(3));
                     Manager?.Puff(GlobalPosition + new Vector3(0, 1.5f, 0), new Color(1.0f, 0.42f, 0.10f));
                 }
 

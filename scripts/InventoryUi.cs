@@ -401,6 +401,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         for (int i = 0; i < 9; i++)
         {
             _craftSlots[i] = MakeSlot(SlotKind.Craft, i);
+            _craftGrid.AddChild(_craftSlots[i]);
+            _craftSlots[i].Visible = i < _craftSize * _craftSize;
         }
 
         craftCol.AddChild(_craftGrid);
@@ -522,6 +524,11 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         if (GetTree().Paused || @event is InputEventKey { Echo: true })
             return;
 
+        // Another modal (console, journal, trader) owns input; do not open on
+        // top of it or closing this panel would unlock the player behind it.
+        if (!_open && _player.InputLocked)
+            return;
+
         if (@event.IsActionPressed("inventory"))
         {
             Toggle();
@@ -623,15 +630,12 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _container = null;
         _furnacePanel.Visible = false;
         _furnace = null;
+        // Keep all nine slots parented for the lifetime of the UI. Reparenting
+        // the same nodes on every open orphaned slots that were not re-added.
         _craftGrid.Columns = size;
-        foreach (Node child in _craftGrid.GetChildren())
+        for (int i = 0; i < _craftSlots.Length; i++)
         {
-            _craftGrid.RemoveChild(child);
-        }
-
-        for (int i = 0; i < size * size; i++)
-        {
-            _craftGrid.AddChild(_craftSlots[i]);
+            _craftSlots[i].Visible = i < size * size;
         }
 
         _root.Visible = true;
@@ -946,6 +950,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         Recipes.ConsumeFromGrid(_craft, _craftSize, match.Recipe, match.Row, match.Col);
+        _player.RecordCrafted(match.Recipe.Result, match.Recipe.ResultCount);
         _player.Inventory.RaiseChanged();
     }
 
@@ -967,6 +972,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             return;
         }
 
+        _player.RecordCrafted(recipe.Result, recipe.ResultCount);
         _hud.ShowToast($"Crafted {ItemDb.NameOf(recipe.Result)}");
         _player.Inventory.RaiseChanged();
     }

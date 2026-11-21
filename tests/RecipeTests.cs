@@ -98,6 +98,18 @@ public static class RecipeTests
 
         packed.Set(0, ItemDb.New(ItemId.Planks, 4));
         packed.Set(1, ItemDb.New(ItemId.Stick, 3));
+        Inventory bucketMaterials = new();
+        bucketMaterials.Add(ItemId.IronIngot, 3);
+        Recipe bucketRecipe = Recipes.All.First(r => r.Result == ItemId.EmptyBucket);
+        TestAssert.Check(Recipes.Craft(bucketRecipe, bucketMaterials), "three iron ingots craft one bucket");
+        TestAssert.Equal(1, bucketMaterials.CountOf(ItemId.EmptyBucket), "bucket recipe yields one empty bucket");
+
+        Inventory boatMaterials = new();
+        boatMaterials.Add(ItemId.Planks, 5);
+        Recipe boatRecipe = Recipes.All.First(r => r.Result == ItemId.WoodenBoat);
+        TestAssert.Check(Recipes.Craft(boatRecipe, boatMaterials), "five planks craft one wooden boat");
+        TestAssert.Equal(1, boatMaterials.CountOf(ItemId.WoodenBoat), "boat recipe yields one wooden boat");
+
         Recipe woodPick = Recipes.All.First(r => r.Result == ItemId.WoodPick);
         TestAssert.Check(!packed.CanFit(ItemId.WoodPick, 1), "full inventory has no room for a tool");
         TestAssert.Check(!Recipes.Craft(woodPick, packed), "craft refuses when the result cannot fit");

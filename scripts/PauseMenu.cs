@@ -104,6 +104,9 @@ public partial class PauseMenu : CanvasLayer, IModalUi
     public override void _UnhandledInput(InputEvent @event)
     {
         if (@event is InputEventKey { Echo: true }) return;
+        // Never stack pause over another modal; closing pause would stop the
+        // pause tree and hand input back while the other panel stays open.
+        if (!_open && _player.InputLocked) return;
         if (@event.IsActionPressed("pause"))
         {
             Toggle();

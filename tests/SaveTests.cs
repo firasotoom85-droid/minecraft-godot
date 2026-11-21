@@ -13,14 +13,23 @@ public static class SaveTests
 
         Dictionary<string, Dictionary<string, BlockId>> edits = new()
         {
-            ["0,0"] = new Dictionary<string, BlockId> { ["123"] = BlockId.Stone },
+            ["0,0"] = new Dictionary<string, BlockId>
+            {
+                ["123"] = BlockId.Stone,
+                ["124"] = BlockId.PlanksSlab,
+            },
         };
         Dictionary<string, List<ItemStackSave>> containers = new()
         {
             ["1,2,3"] = [new ItemStackSave(0, (int)ItemId.Stone, 12)],
         };
         Dictionary<string, bool> flags = new() { ["dungeon/ember"] = true };
-        WorldSave save = new(WorldStore.WorldFormatVersion, edits, 0.625, containers, flags);
+        Dictionary<string, Dictionary<string, byte>> blockStates = new()
+        {
+            ["0,0"] = new Dictionary<string, byte> { ["124"] = BlockShapes.SlabTop },
+        };
+        WorldSave save = new(WorldStore.WorldFormatVersion, edits, 0.625, containers, flags,
+                BlockStates: blockStates);
         string path = root + "/world.json";
 
         PlayerSave emptyHungerSave = new([0.0f, 0.0f, 0.0f], 0, null, "survival", 20.0f, 0.0f);
@@ -31,6 +40,17 @@ public static class SaveTests
         PlayerSave? legacyPlayer = JsonSerializer.Deserialize<PlayerSave>("{\"pos\":[0,0,0]}", WorldStore.Json);
         TestAssert.Check(legacyPlayer?.Hunger is null,
                 "old player saves distinguish a missing hunger field");
+
+        WorldSave boatSave = new(WorldStore.WorldFormatVersion, [], 0.5,
+                Boats: [new BoatSave([12.5f, 49.7f, -3.5f], 0.75f, [1.0f, 0.0f, -2.0f], true)]);
+        WorldSave? boatReload = JsonSerializer.Deserialize<WorldSave>(
+                JsonSerializer.Serialize(boatSave, WorldStore.Json), WorldStore.Json);
+        TestAssert.Check(boatReload?.Boats is { Count: 1 } && boatReload.Boats[0].Occupied,
+                "boat pose and occupied state survive optional world-save serialization");
+        const string v3Legacy = """{"version":3,"edits":{},"time":0.5,"containers":{},"flags":{},"furnaces":{}}""";
+        WorldSave? preBoatSave = JsonSerializer.Deserialize<WorldSave>(v3Legacy, WorldStore.Json);
+        TestAssert.Check(preBoatSave?.Boats is null,
+                "world saves written before boats load without a vehicle list");
         PlayerSave progressionSave = new([0.0f, 0.0f, 0.0f], Experience: 245);
         PlayerSave? progressionReload = JsonSerializer.Deserialize<PlayerSave>(JsonSerializer.Serialize(progressionSave, WorldStore.Json), WorldStore.Json);
         TestAssert.Equal(245, progressionReload?.Experience ?? -1, "experience survives player-save round-trip");
@@ -54,6 +74,8 @@ public static class SaveTests
             TestAssert.Equal(BlockId.Stone, loaded.Edits?["0,0"]["123"], "edits round-trip");
             TestAssert.Equal(12, loaded.Containers?["1,2,3"][0].Count, "containers round-trip");
             TestAssert.Check(loaded.Flags?["dungeon/ember"] == true, "flags round-trip");
+            TestAssert.Equal(BlockShapes.SlabTop, loaded.BlockStates?["0,0"]["124"] ?? 0,
+                    "optional slab block state survives save round-trip");
         }
 
         string backupPath = root + "/backup.json";
@@ -82,11 +104,19 @@ public static class SaveTests
         TestAssert.Equal(2, old?.Version, "v2 version is preserved");
         TestAssert.Check(old?.Containers is null, "v2 save has no containers");
         TestAssert.Check(old?.Flags is null, "v2 save has no flags");
+        TestAssert.Check(old?.BlockStates is null, "legacy save has no block-state extension");
+        WorldSave? preShape = JsonSerializer.Deserialize<WorldSave>(v3Legacy, WorldStore.Json);
+        TestAssert.Equal(3, preShape?.Version ?? -1, "v3 save remains readable after the state extension");
+        TestAssert.Check(preShape?.BlockStates is null, "v3 save defaults to the empty shape-state extension");
 
         WorldSave upgraded = new(WorldStore.WorldFormatVersion, old?.Edits, old?.Time ?? 0.5);
         string upgradedJson = JsonSerializer.Serialize(upgraded, WorldStore.Json);
-        TestAssert.Check(upgradedJson.Contains("\"version\":3"), "upgraded save writes version 3");
-        TestAssert.Equal(7, WorldStore.CurrentGenVersion, "new worlds use generator version 7");
+        WorldSave? upgradedReload = JsonSerializer.Deserialize<WorldSave>(upgradedJson, WorldStore.Json);
+        TestAssert.Equal(WorldStore.WorldFormatVersion, upgradedReload?.Version ?? -1,
+                "upgraded save writes the current world format version");
+        TestAssert.Equal(4, WorldStore.WorldFormatVersion, "current world format is v4");
+        TestAssert.Equal(WorldGenV8.Version, WorldStore.CurrentGenVersion,
+                "new worlds use the latest versioned generator");
 
         string worldDir = WorldStore.Create("Management Test", 424242);
         TestAssert.Check(WorldStore.Rename(worldDir, "Renamed World"), "world rename succeeds");
@@ -106,6 +136,18 @@ public static class SaveTests
         TestAssert.Check(WorldStore.Delete(worldDir), "world can be deleted");
         TestAssert.Check(!DirAccess.DirExistsAbsolute(worldDir), "world folder is gone");
         TestAssert.Check(!WorldStore.Delete("user://settings.cfg"), "delete refuses paths outside worlds");
+
+        string escapeDir = WorldStore.WorldsRoot + "/../delete-escape-world";
+        DirAccess.MakeDirRecursiveAbsolute(escapeDir);
+        string escapeMarker = escapeDir + "/marker.txt";
+        using (FileAccess? marker = FileAccess.Open(escapeMarker, FileAccess.ModeFlags.Write))
+            marker?.StoreString("keep");
+        TestAssert.Check(!WorldStore.Delete(escapeDir),
+                "delete refuses a traversal path that starts with the worlds prefix");
+        TestAssert.Check(FileAccess.FileExists(escapeMarker),
+                "a traversal-targeted delete leaves the outside file untouched");
+        DirAccess.RemoveAbsolute(escapeMarker);
+        DirAccess.RemoveAbsolute(escapeDir);
 
         DirAccess.RemoveAbsolute(backupPath + ".bak2");
         DirAccess.RemoveAbsolute(backupPath + ".bak");

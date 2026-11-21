@@ -96,11 +96,23 @@ public partial class Dreadwing : Mob
             Manager?.SoundRef?.Play("mobdread", GlobalPosition, 0.9f, -7.0f);
         }
 
-        bool visible = HasLineOfSight(player);
-        if (!visible)
+        bool visible = CanDetectPlayer(9.0f) && HasLineOfSight(player);
+        if (visible)
+        {
+            RememberTarget(player.GlobalPosition, 4.0f);
+        }
+        else
         {
             _windup = 0.0f;
-            return toPlayer;
+            if (TryGetRememberedTarget(out Vector3 lastSeen))
+            {
+                Vector3 remembered = lastSeen - GlobalPosition;
+                remembered.Y = 0.0f;
+                if (remembered.LengthSquared() > 1.0f) return remembered;
+            }
+
+            return TryInvestigateSound(out Vector3 soundDirection)
+                    ? soundDirection : Vector3.Zero;
         }
 
         if (_windup > 0.0f)
@@ -109,7 +121,7 @@ public partial class Dreadwing : Mob
             if (_windup <= 0.0f)
             {
                 _attackCooldown = 2.0;
-                if (distance < 2.7f && player.ApplyDamage(new DamageInfo(3.0f,
+                if (distance < 2.7f && player.ApplyDamage(new DamageInfo(MobCombatRules.DamageForDifficulty(3.0f, 3.6f),
                         DamageKind.Melee, GlobalPosition, 3.0f, 2.0f)))
                 {
                     Manager?.Lunge(this);

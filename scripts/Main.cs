@@ -26,6 +26,8 @@ public partial class Main : Node3D
     private DungeonSystem _dungeonSystem = null!;
     private TraderSystem _traderSystem = null!;
     private TraderUi _traderUi = null!;
+    private VillageSystem _villageSystem = null!;
+    private QuestSystem _questSystem = null!;
     private Ambient _ambient = null!;
     private Campfires _campfires = null!;
     private PauseMenu _pause = null!;
@@ -37,6 +39,7 @@ public partial class Main : Node3D
     private AchievementUi _achievementUi = null!;
     private OnboardingSystem _onboarding = null!;
     private FluidSystem _fluids = null!;
+    private BoatSystem _boats = null!;
 
     public override void _Ready()
     {
@@ -91,6 +94,13 @@ public partial class Main : Node3D
         _dungeonSystem = AddSystem(new DungeonSystem());
         _dungeonSystem.Setup(_world, _player, _hud, _mobs);
 
+        _questSystem = AddSystem(new QuestSystem());
+        _questSystem.Setup(_world, _player, _mobs);
+        _dungeonSystem.DungeonCleared += _questSystem.ReportDungeonClear;
+
+        _villageSystem = AddSystem(new VillageSystem());
+        _villageSystem.Setup(_world, _player, _mobs);
+
         _traderSystem = AddSystem(new TraderSystem());
         _traderSystem.Setup(_world, _player);
 
@@ -114,8 +124,9 @@ public partial class Main : Node3D
         _player.FurnaceUsed += pos => _inventoryUi.OpenFurnace(pos);
 
         _traderUi = AddSystem(new TraderUi());
-        _traderUi.Setup(_player, _hud);
+        _traderUi.Setup(_player, _hud, _questSystem);
         _player.TraderUsed += _traderUi.Open;
+        _player.VillagerInteracted += _traderUi.Open;
 
         _photo = AddSystem(new PhotoMode());
         _photo.Setup(_player, _world, _hud, _daynight);
@@ -147,6 +158,8 @@ public partial class Main : Node3D
         _world.SetupInitial();
         _fluids = AddSystem(new FluidSystem());
         _fluids.Setup(_world, _player);
+        _boats = AddSystem(new BoatSystem());
+        _boats.Setup(_world, _player, _sound);
         _hud.Bind(_player);
         _hud.ShowToast($"{_gfx.CurrentPreset.Name} quality  ·  F6 change  ·  H help  ·  F3 info");
     }
@@ -183,6 +196,6 @@ public partial class Main : Node3D
 
     private void SetupEnvironment()
     {
-        _worldEnv.Environment = WorldEnvironmentFactory.Build();
+        _worldEnv.Environment = WorldEnvironmentFactory.Build(_world.WorldGenVersion);
     }
 }

@@ -106,7 +106,7 @@ public partial class Hollow : Mob
                         if (_charge <= 0.0f)
                         {
                             _shotCd = ShotCooldown;
-                            float damage = Settings.Difficulty == Settings.DifficultyHard ? 3.0f : 2.0f;
+                            float damage = MobCombatRules.DamageForDifficulty(2.0f, 3.0f);
                             Manager?.FireProjectile(GlobalPosition + new Vector3(0, 1.2f, 0),
                                     player.GlobalPosition + new Vector3(0, 1.2f, 0), damage,
                                     new Color(0.70f, 0.86f, 0.94f), 7.5f, "mobchitter");
@@ -130,7 +130,8 @@ public partial class Hollow : Mob
                         return remembered.LengthSquared() > 1.0f ? remembered : Vector3.Zero;
                     }
 
-                    return Vector3.Zero;
+                    return TryInvestigateSound(out Vector3 soundDirection)
+                            ? soundDirection : Vector3.Zero;
                 }
 
                 if (d < KeepMin)
@@ -145,6 +146,11 @@ public partial class Hollow : Mob
 
                 return Vector3.Zero;
             }
+        }
+
+        if (TryInvestigateSound(out Vector3 noiseDirection))
+        {
+            return noiseDirection;
         }
 
         Timer -= delta;

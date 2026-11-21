@@ -3,6 +3,18 @@ using Godot;
 
 namespace Minecraft;
 
+/// <summary>Population reservations keep natural herds from filling every breeding slot.</summary>
+public static class MobPopulationRules
+{
+    public const int PassiveLimit = 10;
+    public const int WildPassiveTarget = 8;
+
+    public static bool CanSpawnWildGroup(int population) => population < WildPassiveTarget;
+    public static bool CanBreed(int population) => population >= 2 && population < PassiveLimit;
+    public static int LimitWildGroup(int population, int requested) =>
+            Mathf.Clamp(requested, 0, Mathf.Max(0, WildPassiveTarget - population));
+}
+
 /// <summary>
 /// Population and ecology director. It owns bounded populations, biome/cave
 /// spawning, herd relationships, breeding, hostile alerts and transient shots.
@@ -10,7 +22,7 @@ namespace Minecraft;
 /// </summary>
 public partial class Mobs : Node
 {
-    private const int PassiveTarget = 10;
+    private const int PassiveTarget = MobPopulationRules.PassiveLimit;
     private const float PassiveSpawnMin = 18.0f;
     private const float PassiveSpawnMax = 40.0f;
     private const float PassiveDespawn = 120.0f;
@@ -18,6 +30,11 @@ public partial class Mobs : Node
     private const float HostileSpawnMax = 44.0f;
     private const float HostileDespawn = 80.0f;
     private const float FireSafety = 12.0f;
+    private const int NoiseCapacity = 24;
+    private const float NoiseLifetime = 5.0f;
+
+    private readonly record struct NoisePulse(long Id, Vector3 Position,
+            float Radius, float Intensity, double CreatedAt);
 
     public VoxelWorld? World;
     public Player? PlayerRef;
@@ -29,6 +46,8 @@ public partial class Mobs : Node
     private readonly List<Mob> _hostiles = [];
     public int PassiveCount => _passive.Count;
     public int HostileCount => _hostiles.Count;
+
+    public event System.Action<Mob>? MobDefeated;
 
     public EmberWarden? ActiveWarden
     {
@@ -53,6 +72,11 @@ public partial class Mobs : Node
     private double _breedingTimer = 2.0;
     private double _maintenanceTimer = 0.5;
     private readonly RandomNumberGenerator _rng = new();
+    private readonly NoisePulse[] _noisePulses = new NoisePulse[NoiseCapacity];
+    private int _noiseWriteIndex;
+    private long _noiseSequence;
+
+    public int NoiseInvestigations { get; private set; }
 
     public void Setup(VoxelWorld world, Player player, Fx fx, Sound sound, Weather weather)
     {
@@ -62,7 +86,77 @@ public partial class Mobs : Node
         SoundRef = sound;
         WeatherRef = weather;
         _rng.Randomize();
+
+        player.MiningTick += OnPlayerMiningTick;
+        player.BlockBroken += OnPlayerBlockBroken;
+        player.BlockPlaced += OnPlayerBlockPlaced;
+        player.Stepped += OnPlayerStepped;
     }
+
+    private void OnPlayerMiningTick(Vector3 position, int blockId) => ReportNoise(position, 22.0f, 0.82f);
+    private void OnPlayerBlockBroken(Vector3 position, int blockId) => ReportNoise(position, 25.0f, 1.0f);
+    private void OnPlayerBlockPlaced(Vector3 position, int blockId) => ReportNoise(position, 16.0f, 0.62f);
+    private void OnPlayerStepped(Vector3 position, int blockId) => ReportNoise(position, 9.0f, 0.34f);
+
+    public void ReportNoise(Vector3 position, float radius, float intensity)
+    {
+        if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z)
+                || !float.IsFinite(radius) || !float.IsFinite(intensity) || radius <= 0.0f)
+            return;
+
+        long id = ++_noiseSequence;
+        _noisePulses[_noiseWriteIndex] = new NoisePulse(id, position,
+                Mathf.Clamp(radius, 1.0f, 32.0f), Mathf.Clamp(intensity, 0.0f, 1.0f),
+                Time.GetTicksMsec() / 1000.0);
+        _noiseWriteIndex = (_noiseWriteIndex + 1) % NoiseCapacity;
+    }
+
+    public bool TryGetRecentNoise(Vector3 listener, float hearingMultiplier, long afterId,
+            out Vector3 source, out long noiseId)
+    {
+        source = Vector3.Zero;
+        noiseId = afterId;
+        double now = Time.GetTicksMsec() / 1000.0;
+        float hearing = Mathf.Clamp(hearingMultiplier, 0.5f, 1.75f);
+        float bestScore = 0.075f;
+        foreach (NoisePulse pulse in _noisePulses)
+        {
+            if (pulse.Id <= afterId || pulse.Id == 0) continue;
+            float age = (float)(now - pulse.CreatedAt);
+            if (age < 0.0f || age > NoiseLifetime) continue;
+            Vector3 offset = listener - pulse.Position;
+            offset.Y *= 0.45f;
+            float score = NoiseHearingScore(offset.Length(), pulse.Radius * hearing,
+                    pulse.Intensity, age);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                source = pulse.Position;
+                noiseId = pulse.Id;
+            }
+        }
+
+        if (noiseId == afterId) return false;
+        NoiseInvestigations++;
+        return true;
+    }
+
+    public static float NoiseHearingScore(float distance, float radius,
+            float intensity, float ageSeconds)
+    {
+        if (!float.IsFinite(distance) || !float.IsFinite(radius)
+                || !float.IsFinite(intensity) || !float.IsFinite(ageSeconds)
+                || distance < 0.0f || radius <= 0.0f || ageSeconds < 0.0f
+                || ageSeconds > NoiseLifetime || distance >= radius)
+            return 0.0f;
+
+        return Mathf.Clamp(intensity, 0.0f, 1.0f) * (1.0f - distance / radius)
+                * (1.0f - ageSeconds / NoiseLifetime);
+    }
+
+    /// <summary>Queued/freed mobs must never be dereferenced from a population list.</summary>
+    internal static bool IsTrackedMobUsable(Mob? mob) =>
+            mob != null && GodotObject.IsInstanceValid(mob);
 
     public override void _Process(double delta)
     {
@@ -71,12 +165,16 @@ public partial class Mobs : Node
             return;
         }
 
+        // QueueFree is deferred. Prune every frame so references queued for deletion
+        // on the previous frame cannot be read during day/night or population logic.
+        // Both collections are strictly population-capped, so this scan is bounded.
+        _passive.RemoveAll(static mob => !IsTrackedMobUsable(mob));
+        _hostiles.RemoveAll(static mob => !IsTrackedMobUsable(mob));
+
         _maintenanceTimer -= delta;
         if (_maintenanceTimer <= 0.0)
         {
             _maintenanceTimer = 0.5;
-            _passive.RemoveAll(static mob => !GodotObject.IsInstanceValid(mob));
-            _hostiles.RemoveAll(static mob => !GodotObject.IsInstanceValid(mob));
             Vector3 playerPosition = PlayerRef.GlobalPosition;
             _passive.RemoveAll(mob => DespawnFar(mob, playerPosition, PassiveDespawn));
             _hostiles.RemoveAll(mob => DespawnFar(mob, playerPosition, HostileDespawn));
@@ -85,39 +183,67 @@ public partial class Mobs : Node
         bool dark = DayNight.IsNight(World.TimeOfDay) || IsStorm;
         if (Settings.Difficulty == Settings.DifficultyPeaceful && _hostiles.Count > 0)
         {
-            foreach (Mob mob in _hostiles)
+            // Remove before QueueFree: deletion is deferred until the frame
+            // boundary, so validity filtering here would retain the wrapper
+            // and let the next frame read its disposed Node3D properties.
+            for (int i = _hostiles.Count - 1; i >= 0; i--)
             {
-                Puff(mob.GlobalPosition + new Vector3(0, 1.0f, 0), new Color(0.30f, 0.26f, 0.38f));
+                Mob mob = _hostiles[i];
+                _hostiles.RemoveAt(i);
+                if (!GodotObject.IsInstanceValid(mob))
+                {
+                    continue;
+                }
+
+                Vector3 position = mob.GlobalPosition;
+                Puff(position + new Vector3(0, 1.0f, 0), new Color(0.30f, 0.26f, 0.38f));
                 mob.QueueFree();
             }
-
-            _hostiles.Clear();
         }
         else if (!dark)
         {
             // Surface-only hostiles retreat at dawn. Cave fauna and the
             // dungeon boss are not affected by the surface day/night cycle.
-            foreach (Mob mob in _hostiles)
+            // Remove each surface actor from the population before deferred
+            // freeing so it cannot be revisited on the next population tick.
+            for (int i = _hostiles.Count - 1; i >= 0; i--)
             {
-                if (mob is EmberWarden or CaveStalker or CrystalWisp or Dreadwing
-                        || IsUnderground(mob.GlobalPosition))
+                Mob mob = _hostiles[i];
+                if (!GodotObject.IsInstanceValid(mob))
+                {
+                    _hostiles.RemoveAt(i);
+                    continue;
+                }
+
+                if (mob is EmberWarden or CaveStalker or CrystalWisp or Dreadwing)
                 {
                     continue;
                 }
 
-                Puff(mob.GlobalPosition + new Vector3(0, 1.0f, 0), new Color(0.28f, 0.24f, 0.36f));
+                Vector3 position = mob.GlobalPosition;
+                if (IsUnderground(position))
+                {
+                    continue;
+                }
+
+                _hostiles.RemoveAt(i);
+                Puff(position + new Vector3(0, 1.0f, 0), new Color(0.28f, 0.24f, 0.36f));
                 mob.QueueFree();
             }
-
-            _hostiles.RemoveAll(mob => !IsInstanceValid(mob));
         }
 
         _timer -= delta;
         if (_timer <= 0.0)
         {
             _timer = 2.5;
-            if (_passive.Count < PassiveTarget)
+            // Wild groups stop at the reserved target so an imminent birth
+            // always has room; a ready pair also pauses replenishment.
+            if (MobPopulationRules.CanSpawnWildGroup(_passive.Count)
+                    && !HasReadyBreedingPair())
             {
+                // Reserve an available population slot for an imminent birth.
+                // This keeps routine herd replenishment from starving the existing
+                // breeding system while still enforcing the same hard population cap.
                 SpawnPassiveGroup();
             }
         }
@@ -133,7 +259,7 @@ public partial class Mobs : Node
         if (_hostileTimer <= 0.0)
         {
             _hostileTimer = IsStorm ? 2.8 : 5.5;
-            int cap = Settings.Difficulty == Settings.DifficultyHard ? 10 : 7;
+            int cap = MobCombatRules.HostilePopulationCap;
             if (Settings.Difficulty != Settings.DifficultyPeaceful && _hostiles.Count < cap)
             {
                 bool underground = IsUnderground(PlayerRef.GlobalPosition);
@@ -171,6 +297,23 @@ public partial class Mobs : Node
     // -----------------------------------------------------------------------
     // Shared local perception: herd cohesion, flight response and alerts.
     // -----------------------------------------------------------------------
+
+    /// <summary>Threat-only steering for villagers; the player is not treated as hostile.</summary>
+    public Vector3 HostileThreatDirection(Mob source, float radius)
+    {
+        Vector3 flee = Vector3.Zero;
+        float radiusSquared = radius * radius;
+        foreach (Mob threat in _hostiles)
+        {
+            if (!IsInstanceValid(threat) || threat.Dead || threat == source) continue;
+            Vector3 away = source.GlobalPosition - threat.GlobalPosition;
+            away.Y = 0.0f;
+            float distanceSquared = away.LengthSquared();
+            if (distanceSquared > 0.001f && distanceSquared < radiusSquared)
+                flee += away.Normalized() * (1.0f - Mathf.Sqrt(distanceSquared) / radius);
+        }
+        return flee.LengthSquared() > 0.01f ? flee.Normalized() : Vector3.Zero;
+    }
 
     public Vector3 FleeDirection(Mob source, float radius)
     {
@@ -215,6 +358,7 @@ public partial class Mobs : Node
     {
         Vector3 centre = Vector3.Zero;
         Vector3 separation = Vector3.Zero;
+        Vector3 averageVelocity = Vector3.Zero;
         int neighbours = 0;
         float radiusSq = radius * radius;
 
@@ -235,6 +379,7 @@ public partial class Mobs : Node
             }
 
             centre += other.GlobalPosition;
+            averageVelocity += other.Velocity;
             neighbours++;
             if (d2 < 2.8f * 2.8f)
             {
@@ -249,7 +394,15 @@ public partial class Mobs : Node
 
         Vector3 cohesion = centre / neighbours - source.GlobalPosition;
         cohesion.Y = 0.0f;
-        return cohesion.Normalized() * 0.55f + separation * 1.2f;
+        return cohesion.Normalized() * 0.55f + separation * 1.2f
+                + HerdAlignmentDirection(averageVelocity / neighbours);
+    }
+
+    public static Vector3 HerdAlignmentDirection(Vector3 averageVelocity)
+    {
+        averageVelocity.Y = 0.0f;
+        return averageVelocity.LengthSquared() > 0.01f
+                ? averageVelocity.Normalized() * 0.22f : Vector3.Zero;
     }
 
     public void AlertHostiles(Vector3 position, float radius, float seconds = 8.0f)
@@ -411,7 +564,8 @@ public partial class Mobs : Node
 
     private void SpawnPassiveGroup()
     {
-        if (World == null || PlayerRef == null)
+        if (World == null || PlayerRef == null
+                || !MobPopulationRules.CanSpawnWildGroup(_passive.Count))
         {
             return;
         }
@@ -447,8 +601,8 @@ public partial class Mobs : Node
 
         HerdProfile herd = HerdProfile.For(prototype);
         int groupSize = _rng.RandiRange(herd.Minimum, herd.Maximum);
-        groupSize = Mathf.Min(groupSize, PassiveTarget - _passive.Count);
-        for (int i = 0; i < groupSize && _passive.Count < PassiveTarget; i++)
+        groupSize = MobPopulationRules.LimitWildGroup(_passive.Count, groupSize);
+        for (int i = 0; i < groupSize && MobPopulationRules.CanSpawnWildGroup(_passive.Count); i++)
         {
             Vector3 spawn = point;
             if (i > 0)
@@ -483,9 +637,30 @@ public partial class Mobs : Node
         _ => new Sheep(),
     };
 
+    private bool HasReadyBreedingPair()
+    {
+        for (int i = 0; i < _passive.Count; i++)
+        {
+            Mob first = _passive[i];
+            if (!IsTrackedMobUsable(first) || first.Dead || first.IsBaby || !first.InLove)
+                continue;
+
+            for (int j = i + 1; j < _passive.Count; j++)
+            {
+                Mob second = _passive[j];
+                if (IsTrackedMobUsable(second) && !second.Dead
+                        && first.CanBreedWith(second)
+                        && first.GlobalPosition.DistanceSquaredTo(second.GlobalPosition) <= 9.0f)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     private void TryBreedPassives()
     {
-        if (_passive.Count < 2 || _passive.Count >= PassiveTarget)
+        if (!MobPopulationRules.CanBreed(_passive.Count))
         {
             return;
         }
@@ -518,7 +693,7 @@ public partial class Mobs : Node
                 first.MarkBred();
                 second.MarkBred();
                 SpawnMob(baby, childPosition, 0.0f, false);
-                baby.SetBaby();
+                baby.SetBaby(90.0f, first, second);
                 Puff(childPosition + new Vector3(0, 1.0f, 0), new Color(1.0f, 0.55f, 0.72f));
                 SoundRef?.Play("mobgrowl", childPosition, 1.35f, -8.0f);
                 PlayerRef?.EmitSignal(Player.SignalName.Notice, $"A baby {baby.DisplayName} was born");
@@ -609,7 +784,7 @@ public partial class Mobs : Node
         int x = Mathf.FloorToInt(point.X);
         int z = Mathf.FloorToInt(point.Z);
         Biome biome = World.BiomeAt(x, z, World.SurfaceHeight(x, z));
-        int cap = Settings.Difficulty == Settings.DifficultyHard ? 10 : 7;
+        int cap = MobCombatRules.HostilePopulationCap;
         int roll = _rng.RandiRange(0, 99);
 
         // Keep the rare flier to one active encounter at a time.
@@ -663,6 +838,11 @@ public partial class Mobs : Node
     {
         bool hostile = kind is "shade" or "rot" or "hollow" or "warden"
                 or "stalker" or "briarback" or "crystalwisp" or "dreadwing";
+        if (count <= 0 || (hostile && Settings.Difficulty == Settings.DifficultyPeaceful))
+        {
+            return 0;
+        }
+
         int spawned = 0;
         for (int i = 0; i < count; i++)
         {
@@ -710,6 +890,11 @@ public partial class Mobs : Node
     /// <summary>Dungeon hook: place the boss at an exact arena position.</summary>
     public EmberWarden? SpawnWarden(Vector3 pos)
     {
+        if (Settings.Difficulty == Settings.DifficultyPeaceful)
+        {
+            return null;
+        }
+
         EmberWarden warden = new();
         SpawnMob(warden, pos, 0.2f, true);
         return warden;
@@ -718,6 +903,11 @@ public partial class Mobs : Node
     /// <summary>Boss phase hook: summon adds around an arena position.</summary>
     public void SpawnAdds(Vector3 center, int count)
     {
+        if (Settings.Difficulty == Settings.DifficultyPeaceful || count <= 0)
+        {
+            return;
+        }
+
         for (int i = 0; i < count; i++)
         {
             float angle = i * Mathf.Tau / Mathf.Max(count, 1);
@@ -730,19 +920,29 @@ public partial class Mobs : Node
     /// <summary>Respawn/sleep safety: poof hostile mobs within radius of a point.</summary>
     public void ClearHostilesNear(Vector3 pos, float radius)
     {
-        foreach (Mob mob in _hostiles)
+        float radiusSquared = radius * radius;
+        for (int i = _hostiles.Count - 1; i >= 0; i--)
         {
-            if (mob.GlobalPosition.DistanceSquaredTo(pos) > radius * radius)
+            Mob mob = _hostiles[i];
+            if (!GodotObject.IsInstanceValid(mob))
+            {
+                _hostiles.RemoveAt(i);
+                continue;
+            }
+
+            Vector3 mobPosition = mob.GlobalPosition;
+            if (mobPosition.DistanceSquaredTo(pos) > radiusSquared)
             {
                 continue;
             }
 
-            Puff(mob.GlobalPosition + new Vector3(0, 1.0f, 0),
+            // QueueFree is deferred; remove from the live-population collection
+            // before the node becomes a disposed wrapper on a later frame.
+            _hostiles.RemoveAt(i);
+            Puff(mobPosition + new Vector3(0, 1.0f, 0),
                     new Color(0.30f, 0.26f, 0.38f));
             mob.QueueFree();
         }
-
-        _hostiles.RemoveAll(mob => !IsInstanceValid(mob));
     }
 
     // -----------------------------------------------------------------------
@@ -751,6 +951,12 @@ public partial class Mobs : Node
 
     private void OnMobDied(Mob mob)
     {
+        // Remove synchronously while the dying actor is still valid. Mob.Die
+        // queues deletion after raising this event, which is too late for
+        // deferred validity-based pruning in the population manager.
+        _passive.Remove(mob);
+        _hostiles.Remove(mob);
+        MobDefeated?.Invoke(mob);
         Vector3 pos = mob.GlobalPosition + new Vector3(0, 0.7f, 0);
         bool passive = mob.IsPassive;
         Puff(pos, passive ? new Color(0.90f, 0.88f, 0.84f)
@@ -767,7 +973,7 @@ public partial class Mobs : Node
         SoundRef?.Play(sound, pos, passive ? 1.0f : 0.9f, -2.0f);
 
         if (PlayerRef == null) return;
-        int experience = mob is EmberWarden ? 25 : passive ? 1 : 5;
+        int experience = MobCombatRules.ExperienceReward(mob);
         PlayerRef.Stats.AddExperience(experience);
         PlayerRef.EmitSignal(Player.SignalName.Notice, $"+{experience} XP");
         if (mob.Loot.Length == 0) return;
@@ -789,6 +995,7 @@ public partial class Mobs : Node
             int gained = count - leftover;
             if (gained > 0)
             {
+                PlayerRef.RecordGathered(id, gained);
                 PlayerRef.EmitSignal(Player.SignalName.Notice,
                         $"+{gained} {ItemDb.NameOf(id)}");
             }
@@ -822,8 +1029,13 @@ public partial class Mobs : Node
         {
             foreach (Mob herdMate in _passive)
             {
-                if (herdMate != mob && herdMate.GlobalPosition.DistanceSquaredTo(
-                        mob.GlobalPosition) < 10.0f * 10.0f)
+                if (!GodotObject.IsInstanceValid(herdMate) || herdMate == mob)
+                {
+                    continue;
+                }
+
+                if (herdMate.GlobalPosition.DistanceSquaredTo(mob.GlobalPosition)
+                        < 10.0f * 10.0f)
                 {
                     herdMate.SetAlerted(5.0f, info.Source);
                 }

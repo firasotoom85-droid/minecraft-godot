@@ -25,50 +25,84 @@ public sealed class FurnaceData
 
     public bool IsEmpty => Input.IsEmpty && Fuel.IsEmpty && Output.IsEmpty && BurnTime <= 0.0f && SmeltTime <= 0.0f;
 
-    /// <summary>Advance one tick; returns true when visible state changed.</summary>
+    /// <summary>Advance one tick; carries elapsed time across fuel boundaries.</summary>
     public bool Tick(float delta)
     {
-        bool changed = false;
-        if (BurnTime > 0.0f)
+        if (delta <= 0.0f)
         {
-            BurnTime = Math.Max(BurnTime - delta, 0.0f);
-            changed = true;
+            return false;
         }
 
+        bool changed = false;
         ItemId? result = Input.IsEmpty ? null : ItemDb.SmeltsTo(Input.Id);
-        bool canAccept = result is { } r && CanAccept(r);
         if (result != _smeltResult)
         {
-            // Keep the null sentinel: comparing null against a non-nullable
-            // ItemId.None is always true and would dirty the world every tick.
             _smeltResult = result;
             SmeltTime = 0.0f;
             changed = true;
         }
 
-        if (BurnTime <= 0.0f && canAccept && !Fuel.IsEmpty)
+        bool canAccept = result is { } output && CanAccept(output);
+        float remaining = delta;
+        while (remaining > 0.000001f)
         {
-            float seconds = ItemDb.FuelSeconds(Fuel.Id);
-            if (seconds > 0.0f)
+            if (BurnTime <= 0.0f)
             {
+                if (!canAccept || Fuel.IsEmpty)
+                {
+                    break;
+                }
+
+                float seconds = ItemDb.FuelSeconds(Fuel.Id);
+                if (seconds <= 0.0f)
+                {
+                    break;
+                }
+
                 Fuel = Fuel.Count <= 1 ? ItemStack.Empty : Fuel with { Count = Fuel.Count - 1 };
                 BurnTime = BurnMax = seconds;
                 changed = true;
             }
-        }
 
-        if (canAccept && BurnTime > 0.0f)
-        {
-            SmeltTime += delta;
-            if (SmeltTime >= SmeltSeconds)
+            float step = Math.Min(remaining, BurnTime);
+            BurnTime = Math.Max(BurnTime - step, 0.0f);
+            remaining -= step;
+            changed = true;
+
+            if (!canAccept)
+            {
+                if (SmeltTime > 0.0f)
+                {
+                    SmeltTime = 0.0f;
+                    changed = true;
+                }
+
+                continue;
+            }
+
+            SmeltTime += step;
+            while (SmeltTime >= SmeltSeconds && canAccept)
             {
                 Input = Input.Count <= 1 ? ItemStack.Empty : Input with { Count = Input.Count - 1 };
                 AddOutput(result!.Value);
+                SmeltTime -= SmeltSeconds;
+                changed = true;
+
+                // Input is a homogeneous stack, but output capacity can become
+                // exhausted while processing a large elapsed-time step.
+                canAccept = !Input.IsEmpty && ItemDb.SmeltsTo(Input.Id) is { } next
+                        && next == result.Value && CanAccept(next);
+            }
+
+            if (!canAccept && SmeltTime > 0.0f)
+            {
                 SmeltTime = 0.0f;
                 changed = true;
             }
         }
-        else if (SmeltTime > 0.0f)
+
+        if (SmeltTime > 0.0f && (!canAccept || (BurnTime <= 0.0f
+                && (Fuel.IsEmpty || ItemDb.FuelSeconds(Fuel.Id) <= 0.0f))))
         {
             SmeltTime = 0.0f;
             changed = true;

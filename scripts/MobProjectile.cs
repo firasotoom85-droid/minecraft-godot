@@ -5,8 +5,8 @@ namespace Minecraft;
 public static class MobProjectileRules
 {
     public static bool ShouldStopOnTerrain(bool terrainHit) => terrainHit;
-    public static bool ShouldDamagePlayer(bool playerHit, bool terrainHit) =>
-            playerHit && !terrainHit;
+    public static bool ShouldDamagePlayer(bool playerHit, bool terrainHit, bool peaceful = false) =>
+            playerHit && !terrainHit && !peaceful;
 }
 
 public partial class MobProjectile : Area3D
@@ -60,6 +60,12 @@ public partial class MobProjectile : Area3D
 
     public override void _PhysicsProcess(double delta)
     {
+        if (Settings.Difficulty == Settings.DifficultyPeaceful)
+        {
+            QueueFree();
+            return;
+        }
+
         _life -= (float)delta;
         if (_life <= 0.0f)
         {
@@ -84,7 +90,8 @@ public partial class MobProjectile : Area3D
 
     private void OnBodyEntered(Node3D body)
     {
-        if (body is Player player && MobProjectileRules.ShouldDamagePlayer(true, false))
+        if (body is Player player && MobProjectileRules.ShouldDamagePlayer(true, false,
+                Settings.Difficulty == Settings.DifficultyPeaceful))
         {
             if (player.ApplyDamage(new DamageInfo(_damage, DamageKind.Projectile,
                     _source, 1.8f, 0.8f)))

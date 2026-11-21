@@ -9,6 +9,8 @@ public partial class CaveStalker : Mob
     private float _pounceTime;
     private double _attackCooldown;
 
+    protected override float HearingMultiplier => 1.25f;
+
     public CaveStalker()
     {
         MaxHealth = 11.0f;
@@ -56,7 +58,8 @@ public partial class CaveStalker : Mob
         _pounceCooldown -= delta;
         _attackCooldown -= delta;
         _pounceTime = Mathf.Max(0.0f, _pounceTime - (float)delta);
-        MovementMultiplier = _pounceTime > 0.0f ? 2.65f : 1.0f;
+        MovementMultiplier = _pounceTime > 0.0f
+                ? 2.65f * DarknessDangerMultiplier(3.0f, 1.18f) : 1.0f;
 
         if (Manager?.PlayerRef is not { } player || player.Stats.Dead)
         {
@@ -82,7 +85,8 @@ public partial class CaveStalker : Mob
                 return remembered.LengthSquared() > 1.0f ? remembered : Vector3.Zero;
             }
 
-            return Vector3.Zero;
+            return TryInvestigateSound(out Vector3 soundDirection)
+                    ? soundDirection : Vector3.Zero;
         }
 
         RememberTarget(player.GlobalPosition);
@@ -90,7 +94,9 @@ public partial class CaveStalker : Mob
         if (distance < 1.85f && MobCombatRules.CanAttack((float)_attackCooldown, true))
         {
             _attackCooldown = 1.15;
-            if (player.ApplyDamage(new DamageInfo(3.0f, DamageKind.Melee,
+            float damage = MobCombatRules.DamageForDifficulty(3.0f, 3.6f)
+                    * DarknessDangerMultiplier(3.0f, 1.18f);
+            if (player.ApplyDamage(new DamageInfo(damage, DamageKind.Melee,
                     GlobalPosition, 4.2f, 2.2f)))
             {
                 Manager?.Puff(player.GlobalPosition + new Vector3(0, 0.8f, 0),

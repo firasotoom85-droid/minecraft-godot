@@ -52,6 +52,13 @@ public enum ItemId : byte
     FishingRod, RawFish, CookedFish,
     // Appended persisted IDs: prior item values remain unchanged.
     WoodSword, StoneSword, IronSword, DiamondSword, Bow, Arrow, Shield, EmberBlade, LapisLazuli, EnchantingTable,
+
+    // Advanced voxel building (append-only persisted IDs).
+    PlanksSlab, CobblestoneSlab, BrickSlab, PlanksStairs, CobblestoneStairs, BrickStairs,
+
+    // Transportation and fluid containers (appended after the building ids
+    // so both independently proposed ranges stay unique and stable).
+    EmptyBucket, WaterBucket, LavaBucket, WoodenBoat,
 }
 
 public enum ToolKind : byte

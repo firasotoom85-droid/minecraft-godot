@@ -73,6 +73,8 @@ public partial class VoxelWorld : Node3D
 
     /// <summary>Raised after a successful main-thread block mutation.</summary>
     public event Action<Vector3I>? BlockChanged;
+    /// <summary>Systems that cache live state (villagers) flush it before serialization.</summary>
+    public event Action? BeforeSave;
 
     public Vector3? SavedPlayerPos;      // from the save file
     public List<ItemStackSave>? SavedInventory;   // null = pre-items save, gets the starter kit
@@ -82,12 +84,16 @@ public partial class VoxelWorld : Node3D
     public float SavedHunger = -1.0f;
     public int SavedExperience;
     public Vector3? SavedRespawn;        // campfire anchor, null = world spawn
+    public List<BoatSave>? SavedBoats;   // optional vehicle state; absent in older saves
+    public BoatSystem? BoatSystem;
 
     // Save v3: per-block inventories (chests/furnaces) and one-time world
     // flags (dungeon clears, achievements). Keys are stable block coordinates.
     public readonly Dictionary<string, Container> Containers = [];
     public readonly Dictionary<string, FurnaceData> Furnaces = [];
     public readonly Dictionary<string, bool> Flags = [];
+    public readonly Dictionary<string, VillagerSave> Villagers = [];
+    public readonly Dictionary<string, QuestProgressSave> Quests = [];
 
     /// <summary>New worlds default to survival; pre-M2 worlds stay creative.</summary>
     public string DefaultMode => _manifest.Mode == "survival" ? "survival" : "creative";
@@ -100,7 +106,9 @@ public partial class VoxelWorld : Node3D
     public bool HasChunk(Vector2I cp) => _chunks.ContainsKey(cp);
 
     private readonly Dictionary<Vector2I, byte[]> _dataCache = new();
-    private readonly Dictionary<Vector2I, Dictionary<int, BlockId>> _edits = new();  // persisted
+    private readonly Dictionary<Vector2I, Dictionary<int, BlockId>> _edits = new();  // persisted block IDs
+    private readonly Dictionary<Vector2I, Dictionary<int, byte>> _blockStateEdits = new(); // optional persisted shape state
+    private readonly Dictionary<Vector2I, byte[]> _blockStateCache = new();
     private readonly Dictionary<Vector3I, byte> _lightSources = [];  // all block emitters, 0..15
     private readonly HashSet<Vector2I> _sourceScannedChunks = [];
     private readonly Dictionary<Vector2I, byte[]> _skyLightCache = [];
@@ -211,8 +219,9 @@ public partial class VoxelWorld : Node3D
         _islandNoise.FractalType = FastNoiseLite.FractalTypeEnum.Fbm;
         _islandNoise.FractalOctaves = 2;
 
-        // V7 owns independent noise resources; legacy noise stays frozen.
+        // V7 and V8 own independent noise resources; legacy noise stays frozen.
         InitializeWorldGenV7();
+        InitializeWorldGenV8();
 
         _farLod = new FarLod();
         _farLod.Name = "FarLod";
@@ -265,6 +274,12 @@ public partial class VoxelWorld : Node3D
 
     public (int Height, Biome Biome) SurfaceSampleAt(int wx, int wz)
     {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            WorldGenV7.SurfaceSample sample = GeneratorV8.SampleSurface(wx, wz, SeaLevel);
+            return (sample.Height, sample.Biome);
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             WorldGenV7.SurfaceSample sample = GeneratorV7.SampleSurface(wx, wz, SeaLevel);
@@ -277,6 +292,11 @@ public partial class VoxelWorld : Node3D
 
     public int SurfaceHeight(int wx, int wz)
     {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            return GeneratorV8.SurfaceHeight(wx, wz, SeaLevel);
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             return GeneratorV7.SurfaceHeight(wx, wz, SeaLevel);
@@ -334,6 +354,11 @@ public partial class VoxelWorld : Node3D
 
     public bool IsCave(int x, int y, int z, int h)
     {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            return GeneratorV8.IsCave(x, y, z, h);
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             return GeneratorV7.IsCave(x, y, z, h);
@@ -388,6 +413,11 @@ public partial class VoxelWorld : Node3D
     /// decorators), which halves the noise work per column.</summary>
     public Biome BiomeAt(int x, int z, int h)
     {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            return GeneratorV8.BiomeAt(x, z, h, SeaLevel);
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             return GeneratorV7.BiomeAt(x, z, h, SeaLevel);
@@ -484,6 +514,11 @@ public partial class VoxelWorld : Node3D
             return BlockId.Air;
         }
 
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            return BlockAtV8(x, y, z, h, biome);
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             return BlockAtV7(x, y, z, h, biome);
@@ -558,9 +593,11 @@ public partial class VoxelWorld : Node3D
     }
 
     /// <summary>True in sky-preset worlds where floating land exists at (x, z).</summary>
-    public bool IslandAt(int x, int z) => _genVersion >= WorldGenV7.Version
-            ? GeneratorV7.IsIsland(x, z)
-            : _islandNoise.GetNoise2D(x, z) > 0.05;
+    public bool IslandAt(int x, int z) => _genVersion >= WorldGenV8.Version
+            ? GeneratorV8.IsIsland(x, z)
+            : _genVersion >= WorldGenV7.Version
+                    ? GeneratorV7.IsIsland(x, z)
+                    : _islandNoise.GetNoise2D(x, z) > 0.05;
 
     /// <summary>True for the gen v5 floating-islands preset (minimap/LOD skip empty sky).</summary>
     public bool IsSky => _preset == "sky";
@@ -578,6 +615,11 @@ public partial class VoxelWorld : Node3D
 
     public TreeInfo? GetTreeAt(int tx, int tz)
     {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            return GetTreeAtV8(tx, tz);
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             return GetTreeAtV7(tx, tz);
@@ -626,7 +668,13 @@ public partial class VoxelWorld : Node3D
 
         int h;
         Biome biome;
-        if (_genVersion >= WorldGenV7.Version)
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            WorldGenV7.SurfaceSample surface = GeneratorV8.SampleSurface(tx, tz, SeaLevel);
+            h = surface.Height;
+            biome = surface.Biome;
+        }
+        else if (_genVersion >= WorldGenV7.Version)
         {
             WorldGenV7.SurfaceSample surface = GeneratorV7.SampleSurface(tx, tz, SeaLevel);
             h = surface.Height;
@@ -659,8 +707,10 @@ public partial class VoxelWorld : Node3D
         // byte-identical forever; newer worlds use our own frozen integer hash.
         ulong rngSeed = _genVersion <= 1
                 ? (ulong)((uint)GD.Hash(new Vector2I(cx, cz)) ^ 0x1D872B41u)
-                : _genVersion >= WorldGenV7.Version
-                        ? GeneratorV7.CoordinateHash(cx, 19532, cz, 0x43414D50u)
+                : _genVersion >= WorldGenV8.Version
+                        ? GeneratorV8.CoordinateHash(cx, 19532, cz, 0x43414D50u)
+                        : _genVersion >= WorldGenV7.Version
+                                ? GeneratorV7.CoordinateHash(cx, 19532, cz, 0x43414D50u)
                         : (ulong)(Hash3(cx, 19532, cz) & 0x7FFFFFFFFFFFFFFFL);
         // Thread-local generator: the sequence must stay identical, but the
         // object is pure scratch and is reached ~9 times per generated chunk.
@@ -675,7 +725,13 @@ public partial class VoxelWorld : Node3D
 
         int h;
         Biome biome;
-        if (_genVersion >= WorldGenV7.Version)
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            WorldGenV7.SurfaceSample surface = GeneratorV8.SampleSurface(x, z, SeaLevel);
+            h = surface.Height;
+            biome = surface.Biome;
+        }
+        else if (_genVersion >= WorldGenV7.Version)
         {
             WorldGenV7.SurfaceSample surface = GeneratorV7.SampleSurface(x, z, SeaLevel);
             h = surface.Height;
@@ -768,6 +824,11 @@ public partial class VoxelWorld : Node3D
     /// <summary>Structure site for one cell, or null (kind 0 tower / 1 ruin / 2 mine).</summary>
     public StructureInfo? GetStructureSite(int cx, int cz)
     {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            return GetStructureSiteV8(cx, cz);
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             return GetStructureSiteV7(cx, cz);
@@ -967,7 +1028,13 @@ public partial class VoxelWorld : Node3D
                 int wz = oz + z;
                 int h;
                 Biome biome;
-                if (_genVersion >= WorldGenV7.Version)
+                if (_genVersion >= WorldGenV8.Version)
+                {
+                    WorldGenV7.SurfaceSample sample = GeneratorV8.SampleSurface(wx, wz, SeaLevel);
+                    h = sample.Height;
+                    biome = sample.Biome;
+                }
+                else if (_genVersion >= WorldGenV7.Version)
                 {
                     WorldGenV7.SurfaceSample sample = GeneratorV7.SampleSurface(wx, wz, SeaLevel);
                     h = sample.Height;
@@ -1076,6 +1143,11 @@ public partial class VoxelWorld : Node3D
             if (_genVersion >= WorldGenV7.Version)
             {
                 StampUndergroundStructuresV7(data, strideY, ox, oz);
+            }
+
+            if (_genVersion >= 8)
+            {
+                StampVillagesV8(data, strideY, ox, oz);
             }
         }
 
@@ -1236,6 +1308,12 @@ public partial class VoxelWorld : Node3D
 
     private void StampDecorators(byte[] data, int strideY, int ox, int oz)
     {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            StampDecoratorsV8(data, strideY, ox, oz);
+            return;
+        }
+
         if (_genVersion >= WorldGenV7.Version)
         {
             StampDecoratorsV7(data, strideY, ox, oz);
@@ -1723,8 +1801,45 @@ public partial class VoxelWorld : Node3D
         return (BlockId)ChunkData(cp)[lx + lz * ChunkX + y * ChunkX * ChunkZ];
     }
 
-    public bool SetBlock(int x, int y, int z, BlockId id)
+    /// <summary>Backward-compatible reads: absent state entries are state zero.</summary>
+    public byte GetBlockState(int x, int y, int z)
     {
+        if (y < 0 || y >= Height) return 0;
+        Vector2I cp = new(Mathf.FloorToInt(x / (float)ChunkX), Mathf.FloorToInt(z / (float)ChunkZ));
+        int lx = x - cp.X * ChunkX;
+        int lz = z - cp.Y * ChunkZ;
+        int index = lx + lz * ChunkX + y * ChunkX * ChunkZ;
+        lock (_mutex)
+            return _blockStateEdits.TryGetValue(cp, out Dictionary<int, byte>? states)
+                && states.TryGetValue(index, out byte state) ? state : (byte)0;
+    }
+
+    /// <summary>State array aligned with ChunkData; default-state chunks allocate no dense buffer.</summary>
+    public byte[] ChunkBlockStates(Vector2I cp)
+    {
+        lock (_mutex)
+        {
+            if (_blockStateCache.TryGetValue(cp, out byte[]? cached)) return cached;
+            if (!_blockStateEdits.TryGetValue(cp, out Dictionary<int, byte>? edits) || edits.Count == 0)
+            {
+                _blockStateCache[cp] = System.Array.Empty<byte>();
+                return System.Array.Empty<byte>();
+            }
+
+            byte[] states = new byte[ChunkX * Height * ChunkZ];
+            foreach ((int index, byte state) in edits)
+                if ((uint)index < (uint)states.Length) states[index] = state;
+            _blockStateCache[cp] = states;
+            return states;
+        }
+    }
+
+    public bool SetBlock(int x, int y, int z, BlockId id) => SetBlock(x, y, z, id, 0);
+
+    /// <summary>All block and shape-state edits pass through this mutation seam.</summary>
+    public bool SetBlock(int x, int y, int z, BlockId id, byte state)
+    {
+        state = BlockShapes.NormalizeState(id, state);
         if (y <= 0 || y >= Height)
         {
             return false;
@@ -1749,7 +1864,7 @@ public partial class VoxelWorld : Node3D
             // Chunk.Blocks is also read by worker meshing. Mutate it while
             // holding the snapshot lock so payload data and EditEpoch agree.
             byte oldBlock = c.Blocks[i];
-            if (!c.SetBlockLocal(lx, y, lz, id))
+            if (!c.SetBlockLocal(lx, y, lz, id, state))
             {
                 return false;
             }
@@ -1766,6 +1881,22 @@ public partial class VoxelWorld : Node3D
 
                 d[i] = id;
                 _dataCache[cp] = c.Blocks;
+                if (state == 0)
+                {
+                    if (_blockStateEdits.TryGetValue(cp, out Dictionary<int, byte>? existingStates)
+                            && existingStates.Remove(i) && existingStates.Count == 0)
+                    {
+                        _blockStateEdits.Remove(cp);
+                        c.ReleaseBlockStates();
+                    }
+                }
+                else
+                {
+                    if (!_blockStateEdits.TryGetValue(cp, out Dictionary<int, byte>? stateEdits))
+                        _blockStateEdits[cp] = stateEdits = [];
+                    stateEdits[i] = state;
+                }
+                _blockStateCache[cp] = c.BlockStates;
                 UpdateEditTop(cp, lx, lz, c.Blocks);
 
                 byte oldOpacity = oldBlock < BlockDb.LightOpacity.Length
@@ -2234,6 +2365,10 @@ public partial class VoxelWorld : Node3D
 
         if (_groupActive && WorkerThreadPool.IsGroupTaskCompleted(_group))
         {
+            // Completion does not release the WorkerThreadPool group handle.
+            // Wait once to reclaim it before dispatching the next batch or
+            // quitting the scene; otherwise shutdown reports live Group objects.
+            WorkerThreadPool.WaitForGroupTaskCompletion(_group);
             _groupActive = false;
         }
 
@@ -2429,6 +2564,7 @@ public partial class VoxelWorld : Node3D
         {
             bool Outside(Vector2I cp) => Mathf.Abs(cp.X - pcp.X) > limit + 1 || Mathf.Abs(cp.Y - pcp.Y) > limit + 1;
             foreach (Vector2I cp in _dataCache.Keys.Where(Outside).ToArray()) _dataCache.Remove(cp);
+            foreach (Vector2I cp in _blockStateCache.Keys.Where(Outside).ToArray()) _blockStateCache.Remove(cp);
             foreach (Vector2I cp in _skyLightCache.Keys.Where(Outside).ToArray()) _skyLightCache.Remove(cp);
             foreach (Vector2I cp in _blockLightCache.Keys.Where(Outside).ToArray()) _blockLightCache.Remove(cp);
             foreach (Vector2I cp in _voxelLightCache.Keys.Where(Outside).ToArray()) _voxelLightCache.Remove(cp);
@@ -2446,6 +2582,7 @@ public partial class VoxelWorld : Node3D
 
     public void SaveNow()
     {
+        BeforeSave?.Invoke();
         Dictionary<string, Dictionary<string, BlockId>> editsOut = [];
         foreach ((Vector2I cp, Dictionary<int, BlockId> inner) in _edits)
         {
@@ -2490,13 +2627,22 @@ public partial class VoxelWorld : Node3D
             }
         }
 
+        Dictionary<string, Dictionary<string, byte>> blockStatesOut = [];
+        foreach ((Vector2I cp, Dictionary<int, byte> states) in _blockStateEdits)
+            if (states.Count > 0)
+                blockStatesOut[$"{cp.X},{cp.Y}"] = states.ToDictionary(e => e.Key.ToString(), e => e.Value);
+
         WorldSave world = new(
                 WorldStore.WorldFormatVersion,
                 editsOut,
                 TimeOfDay,
                 containers,
                 Flags.Count == 0 ? null : Flags,
-                furnaces);
+                furnaces,
+                blockStatesOut.Count == 0 ? null : blockStatesOut,
+                Villagers.Count == 0 ? null : Villagers,
+                Quests.Count == 0 ? null : Quests,
+                BoatSystem != null ? BoatSystem.ToSave() : SavedBoats);
         bool worldSaved = WorldStore.WriteAtomic(
                 WorldStore.WorldSavePath(_worldDir),
                 JsonSerializer.Serialize(world, WorldStore.Json));
@@ -2617,6 +2763,30 @@ public partial class VoxelWorld : Node3D
             }
         }
 
+        // Optional, backward-compatible shape extension. Only valid non-zero
+        // states on a persisted shape block are accepted; older saves omit it.
+        if (world?.BlockStates != null)
+        {
+            foreach ((string key, Dictionary<string, byte> inner) in world.BlockStates)
+            {
+                string[] parts = key.Split(',');
+                if (parts.Length != 2 || !int.TryParse(parts[0], out int cx)
+                        || !int.TryParse(parts[1], out int cz)) continue;
+                Vector2I cp = new(cx, cz);
+                if (!_edits.TryGetValue(cp, out Dictionary<int, BlockId>? blocks)) continue;
+                Dictionary<int, byte> states = [];
+                foreach ((string index, byte state) in inner)
+                {
+                    if (!int.TryParse(index, out int i) || (uint)i >= (uint)(ChunkX * Height * ChunkZ)
+                            || !blocks.TryGetValue(i, out BlockId id) || !BlockShapes.IsShape(id)
+                            || state == 0 || !BlockShapes.IsValidState(id, state))
+                        continue;
+                    states[i] = state;
+                }
+                if (states.Count > 0) _blockStateEdits[cp] = states;
+            }
+        }
+
         // _editTops is normally maintained by SetBlock only; rebuild it from
         // the loaded edits so far LOD and the minimap show builds immediately
         // after a restart.
@@ -2644,6 +2814,7 @@ public partial class VoxelWorld : Node3D
             }
 
             TimeOfDay = Mathf.Clamp(world.Time, 0.0, 1.0);
+            SavedBoats = world.Boats;
             if (world.Containers != null)
             {
                 foreach ((string key, List<ItemStackSave> items) in world.Containers)
@@ -2677,6 +2848,31 @@ public partial class VoxelWorld : Node3D
                     };
                     furnace.LoadFrom(saved.Slots);
                     Furnaces[key] = furnace;
+                }
+            }
+
+            if (world.Villagers != null)
+            {
+                foreach ((string key, VillagerSave saved) in world.Villagers)
+                {
+                    if (saved != null && saved.Id == key
+                            && saved.Position is { Length: 3 }
+                            && saved.Home is { Length: 3 }
+                            && saved.Work is { Length: 3 })
+                    {
+                        Villagers[key] = saved;
+                    }
+                }
+            }
+
+            if (world.Quests != null)
+            {
+                foreach ((string key, QuestProgressSave saved) in world.Quests)
+                {
+                    if (saved != null && saved.Stage >= 0 && saved.Progress >= 0)
+                    {
+                        Quests[key] = saved;
+                    }
                 }
             }
         }
