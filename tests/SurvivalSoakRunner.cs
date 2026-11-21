@@ -25,6 +25,8 @@ public partial class SurvivalSoakRunner : Node
     private bool _inCave;
     private int _caveEncounters;
     private int _babiesObserved;
+    private int _noiseStimuli;
+    private int _nonFinitePositionObservations;
 
     public override void _Ready()
     {
@@ -100,17 +102,22 @@ public partial class SurvivalSoakRunner : Node
 
         foreach (Node child in _mobs.GetChildren())
         {
-            if (child is Mob { IsBaby: true })
+            if (child is Mob mob)
             {
-                _babiesObserved++;
-                break;
+                Vector3 position = mob.GlobalPosition;
+                if (!float.IsFinite(position.X) || !float.IsFinite(position.Y)
+                        || !float.IsFinite(position.Z))
+                    _nonFinitePositionObservations++;
+
+                if (mob.IsBaby)
+                    _babiesObserved++;
             }
         }
 
         if (_reportTimer >= 60.0)
         {
             _reportTimer = 0.0;
-            GD.Print($"SOAK minute={_elapsed / 60.0:0} passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} caveEncounters={_caveEncounters}");
+            GD.Print($"SOAK minute={_elapsed / 60.0:0} passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} caveEncounters={_caveEncounters} noiseInvestigations={_mobs.NoiseInvestigations} invalidPositions={_nonFinitePositionObservations}");
         }
 
         if (_elapsed >= _duration)
@@ -185,6 +192,11 @@ public partial class SurvivalSoakRunner : Node
 
     private void FeedHerds()
     {
+        Vector3 soundOrigin = _player.GlobalPosition + new Vector3(0, 1.0f, 0);
+        _player.EmitSignal(Player.SignalName.MiningTick, soundOrigin, (int)BlockId.Stone);
+        _player.EmitSignal(Player.SignalName.BlockPlaced, soundOrigin, (int)BlockId.Torch);
+        _noiseStimuli += 2;
+
         _player.Inventory.Add(ItemId.Wheat, 16);
         _player.Inventory.Add(ItemId.Seeds, 8);
         int wheatSlot = FindHotbarSlot(ItemId.Wheat);
@@ -215,8 +227,9 @@ public partial class SurvivalSoakRunner : Node
     {
         _world.SaveNow();
         bool passed = _hasCave && _caveEncounters > 0 && _babiesObserved > 0
-                && _mobs.PassiveCount > 0;
-        GD.Print($"SURVIVAL SOAK {(passed ? "PASS" : "INCOMPLETE")}: elapsed={_elapsed:0}s passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} caveEncounters={_caveEncounters} babyObservations={_babiesObserved}");
+                && _mobs.PassiveCount > 0 && _noiseStimuli > 0
+                && _mobs.NoiseInvestigations > 0 && _nonFinitePositionObservations == 0;
+        GD.Print($"SURVIVAL SOAK {(passed ? "PASS" : "INCOMPLETE")}: elapsed={_elapsed:0}s passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} caveEncounters={_caveEncounters} babyObservations={_babiesObserved} noiseStimuli={_noiseStimuli} noiseInvestigations={_mobs.NoiseInvestigations} invalidPositions={_nonFinitePositionObservations}");
         GetTree().Quit(passed ? 0 : 1);
         SetProcess(false);
     }

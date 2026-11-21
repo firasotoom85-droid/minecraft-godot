@@ -78,8 +78,21 @@ public partial class Rot : Mob
             toPlayer.Y = 0.0f;
             float d = toPlayer.Length();
             bool visible = HasLineOfSight(player);
+            if (visible) RememberTarget(player.GlobalPosition);
             if (d < ChaseRadius && (IsAlerted || visible))
             {
+                if (!visible)
+                {
+                    if (TryGetRememberedTarget(out Vector3 lastSeen))
+                    {
+                        Vector3 remembered = lastSeen - GlobalPosition;
+                        remembered.Y = 0.0f;
+                        if (remembered.LengthSquared() > 1.0f) return remembered;
+                    }
+
+                    return TryInvestigateSound(out Vector3 soundDirection)
+                            ? soundDirection : Vector3.Zero;
+                }
                 Manager?.AlertHostiles(GlobalPosition, 12.0f, 7.0f);
                 _attackCd -= delta;
                 if (d < AttackRange)
@@ -97,15 +110,19 @@ public partial class Rot : Mob
                         }
                     }
 
-                    return visible ? toPlayer.Normalized() * 0.2f : toPlayer;
+                    return toPlayer.Normalized() * 0.2f;
                 }
 
                 return toPlayer;
             }
         }
 
+        if (TryInvestigateSound(out Vector3 noiseDirection))
+        {
+            return noiseDirection;
+        }
+
         Timer -= delta;
-        if (Timer <= 0.0)
         {
             (Walking, Timer) = Walking
                     ? (false, GD.RandRange(1.0, 3.0))

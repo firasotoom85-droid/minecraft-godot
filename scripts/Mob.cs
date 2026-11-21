@@ -51,6 +51,23 @@ public partial class Mob : CharacterBody3D, IDamageable
     private float _rememberedTargetTime;
     private Node3D[] _animatedLegs = [];
 
+    private float _lightCacheTime;
+    private Vector3I _lightCacheCell;
+    private byte _cachedSkyLight;
+    private byte _cachedBlockLight;
+    private bool _hasLightCache;
+    private float _visibilityCacheTime;
+    private Node3D? _visibilityTarget;
+    private Vector3 _visibilityObserverPosition;
+    private Vector3 _visibilityTargetPosition;
+    private bool _cachedVisibility;
+    private bool _hasVisibilityCache;
+    private Mob? _guardianA;
+    private Mob? _guardianB;
+    private long _lastHeardNoiseId;
+    private Vector3 _noiseTarget;
+    private float _noiseInvestigationTime;
+
     public bool Dead => Health <= 0.0f;
     public bool IsAlerted => _alertTime > 0.0f;
     public Vector3 AlertSource => _alertSource;
@@ -147,12 +164,45 @@ public partial class Mob : CharacterBody3D, IDamageable
         return true;
     }
 
-    public void SetBaby(float secondsToGrow = 90.0f)
+    public void SetBaby(float secondsToGrow = 90.0f, Mob? guardianA = null, Mob? guardianB = null)
     {
         IsBaby = true;
         _growthTime = Mathf.Max(secondsToGrow, 1.0f);
+        _guardianA = guardianA;
+        _guardianB = guardianB;
         Scale = new Vector3(0.65f, 0.65f, 0.65f);
         Speed *= 0.92f;
+    }
+
+    public Vector3 GuardianFollowDirection(float stoppingDistance = 2.4f)
+    {
+        Mob? nearest = null;
+        float nearestDistanceSquared = float.MaxValue;
+        ConsiderGuardian(_guardianA, ref nearest, ref nearestDistanceSquared);
+        ConsiderGuardian(_guardianB, ref nearest, ref nearestDistanceSquared);
+        if (nearest == null || nearestDistanceSquared <= stoppingDistance * stoppingDistance)
+            return Vector3.Zero;
+
+        Vector3 direction = nearest.GlobalPosition - GlobalPosition;
+        direction.Y = 0.0f;
+        return direction.LengthSquared() > 0.001f ? direction.Normalized() : Vector3.Zero;
+    }
+
+    public bool HasLivingGuardian =>
+            IsLivingGuardian(_guardianA) || IsLivingGuardian(_guardianB);
+
+    private static bool IsLivingGuardian(Mob? guardian) =>
+            guardian != null && GodotObject.IsInstanceValid(guardian) && !guardian.Dead;
+
+    private void ConsiderGuardian(Mob? guardian, ref Mob? nearest, ref float nearestDistanceSquared)
+    {
+        if (!IsLivingGuardian(guardian)) return;
+        float distanceSquared = GlobalPosition.DistanceSquaredTo(guardian!.GlobalPosition);
+        if (distanceSquared < nearestDistanceSquared)
+        {
+            nearest = guardian;
+            nearestDistanceSquared = distanceSquared;
+        }
     }
 
     internal void MarkBred()
@@ -190,6 +240,34 @@ public partial class Mob : CharacterBody3D, IDamageable
         position = _rememberedTarget;
         return _rememberedTargetTime > 0.0f;
     }
+
+    protected bool TryInvestigateSound(out Vector3 direction)
+    {
+        direction = Vector3.Zero;
+        if (_noiseInvestigationTime <= 0.0f)
+        {
+            if (Manager?.TryGetRecentNoise(GlobalPosition, HearingMultiplier,
+                    _lastHeardNoiseId, out Vector3 source, out long noiseId) != true)
+                return false;
+
+            _lastHeardNoiseId = noiseId;
+            _noiseTarget = source;
+            _noiseInvestigationTime = 4.0f;
+        }
+
+        Vector3 offset = _noiseTarget - GlobalPosition;
+        offset.Y = 0.0f;
+        if (offset.LengthSquared() <= 1.6f * 1.6f)
+        {
+            _noiseInvestigationTime = 0.0f;
+            return false;
+        }
+
+        direction = offset.Normalized();
+        return true;
+    }
+
+    protected virtual float HearingMultiplier => 1.0f;
 
     /// <summary>Subclass hook for the Signalled event (tame/stay/follow/love).</summary>
     protected void RaiseSignalled(string kind) => Signalled?.Invoke(this, kind);
@@ -274,33 +352,74 @@ public partial class Mob : CharacterBody3D, IDamageable
     public static bool CanDetectAtLight(byte skyLight, byte blockLight, byte threshold) =>
             Mathf.Max(skyLight, blockLight) <= threshold;
 
-    /// <summary>Sample cached voxel light at the creature's feet; called only on AI ticks.</summary>
+    public static Vector2I ChunkForBlock(int x, int z) =>
+            new(Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX),
+                    Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ));
+
+    public static bool TrySampleLight(VoxelWorld world, Vector3 position, out byte sky, out byte block)
+    {
+        sky = 0;
+        block = 0;
+        int x = Mathf.FloorToInt(position.X);
+        int y = Mathf.FloorToInt(position.Y);
+        int z = Mathf.FloorToInt(position.Z);
+        if (y < 0 || y >= world.Height) return false;
+
+        Vector2I chunk = ChunkForBlock(x, z);
+        if (!world.HasChunk(chunk)) return false;
+
+        VoxelLightData light = world.LightData(chunk);
+        int localX = x - chunk.X * VoxelWorld.ChunkX;
+        int localZ = z - chunk.Y * VoxelWorld.ChunkZ;
+        sky = light.SkyAt(localX, y, localZ, world.Height);
+        block = light.BlockAt(localX, y, localZ, world.Height);
+        return true;
+    }
+
     protected bool CanDetectPlayer(float maximumLight)
     {
         if (World == null) return false;
-        int x = Mathf.FloorToInt(GlobalPosition.X);
-        int y = Mathf.Clamp(Mathf.FloorToInt(GlobalPosition.Y + 0.8f), 0, World.Height - 1);
-        int z = Mathf.FloorToInt(GlobalPosition.Z);
-        Vector2I chunk = new(Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX),
-                Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ));
-        if (!World.HasChunk(chunk)) return false;
-        VoxelLightData light = World.LightData(chunk);
-        int localX = ((x % VoxelWorld.ChunkX) + VoxelWorld.ChunkX) % VoxelWorld.ChunkX;
-        int localZ = ((z % VoxelWorld.ChunkZ) + VoxelWorld.ChunkZ) % VoxelWorld.ChunkZ;
-        byte sky = light.SkyAt(localX, y, localZ, World.Height);
-        byte block = light.BlockAt(localX, y, localZ, World.Height);
-        return CanDetectAtLight(sky, block, (byte)Mathf.Clamp(Mathf.RoundToInt(maximumLight), 0, 15));
+        Vector3 sample = GlobalPosition + new Vector3(0, 0.8f, 0);
+        Vector3I cell = new(Mathf.FloorToInt(sample.X), Mathf.FloorToInt(sample.Y),
+                Mathf.FloorToInt(sample.Z));
+        if (!_hasLightCache || _lightCacheTime <= 0.0f || cell != _lightCacheCell)
+        {
+            _hasLightCache = TrySampleLight(World, sample, out _cachedSkyLight, out _cachedBlockLight);
+            _lightCacheCell = cell;
+            _lightCacheTime = 0.35f;
+        }
+
+        return _hasLightCache && CanDetectAtLight(_cachedSkyLight, _cachedBlockLight,
+                (byte)Mathf.Clamp(Mathf.RoundToInt(maximumLight), 0, 15));
     }
 
-    /// <summary>Shared terrain-only line of sight; callers invoke it on the AI tick, not every frame.</summary>
+    protected float DarknessDangerMultiplier(float maximumLight = 3.0f, float multiplier = 1.18f) =>
+            CanDetectPlayer(maximumLight) ? multiplier : 1.0f;
+
     protected bool HasLineOfSight(Node3D target)
     {
-        Vector3 from = GlobalPosition + new Vector3(0, 1.15f, 0);
-        Vector3 to = target.GlobalPosition + new Vector3(0, 1.1f, 0);
+        if (!GodotObject.IsInstanceValid(target) || !IsInsideTree()) return false;
+
+        Vector3 observerPosition = GlobalPosition;
+        Vector3 targetPosition = target.GlobalPosition;
+        if (_hasVisibilityCache && _visibilityCacheTime > 0.0f
+                && _visibilityTarget == target
+                && observerPosition.DistanceSquaredTo(_visibilityObserverPosition) < 0.16f
+                && targetPosition.DistanceSquaredTo(_visibilityTargetPosition) < 0.16f)
+            return _cachedVisibility;
+
+        Vector3 from = observerPosition + new Vector3(0, 1.15f, 0);
+        Vector3 to = targetPosition + new Vector3(0, 1.1f, 0);
         PhysicsRayQueryParameters3D query = PhysicsRayQueryParameters3D.Create(
                 from, to, (uint)PhysicsLayer.Terrain);
         query.CollideWithAreas = false;
-        return GetWorld3D().DirectSpaceState.IntersectRay(query).Count == 0;
+        _cachedVisibility = GetWorld3D().DirectSpaceState.IntersectRay(query).Count == 0;
+        _visibilityTarget = target;
+        _visibilityObserverPosition = observerPosition;
+        _visibilityTargetPosition = targetPosition;
+        _visibilityCacheTime = 0.20f;
+        _hasVisibilityCache = true;
+        return _cachedVisibility;
     }
 
     private Vector3 SteerAroundObstacles(Vector3 desired)
@@ -428,6 +547,9 @@ public partial class Mob : CharacterBody3D, IDamageable
         _animationTime += dt;
         _alertTime = Mathf.Max(0.0f, _alertTime - dt);
         _rememberedTargetTime = Mathf.Max(0.0f, _rememberedTargetTime - dt);
+        _lightCacheTime = Mathf.Max(0.0f, _lightCacheTime - dt);
+        _visibilityCacheTime = Mathf.Max(0.0f, _visibilityCacheTime - dt);
+        _noiseInvestigationTime = Mathf.Max(0.0f, _noiseInvestigationTime - dt);
         if (_alertTime <= 0.0f)
         {
             _alertSource = Vector3.Zero;

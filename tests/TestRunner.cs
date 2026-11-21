@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Godot;
 
 namespace Minecraft;
@@ -10,7 +11,7 @@ namespace Minecraft;
 /// </summary>
 public partial class TestRunner : Node
 {
-    public override void _Ready()
+    public override async void _Ready()
     {
         GD.Print("minecraft tests: start");
         RunSuite("content", ContentTests.Run);
@@ -34,8 +35,25 @@ public partial class TestRunner : Node
         RunSuite("save", SaveTests.Run);
         RunSuite("world-archives", WorldArchiveTests.Run);
         RunSuite("worldgen", () => WorldgenTests.Run(this));
+        await RunSuiteAsync("mob-perception", () => MobPerceptionTests.Run(this));
         GD.Print($"minecraft tests: {TestAssert.Checks} checks, {TestAssert.Failures} failures");
         GetTree().Quit(TestAssert.Failures == 0 ? 0 : 1);
+    }
+
+    private static async Task RunSuiteAsync(string name, Func<Task> action)
+    {
+        int before = TestAssert.Failures;
+        try
+        {
+            await action();
+        }
+        catch (Exception e)
+        {
+            TestAssert.Failures++;
+            GD.PushError($"FAIL {name}: unexpected exception {e}");
+        }
+
+        GD.Print(TestAssert.Failures == before ? $"PASS {name}" : $"FAIL {name}");
     }
 
     private static void RunSuite(string name, Action action)

@@ -18,6 +18,11 @@ public partial class Mobs : Node
     private const float HostileSpawnMax = 44.0f;
     private const float HostileDespawn = 80.0f;
     private const float FireSafety = 12.0f;
+    private const int NoiseCapacity = 24;
+    private const float NoiseLifetime = 5.0f;
+
+    private readonly record struct NoisePulse(long Id, Vector3 Position,
+            float Radius, float Intensity, double CreatedAt);
 
     public VoxelWorld? World;
     public Player? PlayerRef;
@@ -53,6 +58,11 @@ public partial class Mobs : Node
     private double _breedingTimer = 2.0;
     private double _maintenanceTimer = 0.5;
     private readonly RandomNumberGenerator _rng = new();
+    private readonly NoisePulse[] _noisePulses = new NoisePulse[NoiseCapacity];
+    private int _noiseWriteIndex;
+    private long _noiseSequence;
+
+    public int NoiseInvestigations { get; private set; }
 
     public void Setup(VoxelWorld world, Player player, Fx fx, Sound sound, Weather weather)
     {
@@ -62,6 +72,72 @@ public partial class Mobs : Node
         SoundRef = sound;
         WeatherRef = weather;
         _rng.Randomize();
+
+        player.MiningTick += OnPlayerMiningTick;
+        player.BlockBroken += OnPlayerBlockBroken;
+        player.BlockPlaced += OnPlayerBlockPlaced;
+        player.Stepped += OnPlayerStepped;
+    }
+
+    private void OnPlayerMiningTick(Vector3 position, int blockId) => ReportNoise(position, 22.0f, 0.82f);
+    private void OnPlayerBlockBroken(Vector3 position, int blockId) => ReportNoise(position, 25.0f, 1.0f);
+    private void OnPlayerBlockPlaced(Vector3 position, int blockId) => ReportNoise(position, 16.0f, 0.62f);
+    private void OnPlayerStepped(Vector3 position, int blockId) => ReportNoise(position, 9.0f, 0.34f);
+
+    public void ReportNoise(Vector3 position, float radius, float intensity)
+    {
+        if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z)
+                || !float.IsFinite(radius) || !float.IsFinite(intensity) || radius <= 0.0f)
+            return;
+
+        long id = ++_noiseSequence;
+        _noisePulses[_noiseWriteIndex] = new NoisePulse(id, position,
+                Mathf.Clamp(radius, 1.0f, 32.0f), Mathf.Clamp(intensity, 0.0f, 1.0f),
+                Time.GetTicksMsec() / 1000.0);
+        _noiseWriteIndex = (_noiseWriteIndex + 1) % NoiseCapacity;
+    }
+
+    public bool TryGetRecentNoise(Vector3 listener, float hearingMultiplier, long afterId,
+            out Vector3 source, out long noiseId)
+    {
+        source = Vector3.Zero;
+        noiseId = afterId;
+        double now = Time.GetTicksMsec() / 1000.0;
+        float hearing = Mathf.Clamp(hearingMultiplier, 0.5f, 1.75f);
+        float bestScore = 0.075f;
+        foreach (NoisePulse pulse in _noisePulses)
+        {
+            if (pulse.Id <= afterId || pulse.Id == 0) continue;
+            float age = (float)(now - pulse.CreatedAt);
+            if (age < 0.0f || age > NoiseLifetime) continue;
+            Vector3 offset = listener - pulse.Position;
+            offset.Y *= 0.45f;
+            float score = NoiseHearingScore(offset.Length(), pulse.Radius * hearing,
+                    pulse.Intensity, age);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                source = pulse.Position;
+                noiseId = pulse.Id;
+            }
+        }
+
+        if (noiseId == afterId) return false;
+        NoiseInvestigations++;
+        return true;
+    }
+
+    public static float NoiseHearingScore(float distance, float radius,
+            float intensity, float ageSeconds)
+    {
+        if (!float.IsFinite(distance) || !float.IsFinite(radius)
+                || !float.IsFinite(intensity) || !float.IsFinite(ageSeconds)
+                || distance < 0.0f || radius <= 0.0f || ageSeconds < 0.0f
+                || ageSeconds > NoiseLifetime || distance >= radius)
+            return 0.0f;
+
+        return Mathf.Clamp(intensity, 0.0f, 1.0f) * (1.0f - distance / radius)
+                * (1.0f - ageSeconds / NoiseLifetime);
     }
 
     public override void _Process(double delta)
@@ -215,6 +291,7 @@ public partial class Mobs : Node
     {
         Vector3 centre = Vector3.Zero;
         Vector3 separation = Vector3.Zero;
+        Vector3 averageVelocity = Vector3.Zero;
         int neighbours = 0;
         float radiusSq = radius * radius;
 
@@ -235,6 +312,7 @@ public partial class Mobs : Node
             }
 
             centre += other.GlobalPosition;
+            averageVelocity += other.Velocity;
             neighbours++;
             if (d2 < 2.8f * 2.8f)
             {
@@ -249,7 +327,15 @@ public partial class Mobs : Node
 
         Vector3 cohesion = centre / neighbours - source.GlobalPosition;
         cohesion.Y = 0.0f;
-        return cohesion.Normalized() * 0.55f + separation * 1.2f;
+        return cohesion.Normalized() * 0.55f + separation * 1.2f
+                + HerdAlignmentDirection(averageVelocity / neighbours);
+    }
+
+    public static Vector3 HerdAlignmentDirection(Vector3 averageVelocity)
+    {
+        averageVelocity.Y = 0.0f;
+        return averageVelocity.LengthSquared() > 0.01f
+                ? averageVelocity.Normalized() * 0.22f : Vector3.Zero;
     }
 
     public void AlertHostiles(Vector3 position, float radius, float seconds = 8.0f)
@@ -518,7 +604,7 @@ public partial class Mobs : Node
                 first.MarkBred();
                 second.MarkBred();
                 SpawnMob(baby, childPosition, 0.0f, false);
-                baby.SetBaby();
+                baby.SetBaby(90.0f, first, second);
                 Puff(childPosition + new Vector3(0, 1.0f, 0), new Color(1.0f, 0.55f, 0.72f));
                 SoundRef?.Play("mobgrowl", childPosition, 1.35f, -8.0f);
                 PlayerRef?.EmitSignal(Player.SignalName.Notice, $"A baby {baby.DisplayName} was born");

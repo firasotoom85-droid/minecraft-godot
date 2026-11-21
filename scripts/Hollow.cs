@@ -130,7 +130,8 @@ public partial class Hollow : Mob
                         return remembered.LengthSquared() > 1.0f ? remembered : Vector3.Zero;
                     }
 
-                    return Vector3.Zero;
+                    return TryInvestigateSound(out Vector3 soundDirection)
+                            ? soundDirection : Vector3.Zero;
                 }
 
                 if (d < KeepMin)
@@ -147,8 +148,12 @@ public partial class Hollow : Mob
             }
         }
 
+        if (TryInvestigateSound(out Vector3 noiseDirection))
+        {
+            return noiseDirection;
+        }
+
         Timer -= delta;
-        if (Timer <= 0.0)
         {
             (Walking, Timer) = Walking
                     ? (false, GD.RandRange(1.0, 3.0))

@@ -944,3 +944,32 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   GitHub; #27, #26 and #19 were closed as superseded with the reasons recorded
   on each PR. All branches remain on the remote; nothing was deleted or
   force-pushed.
+
+## 18. Creature perception and cave stealth — 2026-11-21
+
+- Extended the existing packed voxel-light perception path with short-lived
+  per-creature cell caching. Cave Stalkers, Crystal Wisps and Hollows already
+  used light thresholds; Dreadwings now respect nearby voxel light as well.
+  Dark-adapted Cave Stalkers receive a small low-light pounce/damage bonus.
+- Added short-lived cached terrain visibility, invalidated when either actor
+  moves or the cache expires. Hostile pursuit now uses remembered positions and
+  sound investigation rather than steering directly through blocked terrain.
+- Wired existing mining, block-break, block-place and footstep signals into a
+  fixed 24-entry acoustic ring. Events expire after five seconds; distance,
+  intensity and age determine hearing. No audio engine or per-event scene
+  nodes were added.
+- Newborns retain both parents as guardians and follow the closest living
+  parent while separated. Herd movement now includes bounded heading
+  alignment; chicken, sheep, pig and cow flight distances/speeds differ.
+- Existing grazing, hunger, shelter/rest, breeding, animation, combat, persisted
+  IDs, save formats, generation rules, voxel mutation, greedy meshing and chunk
+  streaming are retained.
+- Added MobPerceptionTests for torch detection/removal across a negative chunk
+  seam, player-signal sound detection, sound investigation, juvenile guardian
+  following, real terrain-layer ray occlusion and visibility-cache refresh.
+  The survival soak now produces mining/placement noise and reports acoustic
+  investigations plus non-finite creature positions.
+- Verification: build, full headless suite and a sustained 3600-second soak
+  still need to run under Godot 4.7.2 .NET. Do not treat the soak as executed
+  until its runner completes and prints SURVIVAL SOAK PASS.
+

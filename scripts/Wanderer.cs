@@ -37,10 +37,11 @@ public partial class Wanderer : Mob
         MovementMultiplier = MovementMultiplierForHunger(Hunger);
         IsResting = false;
 
-        // Threat response always wins over feeding and rest.
-        Vector3 threat = Manager?.FleeDirection(this, 6.5f) ?? Vector3.Zero;
+        (float fleeRadius, float fleeSpeed) = FlightProfileFor(this);
+        Vector3 threat = Manager?.FleeDirection(this, fleeRadius) ?? Vector3.Zero;
         if (threat.LengthSquared() > 0.01f)
         {
+            MovementMultiplier *= fleeSpeed;
             Walking = true;
             Dir = threat;
             return threat;
@@ -55,6 +56,17 @@ public partial class Wanderer : Mob
                 Walking = true;
                 Dir = away.Normalized();
                 return Dir;
+            }
+        }
+
+        if (IsBaby)
+        {
+            Vector3 guardian = GuardianFollowDirection();
+            if (guardian.LengthSquared() > 0.001f)
+            {
+                Walking = true;
+                Dir = guardian;
+                return guardian;
             }
         }
 
@@ -138,6 +150,15 @@ public partial class Wanderer : Mob
         Vector3 herd = Manager?.HerdDirection(this, 8.0f) ?? Vector3.Zero;
         return Dir + herd * profile.Cohesion;
     }
+
+    public static (float Radius, float SpeedMultiplier) FlightProfileFor(Mob species) => species switch
+    {
+        Chicken => (8.5f, 1.28f),
+        Sheep => (7.5f, 1.16f),
+        Cow => (5.5f, 0.92f),
+        Pig => (6.5f, 1.05f),
+        _ => (6.5f, 1.0f),
+    };
 
     private bool TryFindGrazeTarget(out Vector3 target)
     {

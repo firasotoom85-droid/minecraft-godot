@@ -9,6 +9,8 @@ public partial class CrystalWisp : Mob
     private float _strafeSign = 1.0f;
     private double _strafeTimer = 2.2;
 
+    protected override float HearingMultiplier => 0.9f;
+
     public CrystalWisp()
     {
         MaxHealth = 9.0f;
@@ -61,15 +63,26 @@ public partial class CrystalWisp : Mob
         if (distance > 25.0f)
         {
             _charge = 0.0f;
-            return Vector3.Zero;
+            return TryInvestigateSound(out Vector3 distantSound)
+                    ? distantSound : Vector3.Zero;
         }
 
         bool visible = CanDetectPlayer(8.0f) && HasLineOfSight(player);
         if (!visible)
         {
             _charge = 0.0f;
-            return distance > 7.0f ? toPlayer : Vector3.Zero;
+            if (TryGetRememberedTarget(out Vector3 lastSeen))
+            {
+                Vector3 remembered = lastSeen - GlobalPosition;
+                remembered.Y = 0.0f;
+                if (remembered.LengthSquared() > 1.0f) return remembered;
+            }
+
+            return TryInvestigateSound(out Vector3 soundDirection)
+                    ? soundDirection : Vector3.Zero;
         }
+
+        RememberTarget(player.GlobalPosition, 4.5f);
 
         if (_shotCooldown <= 0.0 && _charge <= 0.0f && distance < 17.0f)
         {
