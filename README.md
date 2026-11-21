@@ -126,14 +126,27 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-The integrated 2026-11-21 suite reports **4,192 checks, 0 failures** across 27
+The integrated 2026-11-21 suite reports **4,217 checks, 0 failures** across 27
 suites, with 0 build warnings. It includes the combined save round-trip
 (shapes + villagers + quests + boats), quest reward wiring, fluid/shape
 boundaries, legacy saves, every pinned block/item ID and V1–V8 golden chunk
 hashes. The headless runner and a verbose real-scene soak both exit without
-leaked ObjectDB instances or RIDs.
+leaked ObjectDB instances or RIDs. The project-specific reliability audit,
+including seven confirmed fixes and the remaining manual-coverage gaps, is in
+[`docs/RELIABILITY_AUDIT_2026-11-21.md`](docs/RELIABILITY_AUDIT_2026-11-21.md).
 
-### World-generation visual validation
+### Reliability audit
+
+The 2026-11-21 audit found and fixed seven defects that ordinary smoke testing
+missed: boat-death respawn stranding, duplicate mob death rewards, non-stackable
+inventory overflow, campfire food deletion on a full inventory, world-delete
+path traversal, stale villager state at quit-time saves, and modal input
+stacking. Each fix has a headless regression except the input-ordering guard,
+which is covered by code-path review. Details, severities and unresolved
+suspicions are in
+[`docs/RELIABILITY_AUDIT_2026-11-21.md`](docs/RELIABILITY_AUDIT_2026-11-21.md).
+
+## World-generation visual validation
 
 V8 was inspected in the real 3D game scene using Godot 4.7.2 .NET, Forward+
 Vulkan rendering and an NVIDIA GPU. Baseline and V8 captures use matching

@@ -89,3 +89,42 @@ Recorded while verifying the M5 content capacity and test-harness work.
 including content registry, recipes, inventory stack/drag rules, save
 compatibility, legacy worldgen golden hashes, lighting, fluids, mining, mob
 content, equipment and keybinds.
+
+## Integrated 1.0 world-generation measurement — 2026-11-21
+
+### Method
+
+`tests/WorldgenTests.ProfileChunkGeneration` warms three generators (V6, V7,
+V8), then times the same eight chunks (`-2..1` on both axes) in one headless
+process. Reproduce with:
+
+```bash
+GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 \
+  "$GODOT" --headless --path . res://tests/TestRunner.tscn 2>&1 \
+  | grep WORLDGEN_CHUNK_PROFILE
+```
+
+The measurement is informational, not a CI gate. It runs on the same MX230
+laptop with a Debug assembly, so absolute values move with background load;
+compare V7 and V8 from the same printed line.
+
+### Results — warmed 8-chunk sample
+
+| Generator | ms/chunk | Relative to V7 |
+|---|---:|---:|
+| V6 | 3.52 | — |
+| V7 | 6.46 | 1.00× |
+| V8 (terrain + villages) | 6.52 | **1.01×** |
+
+Post-audit reruns on the same machine: 7.69 / 7.87 ms per chunk (V7 / V8,
+**1.02×**) in the final suite, and 6.93 / 7.62 ms (**1.10×**) when another
+Godot process was competing for CPU. An earlier run under heavier system load
+measured 11.46 / 11.49 ms (1.01×). The ratio is therefore sensitive to host
+load while the implementation is unchanged; compare V7 and V8 from the same
+printed line rather than across runs. Village sites are cached per 384-block
+cell under a lock, so repeated chunk requests do not re-sample village
+placement noise.
+
+The integrated suite at this measurement is **4,217 checks, 0 failures**,
+including V1–V8 golden chunks, the combined shape/villager/quest/boat save
+round-trip, live village resident spawning, and bucket/fluid/shape boundaries.

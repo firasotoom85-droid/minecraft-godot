@@ -19,7 +19,9 @@ public partial class VillageSystem : Node
 
     public void Setup(VoxelWorld world, Player player, Mobs mobs)
     {
+        if (_world != null) _world.BeforeSave -= SyncResidents;
         _world = world;
+        _world.BeforeSave += SyncResidents;
         _player = player;
         _mobs = mobs;
     }
@@ -140,5 +142,10 @@ public partial class VillageSystem : Node
         return dx * dx + dy * dy + dz * dz <= distance * distance;
     }
 
-    public override void _ExitTree() => SyncResidents();
+    public override void _ExitTree()
+    {
+        if (_world == null || !GodotObject.IsInstanceValid(_world)) return;
+        _world.BeforeSave -= SyncResidents;
+        SyncResidents();
+    }
 }

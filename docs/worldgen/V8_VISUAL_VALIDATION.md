@@ -72,27 +72,36 @@ The final V8 screenshots above were recaptured after correcting this runtime ove
 
 Godot 4.7.2 .NET build: **0 warnings, 0 errors**.
 
-Latest headless run: **1,213 checks, 0 failures**.
+The original V8 branch checkpoint reported **1,213 checks, 0 failures**. The
+integrated 2026-11-21 suite reports **4,217 checks, 0 failures** across the
+combined creature, survival, building, village, boat and V8 systems.
 
 Coverage includes:
 
 - All 13 biomes represented across seeds 1337, 777, 24681357, and -90817263.
 - Deterministic V8 chunk output when generation order is reversed.
-- Three pinned V7 golden chunk hashes, protecting V7 byte output.
+- Pinned V1, V3, V5, V6, V7 and V8 golden chunk hashes, protecting legacy
+  byte output and freezing the combined V8 terrain/village output.
 - Tree canopy, ore vein, surface structure and underground structure continuity across chunk seams in both V7 and V8.
 - River-bank step, cave entrance count, forest tree density, and V7/V8 fog-profile assertions.
 
-Latest warmed 8-chunk timing sample on the validation machine:
+Warmed 8-chunk timing samples on the validation machine:
 
-| Generator | Mean chunk data time |
-|---|---:|
-| V7 | 7.03 ms |
-| V8 | 7.33 ms |
+| Run | V7 | V8 | V8 / V7 |
+|---|---:|---:|---:|
+| Original V8 branch | 7.03 ms | 7.33 ms | 1.04× |
+| Integrated 1.0 | 6.46 ms | 6.52 ms | **1.01×** |
+| Integrated 1.0, post-audit | 7.69 ms | 7.87 ms | 1.02× |
 
-This run measured V8 at approximately 4% slower than V7. Timing varies with CPU scheduling and JIT state; the test warms each generator before timing. Chunk streaming and greedy meshing implementations were not changed.
+Absolute timings vary with CPU scheduling, background load and JIT state; the
+test warms each generator before timing. Across integrated samples the V8/V7
+ratio ranged from **1.01× to 1.10×**, with 1.02× on the final post-audit run;
+the 1.10× sample was taken while another Godot process competed for CPU. No
+chunk-streaming or greedy-meshing implementation changed. Village site lookup
+is cached per cell. See `docs/PERF_BASELINE.md` for the reproducible probe.
 
 ## Scope and remaining manual review
 
-Generator versions 1–7 are retained. The V7 source file is unchanged, its golden hashes are pinned, and existing world format / persisted IDs are not modified. New worlds use generator V8. No block or item IDs were added.
+Generator versions 1–7 are retained. The V7 source file is unchanged, its golden hashes are pinned, and existing world format / persisted IDs are not modified. New worlds use generator V8. The V8 terrain work itself added no block or item IDs; the separately integrated building and transportation stages appended `BlockId` 46–51 and `ItemId` 91–100. A fresh integrated-build capture at seed 1337 (river and village) rendered without off-tree transform errors; those inspection frames are not committed here.
 
 These captures are a representative visual audit, not a complete art-direction sign-off. Ore veins, surface landmarks and underground structures retain their deterministic V7 placement rules and are covered by V7/V8 chunk-seam regression tests, but they do not yet have dedicated close-up GPU screenshots in this report. A biome-boundary close-up and longer exploration routes also remain useful manual follow-up checks; caves should still be reviewed from inside the underground network.

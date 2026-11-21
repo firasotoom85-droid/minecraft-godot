@@ -202,6 +202,15 @@ public static class IntegrationTests
             TestAssert.Check(interacted, "resident interaction reaches the player event");
             TestAssert.Check(resident.GlobalPosition.DistanceTo(center) < 90.0f,
                     "resident remains within the active village radius");
+
+            // A save must flush live resident state; waiting for _ExitTree is too
+            // late because QuitToMenu saves the world before children exit.
+            resident.RecordTrade();
+            world.SaveNow();
+            WorldSave? liveSave = WorldStore.ReadJson<WorldSave>(
+                    WorldStore.WorldSavePath(dir), WorldStore.Json);
+            TestAssert.Equal(1, liveSave?.Villagers?[resident.ResidentId].TradesCompleted ?? -1,
+                    "saving a live world flushes resident trade state");
         }
 
         host.RemoveChild(system);

@@ -53,11 +53,19 @@ shapes occupy `BlockId` 46–51 and `ItemId` 91–96. Transportation occupies
   parented/reused, and audio playbacks/stream cache survived scene teardown.
   The headless suite and a verbose real-scene soak now exit with no leaked
   objects or RIDs.
+- Reliability audit fixes: respawning after dying in a boat now detaches and
+  restores the player; mob death is idempotent across burn/dawn/direct paths;
+  non-stackable inventory overflow returns its true leftover; campfire cooking
+  rolls raw food back when the result cannot fit; world deletion rejects empty,
+  `.` and `..` path segments; quit-time saves flush live villager state before
+  serialization; and console/inventory/pause panels no longer stack. See
+  [`docs/RELIABILITY_AUDIT_2026-11-21.md`](docs/RELIABILITY_AUDIT_2026-11-21.md).
 
 **Verification.** Godot 4.7.2 .NET Debug and ExportRelease builds complete with
-0 warnings and 0 errors. The headless suite reports **4,192 checks, 0
+0 warnings and 0 errors. The headless suite reports **4,217 checks, 0
 failures**, including legacy save loading, all pinned IDs, V1–V8 golden chunks,
-block-shape persistence, village generation and cross-system interaction. The
+block-shape persistence, deterministic village generation, live resident
+spawning/interaction and cross-system save/quest/fluid interaction. The
 warmed 8-chunk worldgen profile measured V7 at 6.46 ms/chunk and V8 at 6.52
 ms/chunk (**1.01×**, within run noise); village site lookup is cached per cell
 under a lock. Real-scene validation is recorded below. Visual verification
@@ -72,6 +80,12 @@ not had a complete human visual playthrough.
   injected noise stimuli, 218 investigations, 0 invalid positions, successful
   save/reload and temporary-world cleanup. No leaked objects or RIDs were
   reported at shutdown.
+- **60-minute soak:** PASS at 3,600 s on the integration revision with 10
+  passive / 51 hostile creatures, 1,758 feeds, 48 cave encounters, 43,181
+  juvenile frame observations, 720 noise stimuli, 572 investigations, 0 invalid
+  positions, save/reload true and temporary-world cleanup true. No runtime
+  errors, warnings, leaked objects or leaked RIDs appeared; RSS peaked near
+  251 MB and returned to ~158 MB under GC.
 - **GPU capture:** seed 1337 V8 river at (512,-372) rendered 49 chunks at
   1600×900; the deterministic seed 1337 village at (-684,1303) rendered its
   houses, paths and farmland. The village capture initially reproduced the
@@ -985,7 +999,7 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   complete.
 
 
-## 14. Fluid simulation follow-up — 2026-11-20
+## 14b. Fluid simulation follow-up — 2026-11-20
 
 - Replaced the recurring full-window flow pass with a deduplicated active-cell queue, bounded per-tick work, and periodic source pulses. Loaded fluid discovery runs when the player changes chunk or moves into a new vertical band.
 - Unloaded neighbours are treated as unknown; water cannot flow into them or recede merely because a chunk is not loaded. World-height limits remain known solid boundaries.
@@ -996,7 +1010,7 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 
 ---
 
-## 14. World generation V7 audit — 2026-11-20
+## 14c. World generation V7 audit — 2026-11-20
 
 - New worlds use the isolated V7 generator; generator versions 1–6 retain their
   existing code paths. Persisted block/item IDs and save schemas are unchanged.

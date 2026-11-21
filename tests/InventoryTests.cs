@@ -96,5 +96,20 @@ public static class InventoryTests
         oneGap.Set(Inventory.SlotCount - 1, ItemStack.Empty);
         TestAssert.Check(oneGap.CanFit(ItemId.WoodPick, 1), "one empty slot fits one tool");
         TestAssert.Check(!oneGap.CanFit(ItemId.WoodPick, 2), "tools need one empty slot each");
+
+        Inventory oneGapStack = new();
+        for (int i = 0; i < Inventory.SlotCount; i++)
+        {
+            oneGapStack.Set(i, ItemDb.New(ItemId.Dirt, 64));
+        }
+
+        oneGapStack.Set(Inventory.SlotCount - 1, ItemStack.Empty);
+        int toolRemainder = oneGapStack.Add(new ItemStack(ItemId.WoodPick, 2, 60));
+        TestAssert.Equal(1, toolRemainder,
+                "a multi-count non-stackable item reports the slot it could not fit");
+        TestAssert.Equal(1, oneGapStack.CountOf(ItemId.WoodPick),
+                "a non-stackable item never stores more than one per slot");
+        TestAssert.Equal(1, oneGapStack.Get(Inventory.SlotCount - 1).Count,
+                "the stored tool occupies exactly one slot with count one");
     }
 }

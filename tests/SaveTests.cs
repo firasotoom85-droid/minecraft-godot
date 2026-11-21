@@ -137,6 +137,18 @@ public static class SaveTests
         TestAssert.Check(!DirAccess.DirExistsAbsolute(worldDir), "world folder is gone");
         TestAssert.Check(!WorldStore.Delete("user://settings.cfg"), "delete refuses paths outside worlds");
 
+        string escapeDir = WorldStore.WorldsRoot + "/../delete-escape-world";
+        DirAccess.MakeDirRecursiveAbsolute(escapeDir);
+        string escapeMarker = escapeDir + "/marker.txt";
+        using (FileAccess? marker = FileAccess.Open(escapeMarker, FileAccess.ModeFlags.Write))
+            marker?.StoreString("keep");
+        TestAssert.Check(!WorldStore.Delete(escapeDir),
+                "delete refuses a traversal path that starts with the worlds prefix");
+        TestAssert.Check(FileAccess.FileExists(escapeMarker),
+                "a traversal-targeted delete leaves the outside file untouched");
+        DirAccess.RemoveAbsolute(escapeMarker);
+        DirAccess.RemoveAbsolute(escapeDir);
+
         DirAccess.RemoveAbsolute(backupPath + ".bak2");
         DirAccess.RemoveAbsolute(backupPath + ".bak");
         DirAccess.RemoveAbsolute(backupPath);

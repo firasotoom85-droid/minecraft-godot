@@ -5,7 +5,7 @@ namespace Minecraft;
 
 public static class MobContentTests
 {
-    public static void Run()
+    public static void Run(Node host)
     {
         Cow cow = new();
         TestAssert.Equal("Cow", cow.DisplayName, "cow name");
@@ -183,8 +183,25 @@ public static class MobContentTests
         TestAssert.Check(rot.Loot.Length > 0, "Rot has a loot table");
         TestAssert.Check(hollow.Loot.Length > 0, "Hollow has a loot table");
 
+        // Direct death paths (sunburn/dawn) do not pass through ApplyDamage.
+        // They must still mark the mob dead and raise Died exactly once while
+        // QueueFree leaves the node valid for the rest of the frame.
+        MobDeathProbe probe = new();
+        int deathEvents = 0;
+        probe.Died += _ => deathEvents++;
+        host.AddChild(probe);
+        probe.ForceDie();
+        probe.ForceDie();
+        TestAssert.Equal(1, deathEvents, "a direct death raises Died only once");
+        TestAssert.Check(probe.Dead, "a direct death marks the mob dead before deferred deletion");
+
         TestAssert.FreeAll(cow, pig, chicken, rot, hollow, sheep, sheepPartner,
                 briarback, stalker, wisp, dreadwing, shade,
                 sheepFeeder, partnerFeeder, cowFeeder, chickenFeeder);
     }
+}
+
+public partial class MobDeathProbe : Mob
+{
+    public void ForceDie() => Die();
 }

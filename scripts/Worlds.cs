@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using Godot;
 
@@ -220,8 +221,18 @@ public static class WorldStore
     /// <summary>Delete a world folder and all of its files. Never deletes outside WorldsRoot.</summary>
     public static bool Delete(string dir)
     {
-        if (!dir.StartsWith(WorldsRoot + "/", StringComparison.Ordinal)
+        string prefix = WorldsRoot + "/";
+        if (!dir.StartsWith(prefix, StringComparison.Ordinal)
                 || !DirAccess.DirExistsAbsolute(dir))
+        {
+            return false;
+        }
+
+        // A prefix check alone accepts "user://worlds/../outside". Reject empty
+        // and relative segments so deletion can never escape the worlds root.
+        string relative = dir[prefix.Length..];
+        if (relative.Length == 0
+                || relative.Split('/').Any(part => part.Length == 0 || part is "." or ".."))
         {
             return false;
         }

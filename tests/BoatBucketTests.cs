@@ -170,6 +170,22 @@ public static class BoatBucketTests
             WorldSave? loadedSave = JsonSerializer.Deserialize<WorldSave>(json, WorldStore.Json);
             TestAssert.Check(loadedSave?.Boats is { Count: 1 } && loadedSave.Boats[0].Occupied,
                     "boat position, velocity and rider state survive world-save serialization");
+
+            // Death while seated used to leave the player parented under the boat
+            // with collision disabled; respawning must force a clean dismount.
+            TestAssert.Check(player.Stats.ApplyDamage(100.0f, GameMode.Survival) && player.Dead,
+                    "lethal damage kills a seated player");
+            player.RespawnPoint = boat.GlobalPosition + new Vector3(0.0f, 1.0f, 0.0f);
+            player.Respawn();
+            TestAssert.Check(player.CurrentBoat == null && boat.Rider == null,
+                    "respawning after death in a boat detaches the player and frees the seat");
+            TestAssert.Check(player.GetParent() == host,
+                    "leaving a boat restores the player's original parent, not the boat system");
+            TestAssert.Check(player.GlobalPosition.DistanceTo(player.RespawnPoint.Value) < 0.01f,
+                    "respawning after death in a boat uses the respawn point");
+            TestAssert.Check(boats.TryBoard(boat, player),
+                    "a respawned player can board the boat again");
+
             TestAssert.Check(boats.Dismount(boat), "player dismounts to a loaded clear cell");
             TestAssert.Check(player.CurrentBoat == null && boat.Rider == null,
                     "dismount restores independent player control");

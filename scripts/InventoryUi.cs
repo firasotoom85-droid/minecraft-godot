@@ -524,6 +524,11 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         if (GetTree().Paused || @event is InputEventKey { Echo: true })
             return;
 
+        // Another modal (console, journal, trader) owns input; do not open on
+        // top of it or closing this panel would unlock the player behind it.
+        if (!_open && _player.InputLocked)
+            return;
+
         if (@event.IsActionPressed("inventory"))
         {
             Toggle();

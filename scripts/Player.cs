@@ -80,6 +80,7 @@ public partial class Player : CharacterBody3D, IDamageable
     public Inventory Inventory { get; } = new();
     public BoatSystem? Boats;
     public Boat? CurrentBoat { get; private set; }
+    private Node? _preBoatParent;
 
     public void InteractVillager(Villager villager) => VillagerInteracted?.Invoke(villager);
 
@@ -768,6 +769,24 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
+        // Death can happen while seated. The player is reparented under the boat
+        // and its body collider is disabled, so respawning without leaving the
+        // boat would strand the player as a dead-passenger with no movement.
+        if (CurrentBoat is { } mounted)
+        {
+            if (GodotObject.IsInstanceValid(mounted))
+            {
+                if (mounted.Rider == this) mounted.SetRider(null);
+                ExitBoat(mounted, mounted.GlobalPosition + Vector3.Up * 1.1f);
+            }
+            else
+            {
+                CurrentBoat = null;
+                _preBoatParent = null;
+                _bodyCollider.SetDeferred(CollisionShape3D.PropertyName.Disabled, false);
+            }
+        }
+
         Stats.ResetForRespawn();
         Vector3 target = RespawnPoint ?? (World?.FindSpawn() ?? GlobalPosition) + new Vector3(0, 1.0f, 0);
         GlobalPosition = target;
@@ -1340,6 +1359,28 @@ public partial class Player : CharacterBody3D, IDamageable
         return World.IsCampfireLog(bp.X, bp.Y, bp.Z);
     }
 
+    /// <summary>
+    /// Consume one raw food item and add its cooked result atomically. A full
+    /// inventory must not eat the raw item and silently discard the cooked one.
+    /// </summary>
+    internal static bool TryCook(Inventory inventory, ItemId raw)
+    {
+        if (ItemDb.CooksTo(raw) is not { } cooked || !inventory.Consume(raw, 1))
+        {
+            return false;
+        }
+
+        if (inventory.Add(cooked, 1) == 0)
+        {
+            return true;
+        }
+
+        // The result could not fit; restore the consumed raw item so the failed
+        // action has no net cost.
+        inventory.Add(raw, 1);
+        return false;
+    }
+
     /// <summary>Campfire use: cook the held raw food and/or rest (respawn + heal).</summary>
     private void UseCampfire(ItemStack stack)
     {
@@ -1348,11 +1389,11 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        bool cooked = false;
-        if (ItemDb.CooksTo(stack.Id) is { } cookedId && Inventory.Consume(stack.Id, 1))
+        bool cookable = ItemDb.CooksTo(stack.Id) != null;
+        bool cooked = TryCook(Inventory, stack.Id);
+        if (cookable && !cooked)
         {
-            Inventory.Add(cookedId, 1);
-            cooked = true;
+            EmitSignal(SignalName.Notice, "Make room for the cooked food");
         }
 
         bool rested = false;
@@ -1544,6 +1585,7 @@ public partial class Player : CharacterBody3D, IDamageable
     {
         if (CurrentBoat != null) return;
         CurrentBoat = boat;
+        _preBoatParent = GetParent();
         _bodyCollider.SetDeferred(CollisionShape3D.PropertyName.Disabled, true);
         Reparent(boat, false);
         Position = new Vector3(0.0f, 0.48f, 0.0f);
@@ -1556,8 +1598,10 @@ public partial class Player : CharacterBody3D, IDamageable
     public void ExitBoat(Boat boat, Vector3 position)
     {
         if (CurrentBoat != boat) return;
-        Node? destination = boat.GetParent();
+        Node? destination = _preBoatParent is { } parent && GodotObject.IsInstanceValid(parent)
+                ? parent : boat.GetParent();
         CurrentBoat = null;
+        _preBoatParent = null;
         if (destination != null) Reparent(destination, true);
         GlobalPosition = position;
         _bodyCollider.SetDeferred(CollisionShape3D.PropertyName.Disabled, false);

@@ -25,7 +25,7 @@ public partial class TestRunner : Node
         RunSuite("equipment", EquipmentTests.Run);
         RunSuite("survival-progression", SurvivalProgressionTests.Run);
         RunSuite("farming", FarmingTests.Run);
-        RunSuite("mobs", MobContentTests.Run);
+        RunSuite("mobs", () => MobContentTests.Run(this));
         RunSuite("achievements", AchievementTests.Run);
         RunSuite("dungeon", () => DungeonTests.Run(this));
         RunSuite("villages-quests", VillageTests.Run);

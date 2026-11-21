@@ -33,6 +33,7 @@ public partial class Mob : CharacterBody3D, IDamageable
     protected double Timer;
     protected bool Walking;
     protected double FlashTime;
+    private bool _deathRaised;
     protected Vector3 Push;
     private Vector3 _moveDirection;
     protected float MovementMultiplier = 1.0f;
@@ -138,6 +139,13 @@ public partial class Mob : CharacterBody3D, IDamageable
 
     protected virtual void Die()
     {
+        // Direct death paths (sunlight burn, dawn retreat) do not go through
+        // ApplyDamage, so they must still mark the mob dead and make death
+        // idempotent. Deletion is deferred; a queued mob can otherwise receive
+        // another hit and raise Died (and its loot/XP) a second time.
+        if (_deathRaised) return;
+        _deathRaised = true;
+        Health = Mathf.Min(Health, 0.0f);
         Died?.Invoke(this);
         QueueFree();
     }

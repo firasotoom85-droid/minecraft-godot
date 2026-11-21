@@ -73,6 +73,8 @@ public partial class VoxelWorld : Node3D
 
     /// <summary>Raised after a successful main-thread block mutation.</summary>
     public event Action<Vector3I>? BlockChanged;
+    /// <summary>Systems that cache live state (villagers) flush it before serialization.</summary>
+    public event Action? BeforeSave;
 
     public Vector3? SavedPlayerPos;      // from the save file
     public List<ItemStackSave>? SavedInventory;   // null = pre-items save, gets the starter kit
@@ -2580,6 +2582,7 @@ public partial class VoxelWorld : Node3D
 
     public void SaveNow()
     {
+        BeforeSave?.Invoke();
         Dictionary<string, Dictionary<string, BlockId>> editsOut = [];
         foreach ((Vector2I cp, Dictionary<int, BlockId> inner) in _edits)
         {
