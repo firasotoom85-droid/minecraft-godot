@@ -663,8 +663,29 @@ vec3 surface_response(float family) {
     return response_stone;
 }
 
+varying vec3 surface_world_position;
+varying vec3 surface_world_normal;
+
+uint surface_cell_hash(ivec3 cell) {
+    uint hash = uint(cell.x) * 374761393u;
+    hash ^= uint(cell.y) * 668265263u;
+    hash ^= uint(cell.z) * 2147483647u;
+    hash = (hash ^ (hash >> 13u)) * 1274126177u;
+    return hash ^ (hash >> 16u);
+}
+
+void vertex() {
+    surface_world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+    surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+}
+
 void fragment() {
     vec4 tex = texture(atlas, UV);
+    if (COLOR.a < 0.5) {
+        ivec3 cell = ivec3(floor(surface_world_position - surface_world_normal * 0.01));
+        float tone = float(surface_cell_hash(cell) & 65535u) / 65535.0 * 2.0 - 1.0;
+        tex.rgb *= 1.0 + tone * 0.035;
+    }
     float sky = COLOR.r * sky_light_energy;
     float block = COLOR.g;
     float shade = COLOR.b;
@@ -779,14 +800,31 @@ vec3 surface_response(float family) {
 
 varying vec2 tile_uv;
 varying float tile_layer;
+varying vec3 surface_world_position;
+varying vec3 surface_world_normal;
+
+uint surface_cell_hash(ivec3 cell) {
+    uint hash = uint(cell.x) * 374761393u;
+    hash ^= uint(cell.y) * 668265263u;
+    hash ^= uint(cell.z) * 2147483647u;
+    hash = (hash ^ (hash >> 13u)) * 1274126177u;
+    return hash ^ (hash >> 16u);
+}
 
 void vertex() {
     tile_uv = UV;
     tile_layer = UV2.x;
+    surface_world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+    surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
 }
 
 void fragment() {
     vec4 tex = texture(tiles, vec3(fract(tile_uv), tile_layer));
+    if (COLOR.a < 0.5) {
+        ivec3 cell = ivec3(floor(surface_world_position - surface_world_normal * 0.01));
+        float tone = float(surface_cell_hash(cell) & 65535u) / 65535.0 * 2.0 - 1.0;
+        tex.rgb *= 1.0 + tone * 0.035;
+    }
     float sky = COLOR.r * sky_light_energy;
     float block = COLOR.g;
     float shade = COLOR.b;
@@ -1313,28 +1351,23 @@ void fragment() {
             RandomNumberGenerator rng)
     {
         for (int y = 0; y < TilePx; y++)
+        for (int x = 0; x < TilePx; x++)
         {
-            for (int x = 0; x < TilePx; x++)
+            // Keep transparent gaps irregular but clustered so distant canopies
+            // read as leaf masses rather than a uniformly perforated grid.
+            int clusterX = x / 4;
+            int clusterY = y / 4;
+            float holeChance = ((clusterX * 7 + clusterY * 11) % 5 == 0) ? 0.22f : 0.12f;
+            if (rng.Randf() < holeChance)
             {
-                if (rng.Randf() < 0.15f)
-                {
-                    Px(img, tile, x, y, new Color(0, 0, 0, 0));
-                    continue;
-                }
-
-                Color c = Jitter(rng, baseColor, 0.07f);
-                float r = rng.Randf();
-                if (r < 0.20f)
-                {
-                    c = Jitter(rng, dark, 0.02f);
-                }
-                else if (r < 0.35f)
-                {
-                    c = Jitter(rng, light, 0.02f);
-                }
-
-                Px(img, tile, x, y, c);
+                Px(img, tile, x, y, new Color(0, 0, 0, 0));
+                continue;
             }
+
+            float palette = rng.Randf();
+            Color source = palette < 0.18f ? dark : palette > 0.84f ? light : baseColor;
+            Color c = Jitter(rng, source, source == baseColor ? 0.045f : 0.025f);
+            Px(img, tile, x, y, c);
         }
     }
 

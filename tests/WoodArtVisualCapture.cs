@@ -119,6 +119,25 @@ public partial class WoodArtVisualCapture : Node
         Put(3, 0, 1, BlockId.PlanksStairs, (byte)(BlockShapes.StairFacingMask | BlockShapes.StairUpsideDown));
         Put(4, 0, 1, BlockId.PlanksStairs, (byte)(1 | BlockShapes.StairUpsideDown));
 
+        // Material-response row: stone families, four ores, foliage cutouts,
+        // and a small glass pane are viewed together under identical lighting.
+        Put(-7, 0, 2, BlockId.Stone);
+        Put(-6, 0, 2, BlockId.Cobblestone);
+        Put(-5, 0, 2, BlockId.Brick);
+        Put(-4, 0, 2, BlockId.Gravel);
+        Put(-3, 0, 2, BlockId.CoalOre);
+        Put(-2, 0, 2, BlockId.IronOre);
+        Put(-1, 0, 2, BlockId.GoldOre);
+        Put(0, 0, 2, BlockId.DiamondOre);
+        Put(1, 0, 2, BlockId.Leaves);
+        Put(2, 0, 2, BlockId.BirchLeaves);
+        Put(4, 0, 2, BlockId.Glass);
+        Put(4, 1, 2, BlockId.Glass);
+        Put(4, 2, 2, BlockId.Glass);
+        Put(5, 0, 2, BlockId.Glass);
+        Put(5, 1, 2, BlockId.Glass);
+        Put(5, 2, 2, BlockId.Glass);
+
         Camera3D camera = new()
         {
             Name = "WoodArtValidationCamera",

@@ -1364,3 +1364,14 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   materials are rebuilt only on hotbar item changes.
 - **Verification:** Godot 4.7.2 .NET / .NET 9 Debug build has 0 warnings and
   0 errors; `scripts/verify.sh` passes 4,268 checks with 0 failures.
+
+
+## 22. Voxel material art consistency — 2026-11-21
+
+- Improved ore deposits with connected stepped silhouettes, mineral shadow edges and restrained highlights; ore remains opaque and non-emissive.
+- Refined the existing oak and birch foliage tiles with clustered cutout gaps and more coherent leaf-tone groups, preserving their original IDs, atlas coordinates, cutout mesh and light-transmission rules.
+- Added deterministic low-contrast world-space stone tone variation to both atlas and greedy texture-array shaders. The variation is bounded to the stone material family and does not add per-frame CPU work or mesh vertices.
+- Unified material response tags across atlas and greedy mesh paths, with shared roughness/metallic/specular values for stone, wood, soil, ore, foliage, glass and metal.
+- Refined glass alpha, front-face culling and bounds-center transparent sorting while retaining the existing chunk glass surface.
+- Added regression coverage for ore pixel readability/opacity, foliage alpha coverage and light transmission, stone shader consistency, material-family routing, glass sorting and texture mapping. Extended the production-scene GPU capture fixture to show these material families together at close and distant views.
+- No existing BlockId/ItemId values were reordered or reused. No generator, save format, voxel mutation, greedy meshing or chunk-streaming rules changed.
