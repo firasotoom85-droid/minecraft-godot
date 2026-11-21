@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using Godot;
 
@@ -15,6 +16,7 @@ public static class IntegrationTests
         CheckCombinedWorldSaveRoundTrip(host);
         CheckQuestSystemRewards();
         CheckFluidShapeBoundary(host);
+        CheckVillageResidentSpawning(host);
     }
 
     private static void CheckCombinedWorldSaveRoundTrip(Node host)
@@ -148,6 +150,87 @@ public static class IntegrationTests
                 "quest cannot be claimed twice");
 
         TestAssert.FreeAll(player, mobs, quests, world);
+    }
+
+    private static void CheckVillageResidentSpawning(Node host)
+    {
+        const int seed = 1337;
+        string dir = $"user://tests/integration-village-spawn-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(dir);
+        WorldStore.WriteManifest(dir, new WorldManifest(
+                "Village spawn", seed, WorldGenV8.Version,
+                WorldStore.DeriveNoiseSeeds(seed), 0, 0, "survival", "normal"));
+        GameSession.Instance.SelectWorld(dir);
+
+        VoxelWorld world = new();
+        host.AddChild(world);
+        VillageInfo? site = null;
+        for (int cellZ = -4; cellZ <= 4 && site == null; cellZ++)
+        for (int cellX = -4; cellX <= 4 && site == null; cellX++)
+            site = world.GetVillageSite(cellX, cellZ);
+        TestAssert.Check(site is not null, "spawn test finds a deterministic village");
+        if (site is not { } village)
+        {
+            host.RemoveChild(world);
+            world.Free();
+            DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+            DirAccess.RemoveAbsolute(dir);
+            return;
+        }
+
+        Vector3 center = new(village.X + 0.5f, village.Y + 1.0f, village.Z + 0.5f);
+        world.BuildPreview(center, 4);
+        Player player = MakePlayer();
+        host.AddChild(player);
+        player.GlobalPosition = center;
+        Mobs mobs = new();
+        VillageSystem system = new();
+        host.AddChild(system);
+        system.Setup(world, player, mobs);
+        system._Process(0.0);
+
+        TestAssert.Check(system.ActiveResidents >= 5,
+                "village system spawns its five residents near a loaded settlement");
+        Villager? resident = system.GetChildren().OfType<Villager>().FirstOrDefault();
+        TestAssert.Check(resident != null, "active resident is a live villager node");
+        if (resident != null)
+        {
+            bool interacted = false;
+            player.VillagerInteracted += _ => interacted = true;
+            TestAssert.Check(resident.Interact(player),
+                    "resident interaction uses the player interaction path");
+            TestAssert.Check(interacted, "resident interaction reaches the player event");
+            TestAssert.Check(resident.GlobalPosition.DistanceTo(center) < 90.0f,
+                    "resident remains within the active village radius");
+        }
+
+        host.RemoveChild(system);
+        system.Free();
+        TestAssert.Check(world.Villagers.Count >= 5,
+                "resident identities and transforms are saved when the village system exits");
+        player.GetParent()?.RemoveChild(player);
+        player.Free();
+        mobs.Free();
+        host.RemoveChild(world);
+        world.Free();
+        DirAccess.RemoveAbsolute(WorldStore.WorldSavePath(dir));
+        DirAccess.RemoveAbsolute(WorldStore.PlayerSavePath(dir));
+        DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+        DirAccess.RemoveAbsolute(dir);
+    }
+
+    private static Player MakePlayer()
+    {
+        Player player = new();
+        player.AddChild(new CollisionShape3D
+        {
+            Name = "Collision",
+            Shape = new CapsuleShape3D { Radius = 0.35f, Height = 1.8f },
+        });
+        Camera3D camera = new() { Name = "Camera3D" };
+        camera.AddChild(new RayCast3D { Name = "RayCast3D" });
+        player.AddChild(camera);
+        return player;
     }
 
     private static void CheckFluidShapeBoundary(Node host)
