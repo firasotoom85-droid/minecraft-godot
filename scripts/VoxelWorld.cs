@@ -136,6 +136,7 @@ public partial class VoxelWorld : Node3D
     private volatile bool _alive = true;
     private bool _dirty;
     private double _autosaveTimer;
+    private double _unsavedPlaytimeSeconds;
 
     public override void _Ready()
     {
@@ -2204,6 +2205,7 @@ public partial class VoxelWorld : Node3D
 
     public override void _Process(double delta)
     {
+        _unsavedPlaytimeSeconds += Math.Max(0.0, delta);
         if (Player == null)
         {
             return;
@@ -2517,11 +2519,17 @@ public partial class VoxelWorld : Node3D
                                 Player?.Stats.Experience ?? 0),
                         WorldStore.Json));
 
-        WorldManifest updatedManifest = _manifest with { PlayedUtc = WorldStore.NowUtc() };
+        long elapsedPlaytime = (long)_unsavedPlaytimeSeconds;
+        WorldManifest updatedManifest = _manifest with
+        {
+            PlayedUtc = WorldStore.NowUtc(),
+            PlaytimeSeconds = _manifest.PlaytimeSeconds + elapsedPlaytime,
+        };
         bool manifestSaved = WorldStore.WriteManifest(_worldDir, updatedManifest);
         if (worldSaved && playerSaved && manifestSaved)
         {
             _manifest = updatedManifest;
+            _unsavedPlaytimeSeconds = Math.Max(0.0, _unsavedPlaytimeSeconds - elapsedPlaytime);
             _dirty = false;
             if (Player != null)
             {
