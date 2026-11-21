@@ -59,6 +59,10 @@ change StandardMaterial3D; no per-frame material creation is performed.
   shared 2×2 noise detail units and isolated per-tile mip chains, retaining
   the 32×32 close-range pixel art while reducing distant shimmer and preventing
   mip-level bleed between atlas tiles.
+ - **Readable glass** — dedicated alpha-blended chunk surface with bounds-center
+   transparency sorting, front-face culling to avoid double-blended internal
+   faces, and a restrained original atlas treatment that stays clear across
+   close and distant views. Glass keeps the existing voxel-light and atlas path.
 - **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
   voxels, warm multi-source propagation with opaque occlusion, cave darkness and
   live place/break updates across chunk boundaries. Emitter edits incrementally

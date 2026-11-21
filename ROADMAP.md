@@ -242,6 +242,24 @@ remains recommended before merging.
   save round-trips. GPU worldgen captures and the population soak were added
   later; see the integrated snapshot and V8 visual-validation document.
 
+## Glass rendering polish — 2026-11-21
+
+- Kept the existing dedicated glass chunk surface, atlas tile, alpha material,
+  voxel-light channels and face-culling rules; no new block/item IDs, save
+  fields, generator versions, or mesh/streaming paths were introduced.
+- Glass chunk instances now sort transparent geometry around their mesh AABB
+  center rather than the chunk origin, reducing incorrect ordering between
+  neighboring chunk surfaces viewed through windows.
+- Switched the glass shader to back-face culling so a closed glass block does
+  not blend both sides of the same surface. Transparent fragments remain out of
+  opaque depth writes.
+- Reduced the glass tile to a clear body, a one-pixel restrained edge and a
+  subtle diagonal glint; reduced shader alpha to limit grid-like visual buildup
+  across large windows while retaining a readable edge at distance.
+- Added regression checks for shader blend/cull/depth modes, glass instance
+  sorting and atlas alpha levels. `dotnet build` and `scripts/verify.sh` pass on
+  Godot 4.7.2 .NET; GPU visual validation remains a manual follow-up.
+
 ## 1. Current state
 
 ### Survival equipment increment — 2026-11-20

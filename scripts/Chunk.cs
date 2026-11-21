@@ -38,6 +38,10 @@ public partial class Chunk : StaticBody3D
 
         _meshOpaque = NewSurfaceMesh("OpaqueMesh", false);
         _meshGlass = NewSurfaceMesh("GlassMesh", true);
+        // Transparent chunk meshes are positioned at the chunk origin. Sort
+        // glass using its actual bounds center so adjacent chunks do not sort
+        // by an arbitrary corner when viewed through windows.
+        _meshGlass.SortingUseAabbCenter = true;
         _meshWater = NewSurfaceMesh("WaterMesh", true);
         _meshLava = NewSurfaceMesh("LavaMesh", true);
 
