@@ -21,6 +21,12 @@ The project is a long-running solo build with an extensive design log in
 - **Greedy meshing** — merged coplanar full-cube quads cut triangle count
   roughly in half; per-face meshing remains available for comparison. Vertex-light
   and AO samples are part of the merge key, preserving lighting boundaries.
+- **Terrain material transitions** — original procedural grass has a deeper,
+  irregular turf edge over exposed soil; farmland uses higher-contrast furrows
+  and a defined tilled cap. Far-view terrain samples each block's upward-facing
+  atlas tile, while coarse slopes retain a one-block surface cap over their
+  dirt/stone substrate. Edited top-block materials (including farmland and
+  exposed dirt) remain represented after chunk unload and save reload.
 - **Architectural voxel building** — bottom/top/double slabs and four-way,
   upside-down stairs use a shared 2×2×2 occupancy definition for geometry,
   collision, ray selection and placement. Partial faces are split only at shape

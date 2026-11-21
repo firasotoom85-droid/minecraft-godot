@@ -189,6 +189,17 @@ public static class BlockShapeTests
         world.SetBlock(8, 100, 2, BlockId.PlanksStairs, 3);
         world.SetBlock(11, 100, 4, BlockId.Stone);
         world.SetBlock(12, 100, 4, BlockId.PlanksSlab, BlockShapes.SlabBottom);
+        world.SetBlock(13, 99, 4, BlockId.Dirt);
+        world.SetBlock(13, 100, 4, BlockId.Farmland);
+
+        TestAssert.Check(world.TryEditTop(13, 4, out int farmlandTop, out BlockId farmlandSurface),
+                "edited surface lookup exposes the topmost edited column");
+        TestAssert.Equal(100, farmlandTop, "farmland edit surface height is retained");
+        TestAssert.Equal(BlockId.Farmland, farmlandSurface,
+                "far LOD can resolve an edited farmland surface without reading chunk data");
+        TestAssert.Check(world.TryEditTop(13, 4, out int legacyTop),
+                "existing height-only edit lookup remains compatible");
+        TestAssert.Equal(100, legacyTop, "legacy edit lookup keeps the same surface height");
 
         TestAssert.Equal(BlockShapes.SlabTop, world.GetBlockState(4, 100, 2),
                 "world edit pipeline stores upper-slab state");
@@ -262,6 +273,18 @@ public static class BlockShapeTests
         loaded.BuildPreview(Vector3.Zero, 1);
         TestAssert.Equal(BlockShapes.SlabTop, loaded.GetBlockState(4, 100, 2),
                 "world reload restores top-slab state from the optional save extension");
+        TestAssert.Check(loaded.TryEditTop(13, 4, out int restoredFarmlandTop, out BlockId restoredFarmland),
+                "world reload reconstructs the edited surface material lookup");
+        TestAssert.Equal(100, restoredFarmlandTop, "reloaded farmland keeps its edited surface height");
+        TestAssert.Equal(BlockId.Farmland, restoredFarmland,
+                "reloaded farmland remains visible to the far LOD material path");
+        TestAssert.Check(loaded.SetBlock(13, 100, 4, BlockId.Air),
+                "removing the top farmland edit succeeds through SetBlock");
+        TestAssert.Check(loaded.TryEditTop(13, 4, out int exposedSoilTop, out BlockId exposedSoil),
+                "removing farmland exposes the next edited soil layer");
+        TestAssert.Equal(99, exposedSoilTop, "exposed dirt layer becomes the edited surface height");
+        TestAssert.Equal(BlockId.Dirt, exposedSoil,
+                "exposed dirt material replaces farmland in the far LOD surface cache");
         TestAssert.Equal(BlockShapes.SlabDouble, loaded.GetBlockState(6, 100, 2),
                 "world reload restores double-slab state");
         TestAssert.Equal((byte)3, loaded.GetBlockState(8, 100, 2),

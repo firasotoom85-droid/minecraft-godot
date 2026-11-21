@@ -484,44 +484,74 @@ public static class BlockDb
         return tiles[4] >= 0 ? tiles[4] : tiles[0];
     }
 
-    private static readonly Dictionary<BlockId, Color> AvgColors = [];
+    private static readonly Color[] TileAverageColors = new Color[TileCount];
+    private static readonly bool[] TileAverageReady = new bool[TileCount];
+    private static readonly Lock TileAverageLock = new();
 
-    /// <summary>Average (opaque) colour of a block's icon tile — used to tint particles.</summary>
-    public static Color AverageTileColor(BlockId id)
+    /// <summary>Returns a block's texture tile for a face in +Y, -Y, +X, -X, +Z, -Z order.</summary>
+    public static int FaceTile(BlockId id, int face)
     {
-        if (AvgColors.TryGetValue(id, out Color cached))
+        if (!IsDefined(id) || (uint)face >= 6u)
         {
-            return cached;
+            return -1;
         }
 
-        int tile = IconTile(id);
-        Image img = AtlasTexture().GetImage();
-        int ox = (tile % AtlasCols) * TilePx;
-        int oy = (tile / AtlasCols) * TilePx;
-        Vector3 acc = Vector3.Zero;
-        int n = 0;
-        for (int y = 0; y < TilePx; y++)
+        return Defs[(int)id].Tiles[face];
+    }
+
+    /// <summary>Average opaque color for one specific block face's atlas tile.</summary>
+    public static Color AverageFaceColor(BlockId id, int face)
+    {
+        int tile = FaceTile(id, face);
+        return tile >= 0 ? AverageAtlasTileColor(tile) : Colors.White;
+    }
+
+    /// <summary>Average (opaque) color of a block's icon tile — used to tint particles.</summary>
+    public static Color AverageTileColor(BlockId id) => AverageAtlasTileColor(IconTile(id));
+
+    private static Color AverageAtlasTileColor(int tile)
+    {
+        if ((uint)tile >= TileCount)
         {
-            for (int x = 0; x < TilePx; x++)
+            return Colors.White;
+        }
+
+        lock (TileAverageLock)
+        {
+            if (TileAverageReady[tile])
             {
-                Color c = img.GetPixel(ox + x, oy + y);
-                if (c.A > 0.5f)
+                return TileAverageColors[tile];
+            }
+
+            Image img = AtlasTexture().GetImage();
+            int ox = (tile % AtlasCols) * TilePx;
+            int oy = (tile / AtlasCols) * TilePx;
+            Vector3 acc = Vector3.Zero;
+            int n = 0;
+            for (int y = 0; y < TilePx; y++)
+            {
+                for (int x = 0; x < TilePx; x++)
                 {
-                    acc += new Vector3(c.R, c.G, c.B);
-                    n += 1;
+                    Color c = img.GetPixel(ox + x, oy + y);
+                    if (c.A > 0.5f)
+                    {
+                        acc += new Vector3(c.R, c.G, c.B);
+                        n++;
+                    }
                 }
             }
-        }
 
-        Color col = new(1, 1, 1);
-        if (n > 0)
-        {
-            acc /= n;
-            col = new Color(acc.X, acc.Y, acc.Z);
-        }
+            Color average = Colors.White;
+            if (n > 0)
+            {
+                acc /= n;
+                average = new Color(acc.X, acc.Y, acc.Z);
+            }
 
-        AvgColors[id] = col;
-        return col;
+            TileAverageColors[tile] = average;
+            TileAverageReady[tile] = true;
+            return average;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -889,12 +919,31 @@ void fragment() {
     private static void PaintGrassSide(Image img, RandomNumberGenerator rng)
     {
         PaintDirt(img, TGrassSide, rng);
+        Span<int> edgeDepth = stackalloc int[TilePx];
         for (int x = 0; x < TilePx; x++)
         {
-            int depth = 6 + rng.RandiRange(0, 4);
+            // A deeper, irregular turf cap remains legible when the side is seen
+            // obliquely or reduced to a small number of screen pixels.
+            int depth = TilePx / 4 + rng.RandiRange(0, TilePx / 8);
+            edgeDepth[x] = depth;
             for (int y = 0; y < depth; y++)
             {
-                Px(img, TGrassSide, x, y, Jitter(rng, new Color(0.34f, 0.56f, 0.24f), 0.05f));
+                Color grass = y < depth - 2
+                        ? new Color(0.32f, 0.56f, 0.22f)
+                        : new Color(0.25f, 0.43f, 0.17f);
+                Px(img, TGrassSide, x, y, Jitter(rng, grass, 0.055f));
+            }
+        }
+
+        // One broken dark-soil seam and sparse roots anchor the turf edge;
+        // avoid a hard, perfectly horizontal stripe on long exposed banks.
+        for (int x = 0; x < TilePx; x++)
+        {
+            int edge = edgeDepth[x];
+            Px(img, TGrassSide, x, edge, Jitter(rng, new Color(0.25f, 0.27f, 0.13f), 0.045f));
+            if (x % 5 == 0 && edge + 1 < TilePx)
+            {
+                Px(img, TGrassSide, x, edge + 1, new Color(0.31f, 0.37f, 0.18f));
             }
         }
     }
@@ -1489,22 +1538,33 @@ void fragment() {
     private static void PaintFarmland(Image img, RandomNumberGenerator rng)
     {
         PaintDirt(img, TFarmlandTop, rng);
-        for (int y = 4; y < TilePx; y += 6)
+        // Broad, alternating furrow shadows and raised ridges survive the
+        // nearest-filtered 32px tile at grazing first-person viewing angles.
+        for (int y = 3; y < TilePx; y += 7)
         {
-            for (int x = 3; x < TilePx - 3; x++)
+            for (int x = 2; x < TilePx - 2; x++)
             {
-                Px(img, TFarmlandTop, x, y, new Color(0.30f, 0.21f, 0.13f));
-                Px(img, TFarmlandTop, x, y + 1, new Color(0.52f, 0.38f, 0.24f));
+                Px(img, TFarmlandTop, x, y, new Color(0.25f, 0.16f, 0.095f));
+                if (y + 1 < TilePx)
+                    Px(img, TFarmlandTop, x, y + 1, new Color(0.32f, 0.22f, 0.14f));
+                if (y + 2 < TilePx)
+                    Px(img, TFarmlandTop, x, y + 2, new Color(0.57f, 0.41f, 0.25f));
             }
         }
 
         PaintDirt(img, TFarmlandSide, rng);
         for (int x = 0; x < TilePx; x++)
         {
-            for (int y = 0; y < 7; y++)
+            int capDepth = 4 + (x % 4 == 0 ? 1 : 0);
+            for (int y = 0; y < capDepth; y++)
             {
-                Px(img, TFarmlandSide, x, y, Jitter(rng, new Color(0.34f, 0.24f, 0.15f), 0.04f));
+                Px(img, TFarmlandSide, x, y,
+                        Jitter(rng, new Color(0.24f, 0.16f, 0.095f), 0.035f));
             }
+
+            if (capDepth < TilePx)
+                Px(img, TFarmlandSide, x, capDepth,
+                        Jitter(rng, new Color(0.45f, 0.31f, 0.19f), 0.035f));
         }
     }
 
