@@ -107,7 +107,8 @@ public static class SurvivalProgressionTests
             Equip(inventory, armor);
         }
 
-        TestAssert.Check(EquipmentProgression.ArmorDamageMultiplier(inventory) < 0.41f,
+        TestAssert.Check(Mathf.IsEqualApprox(0.40f,
+                EquipmentProgression.ArmorDamageMultiplier(inventory)),
                 "full iron armor mitigates sixty percent of incoming damage");
         TestAssert.Check(Craft(inventory, ItemId.Arrow) == false,
                 "arrow crafting is correctly unavailable without gravel and feathers");
@@ -129,15 +130,19 @@ public static class SurvivalProgressionTests
         TestAssert.Check(wisp.Loot.Any(drop => drop.Id == ItemId.LapisLazuli && drop.Chance > 0.0f),
                 "crystal wisp remains a renewable lapis source");
         wisp.Free();
-        inventory.Add(ItemId.GoldIngot, 12);
-        for (int i = 0; i < 6; i++)
+        inventory.Add(ItemId.GoldIngot, 14);
+        for (int i = 0; i < 7; i++)
         {
             TestAssert.Check(TraderTradeRules.TryExecute(inventory, ItemId.GoldIngot, 2,
                     ItemId.LapisLazuli, 1), "two gold ingots barter for one lapis");
         }
 
+        inventory.Add(ItemId.Diamond, 2);
+        inventory.Add(ItemId.IronIngot, 2);
+        TestAssert.Check(Craft(inventory, ItemId.EnchantingTable),
+                "two diamonds, two iron ingots and one lapis craft the Enchanting Table");
         TestAssert.Equal(6, inventory.CountOf(ItemId.LapisLazuli),
-                "twelve gold ingots reliably provide six lapis for tiered enchanting");
+                "fourteen gold ingots provide the table lapis plus six tiered enchantment lapis");
 
         // 6. Experience levels are spent cumulatively without losing level-relative progress.
         PlayerStats stats = new();
@@ -220,6 +225,9 @@ public static class SurvivalProgressionTests
         DamageInfo rearHit = new(4.0f, DamageKind.Projectile, new Vector3(0, 0, 3));
         TestAssert.Check(!EquipmentProgression.BlocksWithShield(shield, new Vector3(0, 0, -1),
                 Vector3.Zero, rearHit), "a shield does not block an attack from behind");
+        DamageInfo fireVolley = new(2.0f, DamageKind.Fire, new Vector3(0, 0, -3));
+        TestAssert.Check(!EquipmentProgression.BlocksWithShield(shield, new Vector3(0, 0, -1),
+                Vector3.Zero, fireVolley), "the Warden's direct fire pulse bypasses a physical shield block");
         Inventory shieldInventory = new();
         shieldInventory.Set(0, shield);
         TestAssert.Check(!shieldInventory.DamageEquipment(0),
@@ -251,6 +259,22 @@ public static class SurvivalProgressionTests
         EmberWarden warden = new();
         warden.Health = warden.MaxHealth;
         TestAssert.Equal(120.0f, warden.MaxHealth, "Ember Warden has its intended boss health pool");
+        TestAssert.Equal(1, EmberWardenRules.PhaseForHealth(120.0f, 120.0f),
+                "Warden starts in phase one above the sixty-six-percent threshold");
+        TestAssert.Equal(1, EmberWardenRules.PhaseForHealth(79.21f, 120.0f),
+                "Warden remains in phase one just above sixty-six percent");
+        TestAssert.Equal(2, EmberWardenRules.PhaseForHealth(79.19f, 120.0f),
+                "Warden enters phase two below sixty-six percent health");
+        TestAssert.Equal(2, EmberWardenRules.PhaseForHealth(39.61f, 120.0f),
+                "Warden remains in phase two just above thirty-three percent");
+        TestAssert.Equal(3, EmberWardenRules.PhaseForHealth(39.59f, 120.0f),
+                "Warden enters phase three below thirty-three percent health");
+        TestAssert.Equal(2, EmberWardenRules.AddsForPhase(2),
+                "Warden phase two calls two hostile adds");
+        TestAssert.Equal(3, EmberWardenRules.AddsForPhase(3),
+                "Warden phase three calls three hostile adds");
+        TestAssert.Equal(0, EmberWardenRules.AddsForPhase(1),
+                "Warden phase one does not summon adds");
         TestAssert.Equal(ItemId.EmberCore, warden.Loot.Single().Id,
                 "Ember Warden guarantees its progression reward");
         TestAssert.Equal(25, MobCombatRules.ExperienceReward(warden),

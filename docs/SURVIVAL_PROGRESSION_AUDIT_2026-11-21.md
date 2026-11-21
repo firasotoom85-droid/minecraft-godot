@@ -14,8 +14,9 @@ crafting, inventory or mob system.
 Source-of-truth tuning values are recorded below. These are audited values,
 not claims that every possible procedural seed or player playstyle has been
 statistically simulated. The deterministic suite exercises cross-system
-resource/crafting progression, damage rules, equipment, save/load and a full
-Warden defeat. The real-scene soak exercises the live world, population manager,
+resource/crafting progression, damage rules, equipment, Warden phase thresholds,
+save/load and a complete Warden health/death/reward contract. The real-scene soak
+exercises the live world, population manager,
 weather, surface/cave transitions, herd feeding/breeding and saves.
 
 ## Balance snapshot
@@ -73,12 +74,26 @@ break an ore block slowly but do not satisfy its harvest/drop tier.
 | Shield | Front-facing melee/projectile block | 420 |
 | Wood / stone / iron / diamond pick | Tier 1/2/3/4; speed 2.5/4/6/8 | 60/130/250/450 |
 
+The shield's forward check accepts attacks within about 69.5° of the facing
+vector (`dot >= 0.35`); it blocks melee and physical projectiles, not direct
+`DamageKind.Fire` pulses such as the Warden volley. That attack is answered by
+positioning and armor rather than holding a shield indefinitely.
+
 Base armor reduction is four percentage points per armor point, capped at 80%.
 Full iron armor has 15 points (60% reduction); full diamond has 20 (80%). Each
 Protection level reduces the remaining damage by 4% per equipped piece; four
 Protection III pieces therefore move a full diamond set to about 88% total
-mitigation, not 92% additive reduction. Unbreaking uses the existing per-use
-probability on weapon, tool, shield and armor durability.
+mitigation, not 92% additive reduction. Iron armor durability is 200/300/250/180
+(helmet/chest/legs/boots), while diamond is 400/600/500/350. Each landed damage
+hit that armor mitigates wears every equipped piece by one point; Drown/Starve
+are excluded. A blocked shield hit wears the shield by one point, and a landed
+melee hit wears the held sword/tool by one point. Bow shots consume one arrow
+and one bow durability point.
+
+Unbreaking uses the existing per-use chance `level / (level + 1)` to negate a
+wear point: level I prevents 50% of wear, level II prevents 66.7%, and level III
+prevents 75%. These probabilities apply to melee weapons, tools, bow, shield and
+armor, without changing stack serialization.
 
 Found and fixed during audit:
 
@@ -87,9 +102,10 @@ Found and fixed during audit:
   deletion. A later tick could read `GlobalPosition` from a disposed wrapper.
   Mob death, dawn retreat and peaceful cleanup now remove entries synchronously
   before `QueueFree`.
-- A pick/axe/shovel/hoe could be used as an emergency melee weapon but landed
-  hits did not consume its durability. It now shares the existing weapon
-  durability path and Unbreaking calculation.
+- A pick/axe/shovel/hoe could be used as an emergency melee weapon (2–5 base
+  damage from wood through diamond) but landed hits did not consume its
+  durability. It now shares the existing weapon durability path and Unbreaking
+  calculation.
 - A shield could lose durability when a hit was rejected by the player's
   respawn invulnerability window. Invalid, creative, dead and invulnerable hits
   now return before shield wear.
@@ -122,8 +138,9 @@ automatic hostiles; this audit closes the remaining paths by rejecting manual
 hostile/Warden spawns, suppressing dungeon boss UI/wakeup, cancelling already-
 winding melee attacks to zero damage and clearing hostile projectiles.
 
-The Warden's 120 health and two add-summon thresholds remain intact. It awards
-one Ember Core at 100% drop chance plus 25 XP through the existing mob-death
+The Warden's 120 health and two add-summon thresholds remain intact: it calls
+for two adds below 66% health and three below 33%. It awards one Ember Core at
+100% drop chance plus 25 XP through the existing mob-death
 reward path. Its 4/5 damage slam cadence remains 2.4 seconds and its 2/3 damage
 volley cadence 4.2 seconds. No health inflation or damage inflation was used to
 make the fight harder.
@@ -184,7 +201,8 @@ The individual stages are:
    and rear, successful-block durability, respawn/creative/zero-damage rejection,
    and armor wear rules for physical versus starvation/drowning damage.
 6. **Experience and lapis:** assert hostile/passive/Warden XP rewards and barter
-   six lapis using twelve gold ingots (one lapis per two gold).
+   lapis at one per two gold; craft the Enchanting Table from its diamond/iron/
+   lapis recipe while reserving six additional lapis for Sharpness progression.
 7. **Enchanting:** apply Sharpness I–III, Unbreaking I and Protection I using
    increasing level/lapis costs; verify armor and weapon enchantment fields.
 8. **Equipment upgrades:** turn the iron sword into a diamond sword and assert
@@ -221,9 +239,9 @@ population counts, and writes the world before exit.
 | Audit Debug build | 0 warnings, 0 errors |
 | Audit Release build (`minecraft.csproj`) | 0 warnings, 0 errors |
 | Baseline full headless suite | 1,236 checks, 0 failures |
-| Audit full headless suite | 1,320 checks, 0 failures |
+| Audit full headless suite | 1,331 checks, 0 failures |
 | Audit test shutdown allocations | 18 ObjectDB / 17 Jolt (same as baseline test harness) |
-| Soak | **Running after population cleanup fix; currently 11 simulated minutes, no runtime/script errors. Final result added after completion.** |
+| Soak | **Running after population cleanup fix; final duration/result updated after completion.** |
 
 Commands:
 

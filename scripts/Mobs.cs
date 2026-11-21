@@ -874,8 +874,13 @@ public partial class Mobs : Node
         {
             foreach (Mob herdMate in _passive)
             {
-                if (herdMate != mob && herdMate.GlobalPosition.DistanceSquaredTo(
-                        mob.GlobalPosition) < 10.0f * 10.0f)
+                if (!GodotObject.IsInstanceValid(herdMate) || herdMate == mob)
+                {
+                    continue;
+                }
+
+                if (herdMate.GlobalPosition.DistanceSquaredTo(mob.GlobalPosition)
+                        < 10.0f * 10.0f)
                 {
                     herdMate.SetAlerted(5.0f, info.Source);
                 }

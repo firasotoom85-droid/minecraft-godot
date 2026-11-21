@@ -943,13 +943,13 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - Fixed furnace elapsed-time loss across fuel boundaries without changing the
   existing saved timer fields or furnace serialization.
 - Added a cross-system progression suite covering the resource, crafting,
-  smelting, equipment, enchantment, upgrade, combat, boss, death, overflow and
-  save/load path. The suite drives the Warden through its full
+  smelting, equipment, enchantment, upgrade, combat, boss phase thresholds,
+  death, overflow and save/load path. The suite drives the Warden through its full
   health pool and verifies the single defeat event, XP reward and Ember Core.
 - Compatibility: no `BlockId`, `ItemId`, worldgen-version, player-save or
   furnace-save fields were added, removed, reordered or repurposed.
 - **Verification:** Debug build 0 warnings / 0 errors; full Godot 4.7.2 Mono
-  suite 1,320 checks / 0 failures; Debug and Release builds both have zero
+  suite 1,331 checks / 0 failures; Debug and Release builds both have zero
   warnings/errors. Shutdown allocation counts match the pre-audit
   runner baseline (18 ObjectDB / 17 Jolt test-harness objects).
 - **Real-scene soak:** 3,600-second normal-survival main-scene soak was rerun
