@@ -954,9 +954,13 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   **1,375 checks / 0 failures**. The test process reported the same baseline
   shutdown allocations (18 ObjectDB / 17 Jolt).
 - **Real-scene smoke:** initial 300-second attempt failed at the 600-second
-  process timeout after Jolt's job pool saturated before the scenario started
+  timeout after Jolt's job pool saturated before scenario start
   ([run 44898183295](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44898183295)).
-  The test runner now caps headless rendering at 60 FPS without fixed-FPS
-  simulation; a corrected smoke must pass before dispatching the 3,600-second soak.
+  A second FPS-capped attempt was cancelled after finding the default MAX /
+  12-chunk CI profile would queue a 25×25 chunk stream
+  ([run 44899215328](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44899215328)).
+  The runner now forces LOW quality, a 2-chunk radius, 3 meshing workers, no
+  LOD/adaptive quality, and a 60 FPS cap while retaining real world physics and
+  mobs. The controlled-load smoke must pass before dispatching the 3,600-second soak.
 - See `docs/SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md` for detailed values,
   findings, reproducible steps and test evidence.

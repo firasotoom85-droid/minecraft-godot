@@ -251,8 +251,9 @@ save files, then removes the temporary test directory.
 | Current audit head (`ece355e`) — full headless suite | 1,375 checks, 0 failures |
 | Test shutdown allocations | 18 ObjectDB / 17 Jolt (same as the pre-audit test harness) |
 | First isolated 5-minute real-scene smoke | Failed at 600-second process timeout; Jolt job-pool saturation occurred before scenario start ([run 44898183295](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44898183295)) |
-| Corrected capped smoke | Queued after adding `--max-fps 60`; result pending |
-| 60-minute normal-survival real-scene soak | Not started; gated on corrected smoke PASS |
+| FPS-capped smoke attempt | Cancelled after source review found the default MAX/12-chunk configuration would stream up to a 25×25 chunk square on CI ([run 44899215328](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/44899215328)) |
+| Controlled-load smoke | Queued with LOW preset, 2-chunk radius, 3 mesh workers, no LOD, and `--max-fps 60`; result pending |
+| 60-minute normal-survival real-scene soak | Not started; gated on controlled-load smoke PASS |
 
 Commands:
 
@@ -269,9 +270,15 @@ write failure and a backup-recovery path. It passes. The test process exits with
 shutdown allocation count. The first 300-second scene smoke loaded the main
 scene but Jolt reported that its fixed-size job queue was exhausted before the
 scenario-start log; the 600-second process timeout then returned exit code 124.
-The soak runner is now launched with a 60 FPS cap (not fixed-FPS simulation) to
-avoid unbounded headless frame scheduling. The corrected smoke must pass before
-the one-hour soak is dispatched.
+A second FPS-capped attempt was stopped after reviewing the fresh-profile
+defaults: MAX quality sets a 12-chunk radius, and the main scene then overrides
+that from `Settings.ViewDistance`, potentially queueing a 25×25 chunk stream
+during the soak. The harness now explicitly loads then overrides settings to
+LOW quality, a two-chunk radius, three mesh workers, no far-LOD and no adaptive
+quality. The main scene still uses real generated terrain, collision meshes,
+Jolt physics, normal survival, and live mob systems. The 60 FPS cap is
+test-process-only and does not force fixed-FPS simulation. The controlled-load
+smoke must pass before the one-hour soak is dispatched.
 
 ## Compatibility and scope boundaries
 

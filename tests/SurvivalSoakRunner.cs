@@ -30,6 +30,17 @@ public partial class SurvivalSoakRunner : Node
 
     public override void _Ready()
     {
+        // A new profile defaults to MAX quality / 12 chunks. That is useful
+        // for a fresh player, but needlessly floods a hosted headless soak with
+        // hundreds of colliders and far-LOD tiles before survival starts.
+        // Keep the real scene, physics and mob systems enabled at a deterministic
+        // low preset and a two-chunk view radius for a reproducible soak load.
+        Settings.Load();
+        Settings.GfxPreset = 0;
+        Settings.ViewDistance = 2;
+        Settings.AutoQuality = false;
+        Settings.Difficulty = Settings.DifficultyNormal;
+
         foreach (string arg in OS.GetCmdlineUserArgs())
         {
             if (arg.StartsWith("--duration=")
@@ -67,7 +78,9 @@ public partial class SurvivalSoakRunner : Node
         _player.SetMode(GameMode.Survival);
         _surfacePosition = _world.FindSpawn();
         _player.GlobalPosition = _surfacePosition;
-        GD.Print($"SURVIVAL SOAK: initialized main scene, duration={_duration:0}s");
+        GD.Print($"SURVIVAL SOAK: initialized main scene, duration={_duration:0}s, " +
+                $"viewDistance={_world.ViewDistance}, meshWorkers={_world.MaxInFlight}, " +
+                $"lodRadius={_world.LodRadius:0}, difficulty=normal");
     }
 
     public override void _Process(double delta)
