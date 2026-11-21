@@ -1440,6 +1440,8 @@ public partial class VoxelWorld : Node3D
                         return;
                     }
 
+                    if (_genVersion >= WorldGenV9.Version)
+                        id = WorldGenV9.WeatheredMaterial(site, id, wx, wy, wz);
                     data[i] = (byte)id;
                 });
             }

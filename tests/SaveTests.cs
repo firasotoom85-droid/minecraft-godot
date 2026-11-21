@@ -115,7 +115,7 @@ public static class SaveTests
         TestAssert.Equal(WorldStore.WorldFormatVersion, upgradedReload?.Version ?? -1,
                 "upgraded save writes the current world format version");
         TestAssert.Equal(4, WorldStore.WorldFormatVersion, "current world format is v4");
-        TestAssert.Equal(WorldGenV8.Version, WorldStore.CurrentGenVersion,
+        TestAssert.Equal(WorldGenV9.Version, WorldStore.CurrentGenVersion,
                 "new worlds use the latest versioned generator");
 
         string worldDir = WorldStore.Create("Management Test", 424242);

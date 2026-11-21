@@ -11,6 +11,15 @@ harness.
 
 ---
 
+## Current follow-up implementation — 2026-11-21 (V9 structure weathering)
+
+The current branch advances the integrated V1.0 checkpoint below from generator
+V8 to V9 for newly created worlds. V9 only changes deterministic stone/brick
+materials in existing surface structures; V1–V8 generation and saved worlds
+remain frozen, save format stays v4, and persisted IDs are appended at
+BlockId 52–55 / ItemId 101–104. The detailed implementation, verification and
+MX230 captures are recorded in the V9 snapshot further down this file.
+
 ## Integrated 1.0 snapshot — 2026-11-21
 
 Six open feature branches were merged into `integration/v1.0-full` from
@@ -184,6 +193,28 @@ succeed with 0 warnings and 0 errors. The headless suite passes **1,351 checks,
 parity, rendered/collision triangle coverage, non-default shape save/reload,
 and state-buffer release after the last stateful edit. A manual visual playtest
 remains recommended before merging.
+
+## Implementation snapshot — 2026-11-21 (World generation V9: structure weathering)
+
+- Added V9 as an isolated post-stamp material pass for the existing V8 surface and underground
+  structure templates. V1–V8 terrain, structure sites, templates, chunk hashes
+  and saved worlds remain frozen; the world format stays at v4.
+- Added four append-only block IDs (52–55) and matching placeable/drop item IDs
+  (101–104): mossy cobblestone, weathered cobblestone, cracked brick and mossy
+  brick. The definitions use the normal full-cube atlas/material/mesher path.
+- Added original procedural 32px atlas tiles: broad stone joints/chips, muted
+  aged brick courses, hand-shaped crack marks and irregular moss patches. The
+  new painters run after legacy atlas paints and reuse the existing atlas size.
+- Material selection is deterministic from the structure seed and coarse
+  coordinate hash. Moss coverage and wear vary by structure kind and height;
+  unrelated terrain, furniture, fluids and non-stonework cells are unchanged.
+- Added structure-weathering tests for material determinism, atlas content,
+  append-only ID pins, V8/V9 cell diffs, legacy generator selection and reverse
+  chunk-order equivalence. V9 visual captures use the real scene and MX230.
+- Verification: Godot 4.7.2 .NET Debug build has 0 warnings/errors. The full
+  headless suite reports 150,325 checks and 0 failures. Close/distant MX230
+  Forward+ captures are in docs/worldgen/screenshots/; see
+  docs/worldgen/V9_VISUAL_VALIDATION.md for scene and performance notes.
 
 ## Implementation snapshot — 2026-11-21 (World generation V8)
 
