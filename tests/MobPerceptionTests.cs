@@ -18,6 +18,8 @@ public static class MobPerceptionTests
         Player player = new();
         Mobs manager = new();
         MobPerceptionProbe probe = new();
+        Sheep parent = new();
+        Sheep juvenile = new();
         Node3D target = new();
         StaticBody3D wall = new()
         {
@@ -95,6 +97,7 @@ public static class MobPerceptionTests
             host.AddChild(probe);
             probe.Setup(world, manager, new Vector3(-23, 61, 0.5f));
             probe.GlobalPosition = new Vector3(-23, 61, 0.5f);
+            probe.SetPhysicsProcess(false);
             TestAssert.Check(probe.TryHear(out Vector3 investigationDirection),
                     "hostile perception accepts an existing player noise pulse");
             TestAssert.Check(investigationDirection.X > 0.9f,
@@ -102,16 +105,18 @@ public static class MobPerceptionTests
             TestAssert.Check(manager.NoiseInvestigations > 0,
                     "manager records actual creature sound investigations");
 
-            Sheep parent = new();
-            Sheep juvenile = new();
-            parent.Position = new Vector3(-12, 54, 0);
-            juvenile.Position = new Vector3(-20, 54, 0);
+            host.AddChild(parent);
+            host.AddChild(juvenile);
+            parent.SetPhysicsProcess(false);
+            juvenile.SetPhysicsProcess(false);
+            parent.GlobalPosition = new Vector3(-12, 54, 0);
+            juvenile.GlobalPosition = new Vector3(-20, 54, 0);
             juvenile.SetBaby(30.0f, parent, null);
             TestAssert.Check(juvenile.HasLivingGuardian,
                     "newborn records its living parent as a guardian");
             TestAssert.Check(juvenile.GuardianFollowDirection().X > 0.9f,
                     "separated juvenile follows its parent");
-            juvenile.Position = parent.Position + new Vector3(1, 0, 0);
+            juvenile.GlobalPosition = parent.GlobalPosition + new Vector3(1, 0, 0);
             TestAssert.Equal(Vector3.Zero, juvenile.GuardianFollowDirection(),
                     "juvenile stays with its parent inside the formation distance");
 
@@ -145,13 +150,35 @@ public static class MobPerceptionTests
         }
         finally
         {
-            if (GodotObject.IsInstanceValid(wall)) wall.QueueFree();
-            if (GodotObject.IsInstanceValid(target)) target.QueueFree();
-            if (GodotObject.IsInstanceValid(probe)) probe.QueueFree();
+            if (GodotObject.IsInstanceValid(wall))
+            {
+                if (wall.IsInsideTree()) wall.GetParent()?.RemoveChild(wall);
+                wall.Free();
+            }
+            if (GodotObject.IsInstanceValid(target))
+            {
+                if (target.IsInsideTree()) target.GetParent()?.RemoveChild(target);
+                target.Free();
+            }
+            if (GodotObject.IsInstanceValid(probe))
+            {
+                if (probe.IsInsideTree()) host.RemoveChild(probe);
+                probe.Free();
+            }
+            if (GodotObject.IsInstanceValid(parent))
+            {
+                if (parent.IsInsideTree()) host.RemoveChild(parent);
+                parent.Free();
+            }
+            if (GodotObject.IsInstanceValid(juvenile))
+            {
+                if (juvenile.IsInsideTree()) host.RemoveChild(juvenile);
+                juvenile.Free();
+            }
             if (GodotObject.IsInstanceValid(manager)) manager.Free();
             if (GodotObject.IsInstanceValid(player)) player.Free();
             host.RemoveChild(world);
-            world.QueueFree();
+            world.Free();
             DirAccess.RemoveAbsolute(directory + "/manifest.json");
             DirAccess.RemoveAbsolute(directory);
         }
