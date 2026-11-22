@@ -439,12 +439,21 @@ public partial class VoxelWorld
             {
                 WorldGenV7.SurfaceSample surface = GeneratorV8.SampleSurface(wx, wz, SeaLevel);
                 int height = surface.Height;
+                Biome biome = surface.Biome;
+                if (_genVersion >= WorldGenV11.Version
+                        && height >= SeaLevel && height <= SeaLevel + 2)
+                {
+                    // Reuse the existing decorator surface sample instead of
+                    // resampling every chunk column in a second generator pass.
+                    TryStampShorelineReedV11(wx, wz, height, biome,
+                            data, strideY, ox, oz);
+                }
+
                 if (height <= SeaLevel + 1 || height >= Height - 4)
                 {
                     continue;
                 }
 
-                Biome biome = surface.Biome;
                 if (biome is Biome.Desert or Biome.Snow or Biome.Ocean or Biome.Beach
                         || BlockAtV8(wx, height, wz, height, biome) != BlockId.Grass)
                 {

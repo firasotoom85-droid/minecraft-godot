@@ -36,6 +36,14 @@ public static class MaterialResponse
 
     public static SurfaceResponse Get(SurfaceFamily family) => Responses[(int)family];
 
+    // COLOR.a is the compact material-family channel. The unused range 8..14
+    // flags damp faces without adding a vertex attribute.
+    public static float VertexTag(SurfaceFamily family, bool wet) =>
+            (byte)family + (wet ? 8.0f : 0.0f);
+
+    public static Color WetTint(Color color) =>
+            new(color.R * 0.80f, color.G * 0.86f, color.B * 0.88f, color.A);
+
     private static Vector3 ToVector3(SurfaceResponse response) =>
         new(response.Roughness, response.Metallic, response.Specular);
 
@@ -56,7 +64,7 @@ public static class MaterialResponse
     {
         0 or 1 or 2 or 4 or 16 or 17 or 18 or 36 or 37 => SurfaceFamily.Soil,
         5 or 6 or 9 or 21 or 22 or 26 or 27 or 33 or 34 or 42 or 43 or 46 or 49 or 50 or 51 => SurfaceFamily.Wood,
-        7 or 23 or 24 or 25 or 28 or 30 or 31 or 32 or 38 or 39 or 40 or 41
+        7 or 23 or 24 or 25 or 28 or 30 or 31 or 32 or 38 or 39 or 40 or 41 or 59
             => SurfaceFamily.Foliage,
         12 or 13 or 19 or 20 => SurfaceFamily.Ore,
         8 or 14 => SurfaceFamily.Glass,

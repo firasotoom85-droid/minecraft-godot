@@ -98,6 +98,7 @@ public static class BlockDb
     private const int TSpruceLeaves = 56;
     private const int TJungleLeaves = 57;
     private const int TSwampLeaves = 58;
+    private const int TRiverReeds = 59;
 
     /// <summary>
     /// One block's definition; the tiles array is indexed by face (FACE order).
@@ -235,6 +236,8 @@ public static class BlockDb
         new("Swamp Leaves", true, false,
                 [TSwampLeaves, TSwampLeaves, TSwampLeaves, TSwampLeaves, TSwampLeaves, TSwampLeaves],
                 0.2f, ToolKind.Hoe, Drops: false),
+        new("River Reeds", false, true, [TRiverReeds, TRiverReeds, TRiverReeds, TRiverReeds, TRiverReeds, TRiverReeds],
+                0.05f),
     ];
 
     // Cube face geometry shared by the mesher. Order: +Y, -Y, +X, -X, +Z, -Z.
@@ -515,10 +518,18 @@ public static class BlockDb
     public static bool IsFoliage(BlockId id) => id is BlockId.Leaves or BlockId.BirchLeaves
             or BlockId.SpruceLeaves or BlockId.JungleLeaves or BlockId.SwampLeaves;
 
+    /// <summary>Soil and loose mineral surfaces receive a damp response against water.</summary>
+    public static bool IsWettable(BlockId id) => id is BlockId.Grass or BlockId.Dirt
+            or BlockId.Sand or BlockId.Gravel or BlockId.Farmland;
+
+    /// <summary>Fine shoreline plants use the wet foliage response beside water.</summary>
+    public static bool IsShorelineVegetation(BlockId id) =>
+            id is BlockId.TallGrass or BlockId.RiverReeds;
+
     /// <summary>Cross-shaped plants: two crossed double-sided quads, no cube faces.</summary>
     public static bool IsCross(BlockId id) =>
         id is BlockId.TallGrass or BlockId.FlowerRed or BlockId.FlowerYellow or BlockId.Torch
-                or BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2;
+                or BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2 or BlockId.RiverReeds;
 
     public static bool IsWheat(BlockId id) =>
         id is BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2;
@@ -733,10 +744,14 @@ void fragment() {
     EMISSION = tex.rgb * warm * shadowed_block * 0.08;
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
-    vec3 response = surface_response(COLOR.a);
-    ROUGHNESS = response.x;
+    float encoded_family = floor(COLOR.a + 0.5);
+    float wet = step(7.5, encoded_family);
+    float family = mod(encoded_family, 8.0);
+    vec3 response = surface_response(family);
+    ALBEDO *= mix(vec3(1.0), vec3(0.80, 0.86, 0.88), wet);
+    ROUGHNESS = mix(response.x, 0.64, wet * 0.70);
     METALLIC = response.y;
-    SPECULAR = response.z;
+    SPECULAR = mix(response.z, 0.34, wet * 0.70);
 }
 ";
 
@@ -874,10 +889,14 @@ void fragment() {
     EMISSION = tex.rgb * warm * shadowed_block * 0.08;
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
-    vec3 response = surface_response(COLOR.a);
-    ROUGHNESS = response.x;
+    float encoded_family = floor(COLOR.a + 0.5);
+    float wet = step(7.5, encoded_family);
+    float family = mod(encoded_family, 8.0);
+    vec3 response = surface_response(family);
+    ALBEDO *= mix(vec3(1.0), vec3(0.80, 0.86, 0.88), wet);
+    ROUGHNESS = mix(response.x, 0.64, wet * 0.70);
     METALLIC = response.y;
-    SPECULAR = response.z;
+    SPECULAR = mix(response.z, 0.34, wet * 0.70);
 }
 ";
 
@@ -1021,6 +1040,7 @@ void fragment() {
                 new Color(0.31f, 0.53f, 0.23f), rng);
         PaintLeaves(img, TSwampLeaves, new Color(0.34f, 0.43f, 0.19f), new Color(0.26f, 0.34f, 0.14f),
                 new Color(0.42f, 0.50f, 0.25f), rng);
+        PaintRiverReeds(img, TRiverReeds, rng);
         PaintCactusSide(img, rng);
         PaintCactusTop(img, rng);
         PaintCraftingTop(img, rng);
@@ -1498,6 +1518,40 @@ void fragment() {
                     && Mathf.Abs(Mathf.Sin(angle * 3.0f + 0.18f)) < 0.032f)
                 c = c.Lerp(dark, 0.34f);
             Px(img, TBirchTop, x, y, Jitter(rng, c, 0.01f));
+        }
+    }
+
+    /// <summary>Procedural emergent reed stalks with transparent gaps and warm seed heads.</summary>
+    private static void PaintRiverReeds(Image img, int tile, RandomNumberGenerator rng)
+    {
+        Color stem = new(0.26f, 0.43f, 0.18f);
+        Color stemLight = new(0.43f, 0.62f, 0.25f);
+        Color stemShade = new(0.16f, 0.31f, 0.15f);
+        Color seedHead = new(0.43f, 0.25f, 0.12f);
+        Color seedLight = new(0.62f, 0.39f, 0.19f);
+        (int X, int Top, int Lean)[] stalks = [(6, 11, 1), (15, 4, -1), (25, 9, 1)];
+        foreach ((int originX, int top, int lean) in stalks)
+        {
+            int stemTop = top + (lean == -1 ? 0 : rng.RandiRange(0, 2));
+            for (int y = stemTop; y < TilePx; y++)
+            {
+                int x = originX + (y - stemTop) / 12 * lean;
+                if ((uint)x >= TilePx) continue;
+                Px(img, tile, x, y, stemShade);
+                Px(img, tile, x + 1, y, Jitter(rng, stem, 0.025f));
+                if (y > stemTop + 5 && y < TilePx - 4 && (y + originX) % 5 == 0)
+                {
+                    int leafX = x + (lean > 0 ? 2 : -2);
+                    Px(img, tile, leafX, y - 1, stemLight);
+                    Px(img, tile, leafX + (lean > 0 ? 1 : -1), y, stem);
+                }
+            }
+
+            // Warm, narrow seed heads remain identifiable after mip reduction.
+            int headX = originX + (TilePx - 1 - stemTop) / 12 * lean;
+            for (int y = Math.Max(0, stemTop - 5); y < stemTop; y++)
+            for (int dx = -1; dx <= 1; dx++)
+                Px(img, tile, headX + dx, y, dx == -1 ? seedLight : seedHead);
         }
     }
 

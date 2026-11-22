@@ -23,6 +23,7 @@ public partial class TestRunner : Node
         RunSuite("surface-variation", SurfaceVariationTests.Run);
         RunSuite("wood-textures", WoodTextureTests.Run);
         RunSuite("terrain-materials", TerrainMaterialTests.Run);
+        RunSuite("water-adjacent-materials", () => WaterAdjacentTests.Run(this));
         RunSuite("texture-scale", TextureScaleTests.Run);
         RunSuite("block-shapes", () => BlockShapeTests.Run(this));
         RunSuite("selection-outline", SelectionOutlineTests.Run);

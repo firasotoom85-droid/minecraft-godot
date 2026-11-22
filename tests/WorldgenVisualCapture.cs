@@ -6,7 +6,7 @@ namespace Minecraft;
 /// <summary>
 /// Runs the real game scene and captures a GPU-rendered world-generation
 /// inspection frame. Invoke with:
-/// godot --path . res://tests/WorldgenVisualCapture.tscn -- <seed> <genVersion> <x> <z> <outputPath>
+/// godot --path . res://tests/WorldgenVisualCapture.tscn -- <seed> <genVersion> <x> <z> <outputPath> [cameraScale] [lodRadius]
 /// </summary>
 public partial class WorldgenVisualCapture : Node
 {
@@ -22,10 +22,12 @@ public partial class WorldgenVisualCapture : Node
                 : $"res://docs/worldgen/screenshots/v{version}-seed-{seed}.png";
         float cameraScale = args.Length > 5 && float.TryParse(args[5], out float requestedScale)
                 ? Mathf.Clamp(requestedScale, 0.2f, 2.0f) : 1.0f;
+        float lodRadius = args.Length > 6 && float.TryParse(args[6], out float requestedLodRadius)
+                ? Mathf.Clamp(requestedLodRadius, 0.0f, 768.0f) : 0.0f;
 
-        if (version < 1 || version > WorldGenV10.Version)
+        if (version < 1 || version > WorldStore.CurrentGenVersion)
         {
-            GD.PushError($"Unsupported world generation version {version}.");
+            GD.PushError($"Unsupported world generation version {version}; supported versions are 1–{WorldStore.CurrentGenVersion}.");
             GetTree().Quit(2);
             return;
         }
@@ -63,7 +65,7 @@ public partial class WorldgenVisualCapture : Node
         Vector3 target = new(centerX + 0.5f, height + 1.0f, centerZ + 0.5f);
         player.GlobalPosition = target + new Vector3(0, 32.0f, 0);
         world.SetViewDistance(3);
-        world.SetLodRadius(0.0f);
+        world.SetLodRadius(lodRadius);
         player.Camera.Current = false;
 
         Camera3D camera = new()
@@ -77,7 +79,7 @@ public partial class WorldgenVisualCapture : Node
         camera.GlobalPosition = target + new Vector3(62.0f, 72.0f, 78.0f) * cameraScale;
         camera.LookAt(target + new Vector3(0.0f, 5.0f, 0.0f), Vector3.Up);
 
-        GD.Print($"WORLDGEN_CAPTURE_START version={version} seed={seed} center=({centerX},{centerZ}) height={height} camera_scale={cameraScale:F2} output={output}");
+        GD.Print($"WORLDGEN_CAPTURE_START version={version} seed={seed} center=({centerX},{centerZ}) height={height} camera_scale={cameraScale:F2} lod_radius={lodRadius:F0} output={output}");
         double started = Time.GetTicksMsec() / 1000.0;
         int frames = 0;
         while (frames < 1200)

@@ -70,6 +70,7 @@ public static class ContentTests
         (BlockId.SpruceLeaves, 56),
         (BlockId.JungleLeaves, 57),
         (BlockId.SwampLeaves, 58),
+        (BlockId.RiverReeds, 59),
     ];
 
     private static readonly (ItemId Id, int Value)[] PersistedItems =
@@ -182,6 +183,7 @@ public static class ContentTests
         (ItemId.SpruceLeaves, 105),
         (ItemId.JungleLeaves, 106),
         (ItemId.SwampLeaves, 107),
+        (ItemId.RiverReeds, 108),
     ];
 
     public static void Run()
@@ -270,8 +272,8 @@ public static class ContentTests
             TestAssert.Check(hasVariation, $"weathered atlas tile {tile} contains painted texture detail");
         }
 
-        int unusedTileX = 59 % BlockDb.AtlasCols * BlockDb.TilePx;
-        int unusedTileY = 59 / BlockDb.AtlasCols * BlockDb.TilePx;
+        int unusedTileX = 60 % BlockDb.AtlasCols * BlockDb.TilePx;
+        int unusedTileY = 60 / BlockDb.AtlasCols * BlockDb.TilePx;
         bool neighboringTileIsUntouched = true;
         for (int y = 0; y < BlockDb.TilePx && neighboringTileIsUntouched; y++)
         for (int x = 0; x < BlockDb.TilePx; x++)
@@ -412,8 +414,8 @@ public static class ContentTests
 
         // The two independently proposed ranges must not collide or alias:
         // building shapes occupy 46-51 / 91-96, transportation occupies 97-100.
-        TestAssert.Equal(59, PersistedBlocks.Length, "persisted block table covers every block id");
-        TestAssert.Equal(108, PersistedItems.Length, "persisted item table covers every item id");
+        TestAssert.Equal(60, PersistedBlocks.Length, "persisted block table covers every block id");
+        TestAssert.Equal(109, PersistedItems.Length, "persisted item table covers every item id");
         TestAssert.Equal(PersistedBlocks.Length, Enum.GetValues<BlockId>().Length,
                 "no block id aliases another");
         TestAssert.Equal(PersistedItems.Length, Enum.GetValues<ItemId>().Length,
