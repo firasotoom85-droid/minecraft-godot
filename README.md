@@ -215,6 +215,72 @@ face-to-atlas UV bounds, all 256 isolated mipmapped array layers, material
 response ranges, block/item mapping, first-person block-icon atlas/response
 routing, and the fixed capture profile.
 
+## Controlled voxel-light comparison scenes
+
+Five standalone capture scenes inspect the production lighting path in
+repeatable world contexts:
+
+| Scene | Lighting focus | Fixed clock |
+|---|---|---:|
+| `ForestCanopyLighting.tscn` | Baked skylight under biome-specific tree canopies and foliage AO | 0.50 (noon) |
+| `TorchCaveLighting.tscn` | Torch block light against a narrow skylight shaft and enclosed stone | 0.50 (noon) |
+| `RiverValleyLighting.tscn` | Open-sky response, water and the generated river-bank valley | 0.50 (noon) |
+| `VillageStreetLighting.tscn` | Generated street, house torches and warm light at dusk | 0.73 (dusk) |
+| `DungeonArenaLighting.tscn` | Ember Deep wall torches and lava in the enclosed arena | 0.02 (night) |
+
+All five scenes use the same capture runner and load `scenes/main.tscn`.
+They reuse its real `WorldEnvironmentFactory`, directional sun/moon, DayNight
+palette, baked `VoxelLightData`, shared atlas/array/glass/water shaders, greedy
+mesher and chunk streaming. The seed defaults to 1337, generator version is
+the project's current V11, weather is fixed to clear, output is 1280×720, and
+LOW is the default renderer preset. Each profile pins its camera composition
+and time of day; choose the same seed and preset for a matched five-scene set.
+The runner logs the sampled sky/block-light nibbles, nearby emitter count,
+render settings and output path, and rejects any `OmniLight3D` in the scene.
+
+The cave scene constructs its chamber and open shaft in a disposable world.
+Every changed voxel is written through `VoxelWorld.SetBlock`; the other scenes
+select existing deterministic generator locations for the canopy, river,
+village and Ember Deep arena. The fixed preview loads a 5×5 chunk footprint
+and uses render-only fixture chunks to keep the inspection bounded. This is
+capture setup, not a runtime streaming or graphics-preset change. No per-torch
+or per-campfire light node is introduced.
+
+Run the captures from a desktop session with Godot 4.7.2 .NET (a real renderer
+is required; these commands are not headless):
+
+```bash
+GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64
+export PATH=/path/to/dotnet:$PATH DOTNET_ROOT=/path/to/dotnet DISPLAY=:0
+OUT=res://docs/visual/screenshots
+mkdir -p docs/visual/screenshots
+
+"$GODOT" --path . res://tests/ForestCanopyLighting.tscn -- 1337 "$OUT/lighting-forest-canopy.png" LOW
+"$GODOT" --path . res://tests/TorchCaveLighting.tscn -- 1337 "$OUT/lighting-torch-cave.png" LOW
+"$GODOT" --path . res://tests/RiverValleyLighting.tscn -- 1337 "$OUT/lighting-river-valley.png" LOW
+"$GODOT" --path . res://tests/VillageStreetLighting.tscn -- 1337 "$OUT/lighting-village-street.png" LOW
+"$GODOT" --path . res://tests/DungeonArenaLighting.tscn -- 1337 "$OUT/lighting-dungeon-arena.png" LOW
+```
+
+Committed Godot 4.7.2 / MX230 Forward+ reference frames (seed 1337, LOW):
+[forest canopy](docs/visual/screenshots/lighting-forest-canopy.png),
+[torch cave](docs/visual/screenshots/lighting-torch-cave.png),
+[river valley](docs/visual/screenshots/lighting-river-valley.png),
+[village street](docs/visual/screenshots/lighting-village-street.png), and
+[dungeon arena](docs/visual/screenshots/lighting-dungeon-arena.png).
+Measured probe values, exact locations and the visual-scope notes are in
+[the capture report](docs/visual/LIGHTING_COMPARISON_REPORT_2026-11-22.md).
+
+The optional final argument selects `LOW`, `BALANCED`, `HIGH` or `ULTRA`
+(`LOW` by default). Use the same preset for every scene; LOW keeps the
+existing 0.80 render scale and disables SSAO, SSR, glow and volumetric fog for
+MX230-class GPUs. The runner creates and removes a temporary world and does
+not modify existing saves, generation rules, persisted IDs or settings.
+`LightingComparisonTests` verifies all five scene/profile bindings, fixed
+capture dimensions and streaming bounds, the shared environment and the
+sky/block/AO vertex-channel contract. The real-scene captures remain the
+visual check; headless tests do not claim to judge image quality or FPS.
+
 ## Procedural atlas validation report
 
 The existing material gallery is a rendered review fixture; the separate
