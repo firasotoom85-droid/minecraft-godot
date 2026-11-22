@@ -59,6 +59,7 @@ public static class IntegrationRegressionTests
         CheckNewContentSaveRoundTrip();
         CheckWetGreedyMergeKey();
         CheckCampfireBakedEmitterLifecycle(host);
+        CheckChunkLightingSolveOrderIndependence(host);
     }
 
     private static void CheckAppendOnlyIds()
@@ -416,6 +417,83 @@ public static class IntegrationRegressionTests
         {
             RemoveWorld(host, world, dir);
         }
+    }
+
+    private static void CheckChunkLightingSolveOrderIndependence(Node host)
+    {
+        Vector2I westCenter = new(-1, 0);
+        Vector2I eastCenter = Vector2I.Zero;
+        string forwardDir = NewWorld(WorldGenV11.Version);
+        string reverseDir = NewWorld(WorldGenV11.Version);
+        VoxelWorld? forward = null;
+        VoxelWorld? reverse = null;
+        try
+        {
+            GameSession.Instance.SelectWorld(forwardDir);
+            forward = new VoxelWorld { Name = "Chunk lighting west-first", BuildCollision = false };
+            host.AddChild(forward);
+            VoxelLightData[] forwardWest = forward.LightDataNeighborhood(westCenter);
+            VoxelLightData[] forwardEast = forward.LightDataNeighborhood(eastCenter);
+
+            GameSession.Instance.SelectWorld(reverseDir);
+            reverse = new VoxelWorld { Name = "Chunk lighting east-first", BuildCollision = false };
+            host.AddChild(reverse);
+            VoxelLightData[] reverseEast = reverse.LightDataNeighborhood(eastCenter);
+            VoxelLightData[] reverseWest = reverse.LightDataNeighborhood(westCenter);
+
+            // Adjacent 3x3 requests overlap in two columns. Compare all six
+            // shared chunks so worker completion order cannot select a
+            // different baked result for the same world-space chunk.
+            for (int dz = -1; dz <= 1; dz++)
+            for (int dx = 0; dx <= 1; dx++)
+            {
+                int westSlot = (dz + 1) * 3 + dx + 1;
+                int eastSlot = (dz + 1) * 3 + dx;
+                Vector2I sharedChunk = westCenter + new Vector2I(dx, dz);
+                TestAssert.Check(EqualPackedLight(
+                                forwardWest[westSlot], reverseEast[eastSlot]),
+                        $"chunk {sharedChunk} has identical packed sky/block channels when neighbouring meshes request opposite solve orders");
+                TestAssert.Check(EqualPackedLight(
+                                forwardEast[eastSlot], reverseWest[westSlot]),
+                        $"chunk {sharedChunk} remains identical when its neighbour-first cache is populated first");
+            }
+
+            bool beforeBoundary = forward.TrySampleCachedSkyLight(
+                    new Vector3(-0.01f, 52.5f, 0.5f), out float beforeLight);
+            bool afterBoundary = forward.TrySampleCachedSkyLight(
+                    new Vector3(0.01f, 52.5f, 0.5f), out float afterLight);
+            TestAssert.Check(beforeBoundary && afterBoundary,
+                    "camera sky exposure is available on both sides of a negative-to-zero chunk seam after the neighbourhood solve");
+            if (beforeBoundary && afterBoundary)
+            {
+                TestAssert.Check(System.Math.Abs(afterLight - beforeLight) <= 0.32f,
+                        "trilinear camera exposure remains continuous across the loaded chunk seam");
+            }
+
+            TestAssert.Equal(9, forwardWest.Length,
+                    "west-first solve returns its complete 3x3 packed-light snapshot");
+            TestAssert.Equal(9, forwardEast.Length,
+                    "east-second solve returns its complete 3x3 packed-light snapshot");
+            TestAssert.Equal(9, reverseWest.Length,
+                    "west-second solve returns its complete 3x3 packed-light snapshot");
+            TestAssert.Equal(9, reverseEast.Length,
+                    "east-first solve returns its complete 3x3 packed-light snapshot");
+        }
+        finally
+        {
+            RemoveWorld(host, forward, forwardDir);
+            RemoveWorld(host, reverse, reverseDir);
+        }
+    }
+
+    private static bool EqualPackedLight(VoxelLightData first, VoxelLightData second)
+    {
+        if (first.Packed.Length != second.Packed.Length) return false;
+        for (int i = 0; i < first.Packed.Length; i++)
+        {
+            if (first.Packed[i] != second.Packed[i]) return false;
+        }
+        return true;
     }
 
     private static string NewWorld(int version)
