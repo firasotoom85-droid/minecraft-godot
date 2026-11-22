@@ -628,3 +628,53 @@ this shader-only change.
 - Added corner regressions for lower-vs-upper slab occupancy, upright and
   inverted stair risers, diagonal chunk state sampling, per-face/greedy
   shading parity, and independent sky/block corner-light averaging.
+
+## 12. Procedural texture validation report — 2026-11-22
+
+- Audited the procedural atlas builder, block face definitions, item icon
+  mapping, MaterialResponse, greedy texture-array creation and existing
+  MaterialGalleryTests. The gallery already covered registered IDs, atlas
+  dimensions, UV bounds, per-tile array layers/mipmaps and item icon routing;
+  it did not emit a consolidated report or detect empty referenced pixels,
+  exact duplicate tile images, duplicate full block mappings or collapsed
+  directional surfaces.
+- Added an opt-in TextureAtlasValidator and
+  tests/TextureAtlasValidation.tscn. The runner writes a Markdown inventory
+  of face-to-tile owners and placeable-item icon routes, plus summary metrics
+  and any errors/warnings. It validates the already-created resources and does
+  not rebuild the atlas or texture array.
+- Added explicit recognition for the intended shared face definitions used by
+  still/flowing water, plank blocks/slabs/stairs, cobblestone slabs/stairs and
+  brick slabs/stairs. Other duplicate six-face mappings are reported. Pixel-
+  identical tiles at different atlas coordinates and collapsed directional
+  cap/side mappings are also reported.
+- The audit found atlas tile 46 is still painted but no longer referenced: it
+  is the legacy plank-building sample superseded by directional tiles 49–51.
+  The tile is retained at its original coordinate and reported as informational
+  rather than deleted or reused. Other unreferenced painted tiles remain warnings.
+- Added synthetic regressions for invalid/out-of-range references, missing
+  faces, fully transparent referenced tiles, duplicated pixel content,
+  unexpected duplicate definitions, intentional water aliases and collapsed
+  log end-grain/bark mappings.
+- Compatibility/performance boundary: no BlockId/ItemId, atlas coordinate,
+  packed UV, save, generator, item icon or shader change. V1–V11 output stays
+  frozen. The audit runs only on command/test invocation; it adds no runtime
+  node, frame scan, persistent texture allocation, voxel edit, mesher change or
+  chunk-streaming work. Packed-atlas nearest sampling and isolated greedy-array
+  mipmaps remain the close/distant rendering strategy.
+
+- Final verification on Godot 4.7.2 .NET / .NET 9: Debug and Release builds
+  each completed with 0 warnings and 0 errors. scripts/verify.sh passed
+  189,859 checks with 0 failures across 47 suites.
+- The standalone report runner exited successfully and wrote
+  docs/visual/PROCEDURAL_TEXTURE_VALIDATION.md: 60 registered blocks, 59
+  referenced tiles, 60 painted tiles, 46 placeable mappings, 256 array layers,
+  mipmaps present, 0 errors and 0 warnings (one documented informational
+  legacy tile).
+- The production MaterialGallery scene rendered all 60 blocks through both
+  greedy texture-array and classic packed-atlas paths on the GeForce MX230 /
+  Godot 4.7.2 Forward+ at 1280×720. Close and distant captures completed in
+  both modes with nine chunks loaded and zero pending payloads. No GPU error
+  or shader failure was reported; visual inspection retained the existing
+  material differentiation. No FPS delta is claimed because production
+  rendering code was not changed.

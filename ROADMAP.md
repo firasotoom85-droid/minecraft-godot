@@ -21,7 +21,7 @@ This audit is based on the implemented code, not on the original schedule.
 
 | Milestone | Status | Evidence | Remaining |
 |---|---|---|---|
-| **M5** Foundation & guardrails | Complete | `BlockCount` 128, `TileCount` 256, append-only content validator, 46-suite headless runner, `WorldSave` V4 with atomic backups, performance runner with JSON/CSV output | RTX 4060 comparison and a new controlled Release baseline |
+| **M5** Foundation & guardrails | Complete | `BlockCount` 128, `TileCount` 256, append-only content validator, procedural atlas audit/report, 47-suite headless runner, `WorldSave` V4 with atomic backups, performance runner with JSON/CSV output | RTX 4060 comparison and a new controlled Release baseline |
 | **M6** Base & progression | Complete | Torch/light propagation, chest, furnace and ingots, armor, farming, bed, ladder, swimming, fluid buckets | Broader survival balance and human playtesting |
 | **M7** Living world & goals | Complete | Species herds, hostile roster, dungeon and Ember Warden, trader, fishing, achievements, villages/quests | Human combat and quest readability review |
 | **M8** UX, platform & 1.0 | Partially complete | Rebinding, gamepad actions, contextual onboarding, world management/portability, photo mode/quality governor, export presets | Arabic/RTL localization and authored music tracks are not implemented; final 1.0 sign-off remains |
@@ -1914,3 +1914,38 @@ the existing per-shape cache.
 - No production per-frame work, collider generation, or persistent resource
   allocations were added. The additional plane, labels and preview geometry are
   confined to this opt-in test scene.
+
+## 35. Procedural atlas integrity report — 2026-11-22
+
+Added an opt-in, headless TextureAtlasValidator and Markdown report runner.
+The report reads the existing generated atlas, the registered block/item
+mappings and the existing greedy texture array. It checks atlas dimensions,
+missing/transparent referenced tiles, invalid face indices, repeated pixel
+content across distinct tile slots, accidental duplicate six-face block
+signatures, directional face pair regressions, placeable item icon regions and
+texture-array layer/mipmap compatibility.
+
+Expected duplicate block signatures are explicitly constrained to the common
+still/flowing-water texture, directional plank full-cube/slab/stair family, and
+cobblestone/brick slab-stair pairs. The legacy painted plank-building tile 46
+is documented as intentionally unreferenced; it is not shifted, removed or
+reused. Any other painted but unreferenced tile remains a warning.
+
+The suite adds synthetic invalid-reference, missing-pixel, duplicate-image,
+duplicate-definition, alias and directional-log regressions. Validation reads
+existing resources once per run and is never attached to gameplay processing.
+It changes no persisted IDs, save data, generator versions, atlas coordinates,
+UVs, shaders, material response, first-person icon mapping, greedy meshing or
+chunk streaming. The classic packed atlas keeps nearest sampling without
+mipmaps; the greedy path retains isolated per-tile mipmaps for distant views.
+- **Verification:** Godot 4.7.2 .NET Debug and Release builds complete with
+  0 warnings / 0 errors; scripts/verify.sh reports 189,859 checks and 0
+  failures across 47 suites. The standalone runner produces a report with
+  0 errors / 0 warnings (60 registered blocks, 59 referenced tiles, 60
+  painted tiles, 46 placeable item mappings and 256 mipmapped array layers).
+- **MX230 rendered check:** the existing production MaterialGallery rendered
+  all 60 block definitions in both greedy texture-array and classic atlas
+  modes at 1280×720, close and distant. Each run loaded nine chunks with zero
+  pending payloads and exited cleanly. No rendering or shader failures were
+  reported. No FPS delta is claimed because the change adds no production
+  rendering or per-frame work.
