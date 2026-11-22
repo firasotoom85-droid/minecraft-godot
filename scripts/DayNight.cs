@@ -19,6 +19,13 @@ public partial class DayNight : Node
     private const float SunAzimuthDegrees = -35.0f;
     private const int CausticFrames = 6;
 
+    // Keep eye adaptation responsive outdoors, but stop the global camera
+    // histogram from lifting a sealed cave toward daylight.
+    internal const float MinimumAutoExposureSensitivity = 40.0f;
+    internal const float OutdoorAutoExposureMaxSensitivity = 140.0f;
+    internal const float CaveAutoExposureMaxSensitivity = MinimumAutoExposureSensitivity;
+    internal const float CaveAmbientScale = 0.08f;
+
     internal readonly record struct SkyPalette(
             double Daylight,
             double Night,
@@ -146,6 +153,27 @@ public partial class DayNight : Node
         return 1.0f - (float)SmoothStep(0.12, 0.88, exposure);
     }
 
+    /// <summary>
+    /// Caps global camera exposure using sky light only. Block light is
+    /// deliberately excluded, so local warm emitters cannot brighten the room.
+    /// A zero-skylight cave reaches the camera's minimum sensitivity.
+    /// </summary>
+    internal static float EvaluateAutoExposureMaxSensitivity(float caveDarkness)
+    {
+        float darkness = Mathf.Clamp(caveDarkness, 0.0f, 1.0f);
+        return Mathf.Clamp(Mathf.Lerp(OutdoorAutoExposureMaxSensitivity,
+                CaveAutoExposureMaxSensitivity, darkness),
+                CaveAutoExposureMaxSensitivity, OutdoorAutoExposureMaxSensitivity);
+    }
+
+    /// <summary>Scale indirect environment fill down smoothly in enclosed caves.</summary>
+    internal static float EvaluateCaveAmbientScale(float caveDarkness)
+    {
+        float darkness = Mathf.Clamp(caveDarkness, 0.0f, 1.0f);
+        return Mathf.Clamp(Mathf.Lerp(1.0f, CaveAmbientScale, darkness),
+                CaveAmbientScale, 1.0f);
+    }
+
     private const double CausticFrameTime = 0.1;
 
     private readonly DirectionalLight3D _moon = new();
@@ -171,6 +199,8 @@ public partial class DayNight : Node
     private int _terrainSampleZ = int.MinValue;
     private int _terrainSurfaceHeight;
     private Color _terrainBiomeTint = new(1.02f, 1.02f, 0.98f);
+    private CameraAttributesPractical? _cameraAttributes;
+    private float _lastAutoExposureMaxSensitivity = -1.0f;
 
     /// <summary>Night spans the dark half of the cycle (sun below the horizon).</summary>
     public static bool IsNight(double t) => t < 0.25 || t >= 0.75;
@@ -181,6 +211,8 @@ public partial class DayNight : Node
         PlayerRef = player;
         Sun = sun;
         WorldEnv = env;
+        _cameraAttributes = player.Camera.Attributes as CameraAttributesPractical;
+        _lastAutoExposureMaxSensitivity = -1.0f;
         _usesDistanceHaze = world.WorldGenVersion >= WorldGenV8.Version;
         _fogDensityAir = _usesDistanceHaze
                 ? WorldEnvironmentFactory.DistanceHazeDensity
@@ -290,13 +322,25 @@ public partial class DayNight : Node
             }
         }
 
+        if (_cameraAttributes != null && GodotObject.IsInstanceValid(_cameraAttributes))
+        {
+            float maxSensitivity = EvaluateAutoExposureMaxSensitivity(caveDarkness);
+            // Avoid redundant resource writes while following the baked-light
+            // transition smoothly along a cave entrance.
+            if (Mathf.Abs(maxSensitivity - _lastAutoExposureMaxSensitivity) >= 0.5f)
+            {
+                _cameraAttributes.AutoExposureMaxSensitivity = maxSensitivity;
+                _lastAutoExposureMaxSensitivity = maxSensitivity;
+            }
+        }
+
         if (caveDarkness > 0.001f)
         {
             Color caveFog = new Color(0.015f, 0.02f, 0.03f)
                     .Lerp(fogColor, (float)(day * 0.25));
             fogColor = fogColor.Lerp(caveFog, caveDarkness);
             fogDensity = Mathf.Lerp((float)fogDensity, 0.035f, caveDarkness);
-            env.AmbientLightEnergy *= Mathf.Lerp(1.0f, 0.20f, caveDarkness);
+            env.AmbientLightEnergy *= EvaluateCaveAmbientScale(caveDarkness);
         }
 
         bool underwater = PlayerRef is { Underwater: true };

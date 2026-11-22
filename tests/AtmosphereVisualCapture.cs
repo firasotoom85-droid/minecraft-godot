@@ -9,7 +9,7 @@ namespace Minecraft;
 /// Captures one deterministic real-scene atmosphere frame for visual review.
 /// Usage:
 /// godot --path . res://tests/AtmosphereVisualCapture.tscn --
-///   <seed> <generator-version> <x> <z> <time-of-day> <Clear|Cloudy|Rain> <output.png> [include-torch:true|false] [view-distance:3-5]
+///   <seed> <generator-version> <x> <z> <time-of-day> <Clear|Cloudy|Rain> <output.png> [include-torch:true|false] [view-distance:3-5] [none|sealed|sealed-torch|entrance|entrance-torch]
 /// </summary>
 public partial class AtmosphereVisualCapture : Node
 {
@@ -32,6 +32,20 @@ public partial class AtmosphereVisualCapture : Node
             bool includeTorch = args.Length > 7
                     && bool.TryParse(args[7], out bool parsedTorch) && parsedTorch;
             int captureViewDistance = Math.Clamp(ParseInt(args, 8, 3), 3, 5);
+            string caveMode = args.Length > 9
+                    ? args[9].Trim().ToLowerInvariant()
+                    : includeTorch ? "entrance-torch" : "none";
+            bool includeCave = caveMode is "sealed" or "sealed-torch"
+                    or "entrance" or "entrance-torch";
+            bool connectEntrance = caveMode is "entrance" or "entrance-torch";
+            bool placeTorch = caveMode is "sealed-torch" or "entrance-torch";
+            if (caveMode != "none" && !includeCave)
+            {
+                GD.PushError($"Unsupported cave capture mode '{caveMode}'.");
+                GetTree().Quit(2);
+                return;
+            }
+
             int expectedChunkCount = (captureViewDistance * 2 + 1)
                     * (captureViewDistance * 2 + 1);
 
@@ -109,7 +123,7 @@ public partial class AtmosphereVisualCapture : Node
             camera.GlobalPosition = target + new Vector3(62.0f, 72.0f, 78.0f);
             camera.LookAt(target + new Vector3(0.0f, 5.0f, 0.0f), Vector3.Up);
 
-            GD.Print($"ATMOSPHERE_CAPTURE_START seed={seed} version={version} center=({centerX},{centerZ}) time={world.TimeOfDay:F3} weather={weatherState} torch={includeTorch} view_distance={captureViewDistance} expected_chunks={expectedChunkCount} output={output}");
+            GD.Print($"ATMOSPHERE_CAPTURE_START seed={seed} version={version} center=({centerX},{centerZ}) time={world.TimeOfDay:F3} weather={weatherState} cave_mode={caveMode} view_distance={captureViewDistance} expected_chunks={expectedChunkCount} output={output}");
             double started = Time.GetTicksMsec() / 1000.0;
             int frames = 0;
             while (frames < 1800)
@@ -130,9 +144,10 @@ public partial class AtmosphereVisualCapture : Node
                 return;
             }
 
-            if (includeTorch)
+            if (includeCave)
             {
-                // Pick a nearby, flat, dry column so the small torch sprite and
+                // Pick a nearby, flat, dry column so every mode starts from
+                // the same deterministic terrain fixture and camera placement.
                 // the surfaces it lights are not hidden by a river bank.
                 int bestX = centerX;
                 int bestZ = centerZ;
@@ -201,37 +216,39 @@ public partial class AtmosphereVisualCapture : Node
                     }
                 }
 
-                // Connect the chamber to daylight with a narrow horizontal
-                // passage and a vertical surface shaft. The baked skylight
-                // naturally attenuates along this path for entrance captures.
+                // Entrance modes cut the same narrow passage and vertical
+                // shaft. Sealed modes leave the roof intact and reach zero sky.
                 int entranceX = centerX + 10;
                 int entranceSurface = world.SurfaceHeight(entranceX, centerZ);
-                for (int y = floorY + 1; y <= entranceSurface + 1; y++)
+                if (connectEntrance)
                 {
-                    if (world.GetBlock(entranceX, y, centerZ) != BlockId.Air
-                            && !world.SetBlock(entranceX, y, centerZ, BlockId.Air))
+                    for (int y = floorY + 1; y <= entranceSurface + 1; y++)
                     {
-                        GD.PushError("Could not open the temporary skylight shaft through VoxelWorld.SetBlock.");
-                        GetTree().Quit(9);
-                        return;
+                        if (world.GetBlock(entranceX, y, centerZ) != BlockId.Air
+                                && !world.SetBlock(entranceX, y, centerZ, BlockId.Air))
+                        {
+                            GD.PushError("Could not open the temporary skylight shaft through VoxelWorld.SetBlock.");
+                            GetTree().Quit(9);
+                            return;
+                        }
                     }
-                }
 
-                for (int dx = 3; dx < 10; dx++)
-                for (int y = floorY + 2; y <= floorY + 3; y++)
-                {
-                    int x = centerX + dx;
-                    if (world.GetBlock(x, y, centerZ) != BlockId.Air
-                            && !world.SetBlock(x, y, centerZ, BlockId.Air))
+                    for (int dx = 3; dx < 10; dx++)
+                    for (int y = floorY + 2; y <= floorY + 3; y++)
                     {
-                        GD.PushError("Could not open the temporary cave passage through VoxelWorld.SetBlock.");
-                        GetTree().Quit(9);
-                        return;
+                        int x = centerX + dx;
+                        if (world.GetBlock(x, y, centerZ) != BlockId.Air
+                                && !world.SetBlock(x, y, centerZ, BlockId.Air))
+                        {
+                            GD.PushError("Could not open the temporary cave passage through VoxelWorld.SetBlock.");
+                            GetTree().Quit(9);
+                            return;
+                        }
                     }
                 }
 
                 int torchY = floorY + 1;
-                if (!world.SetBlock(centerX, torchY, centerZ, BlockId.Torch))
+                if (placeTorch && !world.SetBlock(centerX, torchY, centerZ, BlockId.Torch))
                 {
                     GD.PushError("Could not place the temporary visual-test torch through VoxelWorld.SetBlock.");
                     GetTree().Quit(9);
@@ -249,21 +266,46 @@ public partial class AtmosphereVisualCapture : Node
                 camera.Fov = 64.0f;
                 camera.GlobalPosition = target + new Vector3(2.0f, 1.2f, 2.0f);
                 camera.LookAt(target, Vector3.Up);
+                camera.Attributes = player.Camera.Attributes;
                 for (int frame = 0; frame < 60; frame++)
                     await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 
                 bool hasEntranceExposure = world.TrySampleCachedSkyLight(
                         new Vector3(entranceX + 0.5f, entranceSurface + 1.5f, centerZ + 0.5f),
                         out float entranceSkyLight);
-                bool hasPassageExposure = world.TrySampleCachedSkyLight(
+                float passageSkyLight = 0.0f;
+                bool hasPassageExposure = connectEntrance && world.TrySampleCachedSkyLight(
                         new Vector3(centerX + 8.5f, floorY + 2.5f, centerZ + 0.5f),
-                        out float passageSkyLight);
+                        out passageSkyLight);
                 bool hasRoomExposure = world.TrySampleCachedSkyLight(
                         player.Camera.GlobalPosition, out float roomSkyLight);
-                GD.Print($"CAVE_EXPOSURE_GRADIENT outside={hasEntranceExposure}:{entranceSkyLight:F2} " +
-                        $"passage={hasPassageExposure}:{passageSkyLight:F2} " +
+                float cameraMaxSensitivity = player.Camera.Attributes
+                        is CameraAttributesPractical cameraAttributes
+                        ? cameraAttributes.AutoExposureMaxSensitivity : -1.0f;
+                byte torchBlockLevel = 0;
+                byte adjacentBlockLevel = 0;
+                if (placeTorch)
+                {
+                    Vector2I lightChunk = new(
+                            Mathf.FloorToInt(centerX / (float)VoxelWorld.ChunkX),
+                            Mathf.FloorToInt(centerZ / (float)VoxelWorld.ChunkZ));
+                    VoxelLightData light = world.LightData(lightChunk);
+                    int localX = centerX - lightChunk.X * VoxelWorld.ChunkX;
+                    int localZ = centerZ - lightChunk.Y * VoxelWorld.ChunkZ;
+                    torchBlockLevel = light.BlockAt(localX, torchY, localZ, world.Height);
+                    adjacentBlockLevel = light.BlockAt(
+                            Mathf.Min(localX + 1, VoxelWorld.ChunkX - 1),
+                            torchY, localZ, world.Height);
+                }
+
+                GD.Print($"CAVE_EXPOSURE_GRADIENT mode={caveMode} " +
+                        $"outside={hasEntranceExposure}:{entranceSkyLight:F2} " +
+                        $"passage={(connectEntrance ? hasPassageExposure.ToString() + ":" + passageSkyLight.ToString("F2") : "sealed")} " +
                         $"room={hasRoomExposure}:{roomSkyLight:F2} " +
-                        $"darkness={DayNight.EvaluateCaveDarkness(roomSkyLight):F3}");
+                        $"darkness={DayNight.EvaluateCaveDarkness(roomSkyLight):F3} " +
+                        $"camera_iso_max={cameraMaxSensitivity:F1} " +
+                        $"ambient={dayNight.WorldEnv!.Environment.AmbientLightEnergy:F3} " +
+                        $"torch_block={torchBlockLevel} adjacent_block={adjacentBlockLevel}");
             }
             else
             {

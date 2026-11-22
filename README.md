@@ -304,6 +304,21 @@ generation or save data.
   trilinearly and blended through the entrance rather than switching at a fixed
   terrain-depth threshold. Cache misses use a smooth terrain-depth fallback;
   the frame path performs only eight cache reads and no chunk generation.
+  The same sky-only darkness weight also bounds first-person eye adaptation:
+  maximum camera sensitivity eases from 140 outdoors to 40 at zero skylight,
+  matching the camera minimum and locking global exposure in a sealed cave.
+  Environment ambient fill tapers to 8% at full cave darkness. Block-light
+  values are intentionally excluded from this adaptation signal, so a torch
+  still lights nearby geometry through the existing baked warm response but
+  cannot raise the exposure of the whole room. Torch/campfire propagation,
+  the 0.34 diffuse warm response and 0.025 emissive response are unchanged.
+  Repeatable cave comparison (same seed, generator, location and camera): run
+  res://tests/AtmosphereVisualCapture.tscn with arguments
+  1337 11 512 -372 0.5 Clear <output.png> false 3 sealed,
+  ... false 3 entrance, or ... false 3 sealed-torch. The modes produce a
+  zero-skylight unlit room, a connected entrance gradient, and a sealed room
+  with only a torch. Reference captures are committed as
+  docs/visual/screenshots/cave-adaptation-{sealed,entrance,sealed-torch}.png.
   Repeatable GPU comparison (same seed/site/camera): run
   `res://tests/WarmLightingVisualCapture.tscn` with arguments `1337 11 0 0
   torch`, `1337 11 0 0 campfire`, or `1337 11 0 0 overlap`, followed by an

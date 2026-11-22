@@ -2317,3 +2317,42 @@ commit ancestry traceable.
   the packed atlas and texture-array contracts, and the `SetBlock`/`ApplyEdit`
   mutation seam are unchanged. No world generation version was introduced by
   this batch because no generator rule changed.
+
+
+## 42. Bounded cave eye adaptation — 2026-11-22
+
+Cave shelter already used the camera's trilinearly sampled baked skylight to
+blend ambient fill and fog. The remaining mismatch was the independent global
+camera auto-exposure: it could continue raising a sealed room, and a bright
+torch in that room could influence the camera histogram even though the
+voxel-light shader correctly confined the warm source to nearby surfaces.
+
+- **Shared sky signal.** DayNight uses the existing caveDarkness weight to
+  update CameraAttributesPractical.AutoExposureMaxSensitivity. The range eases
+  from 140 outdoors to 40 in a zero-skylight cave. The cave cap equals Player's
+  40 minimum sensitivity, so global exposure has no upward headroom in a fully
+  sealed cave. It is based on sky light only; block light does not participate.
+- **Ambient fill.** Environment ambient scale eases from 1.0 outdoors to 0.08
+  at full cave darkness. The existing shader base fill remains unchanged,
+  retaining the deliberately small material floor without lifting the cave.
+  The camera attribute resource is cached at setup and only written when its
+  target changes by at least 0.5 sensitivity units.
+- **Torch behaviour.** No baked propagation, source strengths, warm shader
+  coefficients, light nodes, or rendering passes changed. Torches and
+  campfires still use their 14-level baked source channel, with the existing
+  shared 0.34 diffuse and 0.025 emissive warm response. A torch in a zero-sky
+  room adds local block illumination without restoring global exposure headroom.
+- **Validation.** Atmosphere tests pin open-sky, entrance and sealed-cave
+  sensitivity/ambient bounds, monotonicity and interpolation. The production
+  AtmosphereVisualCapture supports sealed, entrance and sealed-torch fixtures,
+  all edited through VoxelWorld.SetBlock and rendered with the production
+  camera attributes. Captures use seed 1337, generator V11, location (512, -372),
+  clear noon, 1600×900 and view radius 3; they are stored under
+  docs/visual/screenshots/cave-adaptation-*.png.
+- **Compatibility and performance.** No persisted IDs, save fields, generator
+  versions or generation rules changed. V1–V11 output remains frozen; greedy
+  meshing, chunk streaming, cached light propagation and mutation ownership are
+  untouched. Runtime adds one cached camera-resource reference, constant-time
+  interpolation and throttled property writes; no scene nodes, per-emitter
+  lights, per-frame scans, shader work or memory allocations are added.
+  LOW/BALANCED settings remain unchanged.

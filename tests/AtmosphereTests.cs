@@ -82,6 +82,34 @@ public static class AtmosphereTests
         TestAssert.Equal(0.0f, DayNight.EvaluateCaveDarkness(20.0f),
                 "skylight above the nibble range clamps to outdoor exposure");
 
+        TestAssert.Equal(DayNight.OutdoorAutoExposureMaxSensitivity,
+                DayNight.EvaluateAutoExposureMaxSensitivity(openSky),
+                "open sky retains the existing outdoor auto-exposure range");
+        TestAssert.Equal(DayNight.CaveAutoExposureMaxSensitivity,
+                DayNight.EvaluateAutoExposureMaxSensitivity(enclosedCave),
+                "zero-skylight caves hold the camera at its minimum sensitivity");
+        TestAssert.Equal(DayNight.MinimumAutoExposureSensitivity,
+                DayNight.CaveAutoExposureMaxSensitivity,
+                "deep cave exposure has no upward camera-sensitivity headroom");
+        TestAssert.Check(DayNight.EvaluateAutoExposureMaxSensitivity(caveEntrance)
+                        < DayNight.OutdoorAutoExposureMaxSensitivity
+                        && DayNight.EvaluateAutoExposureMaxSensitivity(caveEntrance)
+                        > DayNight.CaveAutoExposureMaxSensitivity,
+                "camera sensitivity follows the partial skylight transition at cave entrances");
+        TestAssert.Equal(1.0f, DayNight.EvaluateCaveAmbientScale(openSky),
+                "open sky keeps the full environment ambient response");
+        TestAssert.Check(Math.Abs(DayNight.EvaluateCaveAmbientScale(enclosedCave)
+                        - DayNight.CaveAmbientScale) < 0.00001f,
+                "sealed caves retain only the deliberate low ambient floor");
+        TestAssert.Check(DayNight.EvaluateCaveAmbientScale(caveEntrance) < 1.0f
+                        && DayNight.EvaluateCaveAmbientScale(caveEntrance) > DayNight.CaveAmbientScale,
+                "environment ambient fill eases through the cave entrance");
+        TestAssert.Check(DayNight.EvaluateAutoExposureMaxSensitivity(0.5f)
+                        > DayNight.EvaluateAutoExposureMaxSensitivity(0.75f)
+                        && DayNight.EvaluateCaveAmbientScale(0.5f)
+                        > DayNight.EvaluateCaveAmbientScale(0.75f),
+                "deeper cave adaptation reduces both global exposure headroom and ambient fill");
+
         float previous = enclosedCave;
         for (int level = 1; level <= VoxelLighting.MaxLevel * 4; level++)
         {
@@ -91,6 +119,15 @@ public static class AtmosphereTests
                     $"cave exposure response remains finite and bounded at skylight {exposure:F2}");
             TestAssert.Check(darkness <= previous,
                     $"increasing skylight never increases cave darkness at {exposure:F2}");
+            float cameraSensitivity = DayNight.EvaluateAutoExposureMaxSensitivity(darkness);
+            float ambientScale = DayNight.EvaluateCaveAmbientScale(darkness);
+            TestAssert.Check(float.IsFinite(cameraSensitivity)
+                            && cameraSensitivity >= DayNight.CaveAutoExposureMaxSensitivity
+                            && cameraSensitivity <= DayNight.OutdoorAutoExposureMaxSensitivity
+                            && float.IsFinite(ambientScale)
+                            && ambientScale >= DayNight.CaveAmbientScale
+                            && ambientScale <= 1.0f,
+                    $"camera exposure and ambient fill remain finite and bounded at skylight {exposure:F2}");
             previous = darkness;
         }
 

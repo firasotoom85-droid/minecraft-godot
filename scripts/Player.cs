@@ -193,8 +193,8 @@ public partial class Player : CharacterBody3D, IDamageable
         CameraAttributesPractical attrs = new()
         {
             AutoExposureEnabled = true,
-            AutoExposureMinSensitivity = 40.0f,
-            AutoExposureMaxSensitivity = 140.0f,
+            AutoExposureMinSensitivity = DayNight.MinimumAutoExposureSensitivity,
+            AutoExposureMaxSensitivity = DayNight.OutdoorAutoExposureMaxSensitivity,
             AutoExposureScale = 0.3f,
             AutoExposureSpeed = 0.8f,
         };
