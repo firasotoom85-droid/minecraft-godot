@@ -375,18 +375,44 @@ remains recommended before merging.
 - Kept the existing dedicated glass chunk surface, atlas tile, alpha material,
   voxel-light channels and face-culling rules; no new block/item IDs, save
   fields, generator versions, or mesh/streaming paths were introduced.
-- Glass chunk instances now sort transparent geometry around their mesh AABB
-  center rather than the chunk origin, reducing incorrect ordering between
-  neighboring chunk surfaces viewed through windows.
+- Glass chunk instances sort transparent geometry around their mesh AABB center
+  rather than the chunk origin, reducing incorrect ordering between neighboring
+  chunk surfaces viewed through windows.
 - Switched the glass shader to back-face culling so a closed glass block does
   not blend both sides of the same surface. Transparent fragments remain out of
   opaque depth writes.
 - Reduced the glass tile to a clear body, a one-pixel restrained edge and a
   subtle diagonal glint; reduced shader alpha to limit grid-like visual buildup
   across large windows while retaining a readable edge at distance.
-- Added regression checks for shader blend/cull/depth modes, glass instance
-  sorting and atlas alpha levels. `dotnet build` and `scripts/verify.sh` pass on
-  Godot 4.7.2 .NET; GPU visual validation remains a manual follow-up.
+
+## Transparent and cutout material audit — 2026-11-22
+
+- Confirmed that foliage and crossed plants already use the opaque atlas and
+  texture-array cutout path: matching 0.5 alpha-scissor thresholds, opaque depth
+  writes and alpha-to-coverage with project MSAA enabled. They stay out of the
+  blended sorting pass. Lava is an opaque, depth-writing emissive surface, not a
+  blended material.
+- Fixed the verified gap: water uses `blend_mix` and `depth_draw_opaque` but its
+  chunk mesh was sorted from the chunk origin. Water now uses the same mesh
+  AABB-center sorting as glass, improving ordering between streamed water chunks
+  without changing the surface mesh or streaming architecture.
+- Glass and water continue to keep translucent fragments out of opaque depth
+  writes. Glass remains back-face culled; water remains two-sided. The
+  first-person held-item `Sprite3D` retains texture alpha and nearest filtering.
+- Added regression coverage for glass/water alpha and depth contracts, opaque
+  cutout parity across packed-atlas and texture-array shaders, MSAA coverage,
+  opaque lava behavior, glass/water chunk sorting, and real mesher surface
+  routing in both per-face and greedy modes, alongside the glass atlas alpha
+  checks.
+- Compatibility: no block/item IDs, save fields, generator versions, atlas
+  tile indices, or world-generation rules changed. Existing greedy meshing,
+  chunk streaming, lighting and collision ownership remain unchanged.
+- Verification: `dotnet build -c Debug` and `scripts/verify.sh` pass on Godot
+  4.7.2 .NET (186,365 checks, 0 failures). A production visual capture rendered
+  close and distant 1280×720 views with Vulkan Forward+ on the NVIDIA MX230.
+- Remaining limitation: Forward+ sorts blended instances at object level;
+  AABB-center sorting improves chunk ordering but cannot perfectly order
+  arbitrarily intersecting transparent geometry inside one chunk.
 
 ## 1. Current state
 

@@ -25,7 +25,7 @@ public partial class TestRunner : Node
         RunSuite("texture-scale", TextureScaleTests.Run);
         RunSuite("block-shapes", () => BlockShapeTests.Run(this));
         RunSuite("lighting", LightingTests.Run);
-        RunSuite("glass", GlassTests.Run);
+        RunSuite("transparent-materials", () => GlassTests.Run(this));
         RunSuite("atmosphere", AtmosphereTests.Run);
         RunSuite("mining", MiningTests.Run);
         RunSuite("inventory", InventoryTests.Run);

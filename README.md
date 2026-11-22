@@ -27,6 +27,21 @@ mipmaps because generating mipmaps from the packed atlas would blend adjacent
 tiles. Held-item sprites use the same response values through a cached-on-slot-
 change StandardMaterial3D; no per-frame material creation is performed.
 
+## Transparency and cutout rendering
+
+Foliage and crossed plants use the opaque atlas/texture-array shader with a
+shared 0.5 alpha-scissor threshold, opaque depth writes for surviving texels,
+and alpha-to-coverage under the project's MSAA setting. This keeps canopy and
+plant silhouettes out of the transparent sorting pass. Glass and animated
+water stay on dedicated alpha-blended chunk surfaces with `depth_draw_opaque`,
+so translucent fragments do not overwrite the scene depth buffer. Both
+transparent surfaces sort by their mesh AABB center rather than the chunk
+origin; glass culls back faces while water remains visible from both sides.
+Lava remains on its separate opaque, depth-writing emissive surface rather
+than entering transparent sorting. The first-person held-item `Sprite3D`
+retains texture alpha and nearest sampling so its icon edges stay consistent
+with the procedural atlas.
+
 ## Highlights
 
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
@@ -62,10 +77,11 @@ change StandardMaterial3D; no per-frame material creation is performed.
   mip-level bleed between atlas tiles.
 - **Foliage and mineral surfaces** — existing oak and birch canopies use clustered cutout gaps and clearer leaf-tone groups; stone-family tiles receive deterministic low-contrast world-space tone variation, while ores use larger connected deposits for distant readability.
 - **Shared material responses** — atlas, greedy texture-array and held-item surfaces use one roughness/metallic/specular palette for wood, soil, stone, ore, foliage, glass and metal.
-- **Readable glass** — dedicated alpha-blended chunk surface with bounds-center
-  transparency sorting, front-face culling to avoid double-blended internal
-  faces, and a restrained original atlas treatment that stays clear across
-  close and distant views. Glass keeps the existing voxel-light and atlas path.
+- **Transparent and cutout surfaces** — foliage and cross-plants use depth-writing
+  alpha scissor with alpha-to-coverage on the existing atlas/texture-array path;
+  glass and animated water use separate alpha-blended chunk surfaces with
+  opaque-only depth writes and mesh-bounds-center sorting. Glass culls back faces;
+  water is two-sided. Both retain the existing atlas and voxel-light pipeline.
 - **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
   voxels, warm multi-source propagation with opaque occlusion, cave darkness and
   live place/break updates across chunk boundaries. Emitter edits incrementally
