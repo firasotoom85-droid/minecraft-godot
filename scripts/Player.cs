@@ -2391,7 +2391,7 @@ public partial class Player : CharacterBody3D, IDamageable
             Position = new Vector3(0.12f, -0.53f, -0.10f),
             Rotation = new Vector3(0.0f, 0.0f, -0.12f),
             Billboard = BaseMaterial3D.BillboardModeEnum.Disabled,
-            TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
+            TextureFilter = BaseMaterial3D.TextureFilterEnum.NearestWithMipmaps,
             Shaded = true,
         };
         _arm.AddChild(_heldItemSprite);
@@ -2406,7 +2406,7 @@ public partial class Player : CharacterBody3D, IDamageable
             AlbedoTexture = ItemDb.Icon(id),
             Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
             ShadingMode = BaseMaterial3D.ShadingModeEnum.PerPixel,
-            TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
+            TextureFilter = BaseMaterial3D.TextureFilterEnum.NearestWithMipmaps,
             Roughness = response.Roughness,
             Metallic = response.Metallic,
             MetallicSpecular = response.Specular,

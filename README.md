@@ -24,8 +24,15 @@ The greedy texture array builds mipmaps from each isolated 32px tile rather
 than the combined atlas. This avoids cross-tile colour bleed at distance.
 The classic atlas path intentionally retains nearest sampling without atlas
 mipmaps because generating mipmaps from the packed atlas would blend adjacent
-tiles. Held-item sprites use the same response values through a cached-on-slot-
-change StandardMaterial3D; no per-frame material creation is performed.
+tiles. Block-backed item icons remain AtlasTexture regions of this unchanged
+atlas. Standalone procedural item icons are normalized into a centered 22px
+silhouette frame inside their 32px image, with a one-pixel graphite contour,
+a subtle upper-left-to-lower-right fill-light gradient, and four transparent pixels
+of outer padding. Each standalone image owns its own five-level mip chain;
+the first-person Sprite3D and its cached material use nearest-with-mipmaps
+sampling to retain crisp pixels close up and reduce distant shimmer. The icon
+finish runs only when a standalone texture is first requested; there is no
+per-frame icon work or new scene-node system.
 
 ## Highlights
 
