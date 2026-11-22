@@ -232,7 +232,7 @@ public partial class Sound : Node
                 or BlockId.Bedrock or BlockId.Furnace => "dig_stone",
         BlockId.Log or BlockId.BirchLog or BlockId.Planks or BlockId.CraftingTable
                 or BlockId.Chest or BlockId.Bed or BlockId.Ladder => "dig_wood",
-        BlockId.Sand or BlockId.Gravel or BlockId.Snow => "dig_sand",
+        BlockId.Sand or BlockId.Gravel or BlockId.Snow or BlockId.Ash => "dig_sand",
         _ => "dig_dirt",
     };
 
@@ -247,7 +247,7 @@ public partial class Sound : Node
                 or BlockId.Bedrock or BlockId.Furnace => "place_stone",
         BlockId.Log or BlockId.BirchLog or BlockId.Planks or BlockId.CraftingTable
                 or BlockId.Chest or BlockId.Bed or BlockId.Ladder => "place_wood",
-        BlockId.Sand or BlockId.Gravel or BlockId.Snow => "place_sand",
+        BlockId.Sand or BlockId.Gravel or BlockId.Snow or BlockId.Ash => "place_sand",
         _ => "place_dirt",
     };
 
@@ -314,7 +314,7 @@ public partial class Sound : Node
     private static float PitchFor(BlockId id) => id switch
     {
         BlockId.Dirt or BlockId.Grass or BlockId.Sand or BlockId.Gravel
-                or BlockId.Snow or BlockId.SnowGrass => 1.25f,
+                or BlockId.Snow or BlockId.SnowGrass or BlockId.Ash => 1.25f,
         BlockId.Leaves or BlockId.BirchLeaves or BlockId.TallGrass
                 or BlockId.FlowerRed or BlockId.FlowerYellow => 1.45f,
         BlockId.Glass => 1.35f,

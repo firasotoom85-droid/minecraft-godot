@@ -18,12 +18,22 @@ conflict resolutions, compatibility checks and measured validation are in
 World surfaces and first-person held items share the response palette in
 `scripts/MaterialResponse.cs`: stone, wood, soil, ore, foliage, glass, and
 metal each have explicit roughness, metallic, and specular values. Procedural
-atlas tile IDs are classified without changing persisted block/item IDs or
-world-generation output. One C# response table configures all world shaders
-and first-person materials. The mesher carries its compact family tag in vertex
+atlas tile IDs are classified without changing existing persisted block/item
+IDs or world-generation output. One C# response table configures all world
+shaders and first-person materials. The mesher carries its compact family tag in vertex
 colour alpha; greedy meshes retain their tile-array layer in UV2.x, so existing
 merging, atlas UVs, and chunk streaming remain intact. Water-contact wetness is
 encoded in the unused alpha-tag range without adding a vertex attribute.
+
+Snow, sand and ash use deterministic multi-scale periodic value noise instead
+of isolated random speckles. Broad tonal fields remain restrained, the finest
+variation follows the existing 2×2 texel detail unit, and sampling wraps in
+both axes so tile edges stay calm at close range and after isolated mipmapping.
+The snowy-grass side keeps a periodic snow-cap edge over a subtly varied soil
+body. Ash is an opaque, shovel-minable surface appended as `BlockId.Ash` 60 /
+`ItemId.Ash` 109 on atlas tile 60; it shares the diffuse soil response and the
+existing sand-like dig/place audio family. Its first-person icon remains a
+region of the production block atlas.
 
 The greedy texture array builds mipmaps from each isolated 32px tile rather
 than the combined atlas. This avoids cross-tile colour bleed at distance.
@@ -132,11 +142,18 @@ format, voxel mutation APIs, greedy meshing or chunk streaming.
 ## Material test gallery
 
 `res://tests/MaterialGallery.tscn` is a standalone Forward+ inspection scene for
-every registered block ID. It lays all 60 definitions into an 8×8 pedestal
+every registered block ID. It lays all 61 definitions into an 8×8 pedestal
 gallery, identifies each sample in the ID/name legend, and captures close and
 distant views. The stage is limited to the sample footprint rather than filling
 the entire viewport, and the shorter legend leaves more of the material set
-visible in both views.
+visible in both views. The scene uses a neutral display stage and fixed key /
+ambient lighting so material families can be compared under one repeatable setup.
+The current Godot 4.7.2 / Forward+ / MX230 review includes both renderer paths
+at 1280×720:
+[atlas close](docs/visual/screenshots/surface-variation-atlas-close.png),
+[atlas distant](docs/visual/screenshots/surface-variation-atlas-distant.png),
+[greedy close](docs/visual/screenshots/surface-variation-greedy-close.png), and
+[greedy distant](docs/visual/screenshots/surface-variation-greedy-distant.png).
 
 The fixture streams nine production `VoxelWorld` chunks with collision disabled
 and a two-worker meshing limit. All sample voxel changes go through

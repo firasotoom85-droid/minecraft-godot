@@ -64,12 +64,12 @@ public static class IntegrationRegressionTests
     {
         TestAssert.Equal(59, (int)BlockId.RiverReeds,
                 "RiverReeds is appended at the end of the V10 block range");
-        TestAssert.Equal(60, Enum.GetValues<BlockId>().Length,
-                "the block registry grew by exactly the appended reed entry");
+        TestAssert.Equal(61, Enum.GetValues<BlockId>().Length,
+                "the block registry includes the appended ash entry after RiverReeds");
         TestAssert.Equal(108, (int)ItemId.RiverReeds,
                 "RiverReeds is appended at the end of the V10 item range");
-        TestAssert.Equal(109, Enum.GetValues<ItemId>().Length,
-                "the item registry grew by exactly the appended reed entry");
+        TestAssert.Equal(110, Enum.GetValues<ItemId>().Length,
+                "the item registry includes the appended ash item after RiverReeds");
         TestAssert.Check(BlockDb.IsCross(BlockId.RiverReeds)
                 && !BlockDb.IsSolid(BlockId.RiverReeds),
                 "the appended block is the intended non-solid cross plant");

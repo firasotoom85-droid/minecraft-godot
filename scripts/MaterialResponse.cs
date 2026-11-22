@@ -62,7 +62,7 @@ public static class MaterialResponse
     /// <summary>Classify procedural atlas tiles once during mesh construction.</summary>
     public static SurfaceFamily ForTile(int tile) => tile switch
     {
-        0 or 1 or 2 or 4 or 16 or 17 or 18 or 36 or 37 => SurfaceFamily.Soil,
+        0 or 1 or 2 or 4 or 16 or 17 or 18 or 36 or 37 or 60 => SurfaceFamily.Soil,
         5 or 6 or 9 or 21 or 22 or 26 or 27 or 33 or 34 or 42 or 43 or 46 or 49 or 50 or 51 => SurfaceFamily.Wood,
         7 or 23 or 24 or 25 or 28 or 30 or 31 or 32 or 38 or 39 or 40 or 41 or 59
             => SurfaceFamily.Foliage,
