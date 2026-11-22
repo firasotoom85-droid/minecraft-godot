@@ -107,12 +107,14 @@ public partial class Player : CharacterBody3D, IDamageable
     private double _coyote;
     private double _jumpBuffer;
     private MeshInstance3D _outline = null!;
+    private MeshInstance3D _outlineContrast = null!;
     private Mesh _cubeOutlineMesh = null!;
+    private Mesh _cubeOutlineContrastMesh = null!;
     private Vector3I _outlinedBlock = new(int.MinValue, 0, 0);
     private BlockId _outlinedId = BlockId.Air;
     private byte _outlinedState = byte.MaxValue;
-    private static readonly System.Collections.Generic.Dictionary<(BlockId Id, byte State), Mesh>
-            ShapeOutlineCache = [];
+    private static readonly System.Collections.Generic.Dictionary<(BlockId Id, byte State),
+            BlockSelectionOutline.MeshSet> ShapeOutlineCache = [];
     private Node3D _arm = null!;
     private Sprite3D _heldItemSprite = null!;
     private int _heldItemId = -1;
@@ -2143,100 +2145,28 @@ public partial class Player : CharacterBody3D, IDamageable
 
     private void BuildOutline()
     {
-        SurfaceTool st = new();
-        st.Begin(Mesh.PrimitiveType.Triangles);
-        float t = 0.012f;
-        for (int axis = 0; axis < 3; axis++)
-        {
-            for (int a = 0; a < 2; a++)
-            {
-                for (int b = 0; b < 2; b++)
-                {
-                    Vector3 center = new(0.5f, 0.5f, 0.5f);
-                    Vector3 size = new(t * 2.0f, t * 2.0f, t * 2.0f);
-                    size[axis] = 1.0f + t * 2.0f;
-                    center[(axis + 1) % 3] = a;
-                    center[(axis + 2) % 3] = b;
-                    AddBox(st, center, size, Colors.White);
-                }
-            }
-        }
+        BlockSelectionOutline.MeshSet cube = BlockSelectionOutline.BuildCube();
+        _cubeOutlineMesh = cube.Silhouette;
+        _cubeOutlineContrastMesh = cube.Contrast;
 
-        StandardMaterial3D mat = new()
-        {
-            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            AlbedoColor = new Color(0.05f, 0.05f, 0.05f, 0.9f),
-        };
         _outline = new MeshInstance3D
         {
             Name = "Outline",
-            Mesh = st.Commit(),
-            MaterialOverride = mat,
+            Mesh = _cubeOutlineMesh,
+            MaterialOverride = BlockSelectionOutline.CreateSilhouetteMaterial(),
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
             Visible = false,
         };
-        _cubeOutlineMesh = _outline.Mesh;
+        _outlineContrast = new MeshInstance3D
+        {
+            Name = "OutlineContrast",
+            Mesh = _cubeOutlineContrastMesh,
+            MaterialOverride = BlockSelectionOutline.CreateContrastMaterial(),
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            Visible = false,
+        };
         AddChild(_outline);
-    }
-
-    private readonly record struct ShapeOutlineEdge(int Face, Vector3I A, Vector3I B);
-    private static readonly int[] ShapeOutlineEdgeIndices = [0, 1, 1, 2, 2, 3, 3, 0];
-
-    private static Mesh BuildShapeOutline(BlockId id, byte state)
-    {
-        // Toggle matching co-planar micro-face edges so internal half-cell seams
-        // disappear while the outer silhouette and stair risers remain.
-        System.Collections.Generic.Dictionary<ShapeOutlineEdge, (Vector3 A, Vector3 B)> segments = [];
-        Span<Vector3I> gridPoints = stackalloc Vector3I[4];
-        Span<Vector3> localPoints = stackalloc Vector3[4];
-
-        for (int y = 0; y < 2; y++)
-        for (int z = 0; z < 2; z++)
-        for (int x = 0; x < 2; x++)
-        {
-            if (!BlockShapes.Occupied(id, state, x, y, z)) continue;
-            for (int face = 0; face < 6; face++)
-            {
-                if (!BlockShapes.FaceExposed(id, state, x, y, z, face, BlockId.Air, 0))
-                    continue;
-
-                for (int vertex = 0; vertex < 4; vertex++)
-                {
-                    Vector3 unit = BlockDb.FaceVerts[face * 4 + vertex];
-                    Vector3I point = new(x + Mathf.RoundToInt(unit.X),
-                            y + Mathf.RoundToInt(unit.Y), z + Mathf.RoundToInt(unit.Z));
-                    gridPoints[vertex] = point;
-                    localPoints[vertex] = new Vector3(point.X * 0.5f - 0.5f,
-                            point.Y * 0.5f - 0.5f, point.Z * 0.5f - 0.5f);
-                }
-
-                for (int edge = 0; edge < 4; edge++)
-                {
-                    Vector3I a = gridPoints[ShapeOutlineEdgeIndices[edge * 2]];
-                    Vector3I b = gridPoints[ShapeOutlineEdgeIndices[edge * 2 + 1]];
-                    bool ordered = a.X < b.X || (a.X == b.X && (a.Y < b.Y
-                            || (a.Y == b.Y && a.Z <= b.Z)));
-                    ShapeOutlineEdge key = ordered ? new ShapeOutlineEdge(face, a, b)
-                            : new ShapeOutlineEdge(face, b, a);
-                    if (!segments.Remove(key))
-                    {
-                        Vector3 va = localPoints[ShapeOutlineEdgeIndices[edge * 2]];
-                        Vector3 vb = localPoints[ShapeOutlineEdgeIndices[edge * 2 + 1]];
-                        segments[key] = (va, vb);
-                    }
-                }
-            }
-        }
-
-        SurfaceTool st = new();
-        st.Begin(Mesh.PrimitiveType.Lines);
-        foreach ((Vector3 a, Vector3 b) in segments.Values)
-        {
-            st.SetColor(Colors.White);
-            st.AddVertex(a);
-            st.AddVertex(b);
-        }
-        return st.Commit();
+        AddChild(_outlineContrast);
     }
 
     private void BuildCrack()
@@ -2321,10 +2251,8 @@ public partial class Player : CharacterBody3D, IDamageable
 
     private void UpdateOutline()
     {
-        if (World == null || _outline == null)
-        {
+        if (World == null || _outline == null || _outlineContrast == null)
             return;
-        }
 
         if (TryGetTargetBlock(out Vector3I bp, out BlockId id))
         {
@@ -2336,25 +2264,31 @@ public partial class Player : CharacterBody3D, IDamageable
                 _outlinedState = state;
                 if (BlockShapes.IsShape(id) && !BlockShapes.IsFullCube(id, state))
                 {
-                    if (!ShapeOutlineCache.TryGetValue((id, state), out Mesh? shapeOutline))
+                    if (!ShapeOutlineCache.TryGetValue((id, state), out BlockSelectionOutline.MeshSet shape))
                     {
-                        shapeOutline = BuildShapeOutline(id, state);
-                        ShapeOutlineCache[(id, state)] = shapeOutline;
+                        shape = BlockSelectionOutline.BuildShape(id, state);
+                        ShapeOutlineCache[(id, state)] = shape;
                     }
-                    _outline.Mesh = shapeOutline;
+                    _outline.Mesh = shape.Silhouette;
+                    _outlineContrast.Mesh = shape.Contrast;
                 }
                 else
                 {
                     _outline.Mesh = _cubeOutlineMesh;
+                    _outlineContrast.Mesh = _cubeOutlineContrastMesh;
                 }
             }
 
-            _outline.GlobalPosition = new Vector3(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
+            Vector3 targetPosition = new(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
+            _outline.GlobalPosition = targetPosition;
+            _outlineContrast.GlobalPosition = targetPosition;
             _outline.Visible = true;
+            _outlineContrast.Visible = true;
         }
         else
         {
             _outline.Visible = false;
+            _outlineContrast.Visible = false;
             _outlinedBlock = new Vector3I(int.MinValue, 0, 0);
             _outlinedId = BlockId.Air;
             _outlinedState = byte.MaxValue;

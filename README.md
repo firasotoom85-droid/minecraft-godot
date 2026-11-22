@@ -97,7 +97,11 @@ change StandardMaterial3D; no per-frame material creation is performed.
   the arena boss. A wandering trader, weather, lightning and ambient life
   complete the ecosystem.
 - **Interface** — shared pixel-art menu, HUD, inventory, chest and furnace styling; viewport-aware panel scaling; slot hover feedback and tooltips; drag-and-drop and Shift-click stack movement.
-- **First-person presentation** — selected-item icon viewmodel with swing animation, layered onto the existing arm, swimming strokes, head bob and landing response.
+- **First-person presentation** — selected-item icon viewmodel with swing
+  animation, layered onto the existing arm, swimming strokes, head bob and
+  landing response. Block targeting uses a paired unshaded dark silhouette and
+  fine bright inset tracks, with cached cube/slab/stair geometry for readable
+  contrast on snow, water and in dark caves.
 - **Controller support** — left-stick movement, right-stick look, gamepad actions for mining/placing, hotbar cycling, inventory, pause, map and journal, with persistent button rebinding.
 - **Quality of life** — minimap with zoom and waypoints, achievements journal,
   keyboard/controller rebinding, accessibility toggles, photo mode, dev console,
@@ -166,8 +170,10 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-The 2026-11-22 integration suite reports **186,327 checks, 0 failures** across
-38 suites, with 0 build warnings. It includes deterministic V9 weathering,
+The 2026-11-22 integration suite reports **186,602 checks, 0 failures** across
+39 suites, with 0 build warnings. The selection-outline suite adds 275 checks
+for two-pass contrast materials and cube/slab/stair geometry, including every
+partial-block state. It includes deterministic V9 weathering,
 the V10 foliage-only delta, V8-to-V9 chunk-diff and chunk-order regressions,
 atmosphere/weather/water presentation, the performance runner, streaming memory
 accounting, the combined save round-trip (shapes + villagers + quests + boats),
