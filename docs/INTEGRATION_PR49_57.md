@@ -75,6 +75,8 @@ Environment: Godot 4.7.2 .NET, local .NET SDK 9.0.321, Linux.
 | `GODOT=... ./scripts/verify.sh` | exit 0; all suites pass |
 | Headless `TestRunner.tscn` | 46 suites, 189,838 checks, 0 failures |
 | `git diff --check` | no whitespace errors |
+| Rendered V11 scene | seed 1337 at `(558,-478)`, close scale 0.20, 49 chunks, 1600×900, success |
+| Rendered material gallery | greedy path, 60 blocks, 9 chunks, 0 pending payloads, 1280×720 close/distant |
 
 Test counts vary slightly between runs because some worldgen suites stop after
 finding the feature under test. Zero failures and a complete suite list are the
@@ -108,6 +110,14 @@ threads, adds no per-frame work, draw calls, vertices or materials. V11
 generation is effectively at V10 parity after moving the placement hash ahead
 of neighbour sampling.
 
+A fresh rendered check on the MX230 used the production `WorldgenVisualCapture`
+scene (V11, seed 1337, close shore view) and `MaterialGallery.tscn` (greedy
+path, all 60 blocks, close and distant views). Both loaded their chunks, reported
+zero pending mesh payloads in the gallery, and saved the requested images; the
+captures were inspected for obvious material, water, foliage and geometry
+regressions. They were not committed because the individual PRs already own the
+reference captures.
+
 ## Checklist
 
 - [x] #49 first-hour guidance and first-person animations
@@ -130,9 +140,9 @@ of neighbour sampling.
 
 ## Remaining limitations
 
-- The V11 reed captures and gallery/equipment captures are the ones committed by
-  the individual PRs; this integration did not perform a new rendered visual
-  pass. Other biomes, weather states and presets remain unreviewed.
+- The fresh rendered V11 and gallery checks are representative, not exhaustive;
+  the committed reference captures still come from the individual PRs. Other
+  biomes, weather states and presets remain unreviewed.
 - First-person poses, controller timing, combat readability and broader village
   usability still need human playtesting.
 - No rendered FPS benchmark or RTX 4060 comparison was run. The only new
