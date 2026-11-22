@@ -117,10 +117,11 @@ format, voxel mutation APIs, greedy meshing or chunk streaming.
 ## Material test gallery
 
 `res://tests/MaterialGallery.tscn` is a standalone Forward+ inspection scene for
-every registered block ID. It lays the current 60 definitions into an 8×8
-pedestal gallery, adds an ID/name legend, and captures the complete set at close
-and distant camera scales. The scene uses a neutral display stage and fixed key /
-ambient lighting so material families can be compared under one repeatable setup.
+every registered block ID. It lays all 60 definitions into an 8×8 pedestal
+gallery, identifies each sample in the ID/name legend, and captures close and
+distant views. The stage is limited to the sample footprint rather than filling
+the entire viewport, and the shorter legend leaves more of the material set
+visible in both views.
 
 The fixture streams nine production `VoxelWorld` chunks with collision disabled
 and a two-worker meshing limit. All sample voxel changes go through
@@ -132,28 +133,52 @@ using its registered face tiles and material response because `SetBlock`
 intentionally rejects Bedrock placement. Neither exception changes world data
 or weakens the gameplay mutation rules.
 
-Run both renderer paths on a desktop with Godot 4.7.2 .NET:
+### Matched atlas / greedy comparison
+
+The before/after pair compares the two existing render paths rather than
+claiming a change to the authored block textures: **before** is the classic
+packed-atlas renderer (`atlas`), and **after** is the greedy renderer backed by
+the texture array with independently generated per-tile mipmaps (`greedy`).
+Both passes run the same scene, seed, world-generator version, gallery samples,
+camera profile and lighting. Only the renderer override changes. This isolates
+the sampling/LOD path while keeping atlas coordinates, tile IDs, block
+definitions and material responses identical.
+
+The capture profile is fixed at 1280×720 and a 55° camera field of view. The
+close and distant camera offsets relative to the gallery target are respectively
+`(12, 8, 16)` and `(22, 15, 28)`. The key light uses rotation
+`(-48°, -35°, 0°)`, color `(1.0, 0.97, 0.91)`, energy 1.15 and an 80 m
+shadow distance; ambient energy is 1.0. Fog, volumetric fog, SSR and glow are
+disabled, while SSAO remains enabled. The runner prints the exact world-space
+target and the full capture profile so a capture can be reproduced and audited.
+The test suite locks the resolution, camera offsets, FOV, stage size, legend
+height and lighting constants.
+
+Run the two matched passes on a desktop with Godot 4.7.2 .NET:
 
 ```bash
 GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64
-PATH=/path/to/dotnet:$PATH DOTNET_ROOT=/path/to/dotnet DISPLAY=:0 \
-  "$GODOT" --path . res://tests/MaterialGallery.tscn -- 1337 \
-  res://docs/visual/screenshots/material-gallery-close.png \
-  res://docs/visual/screenshots/material-gallery-distant.png greedy
+export PATH=/path/to/dotnet:$PATH DOTNET_ROOT=/path/to/dotnet DISPLAY=:0
 
-# Replace the final renderer argument with "atlas" to exercise the classic atlas path.
+# BEFORE: classic atlas renderer.
+"$GODOT" --path . res://tests/MaterialGallery.tscn -- 1337 \
+  res://docs/visual/screenshots/material-gallery-before-atlas-close.png \
+  res://docs/visual/screenshots/material-gallery-before-atlas-distant.png atlas
+
+# AFTER: greedy texture-array renderer.
+"$GODOT" --path . res://tests/MaterialGallery.tscn -- 1337 \
+  res://docs/visual/screenshots/material-gallery-after-greedy-close.png \
+  res://docs/visual/screenshots/material-gallery-after-greedy-distant.png greedy
 ```
 
-The runner accepts a seed, close output path, distant output path, and optional
-`greedy` / `atlas` renderer override. It creates a disposable `user://tests/`
-world, restores the previously selected world and meshing setting, and removes
-the temporary directory on exit. The committed MX230 Forward+ reference frames
-are [`material-gallery-close.png`](docs/visual/screenshots/material-gallery-close.png)
-and [`material-gallery-distant.png`](docs/visual/screenshots/material-gallery-distant.png).
-`MaterialGalleryTests` also checks complete ID coverage, unique sample positions,
+The runner creates a disposable `user://tests/` world, restores the previously
+selected world and meshing setting, and removes the temporary directory on exit.
+The four matched reference frames and visual-quality notes are indexed in
+[`docs/visual/MATERIAL_GALLERY_VISUAL_QUALITY_REPORT_2026-11-22.md`](docs/visual/MATERIAL_GALLERY_VISUAL_QUALITY_REPORT_2026-11-22.md).
+`MaterialGalleryTests` checks complete ID coverage, unique sample positions,
 face-to-atlas UV bounds, all 256 isolated mipmapped array layers, material
-response ranges, block/item mapping, and the first-person block-icon atlas /
-response mapping.
+response ranges, block/item mapping, first-person block-icon atlas/response
+routing, and the fixed capture profile.
 
 ## Procedural atlas validation report
 

@@ -1959,3 +1959,41 @@ mipmaps; the greedy path retains isolated per-tile mipmaps for distant views.
   pending payloads and exited cleanly. No rendering or shader failures were
   reported. No FPS delta is claimed because the change adds no production
   rendering or per-frame work.
+
+## 36. Matched material gallery visual-quality report — 2026-11-22
+
+- Reused the integrated atlas/material pipeline and the existing material
+  gallery; no production material, texture, meshing, lighting or first-person
+  asset-routing implementation needed to be rebuilt.
+- Locked the opt-in capture profile in `MaterialGallery`: 1280×720,
+  55° FOV, fixed close/distant camera offsets, 20 m stage, 112 px legend,
+  fixed key/ambient lighting and an explicit viewport-size assertion. The
+  runner prints the complete profile and exact world-space target.
+- Reduced the old 120×120 m gallery stage to 20×20 m and the legend panel from
+  198 px to 112 px. All 60 registered blocks and the full six-row legend remain
+  represented, with the display occupying more of each frame.
+- Added a matched renderer comparison: classic packed atlas (`atlas`) is the
+  before path; greedy texture array (`greedy`) is the after path. Both use seed
+  1337, identical sample placement, camera positions and lighting. The report
+  distinguishes renderer/sampling comparison from source texture-art changes.
+- Committed four real-scene MX230 / Godot 4.7.2 Forward+ captures:
+  `material-gallery-before-atlas-{close,distant}.png` and
+  `material-gallery-after-greedy-{close,distant}.png`. The paired runs
+  each settled at 9 loaded chunks with zero pending payloads.
+- Added `MaterialGalleryTests` assertions for capture resolution, FOV,
+  near/far camera offsets, far clip, stage/legend dimensions and the fixed
+  key/ambient lighting values.
+- The visual report at
+  `docs/visual/MATERIAL_GALLERY_VISUAL_QUALITY_REPORT_2026-11-22.md`
+  records the capture profile, visual observations, comparison limits,
+  compatibility notes and all image references.
+- Compatibility: no IDs, saves, generator versions, atlas coordinates,
+  material responses or voxel mutation paths changed. V1–V8 remain frozen;
+  `SetBlock`, greedy meshing and chunk streaming retain their existing
+  ownership and behavior. No game-runtime per-frame work or new production
+  allocations were introduced.
+- **Verification:** Godot 4.7.2 .NET `dotnet build` and
+  `scripts/verify.sh` passed; **189,856 checks / 0 failures**, 0 build
+  warnings and 0 errors. Both interactive capture runs exited successfully on
+  the MX230. No dedicated FPS/GPU-time benchmark was added because the change
+  is confined to the opt-in test gallery and documentation.

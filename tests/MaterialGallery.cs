@@ -16,6 +16,28 @@ public partial class MaterialGallery : Node3D
 {
     public const int Columns = 8;
     public const int SlotSpacing = 2;
+    public const int CaptureWidth = 1280;
+    public const int CaptureHeight = 720;
+    public const float CameraFovDegrees = 55.0f;
+    public const float CameraFarDistance = 180.0f;
+    public const float GalleryStageSize = 20.0f;
+    public const float LegendPanelHeight = 112.0f;
+    public const int LegendFontSize = 10;
+    public const float KeyLightEnergy = 1.15f;
+    public const float AmbientLightEnergy = 1.0f;
+    public const float KeyLightShadowDistance = 80.0f;
+    public const float KeyLightShadowBias = 0.04f;
+    public const float KeyLightShadowNormalBias = 1.0f;
+    public const bool KeyLightShadowsEnabled = true;
+    public const bool AmbientOcclusionEnabled = true;
+    public const bool FogEnabled = false;
+    public const bool VolumetricFogEnabled = false;
+    public const bool ScreenSpaceReflectionsEnabled = false;
+    public const bool GlowEnabled = false;
+    public static readonly Vector3 CloseCameraOffset = new(12.0f, 8.0f, 16.0f);
+    public static readonly Vector3 DistantCameraOffset = new(22.0f, 15.0f, 28.0f);
+    public static readonly Vector3 KeyLightRotationDegrees = new(-48.0f, -35.0f, 0.0f);
+    public static readonly Color KeyLightColor = new(1.0f, 0.97f, 0.91f);
     private const int PreviewRadius = 1;
     private const int StreamTimeoutFrames = 1800;
 
@@ -65,7 +87,7 @@ public partial class MaterialGallery : Node3D
                     : null
                     : null;
 
-            DisplayServer.WindowSetSize(new Vector2I(1280, 720));
+            DisplayServer.WindowSetSize(new Vector2I(CaptureWidth, CaptureHeight));
             Engine.MaxFps = 60;
             BlockDb.EnsureTables();
 
@@ -103,17 +125,18 @@ public partial class MaterialGallery : Node3D
 
             ConfigureLighting();
             Vector3 target = GalleryTarget(centerX, centerZ, baseY);
-            _camera!.GlobalPosition = target + new Vector3(14.0f, 9.0f, 18.0f);
+            _camera!.GlobalPosition = target + CloseCameraOffset;
             _camera.LookAt(target, Vector3.Up);
             CreateGallery(centerX, centerZ, baseY);
             AddLegend();
+            GD.Print($"MATERIAL_GALLERY_PROFILE resolution={CaptureWidth}x{CaptureHeight} target={target} close_offset={CloseCameraOffset} distant_offset={DistantCameraOffset} fov={CameraFovDegrees:F1} far={CameraFarDistance:F1} stage={GalleryStageSize:F1} legend_height={LegendPanelHeight:F1} key_rotation={KeyLightRotationDegrees} key_color={KeyLightColor} key_energy={KeyLightEnergy:F2} key_shadows={KeyLightShadowsEnabled} shadow_distance={KeyLightShadowDistance:F1} shadow_bias={KeyLightShadowBias:F3} shadow_normal_bias={KeyLightShadowNormalBias:F2} ambient_energy={AmbientLightEnergy:F2} ssao={AmbientOcclusionEnabled} fog={FogEnabled} volumetric_fog={VolumetricFogEnabled} ssr={ScreenSpaceReflectionsEnabled} glow={GlowEnabled}");
             GD.Print($"MATERIAL_GALLERY_BUILD blocks={RegisteredBlockCount} rows={Rows} columns={Columns} baseY={baseY} greedy={Mesher.Greedy}");
 
             await WaitForMeshes();
             GD.Print($"MATERIAL_GALLERY_READY chunks={_world.ChunkCount} pending={Profiler.PendingPayloadCount}");
 
             Capture(closeOutput, "close");
-            _camera.GlobalPosition = target + new Vector3(30.0f, 20.0f, 40.0f);
+            _camera.GlobalPosition = target + DistantCameraOffset;
             _camera.LookAt(target, Vector3.Up);
             await WaitFrames(45);
             Capture(distantOutput, "distant");
@@ -188,32 +211,32 @@ public partial class MaterialGallery : Node3D
             Name = "GalleryEnvironment",
             Environment = WorldEnvironmentFactory.Build(_world!.WorldGenVersion),
         };
-        worldEnvironment.Environment!.FogEnabled = false;
-        worldEnvironment.Environment.VolumetricFogEnabled = false;
-        worldEnvironment.Environment.SsaoEnabled = true;
-        worldEnvironment.Environment.SsrEnabled = false;
-        worldEnvironment.Environment.GlowEnabled = false;
-        worldEnvironment.Environment.AmbientLightEnergy = 1.0f;
+        worldEnvironment.Environment!.FogEnabled = FogEnabled;
+        worldEnvironment.Environment.VolumetricFogEnabled = VolumetricFogEnabled;
+        worldEnvironment.Environment.SsaoEnabled = AmbientOcclusionEnabled;
+        worldEnvironment.Environment.SsrEnabled = ScreenSpaceReflectionsEnabled;
+        worldEnvironment.Environment.GlowEnabled = GlowEnabled;
+        worldEnvironment.Environment.AmbientLightEnergy = AmbientLightEnergy;
         AddChild(worldEnvironment);
 
         DirectionalLight3D keyLight = new()
         {
             Name = "GalleryKeyLight",
-            RotationDegrees = new Vector3(-48.0f, -35.0f, 0.0f),
-            LightColor = new Color(1.0f, 0.97f, 0.91f),
-            LightEnergy = 1.15f,
-            ShadowEnabled = true,
-            DirectionalShadowMaxDistance = 80.0f,
-            ShadowBias = 0.04f,
-            ShadowNormalBias = 1.0f,
+            RotationDegrees = KeyLightRotationDegrees,
+            LightColor = KeyLightColor,
+            LightEnergy = KeyLightEnergy,
+            ShadowEnabled = KeyLightShadowsEnabled,
+            DirectionalShadowMaxDistance = KeyLightShadowDistance,
+            ShadowBias = KeyLightShadowBias,
+            ShadowNormalBias = KeyLightShadowNormalBias,
         };
         AddChild(keyLight);
 
         _camera = new Camera3D
         {
             Name = "GalleryCamera",
-            Fov = 55.0f,
-            Far = 180.0f,
+            Fov = CameraFovDegrees,
+            Far = CameraFarDistance,
             Current = true,
         };
         AddChild(_camera);
@@ -283,7 +306,7 @@ public partial class MaterialGallery : Node3D
             Name = "NeutralGalleryStage",
             Mesh = new PlaneMesh
             {
-                Size = new Vector2(120.0f, 120.0f),
+                Size = new Vector2(GalleryStageSize, GalleryStageSize),
                 SubdivideWidth = 1,
                 SubdivideDepth = 1,
             },
@@ -442,6 +465,10 @@ public partial class MaterialGallery : Node3D
             Directory.CreateDirectory(directory);
 
         Image image = GetViewport().GetTexture().GetImage();
+        if (image.GetWidth() != CaptureWidth || image.GetHeight() != CaptureHeight)
+            throw new InvalidOperationException(
+                    $"Material gallery viewport must be {CaptureWidth}x{CaptureHeight}; got {image.GetWidth()}x{image.GetHeight()}.");
+
         Error result = image.SavePng(absoluteOutput);
         if (result != Error.Ok)
             throw new IOException($"Could not save {view} material gallery capture to {absoluteOutput}: {result}.");
@@ -468,7 +495,7 @@ public partial class MaterialGallery : Node3D
         {
             Name = $"{name}Backing",
             Position = new Vector2(12.0f, top),
-            Size = new Vector2(1256.0f, 198.0f),
+            Size = new Vector2(CaptureWidth - 24.0f, LegendPanelHeight),
             Color = new Color(0.025f, 0.035f, 0.045f, 0.86f),
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
@@ -478,14 +505,14 @@ public partial class MaterialGallery : Node3D
         {
             Name = name,
             Position = new Vector2(22.0f, top + 6.0f),
-            Size = new Vector2(1236.0f, 186.0f),
+            Size = new Vector2(CaptureWidth - 44.0f, LegendPanelHeight - 12.0f),
             Text = BuildLegendText(firstIndex, rowCount),
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Top,
             AutowrapMode = TextServer.AutowrapMode.Off,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        legend.AddThemeFontSizeOverride("font_size", 10);
+        legend.AddThemeFontSizeOverride("font_size", LegendFontSize);
         legend.AddThemeColorOverride("font_color", new Color(0.94f, 0.96f, 0.98f));
         layer.AddChild(legend);
     }
