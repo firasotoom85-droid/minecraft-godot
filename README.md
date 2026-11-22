@@ -103,6 +103,47 @@ coordinates remain unchanged.
 V1–V10 generation remains frozen; this visual increment does not change save
 format, voxel mutation APIs, greedy meshing or chunk streaming.
 
+## Material test gallery
+
+`res://tests/MaterialGallery.tscn` is a standalone Forward+ inspection scene for
+every registered block ID. It lays the current 59 definitions into an 8×8
+pedestal gallery, adds an ID/name legend, and captures the complete set at close
+and distant camera scales. The scene uses a neutral display stage and fixed key /
+ambient lighting so material families can be compared under one repeatable setup.
+
+The fixture streams nine production `VoxelWorld` chunks with collision disabled
+and a two-worker meshing limit. All sample voxel changes go through
+`VoxelWorld.SetBlock`; the existing atlas, classic atlas shader, greedy
+texture-array shader, lighting tags and block definitions are reused. The
+streaming anchor has processing and physics disabled. Air is shown with a small
+wire outline because it has no rendered surface; Bedrock is a display-only cube
+using its registered face tiles and material response because `SetBlock`
+intentionally rejects Bedrock placement. Neither exception changes world data
+or weakens the gameplay mutation rules.
+
+Run both renderer paths on a desktop with Godot 4.7.2 .NET:
+
+```bash
+GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64
+PATH=/path/to/dotnet:$PATH DOTNET_ROOT=/path/to/dotnet DISPLAY=:0 \
+  "$GODOT" --path . res://tests/MaterialGallery.tscn -- 1337 \
+  res://docs/visual/screenshots/material-gallery-close.png \
+  res://docs/visual/screenshots/material-gallery-distant.png greedy
+
+# Replace the final renderer argument with "atlas" to exercise the classic atlas path.
+```
+
+The runner accepts a seed, close output path, distant output path, and optional
+`greedy` / `atlas` renderer override. It creates a disposable `user://tests/`
+world, restores the previously selected world and meshing setting, and removes
+the temporary directory on exit. The committed MX230 Forward+ reference frames
+are [`material-gallery-close.png`](docs/visual/screenshots/material-gallery-close.png)
+and [`material-gallery-distant.png`](docs/visual/screenshots/material-gallery-distant.png).
+`MaterialGalleryTests` also checks complete ID coverage, unique sample positions,
+face-to-atlas UV bounds, all 256 isolated mipmapped array layers, material
+response ranges, block/item mapping, and the first-person block-icon atlas /
+response mapping.
+
 ## Highlights
 
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
