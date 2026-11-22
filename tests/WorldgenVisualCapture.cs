@@ -20,8 +20,10 @@ public partial class WorldgenVisualCapture : Node
         string output = args.Length > 4
                 ? args[4]
                 : $"res://docs/worldgen/screenshots/v{version}-seed-{seed}.png";
+        float cameraScale = args.Length > 5 && float.TryParse(args[5], out float requestedScale)
+                ? Mathf.Clamp(requestedScale, 0.2f, 2.0f) : 1.0f;
 
-        if (version is < 1 or > 8)
+        if (version < 1 || version > WorldGenV9.Version)
         {
             GD.PushError($"Unsupported world generation version {version}.");
             GetTree().Quit(2);
@@ -72,10 +74,10 @@ public partial class WorldgenVisualCapture : Node
             Current = true,
         };
         game.AddChild(camera);
-        camera.GlobalPosition = target + new Vector3(62.0f, 72.0f, 78.0f);
+        camera.GlobalPosition = target + new Vector3(62.0f, 72.0f, 78.0f) * cameraScale;
         camera.LookAt(target + new Vector3(0.0f, 5.0f, 0.0f), Vector3.Up);
 
-        GD.Print($"WORLDGEN_CAPTURE_START version={version} seed={seed} center=({centerX},{centerZ}) height={height} output={output}");
+        GD.Print($"WORLDGEN_CAPTURE_START version={version} seed={seed} center=({centerX},{centerZ}) height={height} camera_scale={cameraScale:F2} output={output}");
         double started = Time.GetTicksMsec() / 1000.0;
         int frames = 0;
         while (frames < 1200)

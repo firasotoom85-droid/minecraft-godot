@@ -32,10 +32,11 @@ change StandardMaterial3D; no per-frame material creation is performed.
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
   climate-shaped continents, smooth river valleys, mountain ranges, multi-form
   caves, aquifers, magma pockets, depth-aware ore veins, biome-specific trees,
-  surface ruins and underground chambers. New worlds use generator V8, with
-  broader river banks, improved cave entrances and denser forest canopies.
-  Generator versions 1–7 retain their frozen terrain rules, golden chunk hashes
-  and save compatibility.
+  surface ruins and underground chambers. New worlds use generator V9, which
+  preserves V8 terrain and structure placement while adding deterministic
+  mossy/weathered stone and cracked/mossy brick to generated ruins and old
+  structures. Generator versions 1–8 retain their frozen generation rules,
+  golden chunk hashes and save compatibility.
 - **Greedy meshing** — merged coplanar full-cube quads cut triangle count
   roughly in half; per-face meshing remains available for comparison. Vertex-light
   and AO samples are part of the merge key, preserving lighting boundaries.
@@ -165,10 +166,12 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-The integrated 2026-11-21 suite reports **4,276 checks, 0 failures** across 29
-suites, with 0 build warnings. It includes the combined save round-trip
-(shapes + villagers + quests + boats), graphics-preset migration,
-render-only mesher collision checks, quest reward wiring, fluid/shape
+The current 2026-11-22 suite reports the full check count printed by
+`scripts/verify.sh` across all suites, with 0 build warnings. It includes
+deterministic V9 weathering, V8-to-V9 chunk-diff and chunk-order regressions,
+the combined save round-trip (shapes + villagers + quests + boats), graphics-
+preset migration, render-only mesher collision checks, quest reward wiring,
+fluid/shape
 boundaries, legacy saves, every pinned block/item ID and V1–V8 golden chunk
 hashes. The headless runner and a verbose real-scene soak both exit without
 leaked ObjectDB instances or RIDs. The project-specific reliability audit,
@@ -253,21 +256,23 @@ coordinates for a steep river bank, river valley, mountain, forest and cave
 region. The paired images and findings are in
 [`docs/worldgen/V8_VISUAL_VALIDATION.md`](docs/worldgen/V8_VISUAL_VALIDATION.md).
 
-A fresh integrated-build capture at seed 1337 (V8, river valley at 512,-372)
-rendered 49 chunks at 1600×900, and a second capture at the deterministic seed
-1337 village (-684,1303) showed generated houses, paths and farmland in the
-real scene. Both exited without off-tree transform errors after the resident
-save path was fixed. These inspection frames were not committed as new assets.
+V9 weathering was captured in the real game scene on the NVIDIA GeForce MX230
+using Godot 4.7.2 .NET and Vulkan Forward+. The fixed seed 1337 ruin at
+(429,54,-1893) was captured at close and distant camera scales; the two frames
+are committed in docs/worldgen/screenshots/. Both use the existing chunk
+streaming, atlas materials and greedy mesher. Findings and hardware details are
+in [`docs/worldgen/V9_VISUAL_VALIDATION.md`](docs/worldgen/V9_VISUAL_VALIDATION.md).
 
 Capture another seed/coordinate from the real scene with:
 
 ```bash
-godot --path . res://tests/WorldgenVisualCapture.tscn -- 1337 8 512 -372 res://docs/worldgen/screenshots/custom-v8.png
+godot --path . res://tests/WorldgenVisualCapture.tscn -- 1337 9 429 -1893 res://docs/worldgen/screenshots/custom-v9.png 0.32
 ```
 
-Arguments are seed, generator version, world X, world Z and output PNG path.
-The capture scene waits for surrounding chunks to stream before saving the
-1600×900 viewport image.
+Arguments are seed, generator version, world X, world Z, output PNG path and
+optional camera scale (0.2–2.0; smaller values move the inspection camera
+closer). The capture scene waits for surrounding chunks to stream before
+saving the 1600×900 viewport image.
 
 ### Long-duration survival soak
 
@@ -482,13 +487,16 @@ are never renumbered or reused; new content is appended and pinned by tests.
 |---|---|
 | `BlockId` 0–45 | Original terrain, plants, fluids and M6/M7 blocks, unchanged |
 | `BlockId` 46–51 | Oak-planks, cobblestone and brick slabs/stairs |
+| `BlockId` 52–55 | Mossy cobblestone, weathered cobblestone, cracked brick, mossy brick |
 | `ItemId` 0–90 | Original items, armor, tools, food, boss trophy and enchanting table, unchanged |
 | `ItemId` 91–96 | Slab and stair items, matching the block order above |
 | `ItemId` 97–100 | Empty bucket, water bucket, lava bucket, wooden boat |
+| `ItemId` 101–104 | Weathered material blocks, matching the block order above |
 
 `tests/ContentTests.cs` pins every block and item value and asserts that the
-building and transportation ranges remain disjoint. `tests/WorldgenTests.cs`
-pins golden chunk hashes for V1, V3, V5, V6, V7 and V8.
+building, transportation and weathering ranges remain append-only. `tests/WorldgenTests.cs`
+pins golden chunk hashes for V1, V3, V5, V6, V7 and V8; `tests/WeatheringTests.cs`
+checks deterministic V9 replacements against V8 chunks and reversed chunk order.
 
 ## Villages, residents and quests
 
@@ -498,7 +506,8 @@ clearings and avoid existing surface structures, campfire clearings, cave
 openings and nearby underground chambers. Chunk-clipped houses, roads, a
 central square, light posts, chests, workstations and irrigated farms are
 stamped from the same site seed, including at negative chunk coordinates.
-Worlds generated with V1–V7 keep their original terrain and structure placement.
+Worlds generated with V1–V8 keep their original terrain and structure placement
+and material IDs; V9 weathering applies only to newly generated V9 worlds.
 
 Five named residents populate each discovered village: farmers, merchants,
 blacksmiths, librarians and guards. They follow home/work/gathering schedules,
@@ -520,9 +529,10 @@ completion and reward claims persist in `world.json`.
   implemented yet. There are no vertical slabs.
 - **Visual validation is representative, not exhaustive.** V8 has matched
   GPU-rendered before/after captures for river, steep-bank, mountain, forest and
-  cave locations across four seeds. The integrated village, boat and block-shape
-  presentation has automated coverage but no complete human visual playthrough
-  across every biome, preset and UI state.
+  cave locations across four seeds. V9 weathering has close and distant GPU
+  captures on the MX230, but not a full human playthrough across every structure,
+  biome, preset and lighting condition. Far-terrain LOD remains terrain-only and
+  does not independently render surface structure meshes.
 - **Soak coverage is headless.** The 5- and 60-minute survival soaks exercise
   the real main scene, physics, mobs, weather, saves and cleanup, but they do not
   replace a human combat, building or visual playtest. The five-minute run is

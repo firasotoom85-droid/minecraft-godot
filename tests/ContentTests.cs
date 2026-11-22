@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Godot;
 
 namespace Minecraft;
@@ -62,6 +63,10 @@ public static class ContentTests
         (BlockId.PlanksStairs, 49),
         (BlockId.CobblestoneStairs, 50),
         (BlockId.BrickStairs, 51),
+        (BlockId.MossyCobblestone, 52),
+        (BlockId.WeatheredCobblestone, 53),
+        (BlockId.CrackedBrick, 54),
+        (BlockId.MossyBrick, 55),
     ];
 
     private static readonly (ItemId Id, int Value)[] PersistedItems =
@@ -167,6 +172,10 @@ public static class ContentTests
         (ItemId.WaterBucket, 98),
         (ItemId.LavaBucket, 99),
         (ItemId.WoodenBoat, 100),
+        (ItemId.MossyCobblestone, 101),
+        (ItemId.WeatheredCobblestone, 102),
+        (ItemId.CrackedBrick, 103),
+        (ItemId.MossyBrick, 104),
     ];
 
     public static void Run()
@@ -191,6 +200,84 @@ public static class ContentTests
         TestAssert.Equal((byte)0, BlockDb.LightOpacity[(int)BlockId.Glass], "glass transmits voxel light");
         TestAssert.Check(BlockDb.IsCross(BlockId.Torch), "torch uses the cross mesh");
         TestAssert.Check(!BlockDb.IsDefined((BlockId)127), "unused ids stay undefined");
+        // Every weathered material keeps a unique atlas tile above the wood
+        // grain range (49-51), so no two materials composite the same art.
+        int[] weatheredTiles =
+        [
+            BlockDb.IconTile(BlockId.MossyCobblestone),
+            BlockDb.IconTile(BlockId.WeatheredCobblestone),
+            BlockDb.IconTile(BlockId.CrackedBrick),
+            BlockDb.IconTile(BlockId.MossyBrick),
+        ];
+        TestAssert.Equal(weatheredTiles.Length, weatheredTiles.Distinct().Count(),
+                "every weathered material owns a distinct atlas tile");
+        foreach (int weatheredTile in weatheredTiles)
+        {
+            TestAssert.Check(weatheredTile is >= 52 and <= 55,
+                    $"weathered tile {weatheredTile} stays in its allocated 52-55 range");
+            TestAssert.Check(weatheredTile is not (49 or 50 or 51),
+                    $"weathered tile {weatheredTile} does not reuse a wood-grain tile");
+        }
+
+        foreach (BlockId weathered in new[]
+        {
+            BlockId.MossyCobblestone, BlockId.WeatheredCobblestone,
+            BlockId.CrackedBrick, BlockId.MossyBrick,
+        })
+        {
+            TestAssert.Check(BlockDb.IsSolid(weathered) && !BlockDb.IsTransparent(weathered),
+                    $"{weathered} remains a solid opaque cube");
+            ItemId item = ItemDb.BlockItem(weathered);
+            TestAssert.Equal(weathered, ItemDb.BlockFor(item)!.Value,
+                    $"{weathered} item mapping round-trips");
+            Texture2D heldIcon = ItemDb.Icon(item);
+            TestAssert.Check(heldIcon is AtlasTexture,
+                    $"{weathered} held-item and hotbar icon use the voxel atlas");
+            if (heldIcon is AtlasTexture atlasIcon)
+            {
+                int iconTile = BlockDb.IconTile(weathered);
+                TestAssert.Equal(new Rect2(
+                                iconTile % BlockDb.AtlasCols * BlockDb.TilePx,
+                                iconTile / BlockDb.AtlasCols * BlockDb.TilePx,
+                                BlockDb.TilePx, BlockDb.TilePx),
+                        atlasIcon.Region,
+                        $"{weathered} held-item icon uses its weathered face tile");
+            }
+        }
+
+        Image atlas = BlockDb.AtlasTexture().GetImage();
+        foreach (int tile in new[] { 52, 53, 54, 55 })
+        {
+            int originX = tile % BlockDb.AtlasCols * BlockDb.TilePx;
+            int originY = tile / BlockDb.AtlasCols * BlockDb.TilePx;
+            Color firstPixel = atlas.GetPixel(originX, originY);
+            bool hasVariation = false;
+            for (int y = 0; y < BlockDb.TilePx && !hasVariation; y++)
+            for (int x = 0; x < BlockDb.TilePx; x++)
+            {
+                if (atlas.GetPixel(originX + x, originY + y) != firstPixel)
+                {
+                    hasVariation = true;
+                    break;
+                }
+            }
+            TestAssert.Check(hasVariation, $"weathered atlas tile {tile} contains painted texture detail");
+        }
+
+        int unusedTileX = 56 % BlockDb.AtlasCols * BlockDb.TilePx;
+        int unusedTileY = 56 / BlockDb.AtlasCols * BlockDb.TilePx;
+        bool neighboringTileIsUntouched = true;
+        for (int y = 0; y < BlockDb.TilePx && neighboringTileIsUntouched; y++)
+        for (int x = 0; x < BlockDb.TilePx; x++)
+        {
+            if (atlas.GetPixel(unusedTileX + x, unusedTileY + y).A > 0.0f)
+            {
+                neighboringTileIsUntouched = false;
+                break;
+            }
+        }
+        TestAssert.Check(neighboringTileIsUntouched,
+                "weathered atlas painting stays inside its four allocated tiles");
 
         // Ore remains visible through its shared atlas tiles, but never acts as
         // a light source or weakens opaque cave-wall occlusion.
@@ -207,7 +294,6 @@ public static class ContentTests
                     $"{ore} fully occludes voxel light");
         }
 
-        Image atlas = BlockDb.AtlasTexture().GetImage();
         foreach ((int tile, Func<Color, bool> isOrePixel, string name) in new[]
         {
             (12, (Func<Color, bool>)(c => c.R < 0.28f && c.G < 0.28f && c.B < 0.30f), "coal"),
@@ -320,13 +406,16 @@ public static class ContentTests
 
         // The two independently proposed ranges must not collide or alias:
         // building shapes occupy 46-51 / 91-96, transportation occupies 97-100.
-        TestAssert.Equal(52, PersistedBlocks.Length, "persisted block table covers every block id");
-        TestAssert.Equal(101, PersistedItems.Length, "persisted item table covers every item id");
+        TestAssert.Equal(56, PersistedBlocks.Length, "persisted block table covers every block id");
+        TestAssert.Equal(105, PersistedItems.Length, "persisted item table covers every item id");
         TestAssert.Equal(PersistedBlocks.Length, Enum.GetValues<BlockId>().Length,
                 "no block id aliases another");
         TestAssert.Equal(PersistedItems.Length, Enum.GetValues<ItemId>().Length,
                 "no item id aliases another");
         TestAssert.Check((int)ItemId.BrickStairs < (int)ItemId.EmptyBucket,
                 "transportation ids follow every building id");
+        TestAssert.Check((int)BlockId.MossyCobblestone > (int)BlockId.BrickStairs
+                        && (int)ItemId.MossyCobblestone > (int)ItemId.WoodenBoat,
+                "weathering IDs append after every previously persisted block and item");
     }
 }

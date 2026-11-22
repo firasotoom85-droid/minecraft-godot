@@ -88,6 +88,12 @@ public static class BlockDb
     private const int TPlanksTop = 49;
     private const int TPlanksSide = 50;
     private const int TPlanksEnd = 51;
+    // Weathered structure materials follow the wood-grain range so every
+    // material keeps a unique atlas coordinate (49-51 are taken by #45).
+    private const int TMossyCobblestone = 52;
+    private const int TWeatheredCobblestone = 53;
+    private const int TCrackedBrick = 54;
+    private const int TMossyBrick = 55;
 
     /// <summary>
     /// One block's definition; the tiles array is indexed by face (FACE order).
@@ -203,6 +209,18 @@ public static class BlockDb
                 2.0f, ToolKind.Pick, 1),
         new("Brick Stairs", true, false,
                 [TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding, TBrickBuilding],
+                1.5f, ToolKind.Pick, 1),
+        new("Mossy Cobblestone", true, false,
+                [TMossyCobblestone, TMossyCobblestone, TMossyCobblestone, TMossyCobblestone, TMossyCobblestone, TMossyCobblestone],
+                2.0f, ToolKind.Pick, 1),
+        new("Weathered Cobblestone", true, false,
+                [TWeatheredCobblestone, TWeatheredCobblestone, TWeatheredCobblestone, TWeatheredCobblestone, TWeatheredCobblestone, TWeatheredCobblestone],
+                2.0f, ToolKind.Pick, 1),
+        new("Cracked Brick", true, false,
+                [TCrackedBrick, TCrackedBrick, TCrackedBrick, TCrackedBrick, TCrackedBrick, TCrackedBrick],
+                1.5f, ToolKind.Pick, 1),
+        new("Mossy Brick", true, false,
+                [TMossyBrick, TMossyBrick, TMossyBrick, TMossyBrick, TMossyBrick, TMossyBrick],
                 1.5f, ToolKind.Pick, 1),
     ];
 
@@ -1001,6 +1019,12 @@ void fragment() {
         PaintPlanksTop(img, TPlanksTop, rng);
         PaintPlanksSide(img, TPlanksSide, rng);
         PaintPlanksEnd(img, TPlanksEnd, rng);
+        PaintWeatheredCobblestone(img, TMossyCobblestone,
+                new Color(0.43f, 0.46f, 0.41f), rng, true);
+        PaintWeatheredCobblestone(img, TWeatheredCobblestone,
+                new Color(0.49f, 0.49f, 0.47f), rng, false);
+        PaintWeatheredBrick(img, TCrackedBrick, rng, false);
+        PaintWeatheredBrick(img, TMossyBrick, rng, true);
         return img;
     }
 
@@ -1059,6 +1083,112 @@ void fragment() {
 
         for (int i = 0; i < 48; i++)
             Px(img, tile, rng.RandiRange(1, TilePx - 2), rng.RandiRange(1, TilePx - 2), Jitter(rng, highlight, 0.035f));
+    }
+
+    /// <summary>
+    /// Original 4x4 stonework pattern with broad 8px blocks. Moss sits in
+    /// irregular seams so it reads as material aging rather than noisy tint.
+    /// </summary>
+    private static void PaintWeatheredCobblestone(Image img, int tile, Color baseColor,
+            RandomNumberGenerator rng, bool mossy)
+    {
+        const int cell = 8;
+        Color mortar = new(0.25f, 0.27f, 0.25f);
+        Color mossDark = new(0.20f, 0.30f, 0.15f);
+        Color mossLight = new(0.34f, 0.45f, 0.22f);
+        for (int cy = 0; cy < 4; cy++)
+        for (int cx = 0; cx < 4; cx++)
+        {
+            Color stone = Jitter(rng, baseColor, 0.075f);
+            int ox = cx * cell;
+            int oy = cy * cell;
+            for (int py = 0; py < cell; py++)
+            for (int px = 0; px < cell; px++)
+            {
+                bool joint = px == 0 || py == 0;
+                Color color = joint ? mortar : Jitter(rng, stone, 0.025f);
+                if (!joint && (px == 1 || py == 1))
+                    color = color.Darkened(0.08f);
+                Px(img, tile, ox + px, oy + py, color);
+            }
+
+            if (mossy && rng.Randf() < 0.42f)
+            {
+                int width = rng.RandiRange(2, 4);
+                int height = rng.RandiRange(2, 3);
+                int mx = ox + rng.RandiRange(1, cell - width - 1);
+                int my = oy + rng.RandiRange(1, cell - height - 1);
+                for (int py = 0; py < height; py++)
+                for (int px = 0; px < width; px++)
+                    if (rng.Randf() > 0.18f)
+                        Px(img, tile, mx + px, my + py,
+                                Jitter(rng, (px + py) % 3 == 0 ? mossLight : mossDark, 0.035f));
+            }
+            else if (!mossy && rng.Randf() < 0.28f)
+            {
+                int chipX = ox + rng.RandiRange(1, 6);
+                int chipY = oy + rng.RandiRange(1, 6);
+                Px(img, tile, chipX, chipY, mortar);
+                Px(img, tile, chipX + 1, chipY, stone.Darkened(0.18f));
+            }
+        }
+    }
+
+    /// <summary>Muted brick courses with fine cracks or moss-grown mortar.</summary>
+    private static void PaintWeatheredBrick(Image img, int tile,
+            RandomNumberGenerator rng, bool mossy)
+    {
+        Color brick = new(0.54f, 0.31f, 0.25f);
+        Color mortar = new(0.48f, 0.45f, 0.40f);
+        Color mossDark = new(0.20f, 0.32f, 0.17f);
+        Color mossLight = new(0.35f, 0.46f, 0.23f);
+        for (int y = 0; y < TilePx; y++)
+        {
+            int row = y / 8;
+            int offset = row % 2 == 0 ? 0 : 8;
+            for (int x = 0; x < TilePx; x++)
+            {
+                bool joint = y % 8 == 0 || (x + offset) % 16 == 0;
+                Color color = joint ? mortar : Jitter(rng, brick, 0.055f);
+                if (!joint && (y % 8 == 1 || (x + offset) % 16 == 1))
+                    color = color.Darkened(0.10f);
+                Px(img, tile, x, y, color);
+            }
+        }
+
+        if (mossy)
+        {
+            for (int row = 0; row < 4; row++)
+            {
+                if (rng.Randf() > 0.68f)
+                    continue;
+                int length = rng.RandiRange(3, 6);
+                int x = rng.RandiRange(1, TilePx - length - 1);
+                int y = row * 8 + rng.RandiRange(0, 2);
+                for (int i = 0; i < length; i++)
+                {
+                    int px = x + i;
+                    Px(img, tile, px, y, Jitter(rng, i % 3 == 0 ? mossLight : mossDark, 0.025f));
+                    if (y + 1 < TilePx && rng.Randf() < 0.65f)
+                        Px(img, tile, px, y + 1, mossDark);
+                }
+            }
+        }
+        else
+        {
+            for (int crack = 0; crack < 5; crack++)
+            {
+                int x = rng.RandiRange(2, TilePx - 4);
+                int y = rng.RandiRange(3, TilePx - 5);
+                Color dark = new(0.28f, 0.25f, 0.23f);
+                for (int step = 0; step < 3; step++)
+                {
+                    Px(img, tile, x + step, y + step / 2, dark);
+                    if (step == 1)
+                        Px(img, tile, x + step + 1, y + step / 2, dark);
+                }
+            }
+        }
     }
 
     private static void Speckle(Image img, int tile, Color c, int count, float amount,

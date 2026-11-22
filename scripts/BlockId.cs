@@ -68,4 +68,10 @@ public enum BlockId : byte
     PlanksStairs = 49,
     CobblestoneStairs = 50,
     BrickStairs = 51,
+
+    // Generated structure weathering (append-only persisted IDs).
+    MossyCobblestone = 52,
+    WeatheredCobblestone = 53,
+    CrackedBrick = 54,
+    MossyBrick = 55,
 }
