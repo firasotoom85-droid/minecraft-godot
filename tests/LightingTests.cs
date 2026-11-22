@@ -8,6 +8,7 @@ public static class LightingTests
     public static void Run()
     {
         BlockDb.EnsureTables();
+        TestCornerAverageChannels();
         TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Torch] >= 13, "torch has a strong nibble emission");
         TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Lava] > 0
                 && BlockDb.LightEmission[(int)BlockId.Lava] < BlockDb.LightEmission[(int)BlockId.Torch],
@@ -24,6 +25,21 @@ public static class LightingTests
         TestRemoval();
         TestIncrementalBlockUpdates();
         TestSunlightAndCaves();
+    }
+
+    private static void TestCornerAverageChannels()
+    {
+        byte a = VoxelLighting.Pack(15, 0);
+        byte b = VoxelLighting.Pack(7, 4);
+        byte c = VoxelLighting.Pack(3, 8);
+        byte d = VoxelLighting.Pack(1, 12);
+        byte expected = VoxelLighting.Pack(7, 6);
+        TestAssert.Equal(expected, VoxelLighting.AverageCorner(a, b, c, d),
+                "explicit corner samples average sky and block nibbles independently");
+
+        byte[] samples = [a, b, c, d];
+        TestAssert.Equal(expected, VoxelLighting.AverageCorner(samples, 0, 1, 2),
+                "array-offset and explicit-sample corner averaging stay equivalent");
     }
 
     private static void TestBlockAttenuation()

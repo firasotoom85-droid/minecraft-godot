@@ -138,6 +138,23 @@ public partial class WoodArtVisualCapture : Node
         Put(5, 1, 2, BlockId.Glass);
         Put(5, 2, 2, BlockId.Glass);
 
+        // Edge/AO comparison row: each partial block is supported by the
+        // lower block so its occupied half touches the adjacent cube corner.
+        // Lower and upper slabs intentionally use different occupancy at the
+        // same corner; upright and inverted stairs expose their internal riser.
+        Put(-4, 0, 3, BlockId.Stone);
+        Put(-3, 0, 3, BlockId.Stone);
+        Put(-3, 1, 3, BlockId.PlanksSlab, BlockShapes.SlabBottom);
+        Put(-2, 0, 3, BlockId.Stone);
+        Put(-1, 0, 3, BlockId.Stone);
+        Put(-1, 1, 3, BlockId.PlanksSlab, BlockShapes.SlabTop);
+        Put(0, 0, 3, BlockId.Stone);
+        Put(1, 0, 3, BlockId.Stone);
+        Put(1, 1, 3, BlockId.PlanksStairs, 0);
+        Put(2, 0, 3, BlockId.Stone);
+        Put(3, 0, 3, BlockId.Stone);
+        Put(3, 1, 3, BlockId.PlanksStairs, BlockShapes.StairUpsideDown);
+
         Camera3D camera = new()
         {
             Name = "WoodArtValidationCamera",
@@ -146,7 +163,7 @@ public partial class WoodArtVisualCapture : Node
             Current = true,
         };
         game.AddChild(camera);
-        Vector3 target = new(centerX + 0.5f, baseY + 1.0f, centerZ - 0.5f);
+        Vector3 target = new(centerX + 0.5f, baseY + 1.0f, centerZ + 3.0f);
         camera.GlobalPosition = target + new Vector3(12.5f, 8.5f, 17.0f);
         camera.LookAt(target, Vector3.Up);
 

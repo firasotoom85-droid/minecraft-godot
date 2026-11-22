@@ -590,3 +590,31 @@ midnight. The optional `[torch]` capture argument selects a flat dry column,
 carves a temporary chamber and places the torch through `VoxelWorld.SetBlock`
 in its disposable visual-test world. No additional GPU benchmark was run for
 this shader-only change.
+
+## 10. Consistent block-edge shading — 2026-11-22
+
+- The existing mesher already baked packed sky/block light and four-corner AO;
+  the gap was that the AO stencil sampled whole neighbouring block IDs. A slab
+  or stair therefore occluded all of its neighbouring corner samples even when
+  the relevant half-cell was empty. Partial faces also reused the full-cube
+  stencil despite sitting on half-voxel planes.
+- Replaced the duplicated face and greedy-key stencil code with one half-voxel
+  corner sampler. It maps each sample into the existing 2×2×2 occupancy mask,
+  checks the neighbour's shape state, averages the four matching packed-light
+  samples, and produces the AO value carried by the existing vertex colour.
+- The per-face cube path, cube faces split around partial neighbours, slab/stair
+  micro-faces and greedy face merge keys share the same corner convention.
+  Diagonal block and sparse state borders now use the actual four diagonal
+  chunks, removing a cardinal-edge alias at chunk intersections.
+- Design boundary: retain the classic four-sample AO response and existing
+  face-direction tint; this is not a new shadow system or screen-space AO pass.
+  No extra mesh vertices, material attributes, scene nodes or per-frame work
+  are introduced. The occupancy checks and neighbour lookups run only while
+  chunk meshes are built. The atlas and first-person item response are unchanged.
+- Compatibility: no BlockId/ItemId values, saves, world-generation code or
+  generator versions changed. V1–V8 stay frozen; voxel edits still use the
+  existing SetBlock/ApplyEdit ownership path. Greedy merging and chunk streaming
+  remain enabled and structurally unchanged.
+- Added corner regressions for lower-vs-upper slab occupancy, upright and
+  inverted stair risers, diagonal chunk state sampling, per-face/greedy
+  shading parity, and independent sky/block corner-light averaging.

@@ -458,15 +458,16 @@ public static class VoxelLighting
         new((packed >> 4) / 15.0f, (packed & 0x0F) / 15.0f,
                 Mathf.Clamp(shade, 0.0f, 1.0f), 1.0f);
 
-    /// <summary>Average light from the four voxel samples around a face corner.</summary>
-    public static byte AverageCorner(byte[] lightPad, int i, int du, int dv)
+    /// <summary>Average light from four packed samples surrounding a face corner.</summary>
+    public static byte AverageCorner(byte a, byte b, byte c, byte d)
     {
-        int a = lightPad[i];
-        int b = lightPad[i + du];
-        int c = lightPad[i + dv];
-        int d = lightPad[i + du + dv];
         int sky = ((a >> 4) + (b >> 4) + (c >> 4) + (d >> 4) + 2) / 4;
         int block = ((a & 15) + (b & 15) + (c & 15) + (d & 15) + 2) / 4;
         return Pack((byte)sky, (byte)block);
     }
+
+    /// <summary>Average light from the four voxel samples around a face corner.</summary>
+    public static byte AverageCorner(byte[] lightPad, int i, int du, int dv) =>
+        AverageCorner(lightPad[i], lightPad[i + du],
+                lightPad[i + dv], lightPad[i + du + dv]);
 }

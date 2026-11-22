@@ -57,6 +57,35 @@ and in caves. New canopy tiles 56–58 are explicitly foliage, and every
 placeable held item derives its first-person response from its registered block
 atlas tile, preventing drift between the held sprite and placed geometry.
 
+## Consistent block-edge shading
+
+Cube corners, split cube faces, slabs and stairs now use the same half-voxel
+corner sampler for baked sky/block light and ambient occlusion. AO checks the
+actual 2×2×2 occupancy of neighbouring partial blocks instead of treating every
+slab or stair as a fully occupied cube. Internal stair risers therefore shade
+against the occupied half-cells that meet their edges, while unoccupied halves
+do not create false dark corners.
+
+The sampler is shared by the per-face path and the greedy face merge key, so
+both renderers agree on corner values. The padded block and shape-state
+neighbourhood also copies diagonal chunk corners; this keeps AO continuous at
+four-chunk intersections rather than substituting a clamped cardinal edge.
+Packed light is averaged from the same four corner-adjacent samples used by the
+AO calculation.
+
+This is a mesh-time shading correction, not a new lighting or art pipeline.
+The existing greedy mesher, partial-face splitting, atlas coordinates,
+texture-array tile layers/mipmaps, material-family tags and first-person
+held-item response remain in use. It adds no vertex attributes, scene nodes,
+runtime light nodes or per-frame scans; the additional occupancy and diagonal
+snapshot work happens while a chunk mesh is built. The production capture scene
+also includes a lower/upper slab and upright/inverted stair comparison row for
+close and distant inspection:
+
+```sh
+godot --path . res://tests/WoodArtVisualCapture.tscn -- 1337 /tmp/edge-distant.png /tmp/edge-close.png
+```
+
 ## Highlights
 
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
