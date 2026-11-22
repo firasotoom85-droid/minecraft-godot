@@ -189,10 +189,22 @@ response mapping.
   water is two-sided. Both retain the existing atlas and voxel-light pipeline.
 - **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
   voxels, warm multi-source propagation with opaque occlusion, cave darkness and
-  live place/break updates across chunk boundaries. Emitter edits incrementally
-  add/remove block light in cached 3×3 regions; opacity edits invalidate the
-  affected light maps so direct sun and cave spill are recalculated. Lighting is
-  baked into mesh vertex channels; no per-torch light-node pool is required.
+  live place/break updates across chunk boundaries. Torches and live generated
+  campfires share one 14-level warm source channel; campfires keep their GPU fire
+  and smoke particles but use the baked map instead of one OmniLight3D per
+  site. All terrain, greedy-array and glass shaders share a compressed warm
+  response with restrained emission, so overlapping sources use the brightest
+  propagated voxel level rather than summing into washed-out textures. Campfire
+  sources sit in the flame air cell above the opaque log; changing the base log
+  moves/removes that virtual source through SetBlock. The source registry feeds
+  the halo solve directly, while emitter edits update or invalidate existing
+  caches. The sky environment stays neutral and Filmic; LOW/BALANCED keep
+  expensive post effects disabled.
+  - Repeatable GPU comparison (same seed/site/camera): run
+    res://tests/WarmLightingVisualCapture.tscn with arguments 1337 11 0 0
+    torch, 1337 11 0 0 campfire, or 1337 11 0 0 overlap, followed by an output
+    PNG path. The capture uses the real main scene and prints baked flame and
+    adjacent light levels for parity checks.
 - **World presets** — normal, flat, amplified, and floating sky islands, with
   share codes and per-world seeds.
 - **Survival** — health, hunger, breath, drowning, fall damage, softcore

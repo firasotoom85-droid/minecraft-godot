@@ -32,21 +32,32 @@ public static class SurfaceVariationTests
 
         foreach ((string shader, string label) in new[]
         {
-            (atlasShader, "atlas"), (arrayShader, "greedy array"),
-            (glassShader, "glass"), (waterShader, "water"),
+            (atlasShader, "atlas"), (arrayShader, "greedy array"), (glassShader, "glass"),
         })
         {
-            TestAssert.Check(shader.Contains("float shadowed_block = block * (1.0 - sky);"),
-                    $"{label} consumes block light only where skylight leaves headroom");
             TestAssert.Check(shader.Contains("clamp(COLOR.r * sky_light_energy, 0.0, 1.0)"),
                     $"{label} bounds sky contribution before blending light channels");
-            TestAssert.Check(shader.Contains("shadowed_block * 0.08"),
+            TestAssert.Check(shader.Contains("warm_block_response(float sky, float block)")
+                    && shader.Contains("return (1.0 - exp(-block * 1.25)) * (1.0 - sky);"),
+                    $"{label} consumes warm block light only where skylight leaves headroom");
+            TestAssert.Check(shader.Contains("warm_block_illumination(warm_response)")
+                    && shader.Contains("warm_block_emission(warm_response)")
+                    && shader.Split("exp(-block * 1.25)", System.StringSplitOptions.None).Length == 2,
+                    $"{label} shares one bounded warm response between diffuse and emission");
+            TestAssert.Check(shader.Contains("return warm_block_light_color * response * 0.025;"),
                     $"{label} keeps the residual torch glow restrained");
             TestAssert.Check(!shader.Contains("warm * block * 0.88")
                     && !shader.Contains("warm * block * 0.72")
                     && !shader.Contains("warm * block * 0.5"),
                     $"{label} does not double-count full block light as strong emission");
         }
+
+        TestAssert.Check(waterShader.Contains("float shadowed_block = block * (1.0 - sky);"),
+                "water retains its separate sky-headroom block-light blend");
+        TestAssert.Check(waterShader.Contains("shadowed_block * 0.08"),
+                "water retains its restrained residual torch glow");
+        TestAssert.Check(waterShader.Contains("clamp(COLOR.r * sky_light_energy, 0.0, 1.0)"),
+                "water bounds sky contribution before blending light channels");
 
         TestAssert.Equal(SurfaceFamily.Wood, MaterialResponse.ForTile(49), "plank top grain keeps the wood response");
         TestAssert.Equal(SurfaceFamily.Wood, MaterialResponse.ForTile(50), "plank side grain keeps the wood response");

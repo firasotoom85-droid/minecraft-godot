@@ -6,8 +6,9 @@ namespace Minecraft;
 /// <summary>
 /// Campfires: one deterministic site per 64x64 area on dry plains/birch/desert
 /// (blocks placed by world generation). While the centre log block exists, the
-/// site gets fire, smoke and a flickering light. Sites are recomputed from the
-/// world seed whenever the player moves, matching the generated structure.
+/// site gets fire and smoke particles. Its warm illumination is baked through
+/// VoxelWorld's shared emitter map, matching torch colour without a light node
+/// per site. Sites are recomputed from the world seed as the player moves.
 /// </summary>
 public partial class Campfires : Node
 {
@@ -21,8 +22,6 @@ public partial class Campfires : Node
     private sealed class Site
     {
         public Node3D Root = null!;
-        public OmniLight3D Light = null!;
-        public double Phase;
     }
 
     private readonly Dictionary<Vector2I, Site> _fires = new();  // grid cell -> site
@@ -41,19 +40,6 @@ public partial class Campfires : Node
         if (PlayerRef == null || World == null)
         {
             return;
-        }
-
-        double t = Time.GetTicksMsec() * 0.001;
-        foreach (Site site in _fires.Values)
-        {
-            if (!site.Root.Visible)
-            {
-                continue;
-            }
-
-            double flick = 0.5 * System.Math.Sin(t * 9.3 + site.Phase)
-                    + 0.5 * System.Math.Sin(t * 23.7 + site.Phase * 1.7);
-            site.Light.LightEnergy = (float)(1.9 + 0.6 * flick);
         }
 
         _timer -= delta;
@@ -124,20 +110,9 @@ public partial class Campfires : Node
         smoke.Position = new Vector3(0, 0.35f, 0);
         node.AddChild(smoke);
 
-        OmniLight3D light = new()
-        {
-            LightColor = new Color(1.0f, 0.6f, 0.26f),
-            LightEnergy = 2.0f,
-            OmniRange = 10.0f,
-            ShadowEnabled = false,
-            Position = new Vector3(0, 0.25f, 0),
-        };
-        node.AddChild(light);
         _fires[cell] = new Site
         {
             Root = node,
-            Light = light,
-            Phase = (cell.X * 31 + cell.Y * 17) % 100 * 0.37,
         };
     }
 

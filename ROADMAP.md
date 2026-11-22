@@ -1192,8 +1192,32 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - **CI verification:** commit `734f758` passed GitHub Actions with a clean
   .NET build (0 warnings, 0 errors) and the Godot headless suite (828 checks,
   0 failures).
-- **Hardware validation pending:** no MX230 visual/performance soak was run in
-  CI; verify chunk-streaming frame times and torch-heavy caves on that GPU.
+- **Warm emitter consistency — 2026-11-22:** generated campfires now register
+  a virtual source in the air cell directly above the live centre log, using
+  the same 14-level channel as torches. Keeping the source outside the opaque
+  log lets light escape into surrounding air. Registration respects saved edits;
+  replacing/restoring/removing the base log updates the source through the
+  existing VoxelWorld.SetBlock mutation seam. Equal-strength conversion between
+  a campfire log and a torch moves the source and invalidates the block-light
+  cache instead of retaining stale light at the old cell. Fire/smoke remain GPU
+  particles, but the per-site OmniLight3D and per-frame flicker updates are gone.
+- The atlas, greedy texture-array and glass shaders now share one non-linear,
+  bounded amber response (and lower emissive contribution), while sky and AO
+  channels remain independent. The response is evaluated once per fragment
+  and reused for diffuse/emissive output. Overlapping sources use max-propagated
+  nibble levels, not additive light nodes. The world environment keeps neutral
+  sky ambient and Filmic tonemapping with a higher glow threshold; LOW/BALANCED
+  continue to disable glow, SSAO, SSR and volumetric fog.
+- Added regression coverage for shader hue/response parity, overlap
+  non-summation, campfire air-cell propagation, base-log and source-position
+  migration, incremental cache clearing/restoration, and save-compatible
+  persisted edits. Source solving consumes the existing emitter registry
+  instead of scanning every voxel in the halo volume.
+- **MX230 Forward+ comparison — 2026-11-22:** the repeatable Godot 4.7.2
+  main-scene captures (seed 1337, generator V11, fixed site/camera) reported
+  baked flame/adjacent levels of 14/13 in torch-only, campfire-only and overlap
+  modes. This confirms source parity and max-propagated overlap on the MX230.
+  A longer cave/texture-readability and frame-time soak remains pending.
 
 
 ## Mining interaction follow-up audit — 2026-11-20

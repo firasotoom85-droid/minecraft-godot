@@ -33,6 +33,10 @@ public static class VoxelLighting
 {
     public const int MaxLevel = 15;
     public const int BlockLightRadius = 14;
+
+    // Generated campfires use the same nibble strength as a placed torch.
+    // They remain virtual emitters: no persisted block or item ID is needed.
+    public const byte CampfireEmission = 14;
     private const int RegionSize = VoxelWorld.ChunkX + BlockLightRadius * 2;
 
     [ThreadStatic]
