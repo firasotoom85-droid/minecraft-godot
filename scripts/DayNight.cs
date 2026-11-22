@@ -36,6 +36,13 @@ public partial class DayNight : Node
     private int _causticsFrame;
     private double _causticsTimer;
 
+    // Biome tint and cave depth both use the same terrain column. Sampling it
+    // once per player voxel cell avoids two generator queries per frame.
+    private int _terrainSampleX = int.MinValue;
+    private int _terrainSampleZ = int.MinValue;
+    private int _terrainSurfaceHeight;
+    private Color _terrainBiomeTint = new(1.02f, 1.02f, 0.98f);
+
     /// <summary>Night spans the dark half of the cycle (sun below the horizon).</summary>
     public static bool IsNight(double t) => t < 0.25 || t >= 0.75;
 
@@ -131,32 +138,22 @@ public partial class DayNight : Node
         Color fogColor = horizon;
         double fogDensity = _fogDensityAir * (1.0 + Cloudiness * 1.6);
 
-        // Biome tint: a whisper of climate colour in the air.
-        if (World != null && PlayerRef != null)
+        // Biome tint and cave depth share one cached generator sample.
+        bool hasTerrainSample = World != null && PlayerRef != null;
+        if (hasTerrainSample)
         {
-            Biome biome = World.BiomeAt(
-                    Mathf.FloorToInt(PlayerRef.GlobalPosition.X),
-                    Mathf.FloorToInt(PlayerRef.GlobalPosition.Z));
-            Color tint = biome switch
-            {
-                Biome.Desert => new Color(1.06f, 0.98f, 0.82f),
-                Biome.Snow => new Color(0.88f, 0.95f, 1.06f),
-                Biome.Birch => new Color(0.94f, 1.05f, 0.92f),
-                _ => new Color(1.02f, 1.02f, 0.98f),
-            };
+            UpdateTerrainSample();
             fogColor = new Color(
-                    Mathf.Clamp(fogColor.R * tint.R, 0.0f, 1.0f),
-                    Mathf.Clamp(fogColor.G * tint.G, 0.0f, 1.0f),
-                    Mathf.Clamp(fogColor.B * tint.B, 0.0f, 1.0f));
+                    Mathf.Clamp(fogColor.R * _terrainBiomeTint.R, 0.0f, 1.0f),
+                    Mathf.Clamp(fogColor.G * _terrainBiomeTint.G, 0.0f, 1.0f),
+                    Mathf.Clamp(fogColor.B * _terrainBiomeTint.B, 0.0f, 1.0f));
         }
 
-        // Cave darkness: under the terrain the fog closes in and the ambient
-        // light collapses, so caves read as genuinely dark.
+        // Cave darkness uses the same surface height; no second terrain query.
         bool underground = false;
-        if (World != null && PlayerRef is { Underwater: false })
+        if (hasTerrainSample && PlayerRef is { Underwater: false })
         {
-            Vector3 pp = PlayerRef.GlobalPosition;
-            underground = pp.Y < World.SurfaceHeight(Mathf.FloorToInt(pp.X), Mathf.FloorToInt(pp.Z)) - 3.0f;
+            underground = PlayerRef.GlobalPosition.Y < _terrainSurfaceHeight - 3.0f;
         }
 
         if (underground)
@@ -198,18 +195,45 @@ public partial class DayNight : Node
                 Mathf.Snapped(cam.GlobalPosition.Z, 16.0f));
         }
 
-        float[] layerAlpha = [(float)(0.85 + Cloudiness * 0.15), (float)(0.5 + Cloudiness * 0.2)];
-        double[] layerSpeed = [0.004, 0.0068];
-        MeshInstance3D[] layerNodes = [_clouds, _cloudsHigh];
-        for (int i = 0; i < 2; i++)
+        UpdateCloudLayer(_clouds, day, Cloudiness, 0.85 + Cloudiness * 0.15, 0.004, delta);
+        UpdateCloudLayer(_cloudsHigh, day, Cloudiness, 0.5 + Cloudiness * 0.2, 0.0068, delta);
+    }
+
+    private void UpdateTerrainSample()
+    {
+        Vector3 playerPosition = PlayerRef!.GlobalPosition;
+        int sampleX = Mathf.FloorToInt(playerPosition.X);
+        int sampleZ = Mathf.FloorToInt(playerPosition.Z);
+        if (sampleX == _terrainSampleX && sampleZ == _terrainSampleZ)
         {
-            StandardMaterial3D cloudMat = (StandardMaterial3D)layerNodes[i].MaterialOverride;
-            Color cloudColor = new Color(1, 1, 1).Lerp(new Color(0.30f, 0.35f, 0.52f), (float)(1.0 - day));
-            cloudColor = cloudColor.Lerp(new Color(0.42f, 0.44f, 0.50f), (float)Cloudiness).WithAlpha(layerAlpha[i]);
-            cloudMat.AlbedoColor = cloudColor;
-            Vector3 uvOffset = cloudMat.Uv1Offset;
-            cloudMat.Uv1Offset = uvOffset.WithX((float)((uvOffset.X + delta * layerSpeed[i]) % 1.0));
+            return;
         }
+
+        _terrainSampleX = sampleX;
+        _terrainSampleZ = sampleZ;
+        _terrainSurfaceHeight = World!.SurfaceHeight(sampleX, sampleZ);
+        Biome biome = World.BiomeAt(sampleX, sampleZ, _terrainSurfaceHeight);
+        _terrainBiomeTint = biome switch
+        {
+            Biome.Desert => new Color(1.06f, 0.98f, 0.82f),
+            Biome.Snow => new Color(0.88f, 0.95f, 1.06f),
+            Biome.Birch => new Color(0.94f, 1.05f, 0.92f),
+            _ => new Color(1.02f, 1.02f, 0.98f),
+        };
+    }
+
+    private static void UpdateCloudLayer(
+            MeshInstance3D layer, double day, double cloudiness,
+            double alpha, double speed, double delta)
+    {
+        StandardMaterial3D cloudMat = (StandardMaterial3D)layer.MaterialOverride;
+        Color cloudColor = new Color(1, 1, 1).Lerp(
+                new Color(0.30f, 0.35f, 0.52f), (float)(1.0 - day));
+        cloudColor = cloudColor.Lerp(
+                new Color(0.42f, 0.44f, 0.50f), (float)cloudiness).WithAlpha((float)alpha);
+        cloudMat.AlbedoColor = cloudColor;
+        Vector3 uvOffset = cloudMat.Uv1Offset;
+        cloudMat.Uv1Offset = uvOffset.WithX((float)((uvOffset.X + delta * speed) % 1.0));
     }
 
     // -----------------------------------------------------------------------

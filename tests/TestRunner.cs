@@ -15,8 +15,17 @@ public partial class TestRunner : Node
     {
         GD.Print("minecraft tests: start");
         RunSuite("content", ContentTests.Run);
+        RunSuite("performance-benchmark", PerformanceBenchmarkTests.Run);
+        RunSuite("voxel-streaming", VoxelStreamingTests.Run);
+        RunSuite("graphics", GraphicsTests.Run);
+        RunSuite("biome-foliage", () => FoliageTests.Run(this));
+        RunSuite("surface-variation", SurfaceVariationTests.Run);
+        RunSuite("wood-textures", WoodTextureTests.Run);
+        RunSuite("terrain-materials", TerrainMaterialTests.Run);
+        RunSuite("texture-scale", TextureScaleTests.Run);
         RunSuite("block-shapes", () => BlockShapeTests.Run(this));
         RunSuite("lighting", LightingTests.Run);
+        RunSuite("glass", GlassTests.Run);
         RunSuite("mining", MiningTests.Run);
         RunSuite("inventory", InventoryTests.Run);
         RunSuite("containers", ContainerTests.Run);
@@ -28,6 +37,7 @@ public partial class TestRunner : Node
         RunSuite("mobs", () => MobContentTests.Run(this));
         RunSuite("achievements", AchievementTests.Run);
         RunSuite("dungeon", () => DungeonTests.Run(this));
+        RunSuite("structure-weathering", () => WeatheringTests.Run(this));
         RunSuite("villages-quests", VillageTests.Run);
         RunSuite("fishing", FishingTests.Run);
         RunSuite("keybinds", KeybindTests.Run);

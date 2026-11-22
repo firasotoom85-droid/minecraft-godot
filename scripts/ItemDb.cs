@@ -45,6 +45,13 @@ public static class ItemDb
         (ItemId.PlanksStairs, BlockId.PlanksStairs),
         (ItemId.CobblestoneStairs, BlockId.CobblestoneStairs),
         (ItemId.BrickStairs, BlockId.BrickStairs),
+        (ItemId.MossyCobblestone, BlockId.MossyCobblestone),
+        (ItemId.WeatheredCobblestone, BlockId.WeatheredCobblestone),
+        (ItemId.CrackedBrick, BlockId.CrackedBrick),
+        (ItemId.MossyBrick, BlockId.MossyBrick),
+        (ItemId.SpruceLeaves, BlockId.SpruceLeaves),
+        (ItemId.JungleLeaves, BlockId.JungleLeaves),
+        (ItemId.SwampLeaves, BlockId.SwampLeaves),
     ];
 
     private static readonly Dictionary<BlockId, ItemId> BlockToItem =

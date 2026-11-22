@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using Godot;
 
 namespace Minecraft;
@@ -21,11 +22,14 @@ public partial class Chunk : StaticBody3D
     // non-default orientation/half is actually stored in the chunk.
     public byte[] BlockStates { get; private set; } = System.Array.Empty<byte>();
 
+    /// <summary>Estimated CPU-side mesh/collision array bytes represented by the applied payload.</summary>
+    public long EstimatedMeshBytes { get; private set; }
+
     private MeshInstance3D _meshOpaque = null!;
     private MeshInstance3D _meshGlass = null!;
     private MeshInstance3D _meshWater = null!;
     private MeshInstance3D _meshLava = null!;
-    private CollisionShape3D _collision = null!;
+    private CollisionShape3D? _collision;
 
     public void Setup(VoxelWorld world, Vector2I chunkPos)
     {
@@ -33,17 +37,26 @@ public partial class Chunk : StaticBody3D
         ChunkPos = chunkPos;
         Name = $"chunk_{chunkPos.X}_{chunkPos.Y}";
         Position = new Vector3(chunkPos.X * SX, 0, chunkPos.Y * SZ);
-        CollisionLayer = (uint)PhysicsLayer.Terrain;
+        CollisionLayer = world.BuildCollision ? (uint)PhysicsLayer.Terrain : 0;
         CollisionMask = 0;
 
         _meshOpaque = NewSurfaceMesh("OpaqueMesh", false);
         _meshGlass = NewSurfaceMesh("GlassMesh", true);
+        // Transparent chunk meshes are positioned at the chunk origin. Sort
+        // glass using its actual bounds center so adjacent chunks do not sort
+        // by an arbitrary corner when viewed through windows.
+        _meshGlass.SortingUseAabbCenter = true;
         _meshWater = NewSurfaceMesh("WaterMesh", true);
         _meshLava = NewSurfaceMesh("LavaMesh", true);
 
-        _collision = new CollisionShape3D();
-        _collision.Name = "Collision";
-        AddChild(_collision);
+        if (world.BuildCollision)
+        {
+            _collision = new CollisionShape3D
+            {
+                Name = "Collision",
+            };
+            AddChild(_collision);
+        }
     }
 
     private MeshInstance3D NewSurfaceMesh(string nodeName, bool noShadow)
@@ -95,20 +108,31 @@ public partial class Chunk : StaticBody3D
     /// <summary>Apply a Mesher.Build() payload: meshes, materials, collider.</summary>
     public void ApplyPayload(MeshPayload payload)
     {
+        EstimatedMeshBytes = payload.EstimatedResourceBytes;
         ApplySurface(_meshOpaque, payload.Opaque, ChunkMaterials.Opaque);
         ApplySurface(_meshGlass, payload.Glass, ChunkMaterials.Glass);
         ApplySurface(_meshWater, payload.Water, ChunkMaterials.Water);
         ApplySurface(_meshLava, payload.Lava, ChunkMaterials.Lava);
-        Vector3[] faces = payload.Collision.ToArray();
-        if (faces.Length == 0)
+        // Render-only chunks (the menu preview) do not need collision arrays,
+        // concave shapes or physics-server resources.
+        if (_collision != null)
         {
-            _collision.Shape = null;
-        }
-        else
-        {
-            ConcavePolygonShape3D shape = new();
-            shape.SetFaces(faces);
-            _collision.Shape = shape;
+            long collisionStart = Stopwatch.GetTimestamp();
+            int collisionVertices = payload.Collision.Count;
+            Vector3[] faces = payload.Collision.ToArray();
+            if (faces.Length == 0)
+            {
+                _collision.Shape = null;
+            }
+            else
+            {
+                ConcavePolygonShape3D shape = new();
+                shape.SetFaces(faces);
+                _collision.Shape = shape;
+            }
+
+            Profiler.RecordCollision(Stopwatch.GetElapsedTime(collisionStart).TotalMilliseconds,
+                    collisionVertices);
         }
     }
 

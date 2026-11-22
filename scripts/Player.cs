@@ -2392,10 +2392,26 @@ public partial class Player : CharacterBody3D, IDamageable
             Rotation = new Vector3(0.0f, 0.0f, -0.12f),
             Billboard = BaseMaterial3D.BillboardModeEnum.Disabled,
             TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
-            Shaded = false,
+            Shaded = true,
         };
         _arm.AddChild(_heldItemSprite);
         Camera.AddChild(_arm);
+    }
+
+    private static StandardMaterial3D MakeHeldItemMaterial(ItemId id)
+    {
+        SurfaceResponse response = MaterialResponse.Get(MaterialResponse.ForItem(id));
+        return new StandardMaterial3D
+        {
+            AlbedoTexture = ItemDb.Icon(id),
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.PerPixel,
+            TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
+            Roughness = response.Roughness,
+            Metallic = response.Metallic,
+            MetallicSpecular = response.Specular,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+        };
     }
 
     private void AddArmPart(ArrayMesh mesh, Material material)
@@ -2435,6 +2451,7 @@ public partial class Player : CharacterBody3D, IDamageable
         {
             _heldItemId = heldId;
             _heldItemSprite.Texture = held.IsEmpty ? null : ItemDb.Icon(held.Id);
+            _heldItemSprite.MaterialOverride = held.IsEmpty ? null : MakeHeldItemMaterial(held.Id);
             _heldItemSprite.Visible = !held.IsEmpty;
         }
 

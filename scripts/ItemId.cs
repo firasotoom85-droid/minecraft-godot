@@ -59,6 +59,12 @@ public enum ItemId : byte
     // Transportation and fluid containers (appended after the building ids
     // so both independently proposed ranges stay unique and stable).
     EmptyBucket, WaterBucket, LavaBucket, WoodenBoat,
+
+    // Generated structure weathering (append-only persisted IDs).
+    MossyCobblestone, WeatheredCobblestone, CrackedBrick, MossyBrick,
+
+    // Biome-specific canopy foliage (append-only; matches BlockId 56-58).
+    SpruceLeaves, JungleLeaves, SwampLeaves,
 }
 
 public enum ToolKind : byte

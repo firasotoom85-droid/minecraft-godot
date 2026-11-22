@@ -4,12 +4,43 @@ Generated 2026-10-21 from a code audit of the current project plus the
 progress recorded in `PLAN.md`. `PLAN.md` remains the historical progress log
 (M0–M4b); this file is the forward plan.
 
-**Baseline note:** no build or playtest was run while writing this plan. The
-current-state claims come from the source and `PLAN.md`; the first work item in
-M5 is to verify the build, record a performance baseline, and start the test
-harness.
+**Baseline note:** this roadmap began as a source audit before the M5
+verification work. Historical measurements remain in docs/PERF_BASELINE.md;
+the repeatable procedure is in docs/PERFORMANCE_BENCHMARKS.md. The MX230 now
+has a controlled Release baseline and Milestone 2 comparison in
+docs/PERFORMANCE_MILESTONE_2_MX230.md. The equivalent RTX 4060 comparison
+remains pending.
 
 ---
+
+## Current follow-up implementation — 2026-11-22 (V10 biome foliage)
+
+Newly created worlds now use generator V10. V10 keeps V9 terrain, structure
+placement and deterministic weathering, and maps the spruce, jungle and swamp
+species that V8 already selects to their own canopy blocks. V1–V9 generation
+and saved worlds remain frozen, save format stays v4, and persisted IDs are
+appended at BlockId 56–58 / ItemId 105–107. Atlas tiles 56–58 follow the
+weathered materials, so every material keeps a unique atlas coordinate.
+
+This is the reconstructed form of the draft advanced-voxel branch: slabs,
+stairs, boats, buckets, glass sorting and shared surface responses were already
+merged through #31, #33 and #45, so only the genuinely new foliage content was
+rebuilt on top of current `main`. Its surface-variation variant is superseded
+by the unified stone tone variation that shipped with #45.
+
+## Previous follow-up — V9 structure weathering
+
+V9 advances the integrated V1.0 checkpoint below from generator V8 to V9 for
+newly created worlds. V9 only changes deterministic stone/brick materials in
+existing surface structures; V1–V8 generation and saved worlds remain frozen,
+save format stays v4, and persisted IDs are appended at BlockId 52–55 /
+ItemId 101–104. The detailed implementation, verification and MX230 captures
+are recorded in the V9 snapshot further down this file.
+
+Atlas tiles for the weathered materials are allocated at 52–55, after the
+unified wood-grain tiles at 49–51, so no two materials share an atlas
+coordinate. Earlier cave-ore readability work landed through the unified voxel
+material pass (#45); ore tiles remain opaque, non-emissive and regression-tested.
 
 ## Integrated 1.0 snapshot — 2026-11-21
 
@@ -62,7 +93,7 @@ shapes occupy `BlockId` 46–51 and `ItemId` 91–96. Transportation occupies
   [`docs/RELIABILITY_AUDIT_2026-11-21.md`](docs/RELIABILITY_AUDIT_2026-11-21.md).
 
 **Verification.** Godot 4.7.2 .NET Debug and ExportRelease builds complete with
-0 warnings and 0 errors. The headless suite reports **4,217 checks, 0
+0 warnings and 0 errors. The headless suite reports **4,276 checks, 0
 failures**, including legacy save loading, all pinned IDs, V1–V8 golden chunks,
 block-shape persistence, deterministic village generation, live resident
 spawning/interaction and cross-system save/quest/fluid interaction. The
@@ -72,6 +103,91 @@ under a lock. Real-scene validation is recorded below. Visual verification
 remains limited to the existing V8 GPU capture set plus fresh integrated river
 and village captures; the integrated village, boat and shape presentation has
 not had a complete human visual playthrough.
+
+### Performance benchmark runner increment — 2026-11-21
+
+- Added an opt-in real-scene benchmark with nine seeded workloads: open
+  terrain, wooded biome, mountain/river signal, village, cave, ocean, storm,
+  hostile encounter and fast exploration. Each workload runs in its own
+  disposable current-generator world and follows a precomputed route.
+- JSON and per-frame CSV reports include frame percentiles, process/physics
+  time, memory/GC, video memory, scene/render counters, mesh-build distribution
+  and streaming queue high-water marks. The runner closes the main scene before
+  deleting the test world.
+- Added percentile regression tests. Debug build: 0 warnings / 0 errors.
+  Headless suite at the benchmark-runner increment: 4,238 checks / 0 failures.
+
+### Performance Milestone 2 — MX230 immediate optimizations — 2026-11-21
+
+- Main-menu preview now covers a 5×5 area (25 chunks instead of 81), uses
+  render-only chunk meshes (no collision triangles or physics shapes), disables
+  menu-only shadows and screen-space/volumetric effects, uses 80% render scale,
+  and is capped at 30 FPS. Previous frame cap and viewport settings are restored
+  when the menu leaves the scene tree; gameplay reapplies its selected preset.
+  A live MX230 capture confirmed the scene remains visually readable.
+- Removed three temporary arrays from the per-frame cloud update. Day/night
+  caches the player's biome tint and surface height by voxel column and shares
+  that sample for cave-depth checks. Weather samples ground-splash height only
+  while raining and when its snapped four-metre anchor changes.
+- Added a BALANCED preset and set LOW (5-chunk view, 80% render scale, 45 m
+  shadows, 1K atlas, expensive screen-space effects disabled) as the new-install
+  default for the MX230. Versioned the user graphics-setting mapping so old
+  preset selections and custom view distances migrate without changing meaning.
+- Added graphics migration, render-only chunk and mesh-payload regression tests.
+  V1–V8 generation, persisted block/item IDs, world saves, gameplay collision,
+  greedy meshing and chunk streaming remain intact.
+- **Controlled hardware comparison:** Godot 4.7.2 .NET Release, MX230 /
+  i7-1065G7, Vulkan Forward+, 1280×720, V8 seed 1337, LOW preset, view 5,
+  5 s warm-up and 20 s measurement, three runs per workload. Median FPS rose
+  9.4% in open terrain (68.9 → 75.3) and 9.1% in heavy rain (67.5 → 73.7).
+  p95 frame time improved by 9.1% and 7.1%, respectively. Heavy-rain p99
+  shifted from 16.8 ms to 19.9 ms; it remains below the 70 ms target, but the
+  tail should be monitored in longer captures. Exact results and limitations
+  are in docs/PERFORMANCE_MILESTONE_2_MX230.md.
+- **Verification:** Debug and Release builds each report 0 warnings / 0 errors;
+  headless suite: 4,276 checks / 0 failures across 29 suites. Three matched
+  rendered Release runs completed for each benchmark workload.
+
+### Performance Milestone 3 — bounded chunk streaming and memory accounting — 2026-11-21
+
+- Replaced worker-side queue polling and `Thread.Sleep(1)` backpressure with a
+  cancellable semaphore. Workers reserve one of 18 in-flight payload slots
+  before meshing; the reservation remains held until main-thread apply or
+  shutdown cleanup. Rebuild payloads retain priority over fresh chunks.
+- Changed main-thread payload application from a fixed four-payload count to a
+  2 ms time target, with a one-payload minimum so a slow collider cannot stall
+  streaming indefinitely. Worker cancellation, group completion, pending queue
+  drain and `PayloadPool` release are handled during world teardown.
+- Added bounded-queue high-water and estimated-byte accounting; managed voxel
+  cache array sizes and a view-distance-aware budget; estimates for edit/light
+  metadata and applied mesh arrays; retained pool-buffer accounting; and apply
+  and collision timing counters. Exact array lengths are measured directly;
+  dictionary/object and renderer resource sizes remain estimates.
+- Added `voxel-streaming` regression tests for the frame-apply budget and cache
+  budget formula. `scripts/verify.sh`: **4,283 checks, 0 failures**. Debug and
+  Release builds each completed with **0 warnings / 0 errors**. The benchmark
+  matrix passed **54/54** runs across nine scenarios in Debug and Release.
+- **Thirty-minute survival soak:** PASS at 1,800 seconds. 10 passive / 27
+  hostile creatures, 891 feeds, 24 cave encounters, 16,199 baby observations,
+  360 noise stimuli / 244 investigations, 0 invalid positions, save/reload and
+  temporary-world cleanup true. Peak RSS 304.1 MiB; managed heap 57.1 MiB;
+  Godot static memory 104.4 MiB; voxel-cache arrays peaked at 4.2 MiB against
+  an 18.9 MiB budget; pooled mesh buffers peaked at 23.3 MiB; payload high-water
+  was 14/18; orphan nodes peaked at 0; shutdown drained all payloads.
+- **Rendered MX230 check:** Godot 4.7.2 Forward+ selected the NVIDIA GeForce
+  MX230. The real survival scene streamed a cave with visible geometry, HUD and
+  minimap. A separate production-scene V8 surface capture at seed 1337 and
+  center (512,-372) rendered 49 chunks at 1600×900. Both review frames are
+  committed in `docs/performance/screenshots/`. The 120-second rendered
+  survival smoke also passed and exited with code 0 after the soak runner drops
+  references to the freed main scene before shutdown. No C# script-binding,
+  unsafe-reference, shader or RID leak diagnostics remained. The renderer still
+  emits non-fatal `RGBFloat`-to-`RGBAFloat` fallback warnings from the existing
+  campfire smoke `CurveTexture` in `scripts/Campfires.cs:230`; these do not stop
+  capture.
+
+Detailed measurement semantics and limitations are in
+[`docs/PERFORMANCE_MILESTONE_3_STREAMING.md`](docs/PERFORMANCE_MILESTONE_3_STREAMING.md).
 
 ### Delivery validation
 
@@ -185,6 +301,28 @@ parity, rendered/collision triangle coverage, non-default shape save/reload,
 and state-buffer release after the last stateful edit. A manual visual playtest
 remains recommended before merging.
 
+## Implementation snapshot — 2026-11-21 (World generation V9: structure weathering)
+
+- Added V9 as an isolated post-stamp material pass for the existing V8 surface and underground
+  structure templates. V1–V8 terrain, structure sites, templates, chunk hashes
+  and saved worlds remain frozen; the world format stays at v4.
+- Added four append-only block IDs (52–55) and matching placeable/drop item IDs
+  (101–104): mossy cobblestone, weathered cobblestone, cracked brick and mossy
+  brick. The definitions use the normal full-cube atlas/material/mesher path.
+- Added original procedural 32px atlas tiles: broad stone joints/chips, muted
+  aged brick courses, hand-shaped crack marks and irregular moss patches. The
+  new painters run after legacy atlas paints and reuse the existing atlas size.
+- Material selection is deterministic from the structure seed and coarse
+  coordinate hash. Moss coverage and wear vary by structure kind and height;
+  unrelated terrain, furniture, fluids and non-stonework cells are unchanged.
+- Added structure-weathering tests for material determinism, atlas content,
+  append-only ID pins, V8/V9 cell diffs, legacy generator selection and reverse
+  chunk-order equivalence. V9 visual captures use the real scene and MX230.
+- Verification: Godot 4.7.2 .NET Debug build has 0 warnings/errors. The full
+  headless suite reports 150,325 checks and 0 failures. Close/distant MX230
+  Forward+ captures are in docs/worldgen/screenshots/; see
+  docs/worldgen/V9_VISUAL_VALIDATION.md for scene and performance notes.
+
 ## Implementation snapshot — 2026-11-21 (World generation V8)
 
 - Added an isolated V8 terrain path for newly created worlds. V1–V7 generator
@@ -231,6 +369,24 @@ remains recommended before merging.
   and chunk seams, biome eligibility, trades, schedules, quest progression and
   save round-trips. GPU worldgen captures and the population soak were added
   later; see the integrated snapshot and V8 visual-validation document.
+
+## Glass rendering polish — 2026-11-21
+
+- Kept the existing dedicated glass chunk surface, atlas tile, alpha material,
+  voxel-light channels and face-culling rules; no new block/item IDs, save
+  fields, generator versions, or mesh/streaming paths were introduced.
+- Glass chunk instances now sort transparent geometry around their mesh AABB
+  center rather than the chunk origin, reducing incorrect ordering between
+  neighboring chunk surfaces viewed through windows.
+- Switched the glass shader to back-face culling so a closed glass block does
+  not blend both sides of the same surface. Transparent fragments remain out of
+  opaque depth writes.
+- Reduced the glass tile to a clear body, a one-pixel restrained edge and a
+  subtle diagonal glint; reduced shader alpha to limit grid-like visual buildup
+  across large windows while retaining a readable edge at distance.
+- Added regression checks for shader blend/cull/depth modes, glass instance
+  sorting and atlas alpha levels. `dotnet build` and `scripts/verify.sh` pass on
+  Godot 4.7.2 .NET; GPU visual validation remains a manual follow-up.
 
 ## 1. Current state
 
@@ -367,10 +523,14 @@ moved.
 
 **5.4 Performance baseline**
 
-- Fixed seed + camera path + `VD8/HIGH`; record FPS p50/p1, mesh ms, RAM/VRAM,
-  chunk count.
-- Set gates: no >10% regression per milestone; target ≥50 FPS release at
-  HIGH/VD8 on the MX230.
+- [x] Add `tests/PerformanceRunner.tscn` with deterministic V8 worlds and
+  fixed routes for nine workloads; write JSON summary and per-frame CSV.
+- [x] Capture frame p50/p95/p99/worst, process/physics time, RSS/managed heap,
+  managed allocations/GC, Debug static memory, VRAM, draw calls/primitives,
+  mesh-build distribution, chunk counts and queue high-water marks.
+- [ ] Record repeated Debug and Release runs at fixed resolution on the MX230
+  and RTX 4060 reference systems; establish variance before adding a regression
+  gate. Headless timing is not an FPS baseline.
 
 **5.5 Stabilization**
 
@@ -1074,6 +1234,35 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   suite passes the equipment, save and combat regressions. Live enchanting and
   ballistic-arrow playtesting was not performed.
 
+## 16b. Directional wood surfaces and shape texel consistency — 2026-11-21
+
+- Reworked procedural oak and birch log end grain with offset/warped growth
+  rings, a defined pith, subtle radial checks and species-matched sapwood. Oak
+  bark now has longer vertical fissures and restrained knots; birch bark retains
+  its characteristic dark marks with fine vertical streaks.
+- Appended atlas tiles 49–51 for plank top, long-grain side and cut-end views.
+  Existing atlas dimensions, earlier tile indices and the legacy crafting-table
+  texture remain unchanged. Oak planks, slabs and stairs now select those
+  directional faces instead of stretching one generic building tile over every
+  side.
+- Partial-shape and cube-to-shape boundary faces derive UVs from the full
+  block-local coordinate frame. A half-height/half-width face therefore samples
+  only its corresponding half of the texture rather than repeating a complete
+  tile at double texel density. East/west stairs rotate their tread grain and
+  swap side/end faces to follow their facing.
+- The existing ItemDb.Icon → first-person HeldItem sprite path naturally picks
+  the plank side-grain tile; no extra scene node or per-frame work was introduced.
+- No persisted block/item IDs, save fields, generator rules, world mutations,
+  greedy merge keys or chunk-streaming behavior changed. Original procedural
+  assets remain self-authored and are built into the existing atlas.
+- Added painter/layout tests plus real mesher-payload UV checks in both greedy
+  texture-array and per-face atlas modes, including clipped cube faces adjacent
+  to partial shapes.
+
+- Added an optional live-scene GPU capture fixture with close and distant
+  views of a disposable wood exhibit. Both views were rendered through the
+  production Forward+ pipeline on the NVIDIA MX230 and inspected successfully.
+
 ## 17. Integration of V7, UI and equipment — 2026-11-21
 
 - Merged `worldgen/v7-release-candidate` (PR #29),
@@ -1217,7 +1406,109 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   0 errors. The final full headless suite passed with 1,247 checks and
   0 failures. Live interactive playtesting was not performed.
 
-## 21. Player journey repair audit — 2026-11-21
+
+## 21. Terrain texture scale and distance consistency — 2026-11-21
+
+- Audited the existing 32×32 procedural atlas, atlas UV path, greedy texture
+  array, shape-face UV mapping and selected-item first-person icon path. The
+  atlas and close-range UV scale were already consistent; the missing piece was
+  distance filtering in the default greedy renderer.
+- Standardize procedural base-noise and speckle accents on coherent 2×2
+  texel clusters across terrain/material families, preserving the prior
+  approximate speckle coverage. Structural grain, seams and silhouettes retain
+  their intentional finer pixel accents.
+- Generate mipmaps independently for each texture-array tile before creating
+  the array. The greedy shader now uses nearest-mipmap filtering: native texels
+  remain crisp nearby, while smaller prefiltered levels suppress distant
+  high-frequency shimmer and detail popping.
+- Do not generate mipmaps on the packed atlas: that would blend adjacent atlas
+  tiles at lower levels. The existing atlas coordinates, texture-array layer
+  indices, 32×32 source art, UV tiling, block definitions and first-person icon
+  presentation remain unchanged.
+- Added regression assertions for all 256 array layers, array mipmap
+  availability and coherent 2×2 procedural noise clusters. No persisted IDs,
+  save fields, world generation, voxel edits, greedy merge keys or chunk
+  streaming behavior changed.
+- **Verification:** Godot 4.7.2/.NET 9 build passed with 0 warnings and
+  0 errors; `scripts/verify.sh` passed all 6,043 checks with 0 failures.
+  A Forward+ GPU capture also rendered both close and distant production-scene
+  views at 1280×720 on the GeForce MX230, with no shader compilation errors.
+  The capture confirms the mipmapped array path renders on the target GPU; a
+  controlled before/after FPS comparison was not performed. The complete
+  mip-chain payload is estimated at about 1.33 MiB versus 1.00 MiB without
+  mipmaps for 256 RGBA8 32×32 layers (approximately 0.33 MiB additional
+  texture data).
+## 21. Soil, grass and farmland transitions — 2026-11-21
+
+- Refined the existing procedural 32px atlas tiles rather than replacing the
+  art pipeline: grass sides now use a deeper, irregular turf band with a broken
+  dark-soil seam; farmland furrows have stronger shadow/ridge contrast and the
+  vertical face has a distinct dark tilled cap over its soil body.
+- Added face-aware atlas tile/color access. The existing icon/particle color
+  API retains its prior side-tile behavior; far LOD now samples upward-facing
+  tiles for terrain tops and side-facing tiles for coarse edges.
+- Split far-LOD slope skirts into a one-block surface-material cap and an
+  underlying substrate segment, so grassy/farmed edges transition into dirt
+  instead of stretching one surface tint down the entire slope.
+- Extended the derived per-column edit-top cache to retain the visible top
+  BlockId as well as its height. Far LOD now shows edited farmland, exposed
+  dirt and other edited top blocks after chunk unload. The cache rebuilds from
+  the existing sparse block edits on load; the original height-only lookup
+  remains available.
+- Compatibility: no persisted BlockId or ItemId values changed; no save fields
+  or generator rules were added; V1–V8 remain frozen. All voxel changes still
+  flow through the existing VoxelWorld.SetBlock path. Greedy meshing and
+  chunk streaming were not altered.
+- Added TerrainMaterialTests for face-tile assignments, face-color separation,
+  grass/soil row contrast, farmland furrow/cap contrast, and icon-color
+  compatibility. Added edit-cache round-trip/removal regressions to the shape
+  persistence integration test.
+- Performance characteristics: atlas averages are computed and cached once on
+  the main thread before LOD workers run; LOD worker builds use fixed color
+  tables and stack-allocated quad points. The edit material cache adds one
+  byte per column in each edited chunk; extra skirt quads are emitted only
+  where a coarse edge drops by more than one block. No per-frame terrain scans
+  or physics work were added.
+- **Verification:** Godot 4.7.2 .NET / .NET 9 Debug build and headless suite
+  pass; the completed run reports 4,247 checks and 0 failures. No generator,
+  save-format or persisted-ID migrations are required.
+
+
+## Unified voxel material response (implemented)
+
+- Added a shared response matrix for stone, wood, soil, ores, foliage, glass,
+  and metal. Block faces classify their existing procedural atlas tiles and
+  pass the response family through vertex colour alpha; greedy texture-array
+  tile selection remains in UV2.x.
+- Matched atlas and texture-array shader response values, including controlled
+  metallic/specular highlights instead of a single roughness-1 response.
+- Generated mipmaps from isolated tile images for the greedy texture array,
+  preventing adjacent atlas tiles from bleeding into distant surfaces.
+- First-person held-item sprites now use the same material response palette.
+  Material instances are created only when the selected item changes.
+- No persisted IDs, world saves, generator versions, atlas dimensions, or
+  texture coordinates were changed. The non-greedy packed-atlas path retains
+  nearest sampling without mipmaps to avoid atlas cross-tile contamination.
+- Performance: response tags reuse the existing vertex-colour alpha channel,
+  so per-face meshes gain no extra vertex attribute or UV allocation. The
+  isolated mip chain adds approximately 0.33 MiB to the 256-layer RGBA8 tile
+  array; generation occurs once during lazy texture-array creation. Held-item
+  materials are rebuilt only on hotbar item changes.
+- **Verification:** Godot 4.7.2 .NET / .NET 9 Debug build has 0 warnings and
+  0 errors; `scripts/verify.sh` passes 4,268 checks with 0 failures.
+
+
+## 22. Voxel material art consistency — 2026-11-21
+
+- Improved ore deposits with connected stepped silhouettes, mineral shadow edges and restrained highlights; ore remains opaque and non-emissive.
+- Refined the existing oak and birch foliage tiles with clustered cutout gaps and more coherent leaf-tone groups, preserving their original IDs, atlas coordinates, cutout mesh and light-transmission rules.
+- Added deterministic low-contrast world-space stone tone variation to both atlas and greedy texture-array shaders. The variation is bounded to the stone material family and does not add per-frame CPU work or mesh vertices.
+- Unified material response tags across atlas and greedy mesh paths, with shared roughness/metallic/specular values for stone, wood, soil, ore, foliage, glass and metal.
+- Refined glass alpha, front-face culling and bounds-center transparent sorting while retaining the existing chunk glass surface.
+- Added regression coverage for ore pixel readability/opacity, foliage alpha coverage and light transmission, stone shader consistency, material-family routing, glass sorting and texture mapping. Extended the production-scene GPU capture fixture to show these material families together at close and distant views.
+- No existing BlockId/ItemId values were reordered or reused. No generator, save format, voxel mutation, greedy meshing or chunk-streaming rules changed.
+
+## 23. Player journey repair audit — 2026-11-21
 
 - Added a source-level first-time Survival player-journey audit, covering world creation, starter inventory, crafting, First Night onboarding, mining, exploration, villages, quests, and reward retention. The report separates confirmed code-path defects from design decisions and playtest candidates.
 - Repair candidates are prioritized in `docs/PLAYER_JOURNEY_REPAIR_REPORT_2026-11-21.md`, with affected code paths, proposed repair directions, and regression-test expectations.

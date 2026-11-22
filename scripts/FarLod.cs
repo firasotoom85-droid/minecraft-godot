@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
@@ -7,12 +8,13 @@ namespace Minecraft;
 /// <summary>
 /// Far-view LOD ring: coarse heightmap tiles beyond the streamed chunk area so
 /// the horizon shows distant terrain instead of pop-in. Cells sample terrain
-/// height / biome straight from the world noise (no chunk data, no edits, no
-/// collision). Cells inside the streamed chunk square are skipped, so tiles
-/// touching it rebuild only when the square advances across them.
+/// height / biome from world noise and sparse edit-top data (no chunk data or
+/// collision). Edited surface IDs preserve dirt/farmland colors after unload.
+/// Cells inside the streamed chunk square are skipped, so tiles touching it
+/// rebuild only when the square advances across them.
 ///
-/// Builds run on WorkerThreadPool workers (pure noise + array math); meshes
-/// are applied on the main thread.
+/// Builds run on WorkerThreadPool workers (terrain sampling, edit-cache lookup
+/// and array math); meshes are applied on the main thread.
 /// </summary>
 public partial class FarLod : Node3D
 {
@@ -38,11 +40,8 @@ public partial class FarLod : Node3D
     private volatile bool _alive = true;
 
     private StandardMaterial3D _material = null!;
-    private Color _colGrass = Colors.White;
-    private Color _colSand = Colors.White;
-    private Color _colSnow = Colors.White;
-    private Color _colWater = Colors.White;
-    private Color _colStone = Colors.White;
+    private readonly Color[] _topColors = new Color[BlockDb.BlockCount];
+    private readonly Color[] _sideColors = new Color[BlockDb.BlockCount];
 
     public void Setup(VoxelWorld world)
     {
@@ -53,11 +52,20 @@ public partial class FarLod : Node3D
             Roughness = 1.0f,
             SpecularMode = BaseMaterial3D.SpecularModeEnum.Disabled,
         };
-        _colGrass = BlockDb.AverageTileColor(BlockId.Grass);
-        _colSand = BlockDb.AverageTileColor(BlockId.Sand);
-        _colSnow = BlockDb.AverageTileColor(BlockId.SnowGrass);
-        _colWater = BlockDb.AverageTileColor(BlockId.Water);
-        _colStone = BlockDb.AverageTileColor(BlockId.Stone);
+        // LOD surfaces must sample the actual upward-facing tile rather than
+        // the icon tile (which is usually a side face). Cache all face averages
+        // here so worker mesh builds never touch the atlas Image or allocate.
+        for (int i = 0; i < BlockDb.BlockCount; i++)
+        {
+            BlockId id = (BlockId)i;
+            if (!BlockDb.IsDefined(id))
+            {
+                continue;
+            }
+
+            _topColors[i] = BlockDb.AverageFaceColor(id, 0);
+            _sideColors[i] = BlockDb.AverageFaceColor(id, 2);
+        }
     }
 
     public override void _ExitTree()
@@ -192,7 +200,7 @@ public partial class FarLod : Node3D
     }
 
     // -----------------------------------------------------------------------
-    // Mesh building (worker thread: pure noise + arrays)
+    // Mesh building (worker thread: noise, edit-cache lookup and arrays)
     // -----------------------------------------------------------------------
 
     private LodPayload? BuildArrays(Vector2I tc, Rect2I skip)
@@ -225,78 +233,68 @@ public partial class FarLod : Node3D
                 int h01 = World.SurfaceHeight(cx0, cz0 + (int)CellSize);
                 int h11 = World.SurfaceHeight(cx0 + (int)CellSize, cz0 + (int)CellSize);
                 int hc = Mathf.Max(Mathf.Max(h00, h10), Mathf.Max(h01, h11));
-                // Player edits win over noise: the topmost edited block of the
-                // cell's column keeps built/dig changes visible after unload.
-                if (World.TryEditTop(cx0 + 2, cz0 + 2, out int editedTop))
+                int relief = hc - Mathf.Min(Mathf.Min(h00, h10), Mathf.Min(h01, h11));
+                BlockId surfaceBlock = LandBlock(World.BiomeAt(cx0 + 2, cz0 + 2, hc), relief);
+
+                // Player edits win over noise, including their material identity.
+                // This keeps exposed dirt, tilled soil and built surfaces visible
+                // in the far ring after their source chunks have been unloaded.
+                if (World.TryEditTop(cx0 + 2, cz0 + 2, out int editedTop, out BlockId editedBlock))
                 {
                     hc = editedTop;
+                    surfaceBlock = editedBlock;
                 }
 
                 bool isWater = hc <= sea;
                 float y = isWater ? sea + 1 : hc + 1;
                 Vector3 b = new(cx0, y, cz0);
-                Color col = isWater
-                        ? _colWater
-                        : hc <= sea + 1
-                                ? _colSand
-                                : LandColor(World.BiomeAt(cx0 + 2, cz0 + 2, hc),
-                                        hc - Mathf.Min(Mathf.Min(h00, h10), Mathf.Min(h01, h11)));
+                Color topColor = isWater ? _topColors[(int)BlockId.Water] : TopColor(surfaceBlock);
+                Color capSideColor = SideColor(surfaceBlock);
+                Color lowerSideColor = SideColor(UnderBlock(surfaceBlock));
                 AddQuad(verts, normals, colors,
-                        [b, b + new Vector3(CellSize, 0, 0), b + new Vector3(CellSize, 0, CellSize),
-                         b + new Vector3(0, 0, CellSize)],
-                        Vector3.Up, col, 1.0f);
+                        b, b + new Vector3(CellSize, 0, 0),
+                        b + new Vector3(CellSize, 0, CellSize), b + new Vector3(0, 0, CellSize),
+                        Vector3.Up, topColor, 1.0f);
                 if (isWater)
                 {
                     continue;
                 }
 
-                // Skirts toward lower shared edges: one quad per side, using the
-                // exact winding/normals BlockDb uses for its +/- X/Z faces.
+                // Coarse skirts retain a one-block surface cap, then switch to
+                // the exposed substrate. This mirrors the grass/farmland-to-dirt
+                // transition without adding geometry to streamed voxel chunks.
                 float cx1 = cx0 + CellSize;
                 float cz1 = cz0 + CellSize;
-                // +X
                 int drop = hc - Mathf.Max(h10, h11);
                 if (drop > 0)
-                {
-                    float d = drop;
-                    AddQuad(verts, normals, colors,
-                            [new Vector3(cx1, y, cz0), new Vector3(cx1, y - d, cz0),
-                             new Vector3(cx1, y - d, cz1), new Vector3(cx1, y, cz1)],
-                            Vector3.Right, col, 0.72f);
-                }
+                    AddSkirt(verts, normals, colors,
+                            new Vector3(cx1, y, cz0), new Vector3(cx1, y, cz1),
+                            new Vector3(cx1, y - drop, cz0), new Vector3(cx1, y - drop, cz1),
+                            Vector3.Right, false, drop, capSideColor, lowerSideColor);
 
                 // -X
                 drop = hc - Mathf.Max(h00, h01);
                 if (drop > 0)
-                {
-                    float d = drop;
-                    AddQuad(verts, normals, colors,
-                            [new Vector3(cx0, y - d, cz0), new Vector3(cx0, y, cz0),
-                             new Vector3(cx0, y, cz1), new Vector3(cx0, y - d, cz1)],
-                            Vector3.Left, col, 0.72f);
-                }
+                    AddSkirt(verts, normals, colors,
+                            new Vector3(cx0, y, cz0), new Vector3(cx0, y, cz1),
+                            new Vector3(cx0, y - drop, cz0), new Vector3(cx0, y - drop, cz1),
+                            Vector3.Left, true, drop, capSideColor, lowerSideColor);
 
                 // +Z
                 drop = hc - Mathf.Max(h01, h11);
                 if (drop > 0)
-                {
-                    float d = drop;
-                    AddQuad(verts, normals, colors,
-                            [new Vector3(cx0, y - d, cz1), new Vector3(cx0, y, cz1),
-                             new Vector3(cx1, y, cz1), new Vector3(cx1, y - d, cz1)],
-                            Vector3.Back, col, 0.72f);
-                }
+                    AddSkirt(verts, normals, colors,
+                            new Vector3(cx0, y, cz1), new Vector3(cx1, y, cz1),
+                            new Vector3(cx0, y - drop, cz1), new Vector3(cx1, y - drop, cz1),
+                            Vector3.Back, true, drop, capSideColor, lowerSideColor);
 
                 // -Z
                 drop = hc - Mathf.Max(h00, h10);
                 if (drop > 0)
-                {
-                    float d = drop;
-                    AddQuad(verts, normals, colors,
-                            [new Vector3(cx1, y - d, cz0), new Vector3(cx1, y, cz0),
-                             new Vector3(cx0, y, cz0), new Vector3(cx0, y - d, cz0)],
-                            Vector3.Forward, col, 0.72f);
-                }
+                    AddSkirt(verts, normals, colors,
+                            new Vector3(cx1, y, cz0), new Vector3(cx0, y, cz0),
+                            new Vector3(cx1, y - drop, cz0), new Vector3(cx0, y - drop, cz0),
+                            Vector3.Forward, true, drop, capSideColor, lowerSideColor);
             }
         }
 
@@ -308,28 +306,73 @@ public partial class FarLod : Node3D
         return new LodPayload(verts.ToArray(), normals.ToArray(), colors.ToArray());
     }
 
-    private Color LandColor(Biome biome, int relief)
+    private static BlockId LandBlock(Biome biome, int relief)
     {
         if (relief >= 3)
         {
-            return _colStone;
+            return BlockId.Stone;
         }
 
         return biome switch
         {
-            Biome.Desert => _colSand,
-            Biome.Snow => _colSnow,
-            _ => _colGrass,
+            Biome.Desert => BlockId.Sand,
+            Biome.Snow => BlockId.SnowGrass,
+            _ => BlockId.Grass,
         };
     }
 
+    private static BlockId UnderBlock(BlockId surface) => surface switch
+    {
+        BlockId.Grass or BlockId.SnowGrass or BlockId.Farmland => BlockId.Dirt,
+        _ => surface,
+    };
+
+    private Color TopColor(BlockId id) =>
+        (uint)id < (uint)_topColors.Length && BlockDb.IsDefined(id)
+                ? _topColors[(int)id] : _topColors[(int)BlockId.Grass];
+
+    private Color SideColor(BlockId id) =>
+        (uint)id < (uint)_sideColors.Length && BlockDb.IsDefined(id)
+                ? _sideColors[(int)id] : _sideColors[(int)BlockId.Dirt];
+
+    private static void AddSkirt(List<Vector3> verts, List<Vector3> normals,
+            List<Color> colors, Vector3 topA, Vector3 topB, Vector3 bottomA, Vector3 bottomB,
+            Vector3 normal, bool reverse, float drop, Color capColor, Color lowerColor)
+    {
+        float capDrop = Mathf.Min(1.0f, drop);
+        Vector3 capA = topA + Vector3.Down * capDrop;
+        Vector3 capB = topB + Vector3.Down * capDrop;
+        if (reverse)
+        {
+            AddQuad(verts, normals, colors, capA, topA, topB, capB, normal, capColor, 0.72f);
+        }
+        else
+        {
+            AddQuad(verts, normals, colors, topA, capA, capB, topB, normal, capColor, 0.72f);
+        }
+
+        if (drop > capDrop)
+        {
+            if (reverse)
+            {
+                AddQuad(verts, normals, colors, bottomA, capA, capB, bottomB, normal, lowerColor, 0.72f);
+            }
+            else
+            {
+                AddQuad(verts, normals, colors, capA, bottomA, bottomB, capB, normal, lowerColor, 0.72f);
+            }
+        }
+    }
+
     private static void AddQuad(List<Vector3> verts, List<Vector3> normals,
-            List<Color> colors, Vector3[] p, Vector3 nrm, Color col, float shade)
+            List<Color> colors, Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3,
+            Vector3 nrm, Color col, float shade)
     {
         Color c = new(col.R * shade, col.G * shade, col.B * shade);
+        Span<Vector3> points = stackalloc Vector3[4] { p0, p1, p2, p3 };
         foreach (int idx in Mesher.TriOrder)
         {
-            verts.Add(p[idx]);
+            verts.Add(points[idx]);
             normals.Add(nrm);
             colors.Add(c);
         }

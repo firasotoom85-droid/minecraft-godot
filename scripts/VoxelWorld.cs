@@ -36,6 +36,7 @@ public partial class VoxelWorld : Node3D
 
     public int ViewDistance = 5;        // chunk radius streamed around the player (gfx presets)
     public int MaxInFlight = 6;         // concurrent mesher workers (gfx presets)
+    public bool BuildCollision = true;  // false for render-only previews such as the main menu
     public float LodRadius;             // far-view LOD ring radius in metres (0 = off)
     private FarLod? _farLod;            // FarLod ring node (created in _Ready)
 
@@ -136,7 +137,16 @@ public partial class VoxelWorld : Node3D
     // critical path. Rebuilds (player edits) are applied before fresh chunks.
     private readonly System.Collections.Concurrent.ConcurrentQueue<(Vector2I Cp, MeshPayload Payload)> _applyFresh = new();
     private readonly System.Collections.Concurrent.ConcurrentQueue<(Vector2I Cp, MeshPayload Payload)> _applyRebuild = new();
-    private const int ApplyBudgetPerFrame = 4;
+    // Maximum completed payloads matches the old worst-case threshold
+    // (6 workers × 3 payloads). Workers reserve a slot before building and
+    // wait on this semaphore instead of polling/sleeping when the main thread
+    // falls behind.
+    private const int MaxCompletedPayloads = StreamingApplyBudget.MaxPendingPayloads;
+    private const double ApplyBudgetMilliseconds = 2.0;
+    private const double MemorySampleInterval = 1.0;
+    private readonly SemaphoreSlim _completedPayloadSlots = new(MaxCompletedPayloads, MaxCompletedPayloads);
+    private readonly CancellationTokenSource _workerShutdown = new();
+    private double _memorySampleTimer;
     private Vector3 _velocityDir;           // smoothed player velocity (prefetch bias)
     private Vector3 _lastPlayerPos;
     private Vector2I _lastPlayerChunk = new(999999, 999999);
@@ -234,10 +244,35 @@ public partial class VoxelWorld : Node3D
     public override void _ExitTree()
     {
         _alive = false;
+        _workerShutdown.Cancel();
         if (_groupActive)
         {
             WorkerThreadPool.WaitForGroupTaskCompletion(_group);
             _groupActive = false;
+        }
+
+        // Workers have stopped, so it is now safe to return unconsumed pooled
+        // payloads and release the reservations held for those payloads.
+        DrainPendingPayloads(_applyRebuild);
+        DrainPendingPayloads(_applyFresh);
+        Profiler.WorkersActive = false;
+        lock (_queueLock)
+        {
+            Profiler.FreshQueued = 0;
+            Profiler.RebuildQueued = 0;
+        }
+        _completedPayloadSlots.Dispose();
+        _workerShutdown.Dispose();
+    }
+
+    private void DrainPendingPayloads(
+            System.Collections.Concurrent.ConcurrentQueue<(Vector2I Cp, MeshPayload Payload)> queue)
+    {
+        while (queue.TryDequeue(out (Vector2I Cp, MeshPayload Payload) item))
+        {
+            Profiler.RecordPayloadDequeued(item.Payload.EstimatedBufferBytes);
+            PayloadPool.Release(item.Payload);
+            _completedPayloadSlots.Release();
         }
     }
 
@@ -1440,6 +1475,8 @@ public partial class VoxelWorld : Node3D
                         return;
                     }
 
+                    if (_genVersion >= WorldGenV9.Version)
+                        id = WorldGenV9.WeatheredMaterial(site, id, wx, wy, wz);
                     data[i] = (byte)id;
                 });
             }
@@ -2044,6 +2081,7 @@ public partial class VoxelWorld : Node3D
     // -----------------------------------------------------------------------
 
     private readonly Dictionary<Vector2I, byte[]> _editTops = new();
+    private readonly Dictionary<Vector2I, byte[]> _editTopBlocks = new();
 
     /// <summary>Rescan one edited column's topmost solid block (air/water/plants ignored).</summary>
     private void UpdateEditTop(Vector2I cp, int lx, int lz, byte[] blocks)
@@ -2067,24 +2105,41 @@ public partial class VoxelWorld : Node3D
             _editTops[cp] = tops;
         }
 
+        if (!_editTopBlocks.TryGetValue(cp, out byte[]? topBlocks))
+        {
+            topBlocks = new byte[ChunkX * ChunkZ];
+            _editTopBlocks[cp] = topBlocks;
+        }
+
         tops[col] = (byte)top;
+        topBlocks[col] = top > 0
+                ? blocks[col + top * ChunkX * ChunkZ]
+                : (byte)BlockId.Air;
     }
 
     /// <summary>Topmost solid block of a column from player edits (false = no edits here).</summary>
-    public bool TryEditTop(int wx, int wz, out int topY)
+    public bool TryEditTop(int wx, int wz, out int topY) =>
+        TryEditTop(wx, wz, out topY, out _);
+
+    /// <summary>Topmost edited column height and its visible block type, without querying generated terrain.</summary>
+    public bool TryEditTop(int wx, int wz, out int topY, out BlockId topBlock)
     {
         topY = 0;
+        topBlock = BlockId.Air;
         Vector2I cp = new(Mathf.FloorToInt(wx / (float)ChunkX), Mathf.FloorToInt(wz / (float)ChunkZ));
         lock (_mutex)
         {
-            if (!_editTops.TryGetValue(cp, out byte[]? tops))
+            if (!_editTops.TryGetValue(cp, out byte[]? tops)
+                    || !_editTopBlocks.TryGetValue(cp, out byte[]? topBlocks))
             {
                 return false;
             }
 
             int lx = wx - cp.X * ChunkX;
             int lz = wz - cp.Y * ChunkZ;
-            topY = tops[lx + lz * ChunkX];
+            int column = lx + lz * ChunkX;
+            topY = tops[column];
+            topBlock = (BlockId)topBlocks[column];
             return topY > 0;
         }
     }
@@ -2156,6 +2211,38 @@ public partial class VoxelWorld : Node3D
         }
     }
 
+    /// <summary>
+    /// Snapshot managed voxel-cache byte arrays and estimates for edit/light
+    /// metadata. Array sizes are exact; dictionary entry sizes are estimates.
+    /// Applied mesh bytes describe source arrays, not driver-specific VRAM.
+    /// </summary>
+    public VoxelCacheMemorySnapshot GetCacheMemorySnapshot()
+    {
+        long blocks = 0, states = 0, sky = 0, block = 0, packed = 0;
+        long editMetadata = 0, lightSourceEstimate = 0;
+        lock (_mutex)
+        {
+            foreach (byte[] data in _dataCache.Values) blocks += data.LongLength;
+            foreach (byte[] data in _blockStateCache.Values) states += data.LongLength;
+            foreach (byte[] data in _skyLightCache.Values) sky += data.LongLength;
+            foreach (byte[] data in _blockLightCache.Values) block += data.LongLength;
+            foreach (VoxelLightData data in _voxelLightCache.Values) packed += data.Packed.LongLength;
+            foreach (Dictionary<int, BlockId> edits in _edits.Values)
+                editMetadata += 64L + edits.Count * 24L;
+            foreach (Dictionary<int, byte> edits in _blockStateEdits.Values)
+                editMetadata += 64L + edits.Count * 16L;
+            lightSourceEstimate = _lightSources.Count * 32L;
+        }
+
+        long appliedMeshBytes = 0;
+        foreach (Chunk chunk in _chunks.Values) appliedMeshBytes += chunk.EstimatedMeshBytes;
+        long budget = StreamingMemoryBudget.EstimateVoxelArrayBudgetBytes(
+                ViewDistance, UnloadMargin, ChunkX, Height, ChunkZ);
+        return new VoxelCacheMemorySnapshot(blocks, states, sky, block, packed,
+                editMetadata, lightSourceEstimate, appliedMeshBytes,
+                PayloadPool.RetainedBufferBytes, budget);
+    }
+
     /// <summary>Synchronous build (startup / when a node must exist immediately).</summary>
     private Chunk BuildNow(Vector2I cp)
     {
@@ -2185,14 +2272,6 @@ public partial class VoxelWorld : Node3D
     {
         while (_alive)
         {
-            // Backpressure: don't run too far ahead of the main thread's apply
-            // budget, or a burst of payloads piles up unbounded.
-            if (_applyFresh.Count + _applyRebuild.Count > MaxInFlight * 3)
-            {
-                Thread.Sleep(1);
-                continue;
-            }
-
             Vector2I cp;
             bool rebuild;
             lock (_queueLock)
@@ -2213,14 +2292,49 @@ public partial class VoxelWorld : Node3D
                 }
             }
 
-            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
-            MeshPayload payload = Mesher.Build(this, cp);
-            Profiler.RecordBuild(
-                    (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0
-                    / System.Diagnostics.Stopwatch.Frequency);
-            if (_alive)
+            bool reserved = false;
+            bool published = false;
+            MeshPayload? payload = null;
+            try
             {
+                // Capacity is released by the main thread after applying a
+                // payload. Cancellation unblocks workers on scene shutdown.
+                _completedPayloadSlots.Wait(_workerShutdown.Token);
+                reserved = true;
+                if (!_alive) return;
+
+                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                payload = Mesher.Build(this, cp);
+                Profiler.RecordBuild(System.Diagnostics.Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
+                if (!_alive)
+                {
+                    PayloadPool.Release(payload);
+                    payload = null;
+                    return;
+                }
+
+                Profiler.RecordPayloadEnqueued(payload.EstimatedBufferBytes);
                 (rebuild ? _applyRebuild : _applyFresh).Enqueue((cp, payload));
+                payload = null;
+                published = true;
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception exception)
+            {
+                GD.PushError($"minecraft: chunk worker failed at ({cp.X},{cp.Y}): {exception}");
+                if (payload != null)
+                {
+                    PayloadPool.Release(payload);
+                    payload = null;
+                }
+            }
+            finally
+            {
+                if (reserved && !published)
+                    _completedPayloadSlots.Release();
             }
         }
     }
@@ -2231,42 +2345,39 @@ public partial class VoxelWorld : Node3D
     /// </summary>
     private void ApplyBuild(Vector2I cp, MeshPayload payload)
     {
-        if (!_alive)
+        try
+        {
+            if (!_alive) return;
+
+            Vector2I pcp = PlayerChunk();
+            int limit = ViewDistance + UnloadMargin;
+            if (Mathf.Abs(cp.X - pcp.X) > limit || Mathf.Abs(cp.Y - pcp.Y) > limit)
+                return;
+
+            if (payload.Epoch != EditEpoch)
+            {
+                EnqueueRebuild(cp);
+                return;
+            }
+
+            if (_chunks.TryGetValue(cp, out Chunk? existing))
+            {
+                existing.ApplyPayload(payload);   // player-edit remesh
+                return;
+            }
+
+            Chunk c = new();
+            AddChild(c);
+            c.Setup(this, cp);
+            c.Generate();
+            c.ApplyPayload(payload);
+            c.FadeIn();
+            _chunks[cp] = c;
+        }
+        finally
         {
             PayloadPool.Release(payload);
-            return;
         }
-
-        Vector2I pcp = PlayerChunk();
-        int limit = ViewDistance + UnloadMargin;
-        if (Mathf.Abs(cp.X - pcp.X) > limit || Mathf.Abs(cp.Y - pcp.Y) > limit)
-        {
-            PayloadPool.Release(payload);
-            return;
-        }
-
-        if (payload.Epoch != EditEpoch)
-        {
-            PayloadPool.Release(payload);
-            EnqueueRebuild(cp);
-            return;
-        }
-
-        if (_chunks.TryGetValue(cp, out Chunk? existing))
-        {
-            existing.ApplyPayload(payload);   // player-edit remesh
-            PayloadPool.Release(payload);
-            return;
-        }
-
-        Chunk c = new();
-        AddChild(c);
-        c.Setup(this, cp);
-        c.Generate();
-        c.ApplyPayload(payload);
-        c.FadeIn();
-        _chunks[cp] = c;
-        PayloadPool.Release(payload);
     }
 
     /// <summary>Nearest dry-land column to the origin, so the player never spawns in water.</summary>
@@ -2374,18 +2485,30 @@ public partial class VoxelWorld : Node3D
 
         Dispatch();
 
-        // Apply a few worker payloads per frame: edits first (instant-feeling
-        // building), then streamed chunks.
+        // Keep player-edit rebuilds ahead of fresh terrain, but stop after a
+        // small main-thread time slice. At least one payload is always applied
+        // so progress cannot stall when a single collider is expensive.
+        long applyStart = System.Diagnostics.Stopwatch.GetTimestamp();
         int applied = 0;
-        while (applied < ApplyBudgetPerFrame && _applyRebuild.TryDequeue(out (Vector2I Cp, MeshPayload Payload) edit))
+        while (!StreamingApplyBudget.ShouldStop(
+                System.Diagnostics.Stopwatch.GetElapsedTime(applyStart).TotalMilliseconds,
+                applied, ApplyBudgetMilliseconds))
         {
-            ApplyBuild(edit.Cp, edit.Payload);
-            applied++;
-        }
+            (Vector2I Cp, MeshPayload Payload) item;
+            if (!_applyRebuild.TryDequeue(out item) && !_applyFresh.TryDequeue(out item))
+                break;
 
-        while (applied < ApplyBudgetPerFrame && _applyFresh.TryDequeue(out (Vector2I Cp, MeshPayload Payload) fresh))
-        {
-            ApplyBuild(fresh.Cp, fresh.Payload);
+            Profiler.RecordPayloadDequeued(item.Payload.EstimatedBufferBytes);
+            long itemStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            try
+            {
+                ApplyBuild(item.Cp, item.Payload);
+            }
+            finally
+            {
+                Profiler.RecordApply(System.Diagnostics.Stopwatch.GetElapsedTime(itemStart).TotalMilliseconds);
+                _completedPayloadSlots.Release();
+            }
             applied++;
         }
 
@@ -2399,6 +2522,13 @@ public partial class VoxelWorld : Node3D
         lock (_mutex)
         {
             Profiler.DataChunks = _dataCache.Count;
+        }
+
+        _memorySampleTimer += delta;
+        if (_memorySampleTimer >= MemorySampleInterval)
+        {
+            _memorySampleTimer = 0.0;
+            Profiler.RecordCacheMemory(GetCacheMemorySnapshot());
         }
 
         _autosaveTimer += delta;

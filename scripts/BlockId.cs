@@ -68,4 +68,15 @@ public enum BlockId : byte
     PlanksStairs = 49,
     CobblestoneStairs = 50,
     BrickStairs = 51,
+
+    // Generated structure weathering (append-only persisted IDs).
+    MossyCobblestone = 52,
+    WeatheredCobblestone = 53,
+    CrackedBrick = 54,
+    MossyBrick = 55,
+
+    // Biome-specific canopy foliage, generated from V10 onward (append-only).
+    SpruceLeaves = 56,
+    JungleLeaves = 57,
+    SwampLeaves = 58,
 }

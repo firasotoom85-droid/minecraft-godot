@@ -9,23 +9,63 @@ event-driven “First Night” guide.
 The project is a long-running solo build with an extensive design log in
 [`PLAN.md`](PLAN.md) and a forward roadmap in [`ROADMAP.md`](ROADMAP.md).
 
+## Unified voxel material response
+
+World surfaces and first-person held items share the response palette in
+`scripts/MaterialResponse.cs`: stone, wood, soil, ore, foliage, glass, and
+metal each have explicit roughness, metallic, and specular values. Procedural
+atlas tile IDs are classified without changing persisted block/item IDs or
+world-generation output. One C# response table configures all world shaders
+and first-person materials. The mesher carries its compact family tag in vertex
+colour alpha; greedy meshes retain their tile-array layer in UV2.x, so existing
+merging, atlas UVs, and chunk streaming remain intact.
+
+The greedy texture array builds mipmaps from each isolated 32px tile rather
+than the combined atlas. This avoids cross-tile colour bleed at distance.
+The classic atlas path intentionally retains nearest sampling without atlas
+mipmaps because generating mipmaps from the packed atlas would blend adjacent
+tiles. Held-item sprites use the same response values through a cached-on-slot-
+change StandardMaterial3D; no per-frame material creation is performed.
+
 ## Highlights
 
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
   climate-shaped continents, smooth river valleys, mountain ranges, multi-form
   caves, aquifers, magma pockets, depth-aware ore veins, biome-specific trees,
-  surface ruins and underground chambers. New worlds use generator V8, with
-  broader river banks, improved cave entrances and denser forest canopies.
-  Generator versions 1–7 retain their frozen terrain rules, golden chunk hashes
-  and save compatibility.
+  surface ruins and underground chambers. New worlds use generator V10, which
+  preserves V9 terrain, structure placement and deterministic ruin weathering
+  while mapping the tree species V8 already selects to distinct spruce, jungle
+  and swamp canopies. Generator versions 1–9 retain their frozen generation
+  rules, golden chunk hashes and save compatibility.
 - **Greedy meshing** — merged coplanar full-cube quads cut triangle count
   roughly in half; per-face meshing remains available for comparison. Vertex-light
   and AO samples are part of the merge key, preserving lighting boundaries.
+- **Terrain material transitions** — original procedural grass has a deeper,
+  irregular turf edge over exposed soil; farmland uses higher-contrast furrows
+  and a defined tilled cap. Far-view terrain samples each block's upward-facing
+  atlas tile, while coarse slopes retain a one-block surface cap over their
+  dirt/stone substrate. Edited top-block materials (including farmland and
+  exposed dirt) remain represented after chunk unload and save reload.
 - **Architectural voxel building** — bottom/top/double slabs and four-way,
   upside-down stairs use a shared 2×2×2 occupancy definition for geometry,
   collision, ray selection and placement. Partial faces are split only at shape
   boundaries; full cubes retain the greedy path. Shape surfaces use the regular
   atlas, AO and voxel-light pipeline, with procedurally painted original textures.
+- **Directional wood surfaces** — oak and birch logs have distinct, irregular
+  end grain and vertical bark; oak planks use dedicated top, long-grain side and
+  cut-end tiles. Slabs and stairs sample the same block-relative texel scale as
+  full cubes, and stair grain follows its facing. The existing nearest-filtered
+  atlas and texture-array materials remain in use, including the first-person
+  held-item icon path. Greedy terrain's texture-array layers build isolated
+  shared 2×2 noise detail units and isolated per-tile mip chains, retaining
+  the 32×32 close-range pixel art while reducing distant shimmer and preventing
+  mip-level bleed between atlas tiles.
+- **Foliage and mineral surfaces** — existing oak and birch canopies use clustered cutout gaps and clearer leaf-tone groups; stone-family tiles receive deterministic low-contrast world-space tone variation, while ores use larger connected deposits for distant readability.
+- **Shared material responses** — atlas, greedy texture-array and held-item surfaces use one roughness/metallic/specular palette for wood, soil, stone, ore, foliage, glass and metal.
+- **Readable glass** — dedicated alpha-blended chunk surface with bounds-center
+  transparency sorting, front-face culling to avoid double-blended internal
+  faces, and a restrained original atlas treatment that stays clear across
+  close and distant views. Glass keeps the existing voxel-light and atlas path.
 - **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
   voxels, warm multi-source propagation with opaque occlusion, cave darkness and
   live place/break updates across chunk boundaries. Emitter edits incrementally
@@ -126,14 +166,76 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-The integrated 2026-11-21 suite reports **4,217 checks, 0 failures** across 27
-suites, with 0 build warnings. It includes the combined save round-trip
-(shapes + villagers + quests + boats), quest reward wiring, fluid/shape
+The current 2026-11-22 suite reports the full check count printed by
+`scripts/verify.sh` across all suites, with 0 build warnings. It includes
+deterministic V9 weathering, V8-to-V9 chunk-diff and chunk-order regressions,
+the combined save round-trip (shapes + villagers + quests + boats), graphics-
+preset migration, render-only mesher collision checks, quest reward wiring,
+fluid/shape
 boundaries, legacy saves, every pinned block/item ID and V1–V8 golden chunk
 hashes. The headless runner and a verbose real-scene soak both exit without
 leaked ObjectDB instances or RIDs. The project-specific reliability audit,
 including seven confirmed fixes and the remaining manual-coverage gaps, is in
 [`docs/RELIABILITY_AUDIT_2026-11-21.md`](docs/RELIABILITY_AUDIT_2026-11-21.md).
+
+### Performance benchmarking
+
+An opt-in runner at `res://tests/PerformanceRunner.tscn` benchmarks the real
+main scene with a disposable V8 world and deterministic routes for open
+terrain, dense forest, mountain/river, villages, caves, ocean, storms, hostile
+encounters and fast exploration. It exports a JSON summary plus per-frame CSV
+under `user://benchmarks/`. The report includes frame-time percentiles,
+Godot process/physics timings, process/managed memory and GC, VRAM, draw calls,
+mesh-build distribution, chunk counts and queue high-water marks. It does not
+write to the selected player world.
+
+See [`docs/PERFORMANCE_BENCHMARKS.md`](docs/PERFORMANCE_BENCHMARKS.md) for
+arguments, repeatability requirements and interpretation. Headless runs are
+for lifecycle smoke tests only, not rendered performance measurements.
+Older `docs/PERF_BASELINE.md` figures remain historical; the RTX 4060 comparison
+is still pending.
+
+The MX230 controlled Release comparison for Milestone 2 is recorded in
+[docs/PERFORMANCE_MILESTONE_2_MX230.md](docs/PERFORMANCE_MILESTONE_2_MX230.md):
+three matched runs show approximately 9% higher median FPS in both open terrain
+and heavy rain. These results apply only to the measured configuration and
+should not be generalized to other GPUs or presets.
+
+### Performance Milestone 3 — bounded streaming and memory accounting
+
+Chunk meshing now reserves capacity before building a payload. A cancellable
+`SemaphoreSlim` replaces worker-side polling/sleep backpressure, bounding
+in-flight payload work to 18 items (including completed payloads waiting for the
+main thread). Scene teardown cancels blocked workers, waits for the worker
+batch, drains both apply queues and returns remaining payloads to the existing
+pool. Main-thread application prioritizes edit rebuilds and targets 2 ms per
+frame, always allowing one payload to make progress.
+
+The runtime profiler records pending payload counts/estimated bytes and their
+high-water marks, exact managed voxel-cache array bytes, a view-distance-aware
+cache budget, edit/light metadata estimates, applied mesh source-array estimates,
+retained pool-buffer bytes, main-thread apply timings and collider timings.
+Metadata and mesh values are estimates; Godot driver allocations and VRAM are
+not represented as exact byte counts. The cache budget is a guardrail for
+managed voxel arrays, not a whole-process memory limit.
+
+Validation on Godot 4.7.2 .NET:
+- Debug and Release builds: 0 warnings and 0 errors.
+- `scripts/verify.sh`: 4,283 checks, 0 failures.
+- Benchmark matrix: 54/54 runs passed across nine scenarios in Debug and
+  Release.
+- Thirty-minute real-scene survival soak: PASS at 1,800 seconds; peak RSS
+  304.1 MiB, peak managed memory 57.1 MiB, voxel-cache arrays 4.2 MiB against
+  an 18.9 MiB budget, payload high-water 14/18, 0 invalid creature positions,
+  0 orphan nodes, successful save/reload and temporary-world cleanup.
+- Rendered Forward+ visual review selected the NVIDIA GeForce MX230. The real
+  survival scene streamed cave geometry with the HUD and minimap; a second
+  production-scene V8 surface capture at seed 1337 / center (512,-372) rendered
+  49 chunks at 1600×900. Both captures are committed under
+  `docs/performance/screenshots/` and documented in the milestone report.
+
+Detailed implementation, measurement definitions and run conditions are in
+[`docs/PERFORMANCE_MILESTONE_3_STREAMING.md`](docs/PERFORMANCE_MILESTONE_3_STREAMING.md).
 
 ### Reliability audit
 
@@ -154,21 +256,23 @@ coordinates for a steep river bank, river valley, mountain, forest and cave
 region. The paired images and findings are in
 [`docs/worldgen/V8_VISUAL_VALIDATION.md`](docs/worldgen/V8_VISUAL_VALIDATION.md).
 
-A fresh integrated-build capture at seed 1337 (V8, river valley at 512,-372)
-rendered 49 chunks at 1600×900, and a second capture at the deterministic seed
-1337 village (-684,1303) showed generated houses, paths and farmland in the
-real scene. Both exited without off-tree transform errors after the resident
-save path was fixed. These inspection frames were not committed as new assets.
+V9 weathering was captured in the real game scene on the NVIDIA GeForce MX230
+using Godot 4.7.2 .NET and Vulkan Forward+. The fixed seed 1337 ruin at
+(429,54,-1893) was captured at close and distant camera scales; the two frames
+are committed in docs/worldgen/screenshots/. Both use the existing chunk
+streaming, atlas materials and greedy mesher. Findings and hardware details are
+in [`docs/worldgen/V9_VISUAL_VALIDATION.md`](docs/worldgen/V9_VISUAL_VALIDATION.md).
 
 Capture another seed/coordinate from the real scene with:
 
 ```bash
-godot --path . res://tests/WorldgenVisualCapture.tscn -- 1337 8 512 -372 res://docs/worldgen/screenshots/custom-v8.png
+godot --path . res://tests/WorldgenVisualCapture.tscn -- 1337 9 429 -1893 res://docs/worldgen/screenshots/custom-v9.png 0.32
 ```
 
-Arguments are seed, generator version, world X, world Z and output PNG path.
-The capture scene waits for surrounding chunks to stream before saving the
-1600×900 viewport image.
+Arguments are seed, generator version, world X, world Z, output PNG path and
+optional camera scale (0.2–2.0; smaller values move the inspection camera
+closer). The capture scene waits for surrounding chunks to stream before
+saving the 1600×900 viewport image.
 
 ### Long-duration survival soak
 
@@ -202,6 +306,12 @@ simulation, so survival time remains real-time. The script bounds runtime to
 duration + 300 seconds by default; override that with
 `SOAK_TIMEOUT_SECONDS`. The soak remains separate from the fast headless
 suite and is not a human combat or visual gameplay playtest.
+
+The Milestone 3 run additionally gates pending-payload bounds and shutdown
+drain, managed voxel-cache array memory, save/reload, temporary-world cleanup,
+and finite creature positions. The completed 30-minute result and its memory
+measurements are recorded in
+[`docs/PERFORMANCE_MILESTONE_3_STREAMING.md`](docs/PERFORMANCE_MILESTONE_3_STREAMING.md).
 
 ## Controls
 
@@ -291,11 +401,19 @@ worlds load without a vehicle list.
 | `scripts/` | Gameplay and engine code (C#), plus `verify.sh` |
 | `scenes/` | `main.tscn` (game) and `main_menu.tscn` |
 | `shaders/` | Water shader |
-| `tests/` | Headless test runner and suites |
-| `docs/` | Performance baseline notes |
+| `tests/` | Headless test runner, suites, and GPU-backed wood-art capture scene |
+| `docs/` | Performance baselines, benchmark procedure and audits |
 | `addons/godot_ai/` | Editor MCP assistant addon (development tooling) |
 | `PLAN.md` | Completed milestone log (M0–M4b) |
 | `ROADMAP.md` | Forward plan (M5–M10) and progress log |
+
+For a production-renderer inspection of directional wood textures, run
+`godot --path . res://tests/WoodArtVisualCapture.tscn -- 1337`. It builds a
+disposable test world through `VoxelWorld.SetBlock` and writes close and distant
+captures to `user://wood-art-validation-close.png` and
+`user://wood-art-validation-distant.png`. This is a manual visual check rather
+than part of the headless test suite; run it with the same Godot renderer and
+hardware profile you intend to validate.
 
 ## Combat equipment and enchantments
 
@@ -313,7 +431,11 @@ when the output cannot fit in the inventory.
 The progression is wood → stone → iron → diamond, with mining harvest gates
 preserved: stone picks unlock iron ore, while iron picks unlock gold and diamond
 ore. Ore is depth-banded with seeded V7 veins; mountains have denser gold and
-diamond hash sampling. One coal burns for 80 seconds and smelts eight items at
+diamond hash sampling. Ore atlas deposits use larger stepped mineral clusters
+with restrained edge shading and highlights so the four resources remain
+distinct at cave depth and at distance. Ore stays fully opaque and emits no
+block light; solid cave walls continue to hide valuable veins. One coal burns
+for 80 seconds and smelts eight items at
 ten seconds each; logs burn for 60 seconds, planks for 15, and sticks for five.
 Furnace updates carry elapsed time across fuel boundaries, including larger
 frame steps. Raw meat is low-value food; cooked meat restores 5–7 hunger and
@@ -365,13 +487,20 @@ are never renumbered or reused; new content is appended and pinned by tests.
 |---|---|
 | `BlockId` 0–45 | Original terrain, plants, fluids and M6/M7 blocks, unchanged |
 | `BlockId` 46–51 | Oak-planks, cobblestone and brick slabs/stairs |
+| `BlockId` 52–55 | Mossy cobblestone, weathered cobblestone, cracked brick, mossy brick |
+| `BlockId` 56–58 | Spruce, jungle and swamp canopy foliage (V10 generation only) |
 | `ItemId` 0–90 | Original items, armor, tools, food, boss trophy and enchanting table, unchanged |
 | `ItemId` 91–96 | Slab and stair items, matching the block order above |
 | `ItemId` 97–100 | Empty bucket, water bucket, lava bucket, wooden boat |
+| `ItemId` 101–104 | Weathered material blocks, matching the block order above |
+| `ItemId` 105–107 | Spruce, jungle and swamp leaf blocks, matching BlockId 56–58 |
 
 `tests/ContentTests.cs` pins every block and item value and asserts that the
-building and transportation ranges remain disjoint. `tests/WorldgenTests.cs`
-pins golden chunk hashes for V1, V3, V5, V6, V7 and V8.
+building, transportation, weathering and foliage ranges remain append-only.
+`tests/WorldgenTests.cs` pins golden chunk hashes for V1, V3, V5, V6, V7 and V8;
+`tests/WeatheringTests.cs` checks deterministic V9 replacements against V8
+chunks and reversed chunk order; `tests/FoliageTests.cs` proves V10 changes only
+leaf cells relative to V9 and keeps every other byte identical.
 
 ## Villages, residents and quests
 
@@ -381,7 +510,8 @@ clearings and avoid existing surface structures, campfire clearings, cave
 openings and nearby underground chambers. Chunk-clipped houses, roads, a
 central square, light posts, chests, workstations and irrigated farms are
 stamped from the same site seed, including at negative chunk coordinates.
-Worlds generated with V1–V7 keep their original terrain and structure placement.
+Worlds generated with V1–V8 keep their original terrain and structure placement
+and material IDs; V9 weathering applies only to newly generated V9 worlds.
 
 Five named residents populate each discovered village: farmers, merchants,
 blacksmiths, librarians and guards. They follow home/work/gathering schedules,
@@ -403,17 +533,21 @@ completion and reward claims persist in `world.json`.
   implemented yet. There are no vertical slabs.
 - **Visual validation is representative, not exhaustive.** V8 has matched
   GPU-rendered before/after captures for river, steep-bank, mountain, forest and
-  cave locations across four seeds. The integrated village, boat and block-shape
-  presentation has automated coverage but no complete human visual playthrough
-  across every biome, preset and UI state.
+  cave locations across four seeds. V9 weathering has close and distant GPU
+  captures on the MX230, but not a full human playthrough across every structure,
+  biome, preset and lighting condition. Far-terrain LOD remains terrain-only and
+  does not independently render surface structure meshes.
 - **Soak coverage is headless.** The 5- and 60-minute survival soaks exercise
   the real main scene, physics, mobs, weather, saves and cleanup, but they do not
   replace a human combat, building or visual playtest. The five-minute run is
   recorded below; the one-hour run uses the same pass criteria.
 - **High-end hardware not measured.** Performance was recorded on the MX230
   laptop only; no RTX 4060-class machine was available for comparison.
-- **Debug-build meshing cost.** Chunk mesh builds are expensive in Debug on the
-  MX230; release builds are faster. See `docs/PERF_BASELINE.md`.
+- **Controlled performance retest pending.** A repeatable runner now exists
+  with fixed seeds/routes and JSON/CSV output, but no new comparable Release
+  baseline has been recorded yet. The historical 30.6 FPS result is a single
+  unseeded Debug measurement. See `docs/PERFORMANCE_BENCHMARKS.md` and
+  `docs/PERF_BASELINE.md`.
 
 ## License
 

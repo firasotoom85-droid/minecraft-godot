@@ -1,3 +1,5 @@
+using System;
+using System.Diagnostics;
 using Godot;
 
 namespace Minecraft;
@@ -12,6 +14,17 @@ public partial class SurvivalSoakRunner : Node
     private VoxelWorld _world = null!;
     private Player _player = null!;
     private Mobs _mobs = null!;
+    private FluidSystem _fluids = null!;
+    private Process _process = null!;
+    private long _peakRssBytes;
+    private long _peakManagedBytes;
+    private long _peakStaticBytes;
+    private long _peakOrphanNodes;
+    private long _peakVoxelCacheBytes;
+    private long _voxelCacheBudgetBytes;
+    private long _peakPooledMeshBytes;
+    private long _peakFluidCells;
+    private long _peakFluidSources;
     private Vector3 _surfacePosition;
     private Vector3 _cavePosition;
     private bool _hasCave;
@@ -58,11 +71,11 @@ public partial class SurvivalSoakRunner : Node
         // Never borrow the user's most-recent world for an automated soak.
         // A private directory keeps this world out of the world picker, and its
         // save files are verified then removed when the run finishes.
-        const int soakSeed = -90817263; // Previously verified to contain nearby V7 caves.
+        const int soakSeed = -90817263; // Retained deterministic cave seed; use the current generator version.
         _soakWorldDir = $"user://tests/survival-soak-{Time.GetTicksUsec()}";
         long now = WorldStore.NowUtc();
         WorldManifest manifest = new("Temporary survival soak", soakSeed,
-                WorldGenV7.Version, WorldStore.DeriveNoiseSeeds(soakSeed), now, now,
+                WorldStore.CurrentGenVersion, WorldStore.DeriveNoiseSeeds(soakSeed), now, now,
                 "survival", null);
         if (!WorldStore.WriteManifest(_soakWorldDir, manifest))
         {
@@ -79,6 +92,8 @@ public partial class SurvivalSoakRunner : Node
         _world = _main.GetNode<VoxelWorld>("World");
         _player = _main.GetNode<Player>("Player");
         _mobs = _main.GetNode<Mobs>("Mobs");
+        _fluids = _main.GetNode<FluidSystem>("FluidSystem");
+        _process = Process.GetCurrentProcess();
         Settings.Difficulty = Settings.DifficultyNormal;
         _player.SetMode(GameMode.Survival);
         _surfacePosition = _world.FindSpawn();
@@ -160,13 +175,51 @@ public partial class SurvivalSoakRunner : Node
         if (_reportTimer >= 60.0)
         {
             _reportTimer = 0.0;
-            GD.Print($"SOAK minute={_elapsed / 60.0:0} passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} feeds={_feedSuccesses} caveEncounters={_caveEncounters} babiesObserved={_babiesObserved} parentsInLove={_breedingParentA?.InLove == true && _breedingParentB?.InLove == true} noiseInvestigations={_mobs.NoiseInvestigations} invalidPositions={_nonFinitePositionObservations}");
+            ReportSoakMetrics();
         }
 
         if (_elapsed >= _duration)
         {
             Finish();
         }
+    }
+
+    private void ReportSoakMetrics()
+    {
+        VoxelCacheMemorySnapshot cache = _world.GetCacheMemorySnapshot();
+        long rss = _process.WorkingSet64;
+        long managed = GC.GetTotalMemory(false);
+        long staticBytes = Math.Max(0L, (long)Performance.GetMonitor(Performance.Monitor.MemoryStatic));
+        long objects = Math.Max(0L, (long)Performance.GetMonitor(Performance.Monitor.ObjectCount));
+        long nodes = Math.Max(0L, (long)Performance.GetMonitor(Performance.Monitor.ObjectNodeCount));
+        long orphanNodes = Math.Max(0L, (long)Performance.GetMonitor(Performance.Monitor.ObjectOrphanNodeCount));
+        long videoBytes = Math.Max(0L, (long)Performance.GetMonitor(Performance.Monitor.RenderVideoMemUsed));
+
+        _peakRssBytes = Math.Max(_peakRssBytes, rss);
+        _peakManagedBytes = Math.Max(_peakManagedBytes, managed);
+        _peakStaticBytes = Math.Max(_peakStaticBytes, staticBytes);
+        _peakOrphanNodes = Math.Max(_peakOrphanNodes, orphanNodes);
+        _peakVoxelCacheBytes = Math.Max(_peakVoxelCacheBytes, cache.VoxelArrayBytes);
+        _voxelCacheBudgetBytes = cache.VoxelArrayBudgetBytes;
+        _peakPooledMeshBytes = Math.Max(_peakPooledMeshBytes, cache.PooledMeshBufferBytes);
+        _peakFluidCells = Math.Max(_peakFluidCells, _fluids.ActiveCellCount);
+        _peakFluidSources = Math.Max(_peakFluidSources, _fluids.ActiveSourceCount);
+
+        GD.Print($"SOAK minute={_elapsed / 60.0:0} passive={_mobs.PassiveCount} hostile={_mobs.HostileCount} " +
+                $"feeds={_feedSuccesses} caveEncounters={_caveEncounters} babiesObserved={_babiesObserved} " +
+                $"noiseInvestigations={_mobs.NoiseInvestigations} invalidPositions={_nonFinitePositionObservations} " +
+                $"rssMiB={rss / 1048576.0:0.0} managedMiB={managed / 1048576.0:0.0} " +
+                $"godotStaticMiB={staticBytes / 1048576.0:0.0} videoMiB={videoBytes / 1048576.0:0.0} " +
+                $"objects={objects} nodes={nodes} orphanNodes={orphanNodes} " +
+                $"voxelCacheMiB={cache.VoxelArrayBytes / 1048576.0:0.0}/{cache.VoxelArrayBudgetBytes / 1048576.0:0.0} " +
+                $"editMetaMiB={cache.EditMetadataBytesEstimate / 1048576.0:0.0} lightSourcesMiB={cache.LightSourceBytesEstimate / 1048576.0:0.0} " +
+                $"appliedMeshMiB={cache.AppliedMeshBytesEstimate / 1048576.0:0.0} pooledMeshMiB={cache.PooledMeshBufferBytes / 1048576.0:0.0} " +
+                $"dataChunks={Profiler.DataChunks} workers={Profiler.WorkersActive} " +
+                $"freshQueue={Profiler.FreshQueued} rebuildQueue={Profiler.RebuildQueued} " +
+                $"pendingPayloads={Profiler.PendingPayloadCount}/{Profiler.PendingPayloadHighWaterCount} " +
+                $"pendingPayloadMiB={Profiler.PendingPayloadBytes / 1048576.0:0.0} " +
+                $"fluidCells={_fluids.ActiveCellCount} fluidSources={_fluids.ActiveSourceCount} " +
+                $"gc={GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}");
     }
 
     private void StartScenario()
@@ -394,6 +447,7 @@ public partial class SurvivalSoakRunner : Node
         }
 
         _finishing = true;
+        ReportSoakMetrics();
         _world.SaveNow();
         WorldSave? savedWorld = WorldStore.ReadJson<WorldSave>(
                 WorldStore.WorldSavePath(_soakWorldDir), WorldStore.Json);
@@ -403,12 +457,13 @@ public partial class SurvivalSoakRunner : Node
                 && savedPlayer.Mode == "survival";
         int passive = _mobs.PassiveCount;
         int hostile = _mobs.HostileCount;
+        int noiseInvestigations = _mobs.NoiseInvestigations;
 
         // Creature runtime, acoustic perception, feeding, breeding and save
         // reload all have to hold for a soak to count as a pass.
         bool passed = _hasCave && _caveEncounters > 0 && _feedSuccesses >= 2
                 && _babiesObserved > 0 && passive > 0 && savesReloaded
-                && _noiseStimuli > 0 && _mobs.NoiseInvestigations > 0
+                && _noiseStimuli > 0 && noiseInvestigations > 0
                 && _nonFinitePositionObservations == 0;
 
         // Let VoxelWorld/FarLod exit hooks wait for and release every worker task
@@ -418,8 +473,37 @@ public partial class SurvivalSoakRunner : Node
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 
         bool cleaned = CleanupSoakWorld();
-        passed &= cleaned;
-        GD.Print($"SURVIVAL SOAK {(passed ? "PASS" : "INCOMPLETE")}: elapsed={_elapsed:0}s passive={passive} hostile={hostile} feeds={_feedSuccesses} caveEncounters={_caveEncounters} babyObservations={_babiesObserved} noiseStimuli={_noiseStimuli} noiseInvestigations={_mobs.NoiseInvestigations} invalidPositions={_nonFinitePositionObservations} savesReloaded={savesReloaded} tempWorldCleaned={cleaned}");
+        bool payloadsDrained = Profiler.PendingPayloadCount == 0 && Profiler.PendingPayloadBytes == 0 && !Profiler.WorkersActive;
+        bool boundedPayloads = Profiler.PendingPayloadHighWaterCount <= StreamingApplyBudget.MaxPendingPayloads;
+        bool cacheWithinBudget = Profiler.VoxelCacheArrayHighWaterBytes <= _voxelCacheBudgetBytes;
+        passed &= cleaned && payloadsDrained && boundedPayloads && cacheWithinBudget;
+        GD.Print($"SURVIVAL SOAK {(passed ? "PASS" : "INCOMPLETE")}: elapsed={_elapsed:0}s passive={passive} hostile={hostile} " +
+                $"feeds={_feedSuccesses} caveEncounters={_caveEncounters} babyObservations={_babiesObserved} " +
+                $"noiseStimuli={_noiseStimuli} noiseInvestigations={noiseInvestigations} invalidPositions={_nonFinitePositionObservations} " +
+                $"savesReloaded={savesReloaded} tempWorldCleaned={cleaned} payloadsDrained={payloadsDrained} " +
+                $"payloadHighWater={Profiler.PendingPayloadHighWaterCount}/{StreamingApplyBudget.MaxPendingPayloads} " +
+                $"cachePeakMiB={Profiler.VoxelCacheArrayHighWaterBytes / 1048576.0:0.0} cacheBudgetMiB={_voxelCacheBudgetBytes / 1048576.0:0.0} " +
+                $"pooledMeshPeakMiB={_peakPooledMeshBytes / 1048576.0:0.0} peakRssMiB={_peakRssBytes / 1048576.0:0.0} " +
+                $"peakManagedMiB={_peakManagedBytes / 1048576.0:0.0} peakGodotStaticMiB={_peakStaticBytes / 1048576.0:0.0} " +
+                $"peakOrphanNodes={_peakOrphanNodes} peakFluidCells={_peakFluidCells} peakFluidSources={_peakFluidSources}");
+        _process.Dispose();
+
+        // The runner remains as the scene-tree root until Quit takes effect.
+        // Drop every wrapper to the freed main scene before native shutdown so
+        // the C# bridge can release its script bindings and transient physics
+        // query/input wrappers cleanly in a rendered run as well as headless.
+        _process = null!;
+        _main = null!;
+        _world = null!;
+        _player = null!;
+        _mobs = null!;
+        _fluids = null!;
+        _breedingParentA = null;
+        _breedingParentB = null;
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
         GetTree().Quit(passed ? 0 : 1);
         SetProcess(false);
     }
