@@ -9,9 +9,12 @@ event-driven first-hour survival guide.
 The project is a long-running solo build with an extensive design log in
 [`PLAN.md`](PLAN.md) and a forward roadmap in [`ROADMAP.md`](ROADMAP.md).
 
-PRs #49–#57 are integrated on `integration/pr49-57`; the contribution map,
-conflict resolutions, compatibility checks and measured validation are in
-[`docs/INTEGRATION_PR49_57.md`](docs/INTEGRATION_PR49_57.md).
+**Integration history.** PRs #49–#57 were integrated on `integration/pr49-57`
+and merged into `main` through PR #58. PRs #59–#68 are integrated on
+`integration/pr59-68`; their contribution map, conflict resolutions,
+compatibility checks and measured validation are in
+[`docs/INTEGRATION_PR59_68.md`](docs/INTEGRATION_PR59_68.md). The earlier record
+remains in [`docs/INTEGRATION_PR49_57.md`](docs/INTEGRATION_PR49_57.md).
 
 ## Unified voxel material response
 
@@ -411,11 +414,18 @@ control and shows common through legendary gear, plain and enchanted examples,
 and full / 74% / 49% / 24% durability states. The PNG is written to
 `user://equipment-durability-visual-validation.png`.
 
-The current headless suite reports **189,870 checks, 0 failures across 47
+The current headless suite reports **198,706 checks, 0 failures across 48
 suites**, with 0 Debug build warnings or errors. The added
 `item-visual-quality` suite pins rarity bands, cached enchantment variants,
 wear/enchantment composition, first-person visual-state signatures and block
-atlas-region compatibility. Loop-based worldgen scans can vary by a few
+atlas-region compatibility. `texture-atlas-validation` audits the live atlas,
+block face mappings and placeable icon paths, and treats the six slab/stair
+isometric previews as an explicit contract while every other placeable item
+must stay on its exact `AtlasTexture` region. `lighting` covers cached skylight
+interpolation, torch/campfire source parity and the shared warm-emitter shader
+response; `surface-variation` inspects generated snow, sand and ash pixels for
+tileable seams; `block-shapes` pins baked AO continuity at greedy seams.
+Loop-based worldgen scans can vary by a few
 checks between runs, but zero failures is required. The selection-outline suite
 adds 275 checks for two-pass contrast materials and cube/slab/stair geometry,
 including every partial-block state. `integration-regressions` pins V9, V10 and
@@ -916,12 +926,14 @@ are never renumbered or reused; new content is appended and pinned by tests.
 | `BlockId` 52–55 | Mossy cobblestone, weathered cobblestone, cracked brick, mossy brick |
 | `BlockId` 56–58 | Spruce, jungle and swamp canopy foliage (V10+ generation) |
 | `BlockId` 59 | River reeds (V11 shoreline generation) |
+| `BlockId` 60 | Ash (shovel-minable soil-family surface) |
 | `ItemId` 0–90 | Original items, armor, tools, food, boss trophy and enchanting table, unchanged |
 | `ItemId` 91–96 | Slab and stair items, matching the block order above |
 | `ItemId` 97–100 | Empty bucket, water bucket, lava bucket, wooden boat |
 | `ItemId` 101–104 | Weathered material blocks, matching the block order above |
 | `ItemId` 105–107 | Spruce, jungle and swamp leaf blocks, matching BlockId 56–58 |
 | `ItemId` 108 | River reed item, matching BlockId 59 |
+| `ItemId` 109 | Ash block item, matching BlockId 60 |
 
 `tests/EquipmentDurabilityVisualTests.cs` covers wear thresholds, malformed
 value clamping, pixel-distinct cached icon variants, block-atlas compatibility,

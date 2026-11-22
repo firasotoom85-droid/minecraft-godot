@@ -19,7 +19,8 @@ public readonly record struct TextureValidationIssue(
 internal readonly record struct AtlasBlockMapping(BlockId Id, string Name, int[] FaceTiles);
 
 internal readonly record struct AtlasItemMapping(
-        ItemId Id, BlockId? Block, bool UsesAtlasIcon, Rect2 IconRegion, bool RoundTrips);
+        ItemId Id, BlockId? Block, bool UsesAtlasIcon, bool UsesShapeIcon,
+        Rect2 IconRegion, bool RoundTrips);
 
 /// <summary>
 /// Immutable result of an explicit procedural texture/atlas audit. It is a
@@ -141,8 +142,8 @@ public sealed class TextureValidationReport
         output.AppendLine();
         output.AppendLine("## Placeable item icon mappings");
         output.AppendLine();
-        output.AppendLine("| Item ID | Item | Block | Atlas icon |");
-        output.AppendLine("|---:|---|---|---:|");
+        output.AppendLine("| Item ID | Item | Block | Atlas icon tile | Preview |");
+        output.AppendLine("|---:|---|---|---:|---|");
         foreach (AtlasItemMapping item in _items)
         {
             string blockName = item.Block is { } block && BlockDb.IsDefined(block)
@@ -151,7 +152,8 @@ public sealed class TextureValidationReport
             int iconTile = item.Block is { } mapped && BlockDb.IsDefined(mapped)
                     ? BlockDb.IconTile(mapped)
                     : -1;
-            output.AppendLine($"| {(byte)item.Id} | {item.Id} | {Escape(blockName)} | {iconTile} |");
+            string preview = item.UsesShapeIcon ? "shape preview" : "atlas region";
+            output.AppendLine($"| {(byte)item.Id} | {item.Id} | {Escape(blockName)} | {iconTile} | {preview} |");
         }
 
         output.AppendLine();
@@ -236,10 +238,11 @@ public static class TextureAtlasValidator
             BlockId? block = ItemDb.BlockFor(id);
             Texture2D icon = ItemDb.Icon(id);
             bool atlasIcon = icon is AtlasTexture;
+            bool shapeIcon = ItemDb.IsVoxelShapeIcon(id);
             Rect2 region = icon is AtlasTexture atlasTexture ? atlasTexture.Region : new Rect2();
             bool roundTrips = block is { } mapped && BlockDb.IsDefined(mapped)
                     && ItemDb.BlockItem(mapped) == id;
-            result.Add(new AtlasItemMapping(id, block, atlasIcon, region, roundTrips));
+            result.Add(new AtlasItemMapping(id, block, atlasIcon, shapeIcon, region, roundTrips));
         }
 
         return result;
@@ -424,9 +427,22 @@ public static class TextureAtlasValidator
                 if (!item.RoundTrips)
                     Add(TextureValidationSeverity.Error, "item.block.round-trip",
                             $"Placeable item {item.Id} does not round-trip through BlockFor / BlockItem for {blockId}.");
-                if (!item.UsesAtlasIcon)
+                // Slab and stair items intentionally render a generated isometric
+                // preview rasterized from their registered face tiles so the shape
+                // silhouette stays readable. Every other placeable item must keep
+                // its exact shared AtlasTexture region.
+                if (item.UsesShapeIcon)
+                {
+                    if (item.UsesAtlasIcon)
+                        Add(TextureValidationSeverity.Error, "item.icon.path.conflict",
+                                $"Placeable shape item {item.Id} reports both the shared atlas path and a generated shape preview.");
+                }
+                else if (!item.UsesAtlasIcon)
+                {
                     Add(TextureValidationSeverity.Error, "item.icon.not-atlas-backed",
                             $"Placeable item {item.Id} no longer uses the shared AtlasTexture path.");
+                }
+
                 if (iconTile < 0 || iconTile >= tileCount)
                 {
                     Add(TextureValidationSeverity.Error, "item.icon.tile.invalid",
@@ -438,7 +454,7 @@ public static class TextureAtlasValidator
                         iconTile % atlasColumns * tilePixels,
                         iconTile / atlasColumns * tilePixels,
                         tilePixels, tilePixels);
-                if (item.IconRegion != expectedRegion)
+                if (!item.UsesShapeIcon && item.IconRegion != expectedRegion)
                     Add(TextureValidationSeverity.Error, "item.icon.region.invalid",
                             $"Placeable item {item.Id} icon region {item.IconRegion} does not match block {blockId}'s atlas tile {iconTile}.");
             }

@@ -21,27 +21,47 @@ This audit is based on the implemented code, not on the original schedule.
 
 | Milestone | Status | Evidence | Remaining |
 |---|---|---|---|
-| **M5** Foundation & guardrails | Complete | `BlockCount` 128, `TileCount` 256, append-only content validator, procedural atlas audit/report, 47-suite headless runner, `WorldSave` V4 with atomic backups, performance runner with JSON/CSV output | RTX 4060 comparison and a new controlled Release baseline |
+| **M5** Foundation & guardrails | Complete | `BlockCount` 128, `TileCount` 256, append-only content validator, procedural atlas audit/report, 48-suite headless runner, `WorldSave` V4 with atomic backups, performance runner with JSON/CSV output | RTX 4060 comparison and a new controlled Release baseline |
 | **M6** Base & progression | Complete | Torch/light propagation, chest, furnace and ingots, armor, farming, bed, ladder, swimming, fluid buckets | Broader survival balance and human playtesting |
 | **M7** Living world & goals | Complete | Species herds, hostile roster, dungeon and Ember Warden, trader, fishing, achievements, villages/quests | Human combat and quest readability review |
 | **M8** UX, platform & 1.0 | Partially complete | Rebinding, gamepad actions, contextual onboarding, world management/portability, photo mode/quality governor, export presets | Arabic/RTL localization and authored music tracks are not implemented; final 1.0 sign-off remains |
 | **M9** Scale & online | Not started | No multiplayer, dimensions, or height-256 world support in the codebase | Deliberately post-1.0 |
 | **M10** Post-1.0 | Not started | No data-driven content/mod API or additional non-cube families beyond slabs and stairs | Deliberately post-1.0 |
 
-**PRs #49–#57 integration:** the nine open branches are merged on
-`integration/pr49-57` with their unique changes preserved. `BlockId` 59 and
-`ItemId` 108 are appended, save format remains V4, and V1–V10 generation stays
-byte-identical. V11 is deterministic across positive/negative coordinates and
-reversed chunk order, and its only delta from V10 is air cells becoming
-shoreline reeds. The full contribution map and validation are in
+**PRs #49–#57 integration:** the nine branches were merged on
+`integration/pr49-57` with their unique changes preserved, and that branch was
+merged into `main` through **PR #58**. `BlockId` 59 and `ItemId` 108 are
+appended, save format remains V4, and V1–V10 generation stays byte-identical.
+V11 is deterministic across positive/negative coordinates and reversed chunk
+order, and its only delta from V10 is air cells becoming shoreline reeds. The
+full contribution map and validation are in
 [`docs/INTEGRATION_PR49_57.md`](docs/INTEGRATION_PR49_57.md).
 
+**PRs #59–#68 integration:** the ten branches in this batch are merged on
+`integration/pr59-68` from `main` at `b7a4dd9`. Item icon mapping (#59), the
+material-gallery quality report (#60), smooth cave exposure (#61), rare and
+enchanted item presentation (#62), phase-aware directional sunlight (#63), AO
+seam coverage (#64), the procedural atlas report (#65), camera-depth distance
+haze (#66), snow/sand/ash surface variation (#67) and unified warm emitter
+lighting (#68) now coexist in one implementation. `BlockId` 60 / `ItemId` 109
+(Ash) are appended after every existing value; save format stays V4; V1–V11
+generation is byte-identical. The contribution map, conflict resolutions and
+measured validation are in
+[`docs/INTEGRATION_PR59_68.md`](docs/INTEGRATION_PR59_68.md).
+
 **Validation:** Debug and Release builds report 0 warnings and 0 errors; the
-headless suite reports **189,870 checks, 0 failures across 47 suites**. V9 and
-V10 golden hashes match the pre-integration baseline. Matched headless
-measurements put greedy meshing at about 7.9 ms/chunk versus 6.9 ms on main
-(roughly 15% more CPU for shared partial-block AO); V11 chunk generation is at
-parity with V10. These are mesh/generation CPU timings, not rendered FPS claims.
+headless suite reports **198,706 checks, 0 failures across 48 suites**. V9, V10
+and V11 golden hashes match the pre-integration baseline, and the V1–V8 legacy
+anchors are unchanged. Matched headless measurements from the #49–#57 batch put
+greedy meshing at about 7.9 ms/chunk versus 6.9 ms on main (roughly 15% more CPU
+for shared partial-block AO), and V11 chunk generation remains at parity with
+V10: this batch measured 9.24 ms/chunk for V8 against 8.91 ms/chunk for V7
+(1.04×) and V9 weathering within ±1% of V8. These are mesh/generation CPU
+timings, not rendered FPS claims. The #59–#68 batch adds no per-frame world
+scan or light node: cave exposure reads eight cached light samples per frame,
+and generated campfires no longer own an `OmniLight3D` each. No rendered FPS
+delta is claimed because no controlled frame-time benchmark was run for this
+batch.
 
 ## Current follow-up implementation — 2026-11-22 (rare and enchanted item language)
 
@@ -2236,3 +2256,63 @@ the generated atlas pixels directly, in addition to its shader-family checks.
   rebuild, collider, streaming or physics changes were introduced. No
   controlled FPS delta is claimed; the manual captures confirm the MX230 path
   remains functional at the gallery's existing 1280×720 profile.
+
+## 41. Consolidated integration of PRs #59–#68 — 2026-11-22
+
+The ten open branches in this batch were merged into `integration/pr59-68` from
+`main` at `b7a4dd9`, in dependency order: #65 → #64 → #60 → #59 → #62 → #61 →
+#63 → #66 → #67 → #68. Every branch shared that merge base, so no branch needed
+rebasing, and all ten landed as real merge commits that keep their original
+commit ancestry traceable.
+
+- **Dependency correction.** The suggested order placed #66 before #67, but #68
+  patches `tests/SurfaceVariationTests.cs`, which #67 creates. #67 therefore
+  lands before #68. The three atmosphere PRs (#61 → #63 → #66) also land
+  consecutively so their overlapping `DayNight` fog path resolves once, in one
+  coherent shape, rather than three times.
+- **Lighting/atmosphere reconciliation.** Smooth cave exposure (#61),
+  phase-aware directional sunlight (#63), camera-depth distance haze (#66) and
+  unified torch/campfire emission (#68) now share one presentation path.
+  `DayNight` derives a continuous cave weight from trilinear cached skylight and
+  reuses it as the shelter predicate that selects exponential fog, so a cave
+  mouth no longer flips fog mode at a fixed terrain depth. The three lit shaders
+  (`LitAtlasShader`, `LitGlassShader`, `OpaqueArrayShader`) each combine
+  `directional_sky_light(...)` with the single `warm_block_response` /
+  `warm_block_illumination` / `warm_block_emission` helper; the lava shader keeps
+  its own emissive path. No per-torch light node, per-frame scan or extra shader
+  pass was added — campfires in fact lose one `OmniLight3D` each.
+- **Item presentation reconciliation.** #59 and #62 both rewrote the `ItemDb`
+  icon entry points. The merged form keeps shape-specific isometric previews for
+  the six slab/stair items and the exact `AtlasTexture` region for every other
+  block item, layered with the cached rarity facets, enchantment glints and wear
+  bands. `Player` keeps the single icon-state refresh that reacts to wear,
+  enchantment and item-ID changes without recreating its material.
+- **Atlas validator contract.** #65's validator originally required every
+  placeable item to expose an `AtlasTexture` region, which #59's shape previews
+  intentionally do not. `TextureAtlasValidator` now records an explicit
+  `UsesShapeIcon` contract: shape items must not also claim the atlas path, all
+  other placeable items must still match their exact region, and both paths
+  still require valid, painted face tiles. This is a documented contract update,
+  not a relaxed assertion.
+- **Content.** #67 appends `BlockId` 60 (Ash) and `ItemId` 109 (Ash) after every
+  existing value, on atlas tile 60, with soil material response, shovel mining,
+  block-item drop, sand-family dig/place audio and wet-surface participation.
+  No existing ID or atlas coordinate moved.
+- **Documentation.** `README.md` and `ROADMAP.md` collided on three separate
+  "section 35" headings; each PR record is preserved and renumbered 35–40, with
+  this section added. `PLAN.md` keeps its historical role and was not rewritten.
+- **Verification (this integration):** Debug and Release builds both completed
+  with 0 warnings and 0 errors; `scripts/verify.sh` passed **198,706 checks, 0
+  failures across 48 suites**. The standalone atlas report passes with 61
+  registered blocks, 60 referenced and 61 painted tiles, 47 placeable mappings,
+  256 mipmapped array layers and 0 errors / 0 warnings. Real-scene MX230
+  Forward+ captures reproduced matched references for warm lighting
+  (flame 14 / adjacent 13 in torch, campfire and overlap), the cave gradient
+  (15.00 / 14.00 / 5.27, darkness 0.778), four sun phases (mean luminance 0.366
+  / 0.518 / 0.335 / 0.260), distance haze at 121 chunks, and both gallery
+  renderer paths with 61 blocks.
+- **Compatibility:** save format V4, every persisted `BlockId`/`ItemId` value,
+  generator V1–V11 output and golden hashes, the greedy mesher, chunk streaming,
+  the packed atlas and texture-array contracts, and the `SetBlock`/`ApplyEdit`
+  mutation seam are unchanged. No world generation version was introduced by
+  this batch because no generator rule changed.
