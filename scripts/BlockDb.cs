@@ -94,6 +94,10 @@ public static class BlockDb
     private const int TWeatheredCobblestone = 53;
     private const int TCrackedBrick = 54;
     private const int TMossyBrick = 55;
+    // Biome foliage follows the weathering range; every tile stays unique.
+    private const int TSpruceLeaves = 56;
+    private const int TJungleLeaves = 57;
+    private const int TSwampLeaves = 58;
 
     /// <summary>
     /// One block's definition; the tiles array is indexed by face (FACE order).
@@ -222,6 +226,15 @@ public static class BlockDb
         new("Mossy Brick", true, false,
                 [TMossyBrick, TMossyBrick, TMossyBrick, TMossyBrick, TMossyBrick, TMossyBrick],
                 1.5f, ToolKind.Pick, 1),
+        new("Spruce Leaves", true, false,
+                [TSpruceLeaves, TSpruceLeaves, TSpruceLeaves, TSpruceLeaves, TSpruceLeaves, TSpruceLeaves],
+                0.2f, ToolKind.Hoe, Drops: false),
+        new("Jungle Leaves", true, false,
+                [TJungleLeaves, TJungleLeaves, TJungleLeaves, TJungleLeaves, TJungleLeaves, TJungleLeaves],
+                0.2f, ToolKind.Hoe, Drops: false),
+        new("Swamp Leaves", true, false,
+                [TSwampLeaves, TSwampLeaves, TSwampLeaves, TSwampLeaves, TSwampLeaves, TSwampLeaves],
+                0.2f, ToolKind.Hoe, Drops: false),
     ];
 
     // Cube face geometry shared by the mesher. Order: +Y, -Y, +X, -X, +Z, -Z.
@@ -380,6 +393,9 @@ public static class BlockDb
             _foliage = new byte[BlockCount];
             _foliage[(int)BlockId.Leaves] = 1;
             _foliage[(int)BlockId.BirchLeaves] = 1;
+            _foliage[(int)BlockId.SpruceLeaves] = 1;
+            _foliage[(int)BlockId.JungleLeaves] = 1;
+            _foliage[(int)BlockId.SwampLeaves] = 1;
             foreach (BlockId id in DefinedIds())
             {
                 int[] tiles = Defs[(int)id].Tiles;
@@ -397,7 +413,9 @@ public static class BlockDb
                 LightEmission[(int)id] = (byte)Mathf.Clamp(Mathf.RoundToInt(Defs[(int)id].Light * 15.0f), 0, 15);
                 LightOpacity[(int)id] = id switch
                 {
-                    BlockId.Water or BlockId.Leaves or BlockId.BirchLeaves => 2,
+                    BlockId.Water or BlockId.Leaves or BlockId.BirchLeaves
+                            or BlockId.SpruceLeaves or BlockId.JungleLeaves
+                            or BlockId.SwampLeaves => 2,
                     _ when IsSolid(id) && !IsTransparent(id) && !IsFoliage(id) => 15,
                     _ => 0,
                 };
@@ -494,7 +512,8 @@ public static class BlockDb
         return false;
     }
 
-    public static bool IsFoliage(BlockId id) => id is BlockId.Leaves or BlockId.BirchLeaves;
+    public static bool IsFoliage(BlockId id) => id is BlockId.Leaves or BlockId.BirchLeaves
+            or BlockId.SpruceLeaves or BlockId.JungleLeaves or BlockId.SwampLeaves;
 
     /// <summary>Cross-shaped plants: two crossed double-sided quads, no cube faces.</summary>
     public static bool IsCross(BlockId id) =>
@@ -993,6 +1012,12 @@ void fragment() {
         PaintBirchTop(img, rng);
         PaintLeaves(img, TBirchLeaves, new Color(0.38f, 0.58f, 0.26f), new Color(0.28f, 0.45f, 0.18f),
                 new Color(0.50f, 0.68f, 0.32f), rng);
+        PaintLeaves(img, TSpruceLeaves, new Color(0.16f, 0.34f, 0.25f), new Color(0.11f, 0.25f, 0.19f),
+                new Color(0.23f, 0.42f, 0.31f), rng);
+        PaintLeaves(img, TJungleLeaves, new Color(0.24f, 0.46f, 0.18f), new Color(0.17f, 0.36f, 0.13f),
+                new Color(0.31f, 0.53f, 0.23f), rng);
+        PaintLeaves(img, TSwampLeaves, new Color(0.34f, 0.43f, 0.19f), new Color(0.26f, 0.34f, 0.14f),
+                new Color(0.42f, 0.50f, 0.25f), rng);
         PaintCactusSide(img, rng);
         PaintCactusTop(img, rng);
         PaintCraftingTop(img, rng);

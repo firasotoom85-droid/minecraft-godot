@@ -82,7 +82,7 @@ build a comparison set. For representative V8 locations, see
 
 - Same seed, centre, time and weather, using the current generator V9.
 - 1600 × 900; 40 streamed chunks; capture completed successfully.
-- The capture runner supports all persisted generator versions V1–V9. These
+- The capture runner supports all persisted generator versions V1–V10. These
   screenshots compare two generator versions under the same viewing conditions;
   this PR does not modify either generator's output.
 
@@ -99,7 +99,7 @@ V8 world-generation capture set remains the baseline for terrain shape.
 - No `BlockId` or `ItemId` values were added, changed, reordered or reused.
 - No world-save fields or save versions changed.
 - No generator source or output was changed by this rendering-only
-  increment. The capture runner accepts existing generator versions V1–V9; the
+  increment. The capture runner accepts existing generator versions V1–V10; the
   committed reference frame intentionally uses V8 for comparison with the
   existing V8 visual baseline.
 - Voxel mutation, packed voxel-light propagation, greedy meshing, chunk
@@ -126,7 +126,7 @@ Record results for the exact commit under review:
 The screenshot runner emitted the project's existing missing-script-UID
 fallback warnings in this fresh worktree; Godot resolved the tracked scene
 script paths and completed the capture. The harness now accepts all supported
-generator versions on current main (V1–V9); the committed reference remains
+generator versions on current main (V1–V10); the committed reference remains
 V8 so it can be compared against the project's existing V8 visual baseline. The headless save suite also logs its
 expected failed-write and backup-recovery warnings while testing those error
 paths. Neither is reported as a clean, warning-free runtime launch.

@@ -32,11 +32,11 @@ change StandardMaterial3D; no per-frame material creation is performed.
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
   climate-shaped continents, smooth river valleys, mountain ranges, multi-form
   caves, aquifers, magma pockets, depth-aware ore veins, biome-specific trees,
-  surface ruins and underground chambers. New worlds use generator V9, which
-  preserves V8 terrain and structure placement while adding deterministic
-  mossy/weathered stone and cracked/mossy brick to generated ruins and old
-  structures. Generator versions 1–8 retain their frozen generation rules,
-  golden chunk hashes and save compatibility.
+  surface ruins and underground chambers. New worlds use generator V10, which
+  preserves V9 terrain, structure placement and deterministic ruin weathering
+  while mapping the tree species V8 already selects to distinct spruce, jungle
+  and swamp canopies. Generator versions 1–9 retain their frozen generation
+  rules, golden chunk hashes and save compatibility.
 - **Greedy meshing** — merged coplanar full-cube quads cut triangle count
   roughly in half; per-face meshing remains available for comparison. Vertex-light
   and AO samples are part of the merge key, preserving lighting boundaries.
@@ -508,15 +508,19 @@ are never renumbered or reused; new content is appended and pinned by tests.
 | `BlockId` 0–45 | Original terrain, plants, fluids and M6/M7 blocks, unchanged |
 | `BlockId` 46–51 | Oak-planks, cobblestone and brick slabs/stairs |
 | `BlockId` 52–55 | Mossy cobblestone, weathered cobblestone, cracked brick, mossy brick |
+| `BlockId` 56–58 | Spruce, jungle and swamp canopy foliage (V10 generation only) |
 | `ItemId` 0–90 | Original items, armor, tools, food, boss trophy and enchanting table, unchanged |
 | `ItemId` 91–96 | Slab and stair items, matching the block order above |
 | `ItemId` 97–100 | Empty bucket, water bucket, lava bucket, wooden boat |
 | `ItemId` 101–104 | Weathered material blocks, matching the block order above |
+| `ItemId` 105–107 | Spruce, jungle and swamp leaf blocks, matching BlockId 56–58 |
 
 `tests/ContentTests.cs` pins every block and item value and asserts that the
-building, transportation and weathering ranges remain append-only. `tests/WorldgenTests.cs`
-pins golden chunk hashes for V1, V3, V5, V6, V7 and V8; `tests/WeatheringTests.cs`
-checks deterministic V9 replacements against V8 chunks and reversed chunk order.
+building, transportation, weathering and foliage ranges remain append-only.
+`tests/WorldgenTests.cs` pins golden chunk hashes for V1, V3, V5, V6, V7 and V8;
+`tests/WeatheringTests.cs` checks deterministic V9 replacements against V8
+chunks and reversed chunk order; `tests/FoliageTests.cs` proves V10 changes only
+leaf cells relative to V9 and keeps every other byte identical.
 
 ## Villages, residents and quests
 
