@@ -288,12 +288,18 @@ public static class ContentTests
                 "leaf atlas tile maps to foliage response");
         TestAssert.Equal(SurfaceFamily.Glass, MaterialResponse.ForTile(14),
                 "glass atlas tile maps to glass response");
+        TestAssert.Equal(SurfaceFamily.Glass, MaterialResponse.ForTile(8),
+                "water fallback uses a smooth glass-like response");
         TestAssert.Equal(SurfaceFamily.Metal, MaterialResponse.ForItem(ItemId.IronIngot),
                 "metal inventory items map to metal response");
         TestAssert.Equal(SurfaceFamily.Metal, MaterialResponse.ForItem(ItemId.IronPick),
                 "metal tools use the shared metal response");
         TestAssert.Equal(SurfaceFamily.Wood, MaterialResponse.ForItem(ItemId.Bow),
                 "wooden ranged items use the shared wood response");
+        TestAssert.Equal(SurfaceFamily.Foliage, MaterialResponse.ForItem(ItemId.CookedBeef),
+                "food items use a diffuse organic response");
+        TestAssert.Equal(SurfaceFamily.Foliage, MaterialResponse.ForItem(ItemId.Feather),
+                "animal drops use a diffuse organic response");
         TestAssert.Equal((byte)0, (byte)SurfaceFamily.Stone, "stone response shader tag remains zero");
         TestAssert.Equal((byte)6, (byte)SurfaceFamily.Metal, "metal response shader tag remains six");
     }

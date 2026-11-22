@@ -59,7 +59,7 @@ public static class MaterialResponse
         7 or 23 or 24 or 25 or 28 or 30 or 31 or 32 or 38 or 39 or 40 or 41
             => SurfaceFamily.Foliage,
         12 or 13 or 19 or 20 => SurfaceFamily.Ore,
-        14 => SurfaceFamily.Glass,
+        8 or 14 => SurfaceFamily.Glass,
         3 or 10 or 11 or 15 or 35 or 44 or 45 or 47 or 48 => SurfaceFamily.Stone,
         _ => SurfaceFamily.Stone,
     };
@@ -82,7 +82,10 @@ public static class MaterialResponse
         ItemId.Shield or ItemId.EmberBlade => SurfaceFamily.Metal,
         ItemId.Leaves or ItemId.BirchLeaves or ItemId.TallGrass or ItemId.FlowerRed or
         ItemId.FlowerYellow or ItemId.Seeds or ItemId.Wheat or ItemId.Wool or
-        ItemId.Cactus or ItemId.Apple or ItemId.Bread or ItemId.Leather => SurfaceFamily.Foliage,
+        ItemId.Cactus or ItemId.Apple or ItemId.Bread or ItemId.Leather or ItemId.Feather or
+        ItemId.RawMutton or ItemId.CookedMutton or ItemId.RawBeef or ItemId.CookedBeef or
+        ItemId.RawPork or ItemId.CookedPork or ItemId.RawChicken or ItemId.CookedChicken or
+        ItemId.RawFish or ItemId.CookedFish => SurfaceFamily.Foliage,
         ItemId.Dirt or ItemId.Grass or ItemId.Sand or ItemId.Gravel or ItemId.Snow or
         ItemId.SnowGrass => SurfaceFamily.Soil,
         ItemId.Glass => SurfaceFamily.Glass,
