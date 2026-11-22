@@ -536,3 +536,33 @@ Recipe for re-exporting:
 including `export_presets.cfg`),
 `~/minecraft-userdata-backup-2026-10-13-m4b.tar.gz` (worlds + settings);
 M4a/M3/M2/M1 tarballs kept alongside.
+
+## 9. Integration checkpoint — 2026-11-22 (all outstanding PRs)
+
+The ten open PRs were resolved against `main` in dependency order. The
+performance chain merged first (#37 benchmark runner, then #38 MX230 work,
+then #46 streaming payload accounting). #45 unified voxel material art and
+surface responses; #40, #43 and #44 were closed as superseded after their
+remaining unique deltas were ported (water/organic material classification and
+the texture-array mipmap/detail regression test). #42 added deterministic V9
+structure weathering with atlas tiles renumbered to 52–55 so they no longer
+collide with the wood-grain tiles 49–51. The draft #41 branch was reconstructed
+as generator V10 biome foliage (BlockId 56–58 / ItemId 105–107) rather than
+merged, because its branch predated the village/quest save format, the
+hardened world-delete guard and the slab/stair/boat/bucket integrations. #39
+kept its player-journey audit as roadmap section 23, and #47 added the
+environment/weather/water visual pass on top.
+
+**Compatibility:** BlockId 0–58 and ItemId 0–107 are append-only; no released
+value moved. Save format stays v4. Generator versions 1–9 are byte-identical;
+new worlds use V10, whose only difference from V9 is the leaf material of tree
+species V8 already selected. All voxel writes still flow through
+`VoxelWorld.SetBlock`/`ApplyEdit`; no meshing, lighting or streaming seam was
+replaced.
+
+**Validation:** Debug, Release and ExportRelease builds have 0 warnings and 0
+errors. `scripts/verify.sh` reports 186,327 checks and 0 failures across 38
+suites, including V1–V8 golden hashes, V8-vs-V9 weathering deltas and the V10
+foliage-only delta. No new GPU capture, benchmark run or human playthrough was
+performed during this integration; the committed captures and benchmark
+records come from the individual PRs.

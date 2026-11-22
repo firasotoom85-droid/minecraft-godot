@@ -11,3 +11,6 @@ obj/
 
 # Local .NET SDK provisioned for offline/CI-parity builds
 .dotnet/
+
+# Godot regenerates texture import metadata; do not track screenshot imports
+*.png.import

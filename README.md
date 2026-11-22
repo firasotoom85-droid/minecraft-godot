@@ -166,14 +166,14 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-The current 2026-11-22 suite reports the full check count printed by
-`scripts/verify.sh` across all suites, with 0 build warnings. It includes
-deterministic V9 weathering, V8-to-V9 chunk-diff and chunk-order regressions,
-the combined save round-trip (shapes + villagers + quests + boats), graphics-
-preset migration, render-only mesher collision checks, quest reward wiring,
-fluid/shape
-boundaries, legacy saves, every pinned block/item ID and V1–V8 golden chunk
-hashes. The headless runner and a verbose real-scene soak both exit without
+The 2026-11-22 integration suite reports **186,327 checks, 0 failures** across
+38 suites, with 0 build warnings. It includes deterministic V9 weathering,
+the V10 foliage-only delta, V8-to-V9 chunk-diff and chunk-order regressions,
+atmosphere/weather/water presentation, the performance runner, streaming memory
+accounting, the combined save round-trip (shapes + villagers + quests + boats),
+graphics-preset migration, render-only mesher collision checks, quest reward
+wiring, fluid/shape boundaries, legacy saves, every pinned block/item ID and
+V1–V8 golden chunk hashes. The headless runner and a verbose real-scene soak both exit without
 leaked ObjectDB instances or RIDs. The project-specific reliability audit,
 including seven confirmed fixes and the remaining manual-coverage gaps, is in
 [`docs/RELIABILITY_AUDIT_2026-11-21.md`](docs/RELIABILITY_AUDIT_2026-11-21.md).
@@ -554,8 +554,11 @@ completion and reward claims persist in `world.json`.
 - **Visual validation is representative, not exhaustive.** V8 has matched
   GPU-rendered before/after captures for river, steep-bank, mountain, forest and
   cave locations across four seeds. V9 weathering has close and distant GPU
-  captures on the MX230, but not a full human playthrough across every structure,
-  biome, preset and lighting condition. Far-terrain LOD remains terrain-only and
+  captures on the MX230, and the atmosphere pass has matched V8/V9 reference
+  frames, but there is no full human playthrough across every structure, biome,
+  preset and lighting condition. V10's spruce/jungle/swamp canopies are covered
+  by headless atlas and chunk-delta tests but have not yet been captured on the
+  GPU as a dedicated before/after set. Far-terrain LOD remains terrain-only and
   does not independently render surface structure meshes.
 - **Soak coverage is headless.** The 5- and 60-minute survival soaks exercise
   the real main scene, physics, mobs, weather, saves and cleanup, but they do not
