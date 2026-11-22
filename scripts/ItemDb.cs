@@ -49,6 +49,9 @@ public static class ItemDb
         (ItemId.WeatheredCobblestone, BlockId.WeatheredCobblestone),
         (ItemId.CrackedBrick, BlockId.CrackedBrick),
         (ItemId.MossyBrick, BlockId.MossyBrick),
+        (ItemId.SpruceLeaves, BlockId.SpruceLeaves),
+        (ItemId.JungleLeaves, BlockId.JungleLeaves),
+        (ItemId.SwampLeaves, BlockId.SwampLeaves),
     ];
 
     private static readonly Dictionary<BlockId, ItemId> BlockToItem =

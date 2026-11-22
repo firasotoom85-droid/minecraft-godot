@@ -62,6 +62,9 @@ public enum ItemId : byte
 
     // Generated structure weathering (append-only persisted IDs).
     MossyCobblestone, WeatheredCobblestone, CrackedBrick, MossyBrick,
+
+    // Biome-specific canopy foliage (append-only; matches BlockId 56-58).
+    SpruceLeaves, JungleLeaves, SwampLeaves,
 }
 
 public enum ToolKind : byte

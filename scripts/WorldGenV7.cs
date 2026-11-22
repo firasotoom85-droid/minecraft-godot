@@ -521,7 +521,16 @@ public partial class VoxelWorld
     private BlockId TreeBlockForV7(TreeInfo tree, int wx, int wy, int wz)
     {
         BlockId log = tree.Kind == 1 ? BlockId.BirchLog : BlockId.Log;
-        BlockId leaves = tree.Kind == 1 ? BlockId.BirchLeaves : BlockId.Leaves;
+        // V1-V9 keep the original two foliage ids byte-for-byte. V10 maps the
+        // species V8 already selects to its own canopy without moving a tree.
+        BlockId leaves = tree.Kind switch
+        {
+            1 => BlockId.BirchLeaves,
+            2 when _genVersion >= WorldGenV10.Version => BlockId.SpruceLeaves,
+            3 when _genVersion >= WorldGenV10.Version => BlockId.JungleLeaves,
+            4 when _genVersion >= WorldGenV10.Version => BlockId.SwampLeaves,
+            _ => BlockId.Leaves,
+        };
         int dx = wx - tree.X;
         int dz = wz - tree.Z;
 
