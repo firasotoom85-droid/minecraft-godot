@@ -551,6 +551,7 @@ disposable world. Matching V8 and V9 MX230 samples and the remaining manual
 capture matrix are documented in
 [`docs/VISUAL_MILESTONE_4_ENVIRONMENT.md`](docs/VISUAL_MILESTONE_4_ENVIRONMENT.md).
 
+<<<<<<< HEAD
 For a repeatable cave-mouth exposure check, pass `true` as the final argument.
 The fixture opens a temporary shaft and short passage into a torch-lit chamber
 through `VoxelWorld.SetBlock`, then logs cached skylight at the entrance,
@@ -559,6 +560,52 @@ passage and player camera:
 ```bash
 godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 11 512 -372 0.50 Clear /tmp/cave-exposure.png true
 ```
+=======
+### Directional sunlight and baked skylight
+
+The existing 600-second day/night clock and single rotating directional sun
+remain the owners of solar time and real-time shadows. DayNight now evaluates
+a normalized world-space sun vector from that same rotation and a phase-based
+sun colour: neutral daylight, warmer dawn/sunset and a cool blue night fill.
+The colour, direction and sky-fill tint update the existing shared chunk
+materials; atlas, greedy texture-array, glass, lava and water shaders use the
+world-space face normal to give the baked sky channel a restrained
+sun-facing response. The ordinary directional light remains responsible for
+dynamic shadowing, so this is not a second shadow or emitter-light system.
+
+The packed 4-bit skylight/block-light channels, propagation caches, mesh
+vertex layout and greedy face keys are unchanged. No light node is created per
+torch or block emitter, and no chunk is remeshed as the sun moves. LOW and
+BALANCED presets are unchanged; LOW retains its 0.80 render scale, 45 m /
+1024 px shadow budget and disabled SSAO/SSR/glow/volumetric fog. The new
+response adds no screen-space pass.
+
+For a repeatable phase comparison, use the same V8 world and camera position
+and change only the clock value:
+
+~~~bash
+GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64
+export DISPLAY=:0
+export DOTNET_ROOT=/path/to/dotnet
+export PATH="$DOTNET_ROOT:$PATH"
+
+"$GODOT" --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 8 512 -372 0.25 Clear res://docs/visual/screenshots/sunlight-dawn-clear.png
+"$GODOT" --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 8 512 -372 0.50 Clear res://docs/visual/screenshots/sunlight-noon-clear.png
+"$GODOT" --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 8 512 -372 0.75 Clear res://docs/visual/screenshots/sunlight-sunset-clear.png
+"$GODOT" --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 8 512 -372 0.00 Clear res://docs/visual/screenshots/sunlight-night-clear.png
+~~~
+
+All four frames use seed 1337, generator V8, centre (512, -372), clear
+weather and a 1600×900 production viewport. Each capture streamed 49 chunks
+and completed successfully on a GeForce MX230 using Godot 4.7.2 .NET / Vulkan
+Forward+. Only `World.TimeOfDay` changes between frames; world geometry,
+camera and weather remain matched. The mean frame luminance was 0.389 at dawn,
+0.524 at noon, 0.353 at sunset and 0.260 at night. View the committed frames:
+[dawn](docs/visual/screenshots/sunlight-dawn-clear.png) ·
+[noon](docs/visual/screenshots/sunlight-noon-clear.png) ·
+[sunset](docs/visual/screenshots/sunlight-sunset-clear.png) ·
+[night](docs/visual/screenshots/sunlight-night-clear.png).
+>>>>>>> origin/feature/directional-sunlight-atmosphere
 
 ### Water-adjacent visual validation
 

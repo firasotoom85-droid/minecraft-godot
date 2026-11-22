@@ -692,6 +692,18 @@ render_mode cull_back, depth_draw_opaque, alpha_to_coverage;
 uniform sampler2D atlas : source_color, filter_nearest, repeat_disable;
 uniform vec4 tint = vec4(1.0);
 uniform float sky_light_energy = 1.0;
+uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
+uniform vec3 sun_color = vec3(1.0, 0.96, 0.89);
+uniform vec3 sky_light_color = vec3(0.88, 0.94, 1.0);
+uniform float sunlight_energy = 1.0;
+
+vec3 directional_sky_light(vec3 world_normal, float sky) {
+    float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
+    float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
+    float directional_gain = 0.88 + direct_sun * 0.12;
+    vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
+    return sky * sky_tint * directional_gain;
+}
 
 uniform vec3 response_stone = vec3(0.8, 0.0, 0.2);
 uniform vec3 response_wood = vec3(0.8, 0.0, 0.2);
@@ -739,7 +751,7 @@ void fragment() {
     float shadowed_block = block * (1.0 - sky);
     float shade = COLOR.b;
     vec3 warm = vec3(1.0, 0.68, 0.38);
-    vec3 illumination = vec3(0.035) + vec3(1.0, 0.98, 0.92) * sky + warm * shadowed_block * 0.42;
+    vec3 illumination = vec3(0.035) + directional_sky_light(surface_world_normal, sky) + warm * shadowed_block * 0.42;
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
     EMISSION = tex.rgb * warm * shadowed_block * 0.08;
     ALPHA = tex.a;
@@ -761,6 +773,18 @@ render_mode blend_mix, cull_back, depth_draw_opaque;
 
 uniform sampler2D atlas : source_color, filter_nearest, repeat_disable;
 uniform float sky_light_energy = 1.0;
+uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
+uniform vec3 sun_color = vec3(1.0, 0.96, 0.89);
+uniform vec3 sky_light_color = vec3(0.88, 0.94, 1.0);
+uniform float sunlight_energy = 1.0;
+
+vec3 directional_sky_light(vec3 world_normal, float sky) {
+    float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
+    float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
+    float directional_gain = 0.88 + direct_sun * 0.12;
+    vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
+    return sky * sky_tint * directional_gain;
+}
 
 uniform vec3 response_stone = vec3(0.8, 0.0, 0.2);
 uniform vec3 response_wood = vec3(0.8, 0.0, 0.2);
@@ -780,6 +804,12 @@ vec3 surface_response(float family) {
     return response_stone;
 }
 
+varying vec3 surface_world_normal;
+
+void vertex() {
+    surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+}
+
 void fragment() {
     vec4 tex = texture(atlas, UV);
     float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
@@ -787,7 +817,7 @@ void fragment() {
     float shadowed_block = block * (1.0 - sky);
     float shade = COLOR.b;
     vec3 warm = vec3(1.0, 0.72, 0.46);
-    vec3 illumination = vec3(0.05) + vec3(1.0, 0.98, 0.92) * sky + warm * shadowed_block * 0.4;
+    vec3 illumination = vec3(0.05) + directional_sky_light(surface_world_normal, sky) + warm * shadowed_block * 0.4;
     ALBEDO = tex.rgb * illumination * shade;
     EMISSION = tex.rgb * warm * shadowed_block * 0.08;
     ALPHA = tex.a * 0.58;
@@ -833,6 +863,18 @@ render_mode cull_back, depth_draw_opaque, alpha_to_coverage;
 uniform sampler2DArray tiles : source_color, filter_nearest_mipmap;
 uniform vec4 tint = vec4(1.0);   // wet-ground darkening (Weather)
 uniform float sky_light_energy = 1.0;
+uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
+uniform vec3 sun_color = vec3(1.0, 0.96, 0.89);
+uniform vec3 sky_light_color = vec3(0.88, 0.94, 1.0);
+uniform float sunlight_energy = 1.0;
+
+vec3 directional_sky_light(vec3 world_normal, float sky) {
+    float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
+    float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
+    float directional_gain = 0.88 + direct_sun * 0.12;
+    vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
+    return sky * sky_tint * directional_gain;
+}
 
 uniform vec3 response_stone = vec3(0.8, 0.0, 0.2);
 uniform vec3 response_wood = vec3(0.8, 0.0, 0.2);
@@ -884,7 +926,7 @@ void fragment() {
     float shadowed_block = block * (1.0 - sky);
     float shade = COLOR.b;
     vec3 warm = vec3(1.0, 0.68, 0.38);
-    vec3 illumination = vec3(0.035) + vec3(1.0, 0.98, 0.92) * sky + warm * shadowed_block * 0.42;
+    vec3 illumination = vec3(0.035) + directional_sky_light(surface_world_normal, sky) + warm * shadowed_block * 0.42;
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
     EMISSION = tex.rgb * warm * shadowed_block * 0.08;
     ALPHA = tex.a;
@@ -954,6 +996,24 @@ render_mode cull_back, depth_draw_opaque, specular_disabled;
 
 uniform sampler2D atlas : source_color, filter_nearest, repeat_disable;
 uniform float sky_light_energy = 1.0;
+uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
+uniform vec3 sun_color = vec3(1.0, 0.96, 0.89);
+uniform vec3 sky_light_color = vec3(0.88, 0.94, 1.0);
+uniform float sunlight_energy = 1.0;
+
+vec3 directional_sky_light(vec3 world_normal, float sky) {
+    float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
+    float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
+    float directional_gain = 0.88 + direct_sun * 0.12;
+    vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
+    return sky * sky_tint * directional_gain;
+}
+
+varying vec3 surface_world_normal;
+
+void vertex() {
+    surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+}
 
 void fragment() {
     vec4 tex = texture(atlas, UV);
@@ -961,7 +1021,7 @@ void fragment() {
     float block = COLOR.g;
     float shade = COLOR.b;
     vec3 warm = vec3(1.0, 0.48, 0.12);
-    vec3 illumination = vec3(0.03) + vec3(1.0, 0.94, 0.82) * sky + warm * block * 0.35;
+    vec3 illumination = vec3(0.03) + directional_sky_light(surface_world_normal, sky) + warm * block * 0.35;
     ALBEDO = tex.rgb * illumination * shade;
     EMISSION = tex.rgb * (warm * 0.9 + warm * block * 0.7);
     ALPHA = tex.a;

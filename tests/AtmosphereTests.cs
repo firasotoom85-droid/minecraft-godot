@@ -10,6 +10,7 @@ public static class AtmosphereTests
     {
         TestDayNightPalette();
         TestCaveExposure();
+        TestSunlightDirectionAndBakedChannels();
         TestWeatherPrecipitationSelection();
         TestWaterDepthSpace();
     }
@@ -64,6 +65,7 @@ public static class AtmosphereTests
         }
     }
 
+<<<<<<< HEAD
     private static void TestCaveExposure()
     {
         float openSky = DayNight.EvaluateCaveDarkness(15.0f);
@@ -96,6 +98,127 @@ public static class AtmosphereTests
         float after = DayNight.EvaluateCaveDarkness(8.5f);
         TestAssert.Check(System.Math.Abs(before - after) < 0.15f,
                 "fractional skylight interpolation changes cave exposure smoothly between adjacent cells");
+    }
+
+    private static void TestSunlightDirectionAndBakedChannels()
+    {
+        Vector3 dawnDirection = DayNight.EvaluateSunDirection(0.25);
+        Vector3 noonDirection = DayNight.EvaluateSunDirection(0.50);
+        Vector3 sunsetDirection = DayNight.EvaluateSunDirection(0.75);
+        Vector3 nightDirection = DayNight.EvaluateSunDirection(0.00);
+
+        TestAssert.Check(dawnDirection.X < 0.0f && dawnDirection.Z > 0.0f
+                        && Mathf.Abs(dawnDirection.Y) < 0.0001f,
+                "dawn sun direction rises from the eastern horizon");
+        TestAssert.Check(noonDirection.DistanceTo(Vector3.Up) < 0.0001f,
+                "noon sun direction is overhead");
+        TestAssert.Check(sunsetDirection.X > 0.0f && sunsetDirection.Z < 0.0f
+                        && Mathf.Abs(sunsetDirection.Y) < 0.0001f,
+                "sunset sun direction crosses the western horizon");
+        TestAssert.Check(nightDirection.DistanceTo(Vector3.Down) < 0.0001f,
+                "midnight sun direction is below the horizon");
+        TestAssert.Check(Mathf.Abs(dawnDirection.Length() - 1.0f) < 0.0001f
+                        && Mathf.Abs(noonDirection.Length() - 1.0f) < 0.0001f
+                        && Mathf.Abs(sunsetDirection.Length() - 1.0f) < 0.0001f
+                        && Mathf.Abs(nightDirection.Length() - 1.0f) < 0.0001f,
+                "sun direction stays normalized at all four day phases");
+        TestAssert.Check(DayNight.EvaluateSunDirection(1.5).DistanceTo(noonDirection) < 0.0001f
+                        && DayNight.EvaluateSunDirection(-0.75).DistanceTo(dawnDirection) < 0.0001f,
+                "sun direction wraps consistently for scrubbed and negative clock values");
+
+        DayNight.SkyPalette dawn = DayNight.EvaluatePalette(0.25, 0.0, 0.0);
+        DayNight.SkyPalette noon = DayNight.EvaluatePalette(0.50, 0.0, 0.0);
+        DayNight.SkyPalette sunset = DayNight.EvaluatePalette(0.75, 0.0, 0.0);
+        DayNight.SkyPalette midnight = DayNight.EvaluatePalette(0.00, 0.0, 0.0);
+        DayNight.SkyPalette overcast = DayNight.EvaluatePalette(0.25, 1.0, 0.0);
+
+        TestAssert.Check(dawn.SunColor.R > dawn.SunColor.G
+                        && dawn.SunColor.G > dawn.SunColor.B,
+                "dawn directional sunlight is warm amber");
+        TestAssert.Check(sunset.SunColor.R > sunset.SunColor.G
+                        && sunset.SunColor.G > sunset.SunColor.B,
+                "sunset directional sunlight is warmer than the noon baseline");
+        TestAssert.Check((dawn.SunColor.R - dawn.SunColor.B)
+                        > (noon.SunColor.R - noon.SunColor.B),
+                "low-angle sunlight is warmer than noon sunlight");
+        TestAssert.Check(midnight.SkyLightColor.B > midnight.SkyLightColor.R,
+                "night baked skylight retains a cool blue fill");
+        TestAssert.Check(overcast.SunEnergy < dawn.SunEnergy,
+                "overcast attenuates the directional sunlight contribution");
+
+        Vector3 previous = DayNight.EvaluateSunDirection(0.0);
+        for (int i = 1; i <= 100; i++)
+        {
+            Vector3 current = DayNight.EvaluateSunDirection(i / 100.0);
+            TestAssert.Check(current.DistanceTo(previous) < 0.07f,
+                    $"sun direction remains continuous across the day at {i / 100.0:F2}");
+            previous = current;
+        }
+
+        string[] shaderSources =
+        [
+            BlockDb.MakeOpaqueMaterial().Shader?.Code ?? string.Empty,
+            BlockDb.MakeArrayOpaqueMaterial().Shader?.Code ?? string.Empty,
+            ChunkMaterials.Glass.Shader?.Code ?? string.Empty,
+            ChunkMaterials.Lava.Shader?.Code ?? string.Empty,
+            (ChunkMaterials.Water as ShaderMaterial)?.Shader?.Code ?? string.Empty,
+        ];
+        string[] shaderNames = ["atlas", "texture-array", "glass", "lava", "water"];
+        for (int i = 0; i < shaderSources.Length; i++)
+        {
+            TestAssert.Check(shaderSources[i].Contains("uniform vec3 sun_direction")
+                            && shaderSources[i].Contains("uniform vec3 sun_color")
+                            && shaderSources[i].Contains("uniform vec3 sky_light_color")
+                            && shaderSources[i].Contains("uniform float sunlight_energy")
+                            && shaderSources[i].Contains("directional_sky_light"),
+                    $"{shaderNames[i]} shader consumes the shared directional baked-sky channels");
+        }
+
+        bool originalGreedy = Mesher.Greedy;
+        ShaderMaterial atlasOpaque;
+        ShaderMaterial arrayOpaque;
+        try
+        {
+            Mesher.Greedy = false;
+            atlasOpaque = (ShaderMaterial)ChunkMaterials.Opaque;
+            Mesher.Greedy = true;
+            arrayOpaque = (ShaderMaterial)ChunkMaterials.Opaque;
+        }
+        finally
+        {
+            Mesher.Greedy = originalGreedy;
+        }
+
+        Vector3 testDirection = new Vector3(1.0f, 0.5f, -0.25f).Normalized();
+        Color testSun = new(1.0f, 0.45f, 0.25f);
+        Color testSky = new(0.62f, 0.74f, 1.0f);
+        ChunkMaterials.SetSkyLighting(0.37f, testDirection, testSun, testSky, 0.64f);
+
+        ShaderMaterial[] sharedMaterials =
+        [
+            atlasOpaque,
+            arrayOpaque,
+            ChunkMaterials.Glass,
+            ChunkMaterials.Lava,
+            (ShaderMaterial)ChunkMaterials.Water,
+        ];
+        foreach (ShaderMaterial material in sharedMaterials)
+        {
+            Vector3 actualDirection = material.GetShaderParameter("sun_direction").AsVector3();
+            Vector3 actualSun = material.GetShaderParameter("sun_color").AsVector3();
+            Vector3 actualSky = material.GetShaderParameter("sky_light_color").AsVector3();
+            TestAssert.Check(actualDirection.DistanceTo(testDirection) < 0.0001f,
+                    "existing shared chunk materials receive the current normalized sun direction");
+            TestAssert.Equal(new Vector3(testSun.R, testSun.G, testSun.B), actualSun,
+                    "existing shared chunk materials receive the current sun colour");
+            TestAssert.Equal(new Vector3(testSky.R, testSky.G, testSky.B), actualSky,
+                    "existing shared chunk materials receive the current sky-fill colour");
+            TestAssert.Equal(0.37f, material.GetShaderParameter("sky_light_energy").AsSingle(),
+                    "shared material updates retain the dynamic baked-sky energy scalar");
+        }
+
+        ChunkMaterials.SetSkyLighting(noon.SkyLightEnergy, noon.SunDirection,
+                noon.SunColor, noon.SkyLightColor, noon.SunEnergy);
     }
 
     private static void TestWeatherPrecipitationSelection()
