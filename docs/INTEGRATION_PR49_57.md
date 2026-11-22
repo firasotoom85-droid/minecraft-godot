@@ -125,8 +125,8 @@ of neighbour sampling.
 - [x] Append-only IDs, V4 saves, V1–V10 generation preserved
 - [x] V11 deterministic and delta-limited
 - [x] README, ROADMAP and PLAN reconciled
-- [ ] Consolidated PR opened (pending push)
-- [ ] Original PRs closed only after the consolidated PR is verified
+- [x] Consolidated PR [#58](https://github.com/firasotoom85-droid/minecraft-godot/pull/58) opened; CI `build-and-test` passes
+- [x] Original PRs #49–#57 linked to #58 as superseded and closed after the combined verification passed
 
 ## Remaining limitations
 
