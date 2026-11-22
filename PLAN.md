@@ -567,6 +567,16 @@ foliage-only delta. No new GPU capture, benchmark run or human playthrough was
 performed during this integration; the committed captures and benchmark
 records come from the individual PRs.
 
+**Addendum — PRs #49–#57:** the next integration appended `BlockId.RiverReeds`
+59 and `ItemId.RiverReeds` 108 and introduced deterministic V11 shoreline
+reeds. V1–V10 remain byte-identical, save format stays V4, and V11’s only delta
+from V10 is air cells becoming reeds on shallow grass/sand banks. The combined
+suite now registers 46 suites; the latest full run reported 189,838 checks and
+0 failures. V9/V10 anchors match the pre-integration baseline, reversed V11
+chunk order produces identical hashes, and the wet bit is part of the greedy
+merge key. See `docs/INTEGRATION_PR49_57.md`. This addendum records the newer
+result without replacing the historical measurement above.
+
 ## 10. Texture/light contrast audit — 2026-11-22
 
 Audited the integrated atlas, greedy texture-array, glass and animated-water material paths
@@ -591,7 +601,7 @@ carves a temporary chamber and places the torch through `VoxelWorld.SetBlock`
 in its disposable visual-test world. No additional GPU benchmark was run for
 this shader-only change.
 
-## 10. Consistent block-edge shading — 2026-11-22
+## 11. Consistent block-edge shading — 2026-11-22
 
 - The existing mesher already baked packed sky/block light and four-corner AO;
   the gap was that the AO stencil sampled whole neighbouring block IDs. A slab

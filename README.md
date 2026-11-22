@@ -9,6 +9,10 @@ event-driven first-hour survival guide.
 The project is a long-running solo build with an extensive design log in
 [`PLAN.md`](PLAN.md) and a forward roadmap in [`ROADMAP.md`](ROADMAP.md).
 
+PRs #49–#57 are integrated on `integration/pr49-57`; the contribution map,
+conflict resolutions, compatibility checks and measured validation are in
+[`docs/INTEGRATION_PR49_57.md`](docs/INTEGRATION_PR49_57.md).
+
 ## Unified voxel material response
 
 World surfaces and first-person held items share the response palette in
@@ -106,7 +110,7 @@ format, voxel mutation APIs, greedy meshing or chunk streaming.
 ## Material test gallery
 
 `res://tests/MaterialGallery.tscn` is a standalone Forward+ inspection scene for
-every registered block ID. It lays the current 59 definitions into an 8×8
+every registered block ID. It lays the current 60 definitions into an 8×8
 pedestal gallery, adds an ID/name legend, and captures the complete set at close
 and distant camera scales. The scene uses a neutral display stage and fixed key /
 ambient lighting so material families can be compared under one repeatable setup.
@@ -293,10 +297,15 @@ with the Godot 4.7.2 .NET editor or executable. It uses the production `InvSlot`
 control and renders tools, weapons and armor at full, 74%, 49% and 24% durability;
 the PNG is written to `user://equipment-durability-visual-validation.png`.
 
-The 2026-11-22 integration suite reports **186,602 checks, 0 failures** across
-40 suites, with 0 build warnings. The selection-outline suite adds 275 checks
-for two-pass contrast materials and cube/slab/stair geometry, including every
-partial-block state. It includes deterministic V9 weathering,
+The integrated PR #49–#57 suite reports **189,838 checks, 0 failures** across
+46 suites, with 0 build warnings. Loop-based worldgen scans can vary by a few
+checks between runs, but zero failures is required. The selection-outline suite
+adds 275 checks for two-pass contrast materials and cube/slab/stair geometry,
+including every partial-block state. `integration-regressions` pins V9, V10 and
+V11 golden chunk hashes, runs V11 forward and reversed chunk order across
+positive and negative coordinates, proves the V11 delta is only air-to-reed
+cells, round-trips appended reed content through V4 saves, and checks the wet
+merge bit directly. Coverage also includes deterministic V9 weathering,
 the V10 foliage-only delta, the V10-to-V11 shoreline-only delta,
 V8-to-V9 chunk-diff and chunk-order regressions,
 atmosphere/weather/water presentation, the performance runner, streaming memory
@@ -330,7 +339,7 @@ input policy.
 Validation on Godot 4.7.2 .NET / .NET 9:
 - Debug build: 0 warnings, 0 errors.
 - Release build: 0 warnings, 0 errors.
-- `scripts/verify.sh`: **186,422 checks, 0 failures**.
+- `scripts/verify.sh`: **189,838 checks, 0 failures**.
 - First-person animation profiles and pose envelopes have automated coverage;
   rendered pose sign-off on the MX230 and physical controller action review
   remain manual. Boat handling and broader village/trading usability also
@@ -700,12 +709,14 @@ are never renumbered or reused; new content is appended and pinned by tests.
 | `BlockId` 0–45 | Original terrain, plants, fluids and M6/M7 blocks, unchanged |
 | `BlockId` 46–51 | Oak-planks, cobblestone and brick slabs/stairs |
 | `BlockId` 52–55 | Mossy cobblestone, weathered cobblestone, cracked brick, mossy brick |
-| `BlockId` 56–58 | Spruce, jungle and swamp canopy foliage (V10 generation only) |
+| `BlockId` 56–58 | Spruce, jungle and swamp canopy foliage (V10+ generation) |
+| `BlockId` 59 | River reeds (V11 shoreline generation) |
 | `ItemId` 0–90 | Original items, armor, tools, food, boss trophy and enchanting table, unchanged |
 | `ItemId` 91–96 | Slab and stair items, matching the block order above |
 | `ItemId` 97–100 | Empty bucket, water bucket, lava bucket, wooden boat |
 | `ItemId` 101–104 | Weathered material blocks, matching the block order above |
 | `ItemId` 105–107 | Spruce, jungle and swamp leaf blocks, matching BlockId 56–58 |
+| `ItemId` 108 | River reed item, matching BlockId 59 |
 
 `tests/EquipmentDurabilityVisualTests.cs` covers wear thresholds, malformed
 value clamping, pixel-distinct cached icon variants, block-atlas compatibility
@@ -713,11 +724,14 @@ and the no-extra-slot-node draw path. Equipment wear visuals do not add persiste
 fields or require save migration.
 
 `tests/ContentTests.cs` pins every block and item value and asserts that the
-building, transportation, weathering and foliage ranges remain append-only.
-`tests/WorldgenTests.cs` pins golden chunk hashes for V1, V3, V5, V6, V7 and V8;
-`tests/WeatheringTests.cs` checks deterministic V9 replacements against V8
-chunks and reversed chunk order; `tests/FoliageTests.cs` proves V10 changes only
-leaf cells relative to V9 and keeps every other byte identical.
+building, transportation, weathering, foliage and reed ranges remain
+append-only. `tests/WorldgenTests.cs` pins golden chunk hashes for V1, V3, V5,
+V6, V7 and V8; `tests/IntegrationRegressionTests.cs` pins V9, V10 and V11
+anchors across positive and negative coordinates. `tests/WeatheringTests.cs`
+checks deterministic V9 replacements against V8 chunks and reversed chunk
+order; `tests/FoliageTests.cs` proves V10 changes only leaf cells relative to
+V9 and keeps every other byte identical; the integration suite proves V11
+changes only air cells into shoreline reeds relative to V10.
 
 ## Villages, residents and quests
 
@@ -755,8 +769,10 @@ completion and reward claims persist in `world.json`.
   frames, but there is no full human playthrough across every structure, biome,
   preset and lighting condition. V10's spruce/jungle/swamp canopies are covered
   by headless atlas and chunk-delta tests but have not yet been captured on the
-  GPU as a dedicated before/after set. Far-terrain LOD remains terrain-only and
-  does not independently render surface structure meshes.
+  GPU as a dedicated before/after set. V11 shoreline reeds have close and
+  distant MX230 captures at seed 1337; other biomes, weather and presets still
+  need visual review. Far-terrain LOD remains terrain-only and does not
+  independently render surface structure meshes.
 - **Soak coverage is headless.** The 5- and 60-minute survival soaks exercise
   the real main scene, physics, mobs, weather, saves and cleanup, but they do not
   replace a human combat, building or visual playtest. The five-minute run is
@@ -767,7 +783,10 @@ completion and reward claims persist in `world.json`.
   with fixed seeds/routes and JSON/CSV output, but no new comparable Release
   baseline has been recorded yet. The historical 30.6 FPS result is a single
   unseeded Debug measurement. See `docs/PERFORMANCE_BENCHMARKS.md` and
-  `docs/PERF_BASELINE.md`.
+  `docs/PERF_BASELINE.md`. Headless mesher measurements for this integration
+  show the shared partial-block AO path at about 7.9 ms per greedy chunk versus
+  6.9 ms on the pre-integration baseline (roughly 15%); V11 world generation is
+  at parity with V10. These are CPU measurements only, not rendered FPS claims.
 
 ## License
 

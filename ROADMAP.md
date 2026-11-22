@@ -2,7 +2,9 @@
 
 Generated 2026-10-21 from a code audit of the current project plus the
 progress recorded in `PLAN.md`. `PLAN.md` remains the historical progress log
-(M0–M4b); this file is the forward plan.
+(M0–M4b). This file now combines that original forward plan, historical
+implementation snapshots, and the current milestone audit at the top; dates and
+“superseded” markers distinguish the records from current priorities.
 
 **Baseline note:** this roadmap began as a source audit before the M5
 verification work. Historical measurements remain in docs/PERF_BASELINE.md;
@@ -12,6 +14,34 @@ docs/PERFORMANCE_MILESTONE_2_MX230.md. The equivalent RTX 4060 comparison
 remains pending.
 
 ---
+
+## Current milestone audit — 2026-11-22
+
+This audit is based on the implemented code, not on the original schedule.
+
+| Milestone | Status | Evidence | Remaining |
+|---|---|---|---|
+| **M5** Foundation & guardrails | Complete | `BlockCount` 128, `TileCount` 256, append-only content validator, 46-suite headless runner, `WorldSave` V4 with atomic backups, performance runner with JSON/CSV output | RTX 4060 comparison and a new controlled Release baseline |
+| **M6** Base & progression | Complete | Torch/light propagation, chest, furnace and ingots, armor, farming, bed, ladder, swimming, fluid buckets | Broader survival balance and human playtesting |
+| **M7** Living world & goals | Complete | Species herds, hostile roster, dungeon and Ember Warden, trader, fishing, achievements, villages/quests | Human combat and quest readability review |
+| **M8** UX, platform & 1.0 | Partially complete | Rebinding, gamepad actions, contextual onboarding, world management/portability, photo mode/quality governor, export presets | Arabic/RTL localization and authored music tracks are not implemented; final 1.0 sign-off remains |
+| **M9** Scale & online | Not started | No multiplayer, dimensions, or height-256 world support in the codebase | Deliberately post-1.0 |
+| **M10** Post-1.0 | Not started | No data-driven content/mod API or additional non-cube families beyond slabs and stairs | Deliberately post-1.0 |
+
+**PRs #49–#57 integration:** the nine open branches are merged on
+`integration/pr49-57` with their unique changes preserved. `BlockId` 59 and
+`ItemId` 108 are appended, save format remains V4, and V1–V10 generation stays
+byte-identical. V11 is deterministic across positive/negative coordinates and
+reversed chunk order, and its only delta from V10 is air cells becoming
+shoreline reeds. The full contribution map and validation are in
+[`docs/INTEGRATION_PR49_57.md`](docs/INTEGRATION_PR49_57.md).
+
+**Validation:** Debug and Release builds report 0 warnings and 0 errors; the
+headless suite reports **189,838 checks, 0 failures across 46 suites**. V9 and
+V10 golden hashes match the pre-integration baseline. Matched headless
+measurements put greedy meshing at about 7.9 ms/chunk versus 6.9 ms on main
+(roughly 15% more CPU for shared partial-block AO); V11 chunk generation is at
+parity with V10. These are mesh/generation CPU timings, not rendered FPS claims.
 
 ## Current follow-up implementation — 2026-11-22 (V11 shoreline readability)
 
@@ -430,7 +460,7 @@ remains recommended before merging.
   AABB-center sorting improves chunk ordering but cannot perfectly order
   arbitrarily intersecting transparent geometry inside one chunk.
 
-## 1. Current state
+## 1. Historical state audit — 2026-10-21 (superseded by the current audit above)
 
 ### Survival equipment increment — 2026-11-20
 
@@ -457,6 +487,11 @@ remains recommended before merging.
 - Linux and Windows export presets.
 
 ### Historical gap audit (pre-M5 baseline; superseded by the integrated snapshot)
+
+These figures describe the 2026-10-21 baseline, not the current code. The
+current registry has 60 consecutive block IDs (0–59), `BlockDb.BlockCount` 128,
+`BlockDb.TileCount` 256, a 46-suite test runner, and `WorldSave` V4. The table is
+retained as the historical starting point for the M5 plan below.
 
 | Area | State at this checkpoint |
 |---|---|
@@ -501,8 +536,9 @@ existing “door open” rules, but do not start them before 1.0.
 
 1. **Old worlds always load.** Append IDs only; never renumber. All worldgen
    changes stay gated on `GenVersion`. Re-verify the v1 anchor chunk hash.
-2. **Capacity before content.** Raise block/atlas limits first, or M6 will
-   silently break.
+2. **Capacity before content (satisfied).** `BlockCount` is 128 and the atlas
+   has 256 tiles, so new content can be appended without renumbering. Keep the
+   append-only rule for every future ID.
 3. **One mutation seam.** All edits through `SetBlock`/`ApplyEdit`; no new
    direct `World.Player` reads.
 4. **Every milestone gate:** 0-warning build, tests green, save round-trip,
@@ -517,7 +553,7 @@ existing “door open” rules, but do not start them before 1.0.
 
 | Milestone | Theme | Size | Depends on | Exit criteria |
 |---|---|---|---|---|
-| **M5** | Foundation & guardrails | 1–1.5 wk | — | Tests, content capacity, save v3, perf baseline |
+| **M5** | Foundation & guardrails | 1–1.5 wk | — | Met: tests, 128 blocks/256 tiles, save V4, perf runner (RTX baseline pending) |
 | **M6** | Base & progression | 3–4 wk | M5 | Torch/light, chest, furnace/ingots/armor, farming, bed, swimming |
 | **M7** | Living world & goals | 3–4 wk | M6 | Mob roster, dungeon/boss, trader, fishing, achievements |
 | **M8** | UX, platform & 1.0 | 2–3 wk | M5–M7 | Rebinding/gamepad, onboarding, world management, EN/AR, music, release |
@@ -531,12 +567,16 @@ moved.
 
 ## 5. Detailed milestones
 
-### M5 — Foundation & guardrails (1–1.5 weeks)
+### M5 — Foundation & guardrails (completed; historical plan)
+
+> This plan is retained for history. Its capacity, test-harness and save items
+> are implemented; only the RTX 4060 performance comparison remains open.
 
 **5.1 Content capacity**
 
-- `BlockDb.cs`: raise `BlockCount` 32 → 128; `AtlasCols` 8 → 16 (256 tiles);
-  update UV/tile-array math.
+- [x] `BlockDb.cs`: `BlockCount` 128 and `TileCount` 256 (16×16 atlas); UV and
+  texture-array math updated. The registry currently uses 60 consecutive
+  block IDs and appends new content only.
 - Add a startup **content validator**: every `BlockId` has a definition and
   valid tile; every `ItemId` has a name/icon; every recipe ingredient/result
   exists; block↔item pairs round-trip.
@@ -545,25 +585,32 @@ moved.
 
 **5.2 Headless test harness**
 
-- Add `tests/` with a `TestRunner.tscn` runnable via
-  `godot --headless --path .`; exit non-zero on failure. No third-party addon
-  required.
-- Suites: content registry, inventory add/stack/overflow, recipe
-  matching/crafting, player stats damage/hunger/drown, save atomic
-  write/backup/corruption, worldgen anchors, mesher greedy/per-face area
-  parity.
-- Add `scripts/verify.sh` = build + tests + anchor check.
+- [x] `tests/TestRunner.tscn` runs under `godot --headless --path .`, exits
+  non-zero on failure, and currently registers 46 suites with no third-party
+  addon required.
+- [x] Suites cover content registry, inventory/stack/overflow, recipes, player
+  stats, save/backup/corruption, worldgen anchors and mesher parity, plus the
+  later combat, village, fluid, rendering and integration work.
+- [x] `scripts/verify.sh` builds the project, runs the suite and exits with the
+  test status.
 
-**5.3 Save v3**
+**5.3 Save format (shipped as V4)**
 
-- Make `WorldSave.Version` actually checked; add a migration chain
-  (v1→v2→v3).
-- Add `Containers` (per-block inventories) and `Flags`/`Achievements` fields,
-  all optional.
-- Add armor slots to `PlayerSave` (optional, old saves default empty).
-- Tests: old save loads; corrupt file recovers from `.bak`; round-trip stable.
+- [x] `WorldSave.Version` is checked; legacy v1–v3 files load with optional
+  fields defaulted and are written back as V4. The migration chain preserves
+  old edits, containers, furnaces and flags.
+- [x] `Containers`, `Flags`, `Furnaces`, block-shape states, villagers, quests
+  and boats are optional persisted extensions.
+- [x] Armor and equipment slots live in `PlayerSave`; old saves default empty.
+- [x] Tests cover old saves, `.bak` recovery, stable round-trips and the
+  integration additions. The historical “Save v3” label is superseded by the
+  shipped V4 format.
 
 **5.4 Performance baseline**
+
+> Status: the repeatable runner and Debug/Release procedure are implemented;
+> the RTX 4060 comparison and a fresh controlled Release baseline are still
+> open.
 
 - [x] Add `tests/PerformanceRunner.tscn` with deterministic V8 worlds and
   fixed routes for nine workloads; write JSON summary and per-frame CSV.
@@ -580,7 +627,8 @@ moved.
   Fix crashes/leaks; clean logs.
 
 **Done when:** old worlds load, v1 anchor unchanged, tests green, baseline
-recorded.
+recorded. **Status:** all are satisfied except the RTX 4060 comparison and fresh
+Release baseline; see the current audit above.
 
 ---
 
@@ -769,19 +817,22 @@ content is stable.
 **Automated**
 
 - Content registry, inventory, recipes, stats, save/backup/migration, worldgen
-  anchors, mesher parity.
+  anchors, mesher parity, rendering/material routing, equipment durability,
+  first-person animation, selection outline and the cross-PR integration
+  regressions.
 - Headless smoke: boot → create world → place/break → save → reload → assert.
-- Optional GitHub Actions: `dotnet build` + headless tests (Godot mono download
-  is heavy; local `verify.sh` is the minimum).
+- GitHub Actions runs `dotnet build` and the headless suite; local
+  `scripts/verify.sh` remains the minimum gate.
 
 **Golden anchors**
 
 - v1 chunk `(7,7)` SHA-256
   `c7fe5ea262d362606196e2fffcdc65dd130eb2df1fc58ab051fb54d3623a352a`
-  unchanged.
+  unchanged, with additional pinned anchors through V11.
 - Greedy vs per-face surface-area parity per normal.
 - `player.json` save→load→save stable.
-- New gen versions never alter old ones.
+- New gen versions never alter old ones; V11 is pinned and its delta is limited
+  to shoreline reeds.
 
 **Manual matrix**
 
@@ -799,7 +850,7 @@ content is stable.
 
 | Risk | Mitigation |
 |---|---|
-| Content capacity/atlas overflow | M5 validator + 16×16 atlas before adding blocks |
+| Content capacity/atlas overflow | Satisfied: 128 block slots, 256 atlas tiles, append-only validator and 60 registered blocks |
 | Torch lighting looks flat or costs FPS | Ship pooled-light v1; only build voxel propagation with measured justification |
 | Chest/furnace save bloat | Save only non-empty containers; cap; versioned migration |
 | Localization touches every code-built UI string | Central `Tr()` first, extract incrementally; prototype Arabic/RTL early |
@@ -810,7 +861,7 @@ content is stable.
 
 ---
 
-## 9. First five days (actionable)
+## 9. First five days (historical M5 plan; completed except RTX comparison)
 
 1. **Day 1** — Run build + baseline; record FPS/memory; add the test-runner
    skeleton and content validator.
@@ -1480,7 +1531,7 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   mip-chain payload is estimated at about 1.33 MiB versus 1.00 MiB without
   mipmaps for 256 RGBA8 32×32 layers (approximately 0.33 MiB additional
   texture data).
-## 21. Soil, grass and farmland transitions — 2026-11-21
+## 21b. Soil, grass and farmland transitions — 2026-11-21
 
 - Refined the existing procedural 32px atlas tiles rather than replacing the
   art pipeline: grass sides now use a deeper, irregular turf band with a broken
@@ -1652,7 +1703,7 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   targets; verify controller-trigger hold/release timing. The available run was
   headless and does not claim rendered visual approval.
 - See docs/FIRST_PERSON_ANIMATION.md for profile intent and test coverage.
-## 25. Equipment durability icon readability — 2026-11-22
+## 27. Equipment durability icon readability — 2026-11-22
 
 - Audited the existing procedural `ItemDb` equipment art, atlas-backed block
   icons, inventory/hotbar slot refresh paths, and first-person held-item sprite.
@@ -1688,7 +1739,7 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   half-size review retained the colored meter and recognizable scuff states.
   The fixture is repeatable via the README command and writes its PNG under
   `user://`.
-## 25. Generated standalone item icon cohesion — 2026-11-22
+## 28. Generated standalone item icon cohesion — 2026-11-22
 
 - Audited the full persisted item-icon set using a generated contact sheet.
   Block-backed items continue to return their existing 32px AtlasTexture
@@ -1717,7 +1768,7 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   icons remain procedurally authored, and existing world/save data is
   unaffected.
 
-## 25. Consistent block-edge shading — 2026-11-22
+## 29. Consistent block-edge shading — 2026-11-22
 
 - Standardized corner lighting for full cubes, faces split around partial
   neighbours, slab/stair micro-faces and greedy opaque merge keys. The shared
@@ -1741,7 +1792,7 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   inspected at close and distant framing. A controlled before/after frame-time
   benchmark was not run, so no FPS delta is claimed.
 
-## 25. Water-adjacent material readability — 2026-11-22
+## 30. Water-adjacent material readability — 2026-11-22
 
 - Added a non-persisted wet material tag in the unused vertex-colour alpha range
   (`family + 8`). Atlas and greedy texture-array shaders decode the same tag,
@@ -1776,7 +1827,7 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   but resolves tracked script paths; neither capture reported shader/render
   failures. Other biome/weather/preset combinations remain to be reviewed.
 
-## Follow-up implementation — texture/light contrast audit (2026-11-22)
+## 32. Texture/light contrast audit — 2026-11-22
 
 The integrated material pipeline was audited across clear daylight, overcast
 rain, night and cave/torch lighting. The audit found two atlas-family gaps:
@@ -1812,7 +1863,7 @@ chamber and places the torch through `VoxelWorld.SetBlock` in its disposable
 visual-test world. No standalone GPU benchmark was added for the shader-only
 change; the existing benchmark matrix and baselines are unchanged.
 
-## Follow-up implementation — block selection contrast (2026-11-22)
+## 33. Block selection contrast — 2026-11-22
 
 The existing first-person target outline now uses two complementary unshaded
 passes: a dark outer silhouette and fine near-white inset tracks along exposed
@@ -1830,10 +1881,10 @@ The bright inset is one additional small draw pass while a block is targeted;
 the static cube meshes are built once and partial-shape pairs are shared from
 the existing per-shape cache.
 
-## 25. Registered-block material test gallery — 2026-11-22
+## 34. Registered-block material test gallery — 2026-11-22
 
 - Added `tests/MaterialGallery.tscn`, a standalone 8×8 gallery generated from
-  the complete `BlockId` registry (59 registered blocks). A neutral stage,
+  the complete `BlockId` registry (60 registered blocks). A neutral stage,
   fixed key / ambient lighting, per-sample ID markers and a full ID/name legend
   make the set comparable in close and distant views.
 - The capture fixture reuses the current `VoxelWorld`, chunk streaming, greedy
@@ -1853,7 +1904,7 @@ the existing per-shape cache.
   changed. The scene restores the previous selected world and greedy setting
   and removes its temporary world at shutdown.
 - GPU review on Godot 4.7.2 .NET / Vulkan Forward+ / GeForce MX230: both greedy
-  texture-array and classic atlas modes rendered all 59 blocks at 1280×720;
+  texture-array and classic atlas modes rendered all 60 blocks at 1280×720;
   greedy close and distant captures are committed in
   `docs/visual/screenshots/material-gallery-{close,distant}.png`. Both runs
   reached 9 loaded chunks with zero pending payloads and exited cleanly.
