@@ -1786,6 +1786,16 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   corner values in greedy and per-face mesh modes. Existing save and generator
   behavior is unaffected: no IDs, save fields, or worldgen rules changed;
   V1–V8 remain frozen and mutations remain owned by SetBlock/ApplyEdit.
+- Hardened seam validation by grouping emitted vertices by half-voxel
+  position and face normal. The tests now require identical baked sky,
+  block-light and AO channels wherever distinct coplanar quads meet, in both
+  render paths, and compare all common corners between per-face and greedy
+  output. Vertex alpha remains excluded because it carries the independent
+  material-family tag.
+- Re-ran the existing deterministic production shape capture (seed 1337) on
+  Godot 4.7.2 Forward+ / GeForce MX230 at 1280×720; both close and distant
+  frames completed successfully. No visible AO seam was observed in the
+  slab/stair comparison row. This is validation only, not a new lighting pass.
 - **Performance:** occupancy checks and diagonal border reads are mesh-build
   work only; no extra vertices, draw calls or per-frame CPU/GPU work are added.
   The production capture was run on Godot 4.7.2 Forward+ / GeForce MX230 and

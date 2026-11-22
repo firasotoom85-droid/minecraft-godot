@@ -91,6 +91,13 @@ close and distant inspection:
 godot --path . res://tests/WoodArtVisualCapture.tscn -- 1337 /tmp/edge-distant.png /tmp/edge-close.png
 ```
 
+The BlockShapeTests suite also checks the seam condition directly: it groups
+emitted vertices by half-voxel position and face normal, verifies that separate
+coplanar quads carry identical baked skylight, block-light and AO channels at
+shared corners, and compares every common corner between per-face and greedy
+outputs. The material-family tag in vertex alpha is intentionally excluded
+from this RGB lighting comparison.
+
 ## Water-adjacent materials and shoreline vegetation
 
 Faces that directly touch water keep their original material family and receive
