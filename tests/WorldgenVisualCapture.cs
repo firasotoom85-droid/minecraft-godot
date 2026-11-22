@@ -23,7 +23,7 @@ public partial class WorldgenVisualCapture : Node
         float cameraScale = args.Length > 5 && float.TryParse(args[5], out float requestedScale)
                 ? Mathf.Clamp(requestedScale, 0.2f, 2.0f) : 1.0f;
 
-        if (version < 1 || version > WorldGenV9.Version)
+        if (version < 1 || version > WorldGenV10.Version)
         {
             GD.PushError($"Unsupported world generation version {version}.");
             GetTree().Quit(2);

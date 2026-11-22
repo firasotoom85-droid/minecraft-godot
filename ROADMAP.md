@@ -13,14 +13,29 @@ remains pending.
 
 ---
 
-## Current follow-up implementation — 2026-11-22 (V9 structure weathering)
+## Current follow-up implementation — 2026-11-22 (V10 biome foliage)
 
-The current branch advances the integrated V1.0 checkpoint below from generator
-V8 to V9 for newly created worlds. V9 only changes deterministic stone/brick
-materials in existing surface structures; V1–V8 generation and saved worlds
-remain frozen, save format stays v4, and persisted IDs are appended at
-BlockId 52–55 / ItemId 101–104. The detailed implementation, verification and
-MX230 captures are recorded in the V9 snapshot further down this file.
+Newly created worlds now use generator V10. V10 keeps V9 terrain, structure
+placement and deterministic weathering, and maps the spruce, jungle and swamp
+species that V8 already selects to their own canopy blocks. V1–V9 generation
+and saved worlds remain frozen, save format stays v4, and persisted IDs are
+appended at BlockId 56–58 / ItemId 105–107. Atlas tiles 56–58 follow the
+weathered materials, so every material keeps a unique atlas coordinate.
+
+This is the reconstructed form of the draft advanced-voxel branch: slabs,
+stairs, boats, buckets, glass sorting and shared surface responses were already
+merged through #31, #33 and #45, so only the genuinely new foliage content was
+rebuilt on top of current `main`. Its surface-variation variant is superseded
+by the unified stone tone variation that shipped with #45.
+
+## Previous follow-up — V9 structure weathering
+
+V9 advances the integrated V1.0 checkpoint below from generator V8 to V9 for
+newly created worlds. V9 only changes deterministic stone/brick materials in
+existing surface structures; V1–V8 generation and saved worlds remain frozen,
+save format stays v4, and persisted IDs are appended at BlockId 52–55 /
+ItemId 101–104. The detailed implementation, verification and MX230 captures
+are recorded in the V9 snapshot further down this file.
 
 Atlas tiles for the weathered materials are allocated at 52–55, after the
 unified wood-grain tiles at 49–51, so no two materials share an atlas

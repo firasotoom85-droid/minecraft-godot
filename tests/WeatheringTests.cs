@@ -184,8 +184,8 @@ public static class WeatheringTests
             }
 
             TestAssert.Check(weathered > 0, "V9 generated ruin contains weathered blocks");
-            TestAssert.Equal(WorldGenV9.Version, WorldStore.CurrentGenVersion,
-                    "new worlds default to generator V9");
+            TestAssert.Equal(WorldGenV10.Version, WorldStore.CurrentGenVersion,
+                    "new worlds default to generator V10");
             TestAssert.Equal(WorldGenV8.Version, v8.WorldGenVersion,
                     "legacy V8 world remains pinned to generator V8");
             TestAssert.Equal(WorldGenV9.Version, v9.WorldGenVersion,
