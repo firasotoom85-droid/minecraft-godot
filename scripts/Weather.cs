@@ -58,6 +58,9 @@ public partial class Weather : Node
     private bool _snowing;
     private int _lastSplashSampleX = int.MinValue;
     private int _lastSplashSampleZ = int.MinValue;
+    private bool _hasBiomeSample;
+    private int _lastBiomeX;
+    private int _lastBiomeZ;
     private readonly RandomNumberGenerator _rng = new();
 
     public void Setup(VoxelWorld world, Player player, DayNight daynight, Sound sound)
@@ -66,6 +69,7 @@ public partial class Weather : Node
         PlayerRef = player;
         DayNightRef = daynight;
         SoundRef = sound;
+        _hasBiomeSample = false;
         _rng.Randomize();
         BuildParticles();
         BuildBolt();
@@ -86,6 +90,7 @@ public partial class Weather : Node
         }
 
         Cloudiness = Mathf.Lerp((float)Cloudiness, TargetCloudiness[Current], (float)System.Math.Clamp(delta * 0.12, 0.0, 1.0));
+        UpdatePrecipitationBiome();
 
         bool precip = Current is State.Rain or State.Storm;
         Vector3 pp = PlayerRef.GlobalPosition;
@@ -208,9 +213,37 @@ public partial class Weather : Node
         };
         Vector2 dur = Durations[Current];
         _timer = _rng.RandfRange(dur.X, dur.Y);
-        int px = PlayerRef != null ? (int)PlayerRef.GlobalPosition.X : 0;
-        int pz = PlayerRef != null ? (int)PlayerRef.GlobalPosition.Z : 0;
-        _snowing = World != null && World.BiomeAt(px, pz) == Biome.Snow;
+        _hasBiomeSample = false;
+        UpdatePrecipitationBiome();
+    }
+
+    internal static float TargetCloudinessFor(State state) => TargetCloudiness[state];
+
+    internal static bool UsesSnowPrecipitation(Biome biome) => biome == Biome.Snow;
+
+    internal static bool NeedsBiomeSample(
+            bool hasSample, int sampledX, int sampledZ, int playerX, int playerZ) =>
+            !hasSample || sampledX != playerX || sampledZ != playerZ;
+
+    private void UpdatePrecipitationBiome()
+    {
+        if (World == null || PlayerRef == null)
+        {
+            return;
+        }
+
+        Vector3 position = PlayerRef.GlobalPosition;
+        int x = Mathf.FloorToInt(position.X);
+        int z = Mathf.FloorToInt(position.Z);
+        if (!NeedsBiomeSample(_hasBiomeSample, _lastBiomeX, _lastBiomeZ, x, z))
+        {
+            return;
+        }
+
+        _hasBiomeSample = true;
+        _lastBiomeX = x;
+        _lastBiomeZ = z;
+        _snowing = UsesSnowPrecipitation(World.BiomeAt(x, z));
     }
 
     // -----------------------------------------------------------------------
