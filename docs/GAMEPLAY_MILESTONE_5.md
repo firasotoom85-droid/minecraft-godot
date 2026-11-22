@@ -47,6 +47,25 @@ next stage or completes a quest. Main uses it to present a HUD message for the
 new stage or to tell the player to return to the village to claim the reward.
 Inventory rewards, claim-once handling and transaction checks remain unchanged.
 
+### First-person animation polish
+
+The existing camera-child arm and held-item sprite now use reusable action
+profiles for mining, melee, placement, generic use, eating, bow release,
+shield-block feedback, landing and hotbar selection. The profiles are local
+pose offsets and do not move the camera, create scene nodes, or alter gameplay
+timing.
+
+Independent held-state blends raise the bow while the existing break input is
+held and raise the shield while the existing place/use input is held. Actual bow
+firing, shield direction checks, arrow consumption and equipment durability
+remain in their original gameplay code paths. Locomotion bob, idle breathing,
+climbing motion and swimming strokes are layered onto the action pose; the
+existing HeadBob setting disables locomotion bob in both camera and viewmodel.
+
+The current Sprite3D icon/material cache, arm meshes, camera attachment and
+shadow-disabled viewmodel geometry are retained. No texture assets or persisted
+settings were added.
+
 ### Nested pause/keybind input
 
 PauseInputPolicy prevents the pause layer from handling the same back/Escape
@@ -57,6 +76,9 @@ remain intact.
 
 ## Regression coverage
 
+- FirstPersonAnimationTests: action-clock progression, distinct mining/melee/
+  placement/eating/bow/shield/landing poses, safe pose envelopes, and layered
+  movement/held-state offsets.
 - OnboardingTests: 15-step contract, event-based wood/stone/craft/food
   progress, legacy and current flag restoration, partial shelter persistence,
   torch/farmland distinctions, hostile/passive distinction, village/cave/night
@@ -83,18 +105,22 @@ Environment: Godot 4.7.2 .NET, .NET SDK 9.0.321.
 
 - Debug build: 0 warnings, 0 errors.
 - Release build: 0 warnings, 0 errors.
-- scripts/verify.sh: 186,372 checks, 0 failures.
+- scripts/verify.sh: 186,422 checks, 0 failures.
 
 The full suite includes the existing save compatibility, world-generation,
 streaming, fluids, combat/equipment, inventory, boats, villages and keybind
 regressions. Expected warning output from save tests exercises invalid-write
 and backup-recovery paths; the suite completed successfully.
 
+See [docs/FIRST_PERSON_ANIMATION.md](FIRST_PERSON_ANIMATION.md) for the action
+profile implementation and first-person visual sign-off checklist.
+
 ## Remaining manual review
 
 This is an implementation increment, not a claim that every item in the
 original gameplay-polish plan is complete. Still outstanding are a physical
-controller navigation/rebinding pass, first-person action animation review,
-combat balance encounters across equipment tiers, boat handling and lifecycle
-playtests, and a broader village/trading/quest usability pass. Those require
-interactive gameplay validation rather than headless unit assertions.
+controller navigation/rebinding pass, combat balance encounters across
+equipment tiers, rendered first-person pose review on reference GPUs, boat
+handling and lifecycle playtests, and a broader
+village/trading/quest usability pass. Those require interactive gameplay
+validation rather than headless unit assertions.

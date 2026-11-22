@@ -97,7 +97,7 @@ change StandardMaterial3D; no per-frame material creation is performed.
   the arena boss. A wandering trader, weather, lightning and ambient life
   complete the ecosystem.
 - **Interface** — shared pixel-art menu, HUD, inventory, chest and furnace styling; viewport-aware panel scaling; slot hover feedback and tooltips; drag-and-drop and Shift-click stack movement.
-- **First-person presentation** — selected-item icon viewmodel with swing animation, layered onto the existing arm, swimming strokes, head bob and landing response.
+- **First-person presentation** — the existing arm and held-item viewmodel now use distinct mining, melee, placement, eating, bow-release, shield-block and landing profiles, layered with locomotion bob, idle breathing, climbing, swimming, bow draw and shield guard. The item material/icon cache and camera attachment remain unchanged.
 - **Controller support** — left-stick movement, right-stick look, gamepad actions for mining/placing, hotbar cycling, inventory, pause, map and journal, with persistent button rebinding.
 - **Quality of life** — minimap with zoom and waypoints, achievements journal,
   keyboard/controller rebinding, accessibility toggles, photo mode, dev console,
@@ -171,8 +171,8 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-The 2026-11-22 integration suite reports **186,327 checks, 0 failures** across
-38 suites, with 0 build warnings. It includes deterministic V9 weathering,
+The 2026-11-22 integration suite reports **186,422 checks, 0 failures** across
+40 suites, with 0 build warnings. It includes deterministic V9 weathering,
 the V10 foliage-only delta, V8-to-V9 chunk-diff and chunk-order regressions,
 atmosphere/weather/water presentation, the performance runner, streaming memory
 accounting, the combined save round-trip (shapes + villagers + quests + boats),
@@ -205,9 +205,11 @@ input policy.
 Validation on Godot 4.7.2 .NET / .NET 9:
 - Debug build: 0 warnings, 0 errors.
 - Release build: 0 warnings, 0 errors.
-- `scripts/verify.sh`: **186,372 checks, 0 failures**.
-- Interactive controller testing, combat-balance playthroughs and the remaining
-  first-person/boat/village visual polish still require manual playtesting.
+- `scripts/verify.sh`: **186,422 checks, 0 failures**.
+- First-person animation profiles and pose envelopes have automated coverage;
+  rendered pose sign-off on the MX230 and physical controller action review
+  remain manual. Boat handling and broader village/trading usability also
+  require interactive playtesting.
 
 Implementation notes and remaining Milestone 5 scope are in
 [`docs/GAMEPLAY_MILESTONE_5.md`](docs/GAMEPLAY_MILESTONE_5.md).

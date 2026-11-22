@@ -1573,11 +1573,40 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - Added OnboardingTests, quest-stage event regression assertions and pause /
   keybind input-policy tests.
 - **Verification:** Godot 4.7.2 .NET Debug build: 0 warnings / 0 errors;
-  Release build: 0 warnings / 0 errors; scripts/verify.sh: **186,372
+  Release build: 0 warnings / 0 errors; scripts/verify.sh: **186,422
   checks / 0 failures**.
 - **Remaining Milestone 5 work:** manual controller navigation/rebinding on
-  physical hardware, first-person mining/building animation review, combat
-  balance and enemy readability playtests, boat handling and edge-case playtests,
-  and broader village/trading/quest usability review. This increment does not
+  physical hardware, rendered first-person pose review, combat balance and
+  enemy readability playtests, boat handling and edge-case playtests, and
+  broader village/trading/quest usability review. This increment does not
   claim the entire gameplay-polish milestone is complete.
 - See docs/GAMEPLAY_MILESTONE_5.md for implementation and validation details.
+
+
+## 26. First-person action animation polish — 2026-11-22
+
+- Replaced the single generic punch curve on the existing arm/item viewmodel
+  with small deterministic profiles for mining, melee, block placement, item
+  use, eating, bow release, shield block, landing and hotbar selection.
+- Added independent held-state blends for bow draw and shield guard. The bow
+  still fires on the existing input/cooldown path; the shield still uses the
+  existing directional damage-block rule. The animation does not change damage,
+  durability, arrow consumption or inventory timing.
+- Layered locomotion bob, subtle idle breathing, climbing motion and swim
+  strokes onto the same viewmodel pose. The existing HeadBob accessibility
+  option also suppresses viewmodel locomotion bob.
+- Kept the existing camera-child arm, held-item Sprite3D, icon/material cache,
+  shadow-disabled arm meshes and camera attachment. No scene nodes, imported
+  assets, per-frame collections or new persisted settings were added.
+- Added FirstPersonAnimationTests for the action clock, distinct action poses,
+  safe positional/rotational envelopes, held-state layering and movement pose.
+- Compatibility: no gameplay input actions, persisted IDs, saves, generator
+  output, block mutation, combat outcomes or chunk systems changed.
+- **Verification:** Godot 4.7.2 .NET Debug and Release builds: 0 warnings /
+  0 errors; scripts/verify.sh: **186,422 checks / 0 failures**.
+- **Manual sign-off still required:** visually inspect all action poses while
+  holding common tools, blocks, food, bow and shield at 720p/1080p on the MX230
+  and RTX 4060; verify the hands do not obscure the crosshair or important
+  targets; verify controller-trigger hold/release timing. The available run was
+  headless and does not claim rendered visual approval.
+- See docs/FIRST_PERSON_ANIMATION.md for profile intent and test coverage.
