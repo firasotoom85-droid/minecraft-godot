@@ -58,6 +58,11 @@ public static class EquipmentDurabilityVisualTests
         TestAssert.Equal(EquipmentDurabilityVisual.BarColor(1.0f),
                 EquipmentDurabilityVisual.BarColor(2.0f), "meter color clamps invalid upper values");
 
+        Image widerImage = Image.CreateEmpty(33, 32, false, Image.Format.Rgba8);
+        Image regularImage = Image.CreateEmpty(32, 32, false, Image.Format.Rgba8);
+        TestAssert.Check(HasPixelDifference(widerImage, regularImage),
+                "pixel comparison treats mismatched image dimensions as a visual difference");
+
         Texture2D pristine = ItemDb.Icon(pick);
         Texture2D worn = ItemDb.Icon(pick with { Durability = 45 });
         Texture2D sameWearBand = ItemDb.Icon(pick with { Durability = 44 });
@@ -112,6 +117,13 @@ public static class EquipmentDurabilityVisualTests
 
     private static bool HasPixelDifference(Image left, Image right)
     {
+        // Item icon variants should be the same dimensions, but fail closed
+        // before sampling if a future painter accidentally changes its canvas.
+        if (left.GetSize() != right.GetSize())
+        {
+            return true;
+        }
+
         for (int y = 0; y < left.GetHeight(); y++)
         {
             for (int x = 0; x < left.GetWidth(); x++)

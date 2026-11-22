@@ -1742,9 +1742,10 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 ## 28. Generated standalone item icon cohesion — 2026-11-22
 
 - Audited the full persisted item-icon set using a generated contact sheet.
-  Block-backed items continue to return their existing 32px AtlasTexture
-  regions; the packed atlas, tile coordinates, atlas mip policy and material
-  response matrix are unchanged.
+  Ordinary full-block items continue to return their existing 32px
+  AtlasTexture regions; the six slab/stair items now use cached 32px isometric
+  previews sampled from their registered atlas face tiles. The packed atlas,
+  tile coordinates, atlas mip policy and material response matrix are unchanged.
 - Unified standalone procedural icons at the existing 32px source size:
   silhouettes are centered and scaled to a 22px maximum content frame, receive
   a one-pixel graphite outline and a consistent upper-left key-light gradient
@@ -1997,3 +1998,37 @@ mipmaps; the greedy path retains isolated per-tile mipmaps for distant views.
   warnings and 0 errors. Both interactive capture runs exited successfully on
   the MX230. No dedicated FPS/GPU-time benchmark was added because the change
   is confined to the opt-in test gallery and documentation.
+
+## 37. Block/item icon semantic mapping audit — 2026-11-22
+
+- Audited all 60 registered block definitions, the full append-only item-name
+  registry (108 concrete items plus the None sentinel), every placeable
+  block/item mapping, and the generated standalone icon contact sheet.
+- Corrected misleading food art: raw/cooked fish now share an unmistakable
+  whole-fish silhouette, while raw/cooked chicken use a drumstick silhouette.
+  Cooking changes the palette without changing the food identity.
+- Slabs and stairs no longer reuse the same flat side-tile icon as their full
+  block. All six shape items use lazily generated isometric previews sampled
+  from the existing top/side atlas tiles, with the same 32px canvas, graphite
+  contour, directional shading and isolated mip chain as other standalone
+  icons. Full cubes keep their exact shared AtlasTexture regions.
+- Tests now pin shape-vs-material silhouette distinctions, raw/cooked identity,
+  food-family differences, atlas routing for ordinary blocks, cache reuse,
+  mip-chain completeness and contact-sheet isolation. The contact-sheet
+  exporter duplicates a cached image before scaling and verifies that export
+  leaves runtime icon dimensions and mipmaps unchanged.
+- Compatibility: no BlockId or ItemId values, block definitions, atlas
+  tile coordinates/dimensions, save fields, generator versions or worldgen
+  output changed. No voxel edits, meshing, lighting, chunk streaming or
+  first-person scene hierarchy changed. All added art is original procedural
+  pixel art sampled from the game's own original atlas; no third-party or
+  proprietary Minecraft assets were introduced.
+- Performance: six small shape textures are generated only when first
+  requested and kept in the existing item icon cache. A shared atlas image is
+  materialized lazily for shape rasterization. No per-frame scans or
+  allocations, extra scene nodes or physics work were added.
+- Verification: Godot 4.7.2 .NET Debug build completed with 0 warnings and 0
+  errors; scripts/verify.sh passed 190,043 checks with 0 failures. The generated
+  item contact sheet was manually reviewed; the registered-block close/distant
+  material-gallery captures were also checked. Tests confirm all 108 item icons
+  remain cached at 32×32 with complete mipmaps after contact-sheet capture.
