@@ -1547,3 +1547,37 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   preset views manually. One GPU reference frame is not a complete art review.
 - See `docs/VISUAL_MILESTONE_4_ENVIRONMENT.md` for scope, exact capture command,
   rendered sample, and validation detail.
+
+## 25. Registered-block material test gallery — 2026-11-22
+
+- Added `tests/MaterialGallery.tscn`, a standalone 8×8 gallery generated from
+  the complete `BlockId` registry (59 registered blocks). A neutral stage,
+  fixed key / ambient lighting, per-sample ID markers and a full ID/name legend
+  make the set comparable in close and distant views.
+- The capture fixture reuses the current `VoxelWorld`, chunk streaming, greedy
+  mesher, classic atlas shader, greedy texture-array shader and shared material
+  response palette. Collision is disabled, mesher concurrency is capped at two,
+  and the in-tree streaming anchor has processing / physics disabled.
+- All actual voxel edits use `VoxelWorld.SetBlock` in a disposable test world.
+  Air is represented by an outline because its registered definition has no
+  surface; Bedrock is represented by an atlas/material preview cube because the
+  world API correctly rejects Bedrock placement. Neither preview mutates world
+  data or changes production placement rules.
+- Added automated coverage for ID coverage and stable ordering, unique grid
+  positions, face tile and UV validity, material response bounds, isolated tile
+  mipmaps, block/item mapping, and first-person atlas-icon / response routing.
+- Compatibility: no persisted IDs, save fields, generator versions, terrain
+  generation, mutation architecture, greedy merge keys or chunk-streaming rules
+  changed. The scene restores the previous selected world and greedy setting
+  and removes its temporary world at shutdown.
+- GPU review on Godot 4.7.2 .NET / Vulkan Forward+ / GeForce MX230: both greedy
+  texture-array and classic atlas modes rendered all 59 blocks at 1280×720;
+  greedy close and distant captures are committed in
+  `docs/visual/screenshots/material-gallery-{close,distant}.png`. Both runs
+  reached 9 loaded chunks with zero pending payloads and exited cleanly.
+- **Final verification:** `dotnet build` and `scripts/verify.sh` on Godot
+  4.7.2 .NET passed; **188,144 checks / 0 failures across 39 suites**, with
+  0 build warnings and 0 errors.
+- No production per-frame work, collider generation, or persistent resource
+  allocations were added. The additional plane, labels and preview geometry are
+  confined to this opt-in test scene.
