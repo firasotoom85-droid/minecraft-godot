@@ -191,25 +191,20 @@ public partial class DayNight : Node
         _moon.LightEnergy = 0.0f;
         _moon.ShadowEnabled = true;
         _moon.DirectionalShadowMaxDistance = 120.0f;
-        // Shadow quality: four PSSM splits give the near camera millimetre-ish
-        // texels — tree and leaf shadows stay crisp instead of smearing into
-        // blobs — and blend_splits hides cascade seams. The sun disk is set
-        // close to the real 0.5 degrees, blur stays minimal, normal bias
-        // moderate. The light angle updates every frame (no quantisation):
-        // with the tiny near texels each update shifts shadow edges by well
-        // under a screen pixel, so motion reads as perfectly smooth instead
-        // of stepping, and no sub-texel jitter pattern builds up.
+        // Keep the existing four blended cascades for the moving sun. Filter
+        // quality, sun angular size and sun blur are selected by Gfx so LOW
+        // does not inherit an expensive global SoftHigh/PCSS configuration.
         Sun.DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel4Splits;
         Sun.DirectionalShadowBlendSplits = true;
-        Sun.LightAngularDistance = 0.5f;
-        Sun.ShadowBlur = 0.25f;
         Sun.ShadowNormalBias = 1.0f;
         _moon.DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel4Splits;
         _moon.DirectionalShadowBlendSplits = true;
-        _moon.LightAngularDistance = 0.7f;
-        _moon.ShadowBlur = 0.25f;
+        // The moon is a low-energy fill light. Keep its source angular size at
+        // zero so the night path uses the selected soft filter without a
+        // second PCSS penalty; its small blur still softens the filtered edge.
+        _moon.LightAngularDistance = 0.0f;
+        _moon.ShadowBlur = 0.35f;
         _moon.ShadowNormalBias = 1.0f;
-        RenderingServer.DirectionalSoftShadowFilterSetQuality(RenderingServer.ShadowQuality.SoftHigh);
         Sun.AddSibling(_moon);
         BuildStars();
         BuildClouds();

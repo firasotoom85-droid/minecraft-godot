@@ -16,18 +16,29 @@ public partial class Gfx : Node
     public sealed record Preset(
         string Name, int View, int Inflight, float ShadowDistance, int ShadowSize,
         bool Ssao, bool Ssr, bool Glow, bool VolFog, float Scale, int Msaa,
-        bool Taa, bool Fxaa, float Lod, bool Fsr2);
+        bool Taa, bool Fxaa, float Lod, bool Fsr2,
+        RenderingServer.ShadowQuality ShadowFilterQuality, float SunAngularDistance,
+        float ShadowBlur, float SsaoRadius, float SsaoIntensity);
 
-    // Ordered from the MX230-friendly baseline to high-end options. Values
-    // are deliberately conservative below HIGH; effects are opt-in above it.
+    // Ordered from the MX230-friendly baseline to high-end options. LOW and
+    // BALANCED use filtered shadow maps without PCSS; Godot documents any
+    // non-zero directional angular size as a noticeable per-frame PCSS cost.
+    // Screen-space contact AO remains opt-in above BALANCED; lower presets
+    // retain the existing mesh-baked voxel AO at no additional render-pass cost.
     public static readonly IReadOnlyList<Preset> Presets =
     [
-        new("LOW", 5, 3, 45.0f, 1024, false, false, false, false, 0.80f, 0, false, true, 0.0f, false),
-        new("BALANCED", 7, 4, 65.0f, 1024, false, false, false, false, 0.90f, 0, false, true, 256.0f, false),
-        new("HIGH", 9, 5, 90.0f, 2048, true, false, true, false, 1.0f, 0, true, false, 384.0f, false),
-        new("ULTRA", 12, 6, 120.0f, 4096, true, true, true, false, 1.0f, 0, true, false, 512.0f, false),
-        new("MAX", 12, 6, 130.0f, 4096, true, true, true, true, 1.25f, 0, true, false, 640.0f, false),
-        new("MAX · FSR2", 12, 6, 130.0f, 4096, true, true, true, true, 0.7f, 0, false, false, 640.0f, true),
+        new("LOW", 5, 3, 45.0f, 1024, false, false, false, false, 0.80f, 0, false, true, 0.0f, false,
+                RenderingServer.ShadowQuality.SoftLow, 0.0f, 0.35f, 0.80f, 1.30f),
+        new("BALANCED", 7, 4, 65.0f, 1024, false, false, false, false, 0.90f, 0, false, true, 256.0f, false,
+                RenderingServer.ShadowQuality.SoftLow, 0.0f, 0.35f, 0.80f, 1.30f),
+        new("HIGH", 9, 5, 90.0f, 2048, true, false, true, false, 1.0f, 0, true, false, 384.0f, false,
+                RenderingServer.ShadowQuality.SoftMedium, 0.18f, 0.28f, 0.68f, 1.35f),
+        new("ULTRA", 12, 6, 120.0f, 4096, true, true, true, false, 1.0f, 0, true, false, 512.0f, false,
+                RenderingServer.ShadowQuality.SoftHigh, 0.32f, 0.25f, 0.76f, 1.40f),
+        new("MAX", 12, 6, 130.0f, 4096, true, true, true, true, 1.25f, 0, true, false, 640.0f, false,
+                RenderingServer.ShadowQuality.SoftUltra, 0.45f, 0.25f, 0.82f, 1.45f),
+        new("MAX · FSR2", 12, 6, 130.0f, 4096, true, true, true, true, 0.7f, 0, false, false, 640.0f, true,
+                RenderingServer.ShadowQuality.SoftUltra, 0.45f, 0.25f, 0.82f, 1.45f),
     ];
 
     public const int DefaultPreset = 0;  // LOW is the reference-laptop default
@@ -51,6 +62,40 @@ public partial class Gfx : Node
 
     /// <summary>The preset record in effect right now.</summary>
     public Preset CurrentPreset => Presets[Current];
+
+    /// <summary>
+    /// Apply the renderer-wide directional filter and the selected light's
+    /// softness. The filter is global in Godot, so this must be owned by the
+    /// active graphics preset rather than by the day/night or light systems.
+    /// </summary>
+    internal static void ApplyShadowProfile(Preset preset, Light3D? light)
+    {
+        RenderingServer.DirectionalSoftShadowFilterSetQuality(preset.ShadowFilterQuality);
+        if (light == null)
+            return;
+
+        light.LightAngularDistance = preset.SunAngularDistance;
+        light.ShadowBlur = preset.ShadowBlur;
+    }
+
+    /// <summary>
+    /// Apply the small-radius contact AO profile without overriding the
+    /// existing mesh-baked vertex AO. LOW/BALANCED deliberately keep this
+    /// screen-space pass disabled and rely on the baked voxel corner stencil.
+    /// </summary>
+    internal static void ApplyContactShadingProfile(Preset preset, Godot.Environment environment)
+    {
+        environment.SsaoEnabled = preset.Ssao;
+        if (!preset.Ssao)
+            return;
+
+        environment.SsaoRadius = preset.SsaoRadius;
+        environment.SsaoIntensity = preset.SsaoIntensity;
+        environment.SsaoPower = 1.25f;
+        environment.SsaoSharpness = 1.0f;
+        environment.SsaoLightAffect = 0.0f;
+        environment.SsaoAOChannelAffect = 0.0f;
+    }
 
     public void Setup(VoxelWorld world, DirectionalLight3D sun, WorldEnvironment env)
     {
@@ -145,10 +190,11 @@ public partial class Gfx : Node
             World.SetLodRadius(p.Lod);
         }
 
+        // Directional filtering is renderer-global. Apply it on every
+        // preset change even if the light node is not currently assigned.
+        ApplyShadowProfile(p, Sun);
         if (Sun != null)
-        {
             Sun.DirectionalShadowMaxDistance = p.ShadowDistance;
-        }
 
         // 32-bit depth: 16-bit quantises badly at 100+ m shadow distances and
         // shows up as crawling acne on large flat faces.
@@ -156,7 +202,7 @@ public partial class Gfx : Node
         if (WorldEnv is { Environment: not null })
         {
             Godot.Environment env = WorldEnv.Environment;
-            env.SsaoEnabled = p.Ssao;
+            ApplyContactShadingProfile(p, env);
             env.SsrEnabled = p.Ssr;
             env.GlowEnabled = p.Glow;
             env.VolumetricFogEnabled = p.VolFog;

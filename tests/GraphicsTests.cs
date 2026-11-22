@@ -26,6 +26,72 @@ public static class GraphicsTests
         TestAssert.Check(!balanced.Ssao && !balanced.Ssr && !balanced.VolFog,
                 "balanced avoids expensive screen-space and volumetric effects");
 
+        TestAssert.Equal(RenderingServer.ShadowQuality.SoftLow, low.ShadowFilterQuality,
+                "LOW uses the lowest soft directional filter instead of the old global SoftHigh");
+        TestAssert.Equal(0.0f, low.SunAngularDistance,
+                "LOW avoids directional PCSS to keep the MX230 path practical");
+        TestAssert.Check(low.ShadowBlur > 0.0f,
+                "LOW retains a small filtered shadow blur without PCSS");
+        TestAssert.Equal(RenderingServer.ShadowQuality.SoftLow,
+                balanced.ShadowFilterQuality, "BALANCED also avoids expensive high-sample filtering");
+        TestAssert.Equal(0.0f, balanced.SunAngularDistance,
+                "BALANCED does not pay the directional PCSS cost");
+
+        Gfx.Preset high = Gfx.Presets[2];
+        TestAssert.Equal(RenderingServer.ShadowQuality.SoftMedium, high.ShadowFilterQuality,
+                "HIGH raises directional shadow filtering one tier");
+        TestAssert.Check(high.SunAngularDistance > 0.0f && high.SunAngularDistance < 0.5f,
+                "HIGH introduces restrained PCSS softness below the full solar angular size");
+        TestAssert.Check(high.Ssao && high.SsaoRadius < 1.2f && high.SsaoIntensity > 1.25f,
+                "HIGH tightens SSAO radius and slightly strengthens contact shading");
+        TestAssert.Equal(RenderingServer.ShadowQuality.SoftHigh,
+                Gfx.Presets[3].ShadowFilterQuality, "ULTRA retains high-quality directional filtering");
+        TestAssert.Equal(RenderingServer.ShadowQuality.SoftUltra,
+                Gfx.Presets[4].ShadowFilterQuality, "MAX reserves ultra filtering for high-end hardware");
+        TestAssert.Equal(Gfx.Presets[4].ShadowFilterQuality,
+                Gfx.Presets[5].ShadowFilterQuality, "MAX FSR2 retains the same shadow profile");
+
+        DirectionalLight3D profileLight = new();
+        Godot.Environment profileEnvironment = WorldEnvironmentFactory.Build();
+        try
+        {
+            Gfx.ApplyShadowProfile(low, profileLight);
+            TestAssert.Equal(low.SunAngularDistance, profileLight.LightAngularDistance,
+                    "applying LOW updates the existing directional light angular size");
+            TestAssert.Equal(low.ShadowBlur, profileLight.ShadowBlur,
+                    "applying LOW updates the existing directional light blur");
+            Gfx.ApplyContactShadingProfile(low, profileEnvironment);
+            TestAssert.Check(!profileEnvironment.SsaoEnabled,
+                    "LOW disables screen-space AO while retaining the prebuilt environment");
+
+            Gfx.ApplyShadowProfile(high, profileLight);
+            TestAssert.Equal(high.SunAngularDistance, profileLight.LightAngularDistance,
+                    "switching to HIGH applies its angular softness to the existing sun");
+            TestAssert.Equal(high.ShadowBlur, profileLight.ShadowBlur,
+                    "switching to HIGH applies its blur to the existing sun");
+            Gfx.ApplyContactShadingProfile(high, profileEnvironment);
+            TestAssert.Check(profileEnvironment.SsaoEnabled,
+                    "HIGH enables screen-space contact AO");
+            TestAssert.Equal(high.SsaoRadius, profileEnvironment.SsaoRadius,
+                    "HIGH uses its tighter contact AO radius");
+            TestAssert.Equal(high.SsaoIntensity, profileEnvironment.SsaoIntensity,
+                    "HIGH applies its contact AO intensity");
+            TestAssert.Equal(0.0f, profileEnvironment.SsaoLightAffect,
+                    "contact AO stays out of direct light instead of dirtying lit surfaces");
+            TestAssert.Equal(0.0f, profileEnvironment.SsaoAOChannelAffect,
+                    "screen-space AO does not double-darken already baked AO channels");
+        }
+        finally
+        {
+            profileLight.Free();
+        }
+
+        Godot.Environment defaultEnvironment = WorldEnvironmentFactory.Build();
+        TestAssert.Equal(WorldEnvironmentFactory.ContactSsaoRadius, defaultEnvironment.SsaoRadius,
+                "modern world environments use the shared local-contact AO radius");
+        TestAssert.Equal(WorldEnvironmentFactory.ContactSsaoIntensity, defaultEnvironment.SsaoIntensity,
+                "modern world environments use the shared restrained contact AO intensity");
+
         // Version-1 user settings used LOW/HIGH/ULTRA/MAX/MAX FSR2 indexes.
         TestAssert.Equal(0, Settings.MigrateGraphicsPreset(0, 1), "legacy low index is stable");
         TestAssert.Equal(2, Settings.MigrateGraphicsPreset(1, 1), "legacy high index remains high");
