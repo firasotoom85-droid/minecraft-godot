@@ -414,7 +414,7 @@ control and shows common through legendary gear, plain and enchanted examples,
 and full / 74% / 49% / 24% durability states. The PNG is written to
 `user://equipment-durability-visual-validation.png`.
 
-The current headless suite reports **198,706 checks, 0 failures across 48
+The current headless suite reports **198,718 checks, 0 failures across 48
 suites**, with 0 Debug build warnings or errors. The added
 `item-visual-quality` suite pins rarity bands, cached enchantment variants,
 wear/enchantment composition, first-person visual-state signatures and block

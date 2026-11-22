@@ -50,7 +50,7 @@ measured validation are in
 [`docs/INTEGRATION_PR59_68.md`](docs/INTEGRATION_PR59_68.md).
 
 **Validation:** Debug and Release builds report 0 warnings and 0 errors; the
-headless suite reports **198,706 checks, 0 failures across 48 suites**. V9, V10
+headless suite reports **198,718 checks, 0 failures across 48 suites**. V9, V10
 and V11 golden hashes match the pre-integration baseline, and the V1–V8 legacy
 anchors are unchanged. Matched headless measurements from the #49–#57 batch put
 greedy meshing at about 7.9 ms/chunk versus 6.9 ms on main (roughly 15% more CPU
@@ -2293,7 +2293,8 @@ commit ancestry traceable.
   `UsesShapeIcon` contract: shape items must not also claim the atlas path, all
   other placeable items must still match their exact region, and both paths
   still require valid, painted face tiles. This is a documented contract update,
-  not a relaxed assertion.
+  not a relaxed assertion, and it is pinned by
+  `TextureAtlasValidationTests.TestShapePreviewIconContract`.
 - **Content.** #67 appends `BlockId` 60 (Ash) and `ItemId` 109 (Ash) after every
   existing value, on atlas tile 60, with soil material response, shovel mining,
   block-item drop, sand-family dig/place audio and wet-surface participation.
@@ -2302,7 +2303,7 @@ commit ancestry traceable.
   "section 35" headings; each PR record is preserved and renumbered 35–40, with
   this section added. `PLAN.md` keeps its historical role and was not rewritten.
 - **Verification (this integration):** Debug and Release builds both completed
-  with 0 warnings and 0 errors; `scripts/verify.sh` passed **198,706 checks, 0
+  with 0 warnings and 0 errors; `scripts/verify.sh` passed **198,718 checks, 0
   failures across 48 suites**. The standalone atlas report passes with 61
   registered blocks, 60 referenced and 61 painted tiles, 47 placeable mappings,
   256 mipmapped array layers and 0 errors / 0 warnings. Real-scene MX230

@@ -34,6 +34,79 @@ public static class TextureAtlasValidationTests
         TestAccidentalDuplicateDetection();
         TestIntentionalSharedDefinitions();
         TestDirectionalFaceRegression();
+        TestShapePreviewIconContract();
+    }
+
+    /// <summary>
+    /// The six slab and stair items render a generated isometric preview sampled
+    /// from their registered face tiles, so they legitimately have no
+    /// AtlasTexture region. Every other placeable item must keep its exact
+    /// region, and a shape item may never claim both paths.
+    /// </summary>
+    private static void TestShapePreviewIconContract()
+    {
+        Image atlas = BuildSyntheticAtlas();
+        List<AtlasBlockMapping> blocks =
+        [
+            new(BlockId.Air, "Air", [-1, -1, -1, -1, -1, -1]),
+            new(BlockId.PlanksSlab, "Planks Slab", [1, 1, 0, 0, 1, 1]),
+            new(BlockId.Stone, "Stone", [1, 1, 1, 1, 1, 1]),
+        ];
+
+        List<AtlasItemMapping> shapeOnly =
+        [
+            new(ItemId.PlanksSlab, BlockId.PlanksSlab, false, true, new Rect2(), true),
+        ];
+        TextureValidationReport shapeReport = TextureAtlasValidator.Analyze(
+                atlas, null, 2, 4, blocks, shapeOnly);
+        TestAssert.Check(!HasIssue(shapeReport, "item.icon.not-atlas-backed"),
+                "slab and stair previews are accepted as a documented icon path");
+        TestAssert.Check(!HasIssue(shapeReport, "item.icon.path.conflict"),
+                "a shape preview is not treated as also claiming the shared atlas path");
+
+        List<AtlasItemMapping> cubeWithoutAtlas =
+        [
+            new(ItemId.Stone, BlockId.Stone, false, false, new Rect2(), true),
+        ];
+        TestAssert.Check(HasIssue(
+                        TextureAtlasValidator.Analyze(atlas, null, 2, 4, blocks, cubeWithoutAtlas),
+                        "item.icon.not-atlas-backed"),
+                "a cube item that loses its AtlasTexture region is still reported");
+
+        List<AtlasItemMapping> cubeWrongRegion =
+        [
+            new(ItemId.Stone, BlockId.Stone, true, false, new Rect2(0, 0, 4, 4), true),
+        ];
+        TestAssert.Check(HasIssue(
+                        TextureAtlasValidator.Analyze(atlas, null, 2, 4, blocks, cubeWrongRegion),
+                        "item.icon.region.invalid"),
+                "a cube item must keep its exact registered tile region");
+
+        List<AtlasItemMapping> conflictingShape =
+        [
+            new(ItemId.PlanksSlab, BlockId.PlanksSlab, true, true, new Rect2(4, 0, 4, 4), true),
+        ];
+        TestAssert.Check(HasIssue(
+                        TextureAtlasValidator.Analyze(atlas, null, 2, 4, blocks, conflictingShape),
+                        "item.icon.path.conflict"),
+                "a shape item cannot also claim the shared atlas path");
+        atlas.Dispose();
+
+        int shapeMappings = 0;
+        foreach (AtlasItemMapping item in TextureAtlasValidator.GetCurrentItemMappings())
+        {
+            if (!item.UsesShapeIcon)
+            {
+                continue;
+            }
+
+            shapeMappings++;
+            TestAssert.Check(ItemDb.IsVoxelShapeIcon(item.Id),
+                    $"live shape-preview mapping for {item.Id} matches the registered shape set");
+        }
+
+        TestAssert.Equal(6, shapeMappings,
+                "exactly the six slab and stair items use the generated shape preview path");
     }
 
     private static void TestInvalidReferencesAndMissingTiles()

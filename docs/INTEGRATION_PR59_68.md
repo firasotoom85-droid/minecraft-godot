@@ -10,7 +10,7 @@ compatibility.
 - **Environment:** Godot 4.7.2 .NET (mono), .NET 9 SDK, Vulkan Forward+,
   NVIDIA GeForce MX230
 - **Result:** Debug and Release builds 0 warnings / 0 errors;
-  `scripts/verify.sh` **198,706 checks, 0 failures across 48 suites**
+  `scripts/verify.sh` **198,718 checks, 0 failures across 48 suites**
 
 ## 1. Integrated pull requests
 
@@ -132,6 +132,13 @@ intentionally gives slabs and stairs generated isometric previews.
 The Markdown report gained a `Preview` column (`atlas region` / `shape preview`)
 so the distinction is visible in the published report.
 
+The contract is pinned by `TextureAtlasValidationTests.TestShapePreviewIconContract`:
+a shape-only mapping passes, a cube item that loses its region still reports
+`item.icon.not-atlas-backed`, a cube item with a wrong region still reports
+`item.icon.region.invalid`, a shape item claiming both paths reports
+`item.icon.path.conflict`, and the live registry must expose exactly six shape
+mappings that all agree with `ItemDb.IsVoxelShapeIcon`.
+
 ### Test registrations
 
 `tests/TestRunner.cs` received `item-visual-quality` (#62) and
@@ -174,7 +181,7 @@ Executed on Godot 4.7.2 .NET with .NET 9:
 |---|---|---|
 | Debug build | `dotnet build -c Debug` | Succeeded — 0 warnings, 0 errors |
 | Release build | `dotnet build -c Release` | Succeeded — 0 warnings, 0 errors |
-| Headless suite | `scripts/verify.sh` | **198,706 checks, 0 failures, 48 suites** |
+| Headless suite | `scripts/verify.sh` | **198,718 checks, 0 failures, 48 suites** |
 | Atlas report | `res://tests/TextureAtlasValidation.tscn` | PASS — 61 blocks, 60/256 referenced tiles, 61 painted, 47 item mappings, 0 errors / 0 warnings |
 
 All 48 declared suites executed; no suite is unregistered or duplicated, and the
