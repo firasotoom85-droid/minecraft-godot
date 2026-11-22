@@ -1214,8 +1214,27 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - **CI verification:** commit `734f758` passed GitHub Actions with a clean
   .NET build (0 warnings, 0 errors) and the Godot headless suite (828 checks,
   0 failures).
-- **Hardware validation pending:** no MX230 visual/performance soak was run in
-  CI; verify chunk-streaming frame times and torch-heavy caves on that GPU.
+- **MX230 validation:** the fixed-seed cave visual capture now runs on the
+  GeForce MX230 in Forward+; a sustained frame-time soak is still outstanding.
+
+### Cave exposure transition — 2026-11-22
+
+- Reused the packed skylight channel already baked by the voxel solver to drive
+  cave ambient/fog response from the player's camera position. Eight cached
+  voxel-centre samples are trilinearly interpolated, so exposure rolls off
+  across cave mouths and corners instead of changing at a fixed three-block
+  terrain-depth threshold.
+- The cache lookup never generates chunks; until nearby light data is ready,
+  a smooth terrain-depth fallback avoids an initial brightness pop. The update
+  uses stack storage and a bounded set of dictionary reads, with no added nodes,
+  emitters, per-frame world scans or physics queries.
+- **MX230 visual check:** Godot 4.7.2 .NET Forward+, seed 1337 / V11 at
+  `(512, -372)`, clear noon, 1600×900. The cached samples read skylight 15.00
+  above the shaft, 14.00 in the passage and 5.27 at the chamber camera
+  (cave-darkness blend 0.778); the 56-chunk capture completed successfully.
+- Added interpolation, cache-miss, monotonic exposure, range and transition
+  regression tests. Save format, persisted IDs, V1–V11 generation, greedy
+  meshing, chunk streaming and all graphics-preset costs remain unchanged.
 
 
 ## Mining interaction follow-up audit — 2026-11-20

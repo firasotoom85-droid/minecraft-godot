@@ -96,6 +96,18 @@ public partial class DayNight : Node
         double distance = (value - center) / width;
         return System.Math.Exp(-distance * distance);
     }
+
+    /// <summary>
+    /// Converts baked skylight (0..15) into a smooth cave-darkness weight.
+    /// The soft transition preserves some ambient fill at cave mouths while
+    /// fully sheltered spaces still reach the established 20% ambient level.
+    /// </summary>
+    internal static float EvaluateCaveDarkness(float skyLight)
+    {
+        float exposure = Mathf.Clamp(skyLight / VoxelLighting.MaxLevel, 0.0f, 1.0f);
+        return 1.0f - (float)SmoothStep(0.12, 0.88, exposure);
+    }
+
     private const double CausticFrameTime = 0.1;
 
     private readonly DirectionalLight3D _moon = new();
@@ -214,18 +226,33 @@ public partial class DayNight : Node
                     Mathf.Clamp(fogColor.B * _terrainBiomeTint.B, 0.0f, 1.0f));
         }
 
-        // Cave darkness uses the same surface height; no second terrain query.
-        bool underground = false;
+        // Sample baked skylight at the camera, not just terrain height: light
+        // already fades through an entrance and around cave corners. Trilinear
+        // sampling avoids a one-voxel brightness step while the cache-only
+        // lookup keeps the frame path bounded and allocation-free.
+        float caveDarkness = 0.0f;
         if (hasTerrainSample && PlayerRef is { Underwater: false })
         {
-            underground = PlayerRef.GlobalPosition.Y < _terrainSurfaceHeight - 3.0f;
+            if (World!.TrySampleCachedSkyLight(PlayerRef.Camera.GlobalPosition, out float skyLight))
+            {
+                caveDarkness = EvaluateCaveDarkness(skyLight);
+            }
+            else
+            {
+                // The first mesh may not have populated the baked light cache
+                // yet. Keep the initial response continuous until it is ready.
+                float depth = _terrainSurfaceHeight - PlayerRef.Camera.GlobalPosition.Y;
+                caveDarkness = (float)SmoothStep(1.0, 7.0, depth);
+            }
         }
 
-        if (underground)
+        if (caveDarkness > 0.001f)
         {
-            fogColor = new Color(0.015f, 0.02f, 0.03f).Lerp(fogColor, (float)(day * 0.25));
-            fogDensity = 0.035;
-            env.AmbientLightEnergy *= 0.20f;
+            Color caveFog = new Color(0.015f, 0.02f, 0.03f)
+                    .Lerp(fogColor, (float)(day * 0.25));
+            fogColor = fogColor.Lerp(caveFog, caveDarkness);
+            fogDensity = Mathf.Lerp((float)fogDensity, 0.035f, caveDarkness);
+            env.AmbientLightEnergy *= Mathf.Lerp(1.0f, 0.20f, caveDarkness);
         }
 
         if (PlayerRef is { Underwater: true })

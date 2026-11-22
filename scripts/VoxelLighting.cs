@@ -453,6 +453,30 @@ public static class VoxelLighting
     public static byte Pack(byte sky, byte block) =>
         (byte)((Math.Min(MaxLevel, (int)sky) << 4) | Math.Min(MaxLevel, (int)block));
 
+    /// <summary>
+    /// Interpolates the eight baked sky-light samples around a point. Samples
+    /// are ordered with X changing fastest, then Y, then Z. Keeping this small
+    /// helper allocation-free lets camera exposure follow voxel light smoothly
+    /// without scanning chunks or introducing runtime light nodes.
+    /// </summary>
+    public static float InterpolateSkyLight(
+            byte c000, byte c100, byte c010, byte c110,
+            byte c001, byte c101, byte c011, byte c111,
+            float x, float y, float z)
+    {
+        x = Mathf.Clamp(x, 0.0f, 1.0f);
+        y = Mathf.Clamp(y, 0.0f, 1.0f);
+        z = Mathf.Clamp(z, 0.0f, 1.0f);
+
+        float x00 = Mathf.Lerp(c000, c100, x);
+        float x10 = Mathf.Lerp(c010, c110, x);
+        float x01 = Mathf.Lerp(c001, c101, x);
+        float x11 = Mathf.Lerp(c011, c111, x);
+        float y0 = Mathf.Lerp(x00, x10, y);
+        float y1 = Mathf.Lerp(x01, x11, y);
+        return Mathf.Clamp(Mathf.Lerp(y0, y1, z), 0.0f, MaxLevel);
+    }
+
     /// <summary>Shader channels: sky, warm block emission, and AO/face shade.</summary>
     public static Color VertexColor(byte packed, float shade) =>
         new((packed >> 4) / 15.0f, (packed & 0x0F) / 15.0f,

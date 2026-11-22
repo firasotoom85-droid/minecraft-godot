@@ -270,6 +270,10 @@ generation or save data.
   add/remove block light in cached 3×3 regions; opacity edits invalidate the
   affected light maps so direct sun and cave spill are recalculated. Lighting is
   baked into mesh vertex channels; no per-torch light-node pool is required.
+  Cave fog and ambient fill follow the camera's cached baked skylight, sampled
+  trilinearly and blended through the entrance rather than switching at a fixed
+  terrain-depth threshold. Cache misses use a smooth terrain-depth fallback;
+  the frame path performs only eight cache reads and no chunk generation.
 - **World presets** — normal, flat, amplified, and floating sky islands, with
   share codes and per-world seeds.
 - **Survival** — health, hunger, breath, drowning, fall damage, softcore
@@ -546,6 +550,15 @@ radius in metres after its output path. The runner creates and removes a
 disposable world. Matching V8 and V9 MX230 samples and the remaining manual
 capture matrix are documented in
 [`docs/VISUAL_MILESTONE_4_ENVIRONMENT.md`](docs/VISUAL_MILESTONE_4_ENVIRONMENT.md).
+
+For a repeatable cave-mouth exposure check, pass `true` as the final argument.
+The fixture opens a temporary shaft and short passage into a torch-lit chamber
+through `VoxelWorld.SetBlock`, then logs cached skylight at the entrance,
+passage and player camera:
+
+```bash
+godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 11 512 -372 0.50 Clear /tmp/cave-exposure.png true
+```
 
 ### Water-adjacent visual validation
 

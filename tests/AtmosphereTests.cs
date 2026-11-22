@@ -9,6 +9,7 @@ public static class AtmosphereTests
     public static void Run()
     {
         TestDayNightPalette();
+        TestCaveExposure();
         TestWeatherPrecipitationSelection();
         TestWaterDepthSpace();
     }
@@ -61,6 +62,40 @@ public static class AtmosphereTests
                     && sample.Night >= 0.0 && sample.Night <= 1.0,
                     $"atmosphere palette remains finite and bounded at time {time:F2}");
         }
+    }
+
+    private static void TestCaveExposure()
+    {
+        float openSky = DayNight.EvaluateCaveDarkness(15.0f);
+        float caveEntrance = DayNight.EvaluateCaveDarkness(8.0f);
+        float enclosedCave = DayNight.EvaluateCaveDarkness(0.0f);
+        TestAssert.Equal(0.0f, openSky,
+                "full baked skylight retains the outdoor ambient and fog response");
+        TestAssert.Check(caveEntrance > 0.0f && caveEntrance < 1.0f,
+                "partial baked skylight blends rather than switching abruptly at a cave mouth");
+        TestAssert.Equal(1.0f, enclosedCave,
+                "an enclosed cave reaches the full cave-darkness response");
+        TestAssert.Equal(1.0f, DayNight.EvaluateCaveDarkness(-4.0f),
+                "negative skylight input clamps to fully sheltered");
+        TestAssert.Equal(0.0f, DayNight.EvaluateCaveDarkness(20.0f),
+                "skylight above the nibble range clamps to outdoor exposure");
+
+        float previous = enclosedCave;
+        for (int level = 1; level <= VoxelLighting.MaxLevel * 4; level++)
+        {
+            float exposure = level / 4.0f;
+            float darkness = DayNight.EvaluateCaveDarkness(exposure);
+            TestAssert.Check(float.IsFinite(darkness) && darkness >= 0.0f && darkness <= 1.0f,
+                    $"cave exposure response remains finite and bounded at skylight {exposure:F2}");
+            TestAssert.Check(darkness <= previous,
+                    $"increasing skylight never increases cave darkness at {exposure:F2}");
+            previous = darkness;
+        }
+
+        float before = DayNight.EvaluateCaveDarkness(7.5f);
+        float after = DayNight.EvaluateCaveDarkness(8.5f);
+        TestAssert.Check(System.Math.Abs(before - after) < 0.15f,
+                "fractional skylight interpolation changes cave exposure smoothly between adjacent cells");
     }
 
     private static void TestWeatherPrecipitationSelection()

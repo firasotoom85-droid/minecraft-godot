@@ -1734,6 +1734,78 @@ public partial class VoxelWorld : Node3D
     /// <summary>Packed sky/block lighting snapshot for one chunk.</summary>
     public VoxelLightData LightData(Vector2I cp) => LightDataNeighborhood(cp)[4];
 
+    /// <summary>
+    /// Samples the already-baked skylight at a world-space position by
+    /// interpolating the surrounding voxel centres. This is a cache-only read:
+    /// it never generates chunks or blocks the streaming workers. A missing
+    /// map returns false so presentation can use its smooth terrain-depth
+    /// fallback until the first nearby mesh has populated the light cache.
+    /// </summary>
+    public bool TrySampleCachedSkyLight(Vector3 worldPosition, out float lightLevel)
+    {
+        lightLevel = 0.0f;
+        float gridX = worldPosition.X - 0.5f;
+        float gridY = worldPosition.Y - 0.5f;
+        float gridZ = worldPosition.Z - 0.5f;
+        int x0 = Mathf.FloorToInt(gridX);
+        int y0 = Mathf.FloorToInt(gridY);
+        int z0 = Mathf.FloorToInt(gridZ);
+        float tx = gridX - x0;
+        float ty = gridY - y0;
+        float tz = gridZ - z0;
+
+        Span<byte> samples = stackalloc byte[8];
+        lock (_mutex)
+        {
+            if (!TryReadCachedSkyLightLocked(x0, y0, z0, out samples[0])
+                    || !TryReadCachedSkyLightLocked(x0 + 1, y0, z0, out samples[1])
+                    || !TryReadCachedSkyLightLocked(x0, y0 + 1, z0, out samples[2])
+                    || !TryReadCachedSkyLightLocked(x0 + 1, y0 + 1, z0, out samples[3])
+                    || !TryReadCachedSkyLightLocked(x0, y0, z0 + 1, out samples[4])
+                    || !TryReadCachedSkyLightLocked(x0 + 1, y0, z0 + 1, out samples[5])
+                    || !TryReadCachedSkyLightLocked(x0, y0 + 1, z0 + 1, out samples[6])
+                    || !TryReadCachedSkyLightLocked(x0 + 1, y0 + 1, z0 + 1, out samples[7]))
+            {
+                return false;
+            }
+        }
+
+        lightLevel = VoxelLighting.InterpolateSkyLight(
+                samples[0], samples[1], samples[2], samples[3],
+                samples[4], samples[5], samples[6], samples[7],
+                tx, ty, tz);
+        return true;
+    }
+
+    // _mutex must be held by the caller. Vertical samples outside the world
+    // are known boundaries and do not require a cached chunk.
+    private bool TryReadCachedSkyLightLocked(int x, int y, int z, out byte light)
+    {
+        if (y < 0)
+        {
+            light = 0;
+            return true;
+        }
+        if (y >= Height)
+        {
+            light = VoxelLighting.MaxLevel;
+            return true;
+        }
+
+        int chunkX = Mathf.FloorToInt(x / (float)ChunkX);
+        int chunkZ = Mathf.FloorToInt(z / (float)ChunkZ);
+        if (!_voxelLightCache.TryGetValue(new Vector2I(chunkX, chunkZ), out VoxelLightData? data))
+        {
+            light = 0;
+            return false;
+        }
+
+        int localX = x - chunkX * ChunkX;
+        int localZ = z - chunkZ * ChunkZ;
+        light = (byte)(data.Packed[VoxelLightData.Index(localX, y, localZ, Height)] >> 4);
+        return true;
+    }
+
     // Called while SnapshotLock and _mutex are held by SetBlock.
     // Updates all nine already-cached chunk maps as one volume so propagation
     // remains continuous across chunk seams. Missing cache entries fall back

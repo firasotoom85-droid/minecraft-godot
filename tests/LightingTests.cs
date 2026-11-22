@@ -9,6 +9,7 @@ public static class LightingTests
     {
         BlockDb.EnsureTables();
         TestCornerAverageChannels();
+        TestSkyLightInterpolation();
         TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Torch] >= 13, "torch has a strong nibble emission");
         TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Lava] > 0
                 && BlockDb.LightEmission[(int)BlockId.Lava] < BlockDb.LightEmission[(int)BlockId.Torch],
@@ -40,6 +41,34 @@ public static class LightingTests
         byte[] samples = [a, b, c, d];
         TestAssert.Equal(expected, VoxelLighting.AverageCorner(samples, 0, 1, 2),
                 "array-offset and explicit-sample corner averaging stay equivalent");
+    }
+
+    private static void TestSkyLightInterpolation()
+    {
+        float midpoint = VoxelLighting.InterpolateSkyLight(
+                0, 15, 0, 15, 0, 15, 0, 15, 0.5f, 0.25f, 0.75f);
+        TestAssert.Equal(7.5f, midpoint,
+                "camera sky exposure interpolates continuously between adjacent voxel centres");
+
+        float verticalMidpoint = VoxelLighting.InterpolateSkyLight(
+                0, 0, 15, 15, 0, 0, 15, 15, 0.2f, 0.5f, 0.8f);
+        TestAssert.Equal(7.5f, verticalMidpoint,
+                "trilinear skylight interpolation respects vertical gradients");
+
+        float clamped = VoxelLighting.InterpolateSkyLight(
+                15, 15, 15, 15, 15, 15, 15, 15, -2.0f, 3.0f, 0.5f);
+        TestAssert.Equal(15.0f, clamped,
+                "skylight interpolation clamps out-of-cell weights to a valid light level");
+
+        VoxelWorld emptyWorld = new() { BuildCollision = false };
+        Godot.Vector3 cameraPosition = new(0.5f, 4.5f, 0.5f);
+        int initialChunks = emptyWorld.ChunkCount;
+        bool hasCachedLight = emptyWorld.TrySampleCachedSkyLight(cameraPosition, out _);
+        TestAssert.Check(!hasCachedLight,
+                "camera exposure lookup reports a cache miss instead of generating world data");
+        TestAssert.Equal(initialChunks, emptyWorld.ChunkCount,
+                "camera exposure cache miss does not create or stream chunks");
+        TestAssert.FreeAll(emptyWorld);
     }
 
     private static void TestBlockAttenuation()
