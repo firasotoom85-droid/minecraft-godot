@@ -119,6 +119,47 @@ not had a complete human visual playthrough.
   headless suite: 4,276 checks / 0 failures across 29 suites. Three matched
   rendered Release runs completed for each benchmark workload.
 
+### Performance Milestone 3 — bounded chunk streaming and memory accounting — 2026-11-21
+
+- Replaced worker-side queue polling and `Thread.Sleep(1)` backpressure with a
+  cancellable semaphore. Workers reserve one of 18 in-flight payload slots
+  before meshing; the reservation remains held until main-thread apply or
+  shutdown cleanup. Rebuild payloads retain priority over fresh chunks.
+- Changed main-thread payload application from a fixed four-payload count to a
+  2 ms time target, with a one-payload minimum so a slow collider cannot stall
+  streaming indefinitely. Worker cancellation, group completion, pending queue
+  drain and `PayloadPool` release are handled during world teardown.
+- Added bounded-queue high-water and estimated-byte accounting; managed voxel
+  cache array sizes and a view-distance-aware budget; estimates for edit/light
+  metadata and applied mesh arrays; retained pool-buffer accounting; and apply
+  and collision timing counters. Exact array lengths are measured directly;
+  dictionary/object and renderer resource sizes remain estimates.
+- Added `voxel-streaming` regression tests for the frame-apply budget and cache
+  budget formula. `scripts/verify.sh`: **4,283 checks, 0 failures**. Debug and
+  Release builds each completed with **0 warnings / 0 errors**. The benchmark
+  matrix passed **54/54** runs across nine scenarios in Debug and Release.
+- **Thirty-minute survival soak:** PASS at 1,800 seconds. 10 passive / 27
+  hostile creatures, 891 feeds, 24 cave encounters, 16,199 baby observations,
+  360 noise stimuli / 244 investigations, 0 invalid positions, save/reload and
+  temporary-world cleanup true. Peak RSS 304.1 MiB; managed heap 57.1 MiB;
+  Godot static memory 104.4 MiB; voxel-cache arrays peaked at 4.2 MiB against
+  an 18.9 MiB budget; pooled mesh buffers peaked at 23.3 MiB; payload high-water
+  was 14/18; orphan nodes peaked at 0; shutdown drained all payloads.
+- **Rendered MX230 check:** Godot 4.7.2 Forward+ selected the NVIDIA GeForce
+  MX230. The real survival scene streamed a cave with visible geometry, HUD and
+  minimap. A separate production-scene V8 surface capture at seed 1337 and
+  center (512,-372) rendered 49 chunks at 1600×900. Both review frames are
+  committed in `docs/performance/screenshots/`. The 120-second rendered
+  survival smoke also passed and exited with code 0 after the soak runner drops
+  references to the freed main scene before shutdown. No C# script-binding,
+  unsafe-reference, shader or RID leak diagnostics remained. The renderer still
+  emits non-fatal `RGBFloat`-to-`RGBAFloat` fallback warnings from the existing
+  campfire smoke `CurveTexture` in `scripts/Campfires.cs:230`; these do not stop
+  capture.
+
+Detailed measurement semantics and limitations are in
+[`docs/PERFORMANCE_MILESTONE_3_STREAMING.md`](docs/PERFORMANCE_MILESTONE_3_STREAMING.md).
+
 ### Delivery validation
 
 - **Five-minute soak:** PASS at 300 s with 10 passive and 11 hostile creatures,

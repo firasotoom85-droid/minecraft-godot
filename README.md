@@ -159,6 +159,42 @@ three matched runs show approximately 9% higher median FPS in both open terrain
 and heavy rain. These results apply only to the measured configuration and
 should not be generalized to other GPUs or presets.
 
+### Performance Milestone 3 — bounded streaming and memory accounting
+
+Chunk meshing now reserves capacity before building a payload. A cancellable
+`SemaphoreSlim` replaces worker-side polling/sleep backpressure, bounding
+in-flight payload work to 18 items (including completed payloads waiting for the
+main thread). Scene teardown cancels blocked workers, waits for the worker
+batch, drains both apply queues and returns remaining payloads to the existing
+pool. Main-thread application prioritizes edit rebuilds and targets 2 ms per
+frame, always allowing one payload to make progress.
+
+The runtime profiler records pending payload counts/estimated bytes and their
+high-water marks, exact managed voxel-cache array bytes, a view-distance-aware
+cache budget, edit/light metadata estimates, applied mesh source-array estimates,
+retained pool-buffer bytes, main-thread apply timings and collider timings.
+Metadata and mesh values are estimates; Godot driver allocations and VRAM are
+not represented as exact byte counts. The cache budget is a guardrail for
+managed voxel arrays, not a whole-process memory limit.
+
+Validation on Godot 4.7.2 .NET:
+- Debug and Release builds: 0 warnings and 0 errors.
+- `scripts/verify.sh`: 4,283 checks, 0 failures.
+- Benchmark matrix: 54/54 runs passed across nine scenarios in Debug and
+  Release.
+- Thirty-minute real-scene survival soak: PASS at 1,800 seconds; peak RSS
+  304.1 MiB, peak managed memory 57.1 MiB, voxel-cache arrays 4.2 MiB against
+  an 18.9 MiB budget, payload high-water 14/18, 0 invalid creature positions,
+  0 orphan nodes, successful save/reload and temporary-world cleanup.
+- Rendered Forward+ visual review selected the NVIDIA GeForce MX230. The real
+  survival scene streamed cave geometry with the HUD and minimap; a second
+  production-scene V8 surface capture at seed 1337 / center (512,-372) rendered
+  49 chunks at 1600×900. Both captures are committed under
+  `docs/performance/screenshots/` and documented in the milestone report.
+
+Detailed implementation, measurement definitions and run conditions are in
+[`docs/PERFORMANCE_MILESTONE_3_STREAMING.md`](docs/PERFORMANCE_MILESTONE_3_STREAMING.md).
+
 ### Reliability audit
 
 The 2026-11-21 audit found and fixed seven defects that ordinary smoke testing
@@ -226,6 +262,12 @@ simulation, so survival time remains real-time. The script bounds runtime to
 duration + 300 seconds by default; override that with
 `SOAK_TIMEOUT_SECONDS`. The soak remains separate from the fast headless
 suite and is not a human combat or visual gameplay playtest.
+
+The Milestone 3 run additionally gates pending-payload bounds and shutdown
+drain, managed voxel-cache array memory, save/reload, temporary-world cleanup,
+and finite creature positions. The completed 30-minute result and its memory
+measurements are recorded in
+[`docs/PERFORMANCE_MILESTONE_3_STREAMING.md`](docs/PERFORMANCE_MILESTONE_3_STREAMING.md).
 
 ## Controls
 

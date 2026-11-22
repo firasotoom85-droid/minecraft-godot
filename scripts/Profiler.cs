@@ -21,6 +21,29 @@ public static class Profiler
     public static int DataChunks;
     public static bool WorkersActive;
 
+    public static int PendingPayloadCount;
+    public static long PendingPayloadBytes;
+    public static int PendingPayloadHighWaterCount;
+    public static long PendingPayloadHighWaterBytes;
+    public static long VoxelCacheArrayBytes;
+    public static long VoxelCacheArrayHighWaterBytes;
+    public static long VoxelCacheBudgetBytes;
+    public static long EditMetadataBytesEstimate;
+    public static long LightSourceBytesEstimate;
+    public static long AppliedMeshBytesEstimate;
+    public static long PooledMeshBufferBytes;
+    public static double ApplyAverageMs;
+    public static double ApplyMaximumMs;
+    public static double CollisionAverageMs;
+    public static double CollisionMaximumMs;
+    public static long CollisionVerticesApplied;
+
+    private static readonly Lock RuntimeMetricsLock = new();
+    private static double _applyTotalMs;
+    private static long _applySamples;
+    private static double _collisionTotalMs;
+    private static long _collisionSamples;
+
     public static void RecordBuild(double ms)
     {
         lock (Lock)
@@ -43,6 +66,80 @@ public static class Profiler
             _count = 0;
             _next = 0;
         }
+    }
+
+    /// <summary>Record one completed payload waiting for main-thread application.</summary>
+    public static void RecordPayloadEnqueued(long estimatedBytes)
+    {
+        int pending = Interlocked.Increment(ref PendingPayloadCount);
+        long bytes = Interlocked.Add(ref PendingPayloadBytes, Math.Max(0L, estimatedBytes));
+        UpdateMaximum(ref PendingPayloadHighWaterCount, pending);
+        UpdateMaximum(ref PendingPayloadHighWaterBytes, bytes);
+    }
+
+    /// <summary>Record a payload after the main thread has removed it from the bounded queue.</summary>
+    public static void RecordPayloadDequeued(long estimatedBytes)
+    {
+        int pending = Interlocked.Decrement(ref PendingPayloadCount);
+        long bytes = Interlocked.Add(ref PendingPayloadBytes, -Math.Max(0L, estimatedBytes));
+        if (pending < 0) Interlocked.Exchange(ref PendingPayloadCount, 0);
+        if (bytes < 0) Interlocked.Exchange(ref PendingPayloadBytes, 0);
+    }
+
+    public static void RecordApply(double milliseconds)
+    {
+        if (!double.IsFinite(milliseconds) || milliseconds < 0.0) return;
+        lock (RuntimeMetricsLock)
+        {
+            _applyTotalMs += milliseconds;
+            _applySamples++;
+            ApplyAverageMs = _applyTotalMs / _applySamples;
+            ApplyMaximumMs = Math.Max(ApplyMaximumMs, milliseconds);
+        }
+    }
+
+    public static void RecordCollision(double milliseconds, int vertices)
+    {
+        if (!double.IsFinite(milliseconds) || milliseconds < 0.0) return;
+        lock (RuntimeMetricsLock)
+        {
+            _collisionTotalMs += milliseconds;
+            _collisionSamples++;
+            CollisionAverageMs = _collisionTotalMs / _collisionSamples;
+            CollisionMaximumMs = Math.Max(CollisionMaximumMs, milliseconds);
+            CollisionVerticesApplied += Math.Max(0, vertices);
+        }
+    }
+
+    public static void RecordCacheMemory(VoxelCacheMemorySnapshot snapshot)
+    {
+        VoxelCacheArrayBytes = snapshot.VoxelArrayBytes;
+        VoxelCacheBudgetBytes = snapshot.VoxelArrayBudgetBytes;
+        EditMetadataBytesEstimate = snapshot.EditMetadataBytesEstimate;
+        LightSourceBytesEstimate = snapshot.LightSourceBytesEstimate;
+        AppliedMeshBytesEstimate = snapshot.AppliedMeshBytesEstimate;
+        PooledMeshBufferBytes = snapshot.PooledMeshBufferBytes;
+        UpdateMaximum(ref VoxelCacheArrayHighWaterBytes, snapshot.VoxelArrayBytes);
+    }
+
+    private static void UpdateMaximum(ref int target, int value)
+    {
+        int current;
+        do
+        {
+            current = Volatile.Read(ref target);
+            if (value <= current) return;
+        } while (Interlocked.CompareExchange(ref target, value, current) != current);
+    }
+
+    private static void UpdateMaximum(ref long target, long value)
+    {
+        long current;
+        do
+        {
+            current = Interlocked.Read(ref target);
+            if (value <= current) return;
+        } while (Interlocked.CompareExchange(ref target, value, current) != current);
     }
 
     /// <summary>Average and max mesh build time over the last 64 builds.</summary>
@@ -102,6 +199,48 @@ public static class Profiler
                     ordered[^1]);
         }
     }
+}
+
+public static class StreamingApplyBudget
+{
+    public const int MaxPendingPayloads = 18;
+    /// <summary>Always allow one payload to make progress, even when it exceeds the frame budget.</summary>
+    public static bool ShouldStop(double elapsedMilliseconds, int appliedCount, double budgetMilliseconds) =>
+            appliedCount > 0 && elapsedMilliseconds >= Math.Max(0.0, budgetMilliseconds);
+}
+
+public static class StreamingMemoryBudget
+{
+    public const int BytesPerVoxelUpperBound = 5; // blocks, optional block states, sky, block, packed light
+
+    /// <summary>
+    /// Bound byte-array caches to the streamed area plus the existing one-chunk
+    /// lighting halo and two-chunk light-solver snapshot margin.
+    /// </summary>
+    public static long EstimateVoxelArrayBudgetBytes(
+            int viewDistance, int unloadMargin, int chunkWidth, int chunkHeight, int chunkDepth)
+    {
+        int radius = Math.Clamp(viewDistance, 2, 24) + Math.Max(0, unloadMargin) + 1;
+        long side = radius * 2L + 1L;
+        return side * side * Math.Max(1, chunkWidth) * Math.Max(1, chunkHeight)
+                * Math.Max(1, chunkDepth) * BytesPerVoxelUpperBound;
+    }
+}
+
+public readonly record struct VoxelCacheMemorySnapshot(
+        long BlockDataBytes,
+        long BlockStateBytes,
+        long SkyLightBytes,
+        long BlockLightBytes,
+        long PackedLightBytes,
+        long EditMetadataBytesEstimate,
+        long LightSourceBytesEstimate,
+        long AppliedMeshBytesEstimate,
+        long PooledMeshBufferBytes,
+        long VoxelArrayBudgetBytes)
+{
+    public long VoxelArrayBytes => BlockDataBytes + BlockStateBytes + SkyLightBytes
+            + BlockLightBytes + PackedLightBytes;
 }
 
 public readonly record struct BuildTimeStats(

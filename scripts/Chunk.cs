@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using Godot;
 
 namespace Minecraft;
@@ -20,6 +21,9 @@ public partial class Chunk : StaticBody3D
     // Most chunks contain only default shape states; keep this empty until a
     // non-default orientation/half is actually stored in the chunk.
     public byte[] BlockStates { get; private set; } = System.Array.Empty<byte>();
+
+    /// <summary>Estimated CPU-side mesh/collision array bytes represented by the applied payload.</summary>
+    public long EstimatedMeshBytes { get; private set; }
 
     private MeshInstance3D _meshOpaque = null!;
     private MeshInstance3D _meshGlass = null!;
@@ -100,6 +104,7 @@ public partial class Chunk : StaticBody3D
     /// <summary>Apply a Mesher.Build() payload: meshes, materials, collider.</summary>
     public void ApplyPayload(MeshPayload payload)
     {
+        EstimatedMeshBytes = payload.EstimatedResourceBytes;
         ApplySurface(_meshOpaque, payload.Opaque, ChunkMaterials.Opaque);
         ApplySurface(_meshGlass, payload.Glass, ChunkMaterials.Glass);
         ApplySurface(_meshWater, payload.Water, ChunkMaterials.Water);
@@ -108,6 +113,8 @@ public partial class Chunk : StaticBody3D
         // concave shapes or physics-server resources.
         if (_collision != null)
         {
+            long collisionStart = Stopwatch.GetTimestamp();
+            int collisionVertices = payload.Collision.Count;
             Vector3[] faces = payload.Collision.ToArray();
             if (faces.Length == 0)
             {
@@ -119,6 +126,9 @@ public partial class Chunk : StaticBody3D
                 shape.SetFaces(faces);
                 _collision.Shape = shape;
             }
+
+            Profiler.RecordCollision(Stopwatch.GetElapsedTime(collisionStart).TotalMilliseconds,
+                    collisionVertices);
         }
     }
 
