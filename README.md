@@ -126,9 +126,10 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-The integrated 2026-11-21 suite reports **4,238 checks, 0 failures** across 28
+The integrated 2026-11-21 suite reports **4,276 checks, 0 failures** across 29
 suites, with 0 build warnings. It includes the combined save round-trip
-(shapes + villagers + quests + boats), quest reward wiring, fluid/shape
+(shapes + villagers + quests + boats), graphics-preset migration,
+render-only mesher collision checks, quest reward wiring, fluid/shape
 boundaries, legacy saves, every pinned block/item ID and V1–V8 golden chunk
 hashes. The headless runner and a verbose real-scene soak both exit without
 leaked ObjectDB instances or RIDs. The project-specific reliability audit,
@@ -148,9 +149,15 @@ write to the selected player world.
 
 See [`docs/PERFORMANCE_BENCHMARKS.md`](docs/PERFORMANCE_BENCHMARKS.md) for
 arguments, repeatability requirements and interpretation. Headless runs are
-for lifecycle smoke tests only, not rendered performance measurements. The
-existing `docs/PERF_BASELINE.md` numbers remain historical until controlled
-Debug/Release runs are captured on the reference laptop and desktop.
+for lifecycle smoke tests only, not rendered performance measurements.
+Older `docs/PERF_BASELINE.md` figures remain historical; the RTX 4060 comparison
+is still pending.
+
+The MX230 controlled Release comparison for Milestone 2 is recorded in
+[docs/PERFORMANCE_MILESTONE_2_MX230.md](docs/PERFORMANCE_MILESTONE_2_MX230.md):
+three matched runs show approximately 9% higher median FPS in both open terrain
+and heavy rain. These results apply only to the measured configuration and
+should not be generalized to other GPUs or presets.
 
 ### Reliability audit
 

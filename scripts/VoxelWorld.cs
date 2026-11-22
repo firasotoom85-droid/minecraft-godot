@@ -36,6 +36,7 @@ public partial class VoxelWorld : Node3D
 
     public int ViewDistance = 5;        // chunk radius streamed around the player (gfx presets)
     public int MaxInFlight = 6;         // concurrent mesher workers (gfx presets)
+    public bool BuildCollision = true;  // false for render-only previews such as the main menu
     public float LodRadius;             // far-view LOD ring radius in metres (0 = off)
     private FarLod? _farLod;            // FarLod ring node (created in _Ready)
 

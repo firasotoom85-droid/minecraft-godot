@@ -25,7 +25,7 @@ public partial class Chunk : StaticBody3D
     private MeshInstance3D _meshGlass = null!;
     private MeshInstance3D _meshWater = null!;
     private MeshInstance3D _meshLava = null!;
-    private CollisionShape3D _collision = null!;
+    private CollisionShape3D? _collision;
 
     public void Setup(VoxelWorld world, Vector2I chunkPos)
     {
@@ -33,7 +33,7 @@ public partial class Chunk : StaticBody3D
         ChunkPos = chunkPos;
         Name = $"chunk_{chunkPos.X}_{chunkPos.Y}";
         Position = new Vector3(chunkPos.X * SX, 0, chunkPos.Y * SZ);
-        CollisionLayer = (uint)PhysicsLayer.Terrain;
+        CollisionLayer = world.BuildCollision ? (uint)PhysicsLayer.Terrain : 0;
         CollisionMask = 0;
 
         _meshOpaque = NewSurfaceMesh("OpaqueMesh", false);
@@ -41,9 +41,14 @@ public partial class Chunk : StaticBody3D
         _meshWater = NewSurfaceMesh("WaterMesh", true);
         _meshLava = NewSurfaceMesh("LavaMesh", true);
 
-        _collision = new CollisionShape3D();
-        _collision.Name = "Collision";
-        AddChild(_collision);
+        if (world.BuildCollision)
+        {
+            _collision = new CollisionShape3D
+            {
+                Name = "Collision",
+            };
+            AddChild(_collision);
+        }
     }
 
     private MeshInstance3D NewSurfaceMesh(string nodeName, bool noShadow)
@@ -99,16 +104,21 @@ public partial class Chunk : StaticBody3D
         ApplySurface(_meshGlass, payload.Glass, ChunkMaterials.Glass);
         ApplySurface(_meshWater, payload.Water, ChunkMaterials.Water);
         ApplySurface(_meshLava, payload.Lava, ChunkMaterials.Lava);
-        Vector3[] faces = payload.Collision.ToArray();
-        if (faces.Length == 0)
+        // Render-only chunks (the menu preview) do not need collision arrays,
+        // concave shapes or physics-server resources.
+        if (_collision != null)
         {
-            _collision.Shape = null;
-        }
-        else
-        {
-            ConcavePolygonShape3D shape = new();
-            shape.SetFaces(faces);
-            _collision.Shape = shape;
+            Vector3[] faces = payload.Collision.ToArray();
+            if (faces.Length == 0)
+            {
+                _collision.Shape = null;
+            }
+            else
+            {
+                ConcavePolygonShape3D shape = new();
+                shape.SetFaces(faces);
+                _collision.Shape = shape;
+            }
         }
     }
 

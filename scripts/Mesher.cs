@@ -145,7 +145,7 @@ public static class Mesher
     };
 
     /// <summary>
-    /// Build the render + collision payload for one chunk.
+    /// Build the render payload and, for gameplay chunks, its collision geometry.
     /// The epoch is captured before any data is read; the caller discards the
     /// payload if the world was edited meanwhile.
     /// </summary>
@@ -171,6 +171,7 @@ public static class Mesher
         SurfaceData glass = PayloadPool.RentSurface();
         SurfaceData water = PayloadPool.RentSurface();
         SurfaceData lava = PayloadPool.RentSurface();
+        bool buildCollision = world.BuildCollision;
         List<Vector3> collision = PayloadPool.RentCollision();
 
         // Reused per face; all four entries are always (re)assigned before use.
@@ -220,7 +221,7 @@ public static class Mesher
                     if (BlockShapes.IsShape(id) && !fullCube)
                     {
                         AddShapeGeometry(pad, statePad, lightPad, i, new Vector3(x - 1, y - 1, z - 1),
-                                id, state, opaque, collision, kk, cornerLight);
+                                id, state, opaque, buildCollision ? collision : null, kk, cornerLight);
                         continue;
                     }
 
@@ -269,7 +270,7 @@ public static class Mesher
                         {
                             // Quad already emitted by BuildOpaqueGreedy; here we
                             // only need the collision triangle pair.
-                            if (BlockDb.SolidMask[(int)id] == 1)
+                            if (buildCollision && BlockDb.SolidMask[(int)id] == 1)
                             {
                                 collision.Add(b + BlockDb.FaceVerts[vi]);
                                 collision.Add(b + BlockDb.FaceVerts[vi + 1]);
@@ -285,7 +286,7 @@ public static class Mesher
                         if (partialNeighbor && fullCube && !isTrans)
                         {
                             EmitCubeFaceAgainstPartial(pad, statePad, lightPad, neighborIndex, f, tile,
-                                    b, opaque, collision, kk, cornerLight);
+                                    b, opaque, buildCollision ? collision : null, kk, cornerLight);
                             continue;
                         }
 
@@ -322,7 +323,7 @@ public static class Mesher
                                 surf.Uv2.Add(new Vector2(tile, 0.0f));
                         }
 
-                        if (BlockDb.SolidMask[(int)id] == 1)
+                        if (buildCollision && BlockDb.SolidMask[(int)id] == 1)
                         {
                             collision.Add(b + BlockDb.FaceVerts[vi]);
                             collision.Add(b + BlockDb.FaceVerts[vi + 1]);
@@ -369,7 +370,7 @@ public static class Mesher
 
     private static void EmitCubeFaceAgainstPartial(
             byte[] pad, byte[] statePad, byte[] lightPad, int neighborIndex, int face,
-            int tile, Vector3 blockOrigin, SurfaceData surf, List<Vector3> collision,
+            int tile, Vector3 blockOrigin, SurfaceData surf, List<Vector3>? collision,
             Span<float> kk, Span<byte> cornerLight)
     {
         int ui = (tile * 6 + face) * 4;
@@ -395,7 +396,7 @@ public static class Mesher
 
     private static void AddShapeGeometry(
             byte[] pad, byte[] statePad, byte[] lightPad, int index, Vector3 blockOrigin,
-            BlockId id, byte state, SurfaceData surf, List<Vector3> collision,
+            BlockId id, byte state, SurfaceData surf, List<Vector3>? collision,
             Span<float> kk, Span<byte> cornerLight)
     {
         int tileBase = (int)id * 6;
