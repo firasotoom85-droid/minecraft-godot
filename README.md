@@ -49,6 +49,14 @@ than entering transparent sorting. The first-person held-item `Sprite3D`
 retains texture alpha and nearest sampling so its icon edges stay consistent
 with the procedural atlas.
 
+The atlas/greedy-array/glass/water lighting shaders share a bounded sky/block blend:
+torch light fills only the remaining skylight headroom, with a small shadow-gated
+emission contribution. This prevents full daylight and torch channels from
+being stacked into washed-out surfaces while retaining warm contrast at night
+and in caves. New canopy tiles 56–58 are explicitly foliage, and every
+placeable held item derives its first-person response from its registered block
+atlas tile, preventing drift between the held sprite and placed geometry.
+
 ## Highlights
 
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
