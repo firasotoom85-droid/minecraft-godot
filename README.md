@@ -157,7 +157,7 @@ godot --path . res://tests/WoodArtVisualCapture.tscn -- 1337 /tmp/edge-distant.p
   the arena boss. A wandering trader, weather, lightning and ambient life
   complete the ecosystem.
 - **Interface** — shared pixel-art menu, HUD, inventory, chest and furnace styling; viewport-aware panel scaling; slot hover feedback and tooltips; drag-and-drop and Shift-click stack movement. Durable equipment uses cached scuffed icon stages plus a green/amber/red condition meter across hotbar, inventory, armor and container slots.
-- **First-person presentation** — the existing arm and held-item viewmodel use distinct mining, melee, placement, eating, bow-release, shield-block and landing profiles, layered with locomotion bob, idle breathing, climbing, swimming, bow draw and shield guard. Cached wear-state variants are reused by the selected-item icon; the item material/icon cache and camera attachment remain unchanged.
+- **First-person presentation** — the existing arm and held-item viewmodel use distinct mining, melee, placement, eating, bow-release, shield-block and landing profiles, layered with locomotion bob, idle breathing, climbing, swimming, bow draw and shield guard. Cached wear-state variants are reused by the selected-item icon; the item material/icon cache and camera attachment remain unchanged. Block targeting uses a paired unshaded dark silhouette and fine bright inset tracks, with cached cube/slab/stair geometry for readable contrast on snow, water and in dark caves.
 - **Controller support** — left-stick movement, right-stick look, gamepad actions for mining/placing, hotbar cycling, inventory, pause, map and journal, with persistent button rebinding.
 - **Quality of life** — minimap with zoom and waypoints, achievements journal,
   keyboard/controller rebinding, accessibility toggles, photo mode, dev console,
@@ -236,8 +236,10 @@ with the Godot 4.7.2 .NET editor or executable. It uses the production `InvSlot`
 control and renders tools, weapons and armor at full, 74%, 49% and 24% durability;
 the PNG is written to `user://equipment-durability-visual-validation.png`.
 
-The 2026-11-22 integration suite reports **186,422 checks, 0 failures** across
-40 suites, with 0 build warnings. It includes deterministic V9 weathering,
+The 2026-11-22 integration suite reports **186,602 checks, 0 failures** across
+40 suites, with 0 build warnings. The selection-outline suite adds 275 checks
+for two-pass contrast materials and cube/slab/stair geometry, including every
+partial-block state. It includes deterministic V9 weathering,
 the V10 foliage-only delta, V8-to-V9 chunk-diff and chunk-order regressions,
 atmosphere/weather/water presentation, the performance runner, streaming memory
 accounting, the combined save round-trip (shapes + villagers + quests + boats),

@@ -48,6 +48,23 @@ optional `[torch]` capture selects a flat dry column, carves a temporary
 chamber and places the torch through `VoxelWorld.SetBlock` in its disposable
 visual-test world. No standalone GPU benchmark was added for the shader-only
 change; the existing benchmark matrix and baselines are unchanged.
+## Current follow-up implementation — 2026-11-22 (block selection contrast)
+
+The existing first-person target outline now uses two complementary unshaded
+passes: a dark outer silhouette and fine near-white inset tracks along exposed
+faces. The outer geometry stays legible on bright snow and water; the inner
+tracks remain visible on dark cave surfaces and at distance. Cubes, bottom/top/
+double slabs and all stair orientations share the same shape-aware builder;
+partial-shape mesh pairs are cached by block ID and state, so geometry is
+rebuilt only when the selected target shape changes.
+
+This is a presentation-only change. It does not touch atlas tiles, world
+materials, baked voxel lighting, ray targeting, world mutation, persisted IDs,
+save formats, generator rules, greedy meshing or chunk streaming. Both outline
+passes disable shadow casting and allocate no per-frame geometry or materials.
+The bright inset is one additional small draw pass while a block is targeted;
+the static cube meshes are built once and partial-shape pairs are shared from
+the existing per-shape cache.
 
 ## Current follow-up implementation — 2026-11-22 (V10 biome foliage)
 
