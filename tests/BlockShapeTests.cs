@@ -189,6 +189,17 @@ public static class BlockShapeTests
         world.SetBlock(8, 100, 2, BlockId.PlanksStairs, 3);
         world.SetBlock(11, 100, 4, BlockId.Stone);
         world.SetBlock(12, 100, 4, BlockId.PlanksSlab, BlockShapes.SlabBottom);
+        world.SetBlock(13, 99, 4, BlockId.Dirt);
+        world.SetBlock(13, 100, 4, BlockId.Farmland);
+
+        TestAssert.Check(world.TryEditTop(13, 4, out int farmlandTop, out BlockId farmlandSurface),
+                "edited surface lookup exposes the topmost edited column");
+        TestAssert.Equal(100, farmlandTop, "farmland edit surface height is retained");
+        TestAssert.Equal(BlockId.Farmland, farmlandSurface,
+                "far LOD can resolve an edited farmland surface without reading chunk data");
+        TestAssert.Check(world.TryEditTop(13, 4, out int legacyTop),
+                "existing height-only edit lookup remains compatible");
+        TestAssert.Equal(100, legacyTop, "legacy edit lookup keeps the same surface height");
 
         TestAssert.Equal(BlockShapes.SlabTop, world.GetBlockState(4, 100, 2),
                 "world edit pipeline stores upper-slab state");
@@ -209,6 +220,20 @@ public static class BlockShapeTests
                 "shape surfaces carry AO and voxel-light color for every emitted vertex");
         TestAssert.Equal(perFace.Opaque.Vertex.Count, perFace.Opaque.Uv.Count,
                 "shape surfaces carry atlas UVs for every emitted vertex");
+        TestAssert.Check(CheckBlockUvMapping(perFace.Opaque, new Vector3(2, 100, 2),
+                    BlockId.PlanksSlab, BlockShapes.SlabBottom, false) > 0,
+                "slab micro-faces use block-relative atlas UVs instead of repeating a full tile");
+        TestAssert.Check(CheckBlockUvMapping(perFace.Opaque, new Vector3(8, 100, 2),
+                    BlockId.PlanksStairs, 3, false) > 0,
+                "rotated stair micro-faces retain continuous block-relative wood UVs");
+        TestAssert.Check(CheckBlockUvMapping(perFace.Opaque, new Vector3(11, 100, 4),
+                    BlockId.Stone, 0, false, faceFilter: 2) > 0,
+                "cube faces clipped against a slab keep the original full-cube texel density");
+        TestAssert.Check(perFace.Opaque.Color.Exists(c => Mathf.IsEqualApprox(c.A,
+                        (float)SurfaceFamily.Wood)),
+                "wood faces carry their response family in vertex alpha");
+        TestAssert.Equal(0, perFace.Opaque.Uv2.Count,
+                "per-face atlas meshes do not allocate a texture-array UV channel");
         Chunk? geometryChunk = null;
         foreach (Node child in world.GetChildren())
             if (child is Chunk candidate && candidate.ChunkPos == Vector2I.Zero)
@@ -258,6 +283,18 @@ public static class BlockShapeTests
                 "greedy and split opaque faces carry texture-array tile indices");
         TestAssert.Equal(greedy.Opaque.Vertex.Count, greedy.Opaque.Color.Count,
                 "greedy and split shape faces preserve AO/voxel-light attributes");
+        TestAssert.Check(CheckBlockUvMapping(greedy.Opaque, new Vector3(2, 100, 2),
+                    BlockId.PlanksSlab, BlockShapes.SlabBottom, true) > 0,
+                "greedy texture-array slab faces preserve full-block UV scale and tile layer");
+        TestAssert.Check(CheckBlockUvMapping(greedy.Opaque, new Vector3(8, 100, 2),
+                    BlockId.PlanksStairs, 3, true) > 0,
+                "greedy texture-array stair faces preserve rotated grain and tile layer");
+        TestAssert.Check(CheckBlockUvMapping(greedy.Opaque, new Vector3(11, 100, 4),
+                    BlockId.Stone, 0, true, faceFilter: 2) > 0,
+                "greedy texture-array clipped cube faces retain continuous tile coordinates");
+        TestAssert.Check(greedy.Opaque.Color.Exists(c => Mathf.IsEqualApprox(c.A,
+                        (float)SurfaceFamily.Wood)),
+                "greedy faces preserve the same material-response family tags");
         double greedyArea = SurfaceArea(greedy.Opaque);
         TestAssert.Check(Math.Abs(perFaceArea - greedyArea) < 0.001,
                 "greedy and per-face meshing preserve equal surface area around shapes");
@@ -276,6 +313,18 @@ public static class BlockShapeTests
         loaded.BuildPreview(Vector3.Zero, 1);
         TestAssert.Equal(BlockShapes.SlabTop, loaded.GetBlockState(4, 100, 2),
                 "world reload restores top-slab state from the optional save extension");
+        TestAssert.Check(loaded.TryEditTop(13, 4, out int restoredFarmlandTop, out BlockId restoredFarmland),
+                "world reload reconstructs the edited surface material lookup");
+        TestAssert.Equal(100, restoredFarmlandTop, "reloaded farmland keeps its edited surface height");
+        TestAssert.Equal(BlockId.Farmland, restoredFarmland,
+                "reloaded farmland remains visible to the far LOD material path");
+        TestAssert.Check(loaded.SetBlock(13, 100, 4, BlockId.Air),
+                "removing the top farmland edit succeeds through SetBlock");
+        TestAssert.Check(loaded.TryEditTop(13, 4, out int exposedSoilTop, out BlockId exposedSoil),
+                "removing farmland exposes the next edited soil layer");
+        TestAssert.Equal(99, exposedSoilTop, "exposed dirt layer becomes the edited surface height");
+        TestAssert.Equal(BlockId.Dirt, exposedSoil,
+                "exposed dirt material replaces farmland in the far LOD surface cache");
         TestAssert.Equal(BlockShapes.SlabDouble, loaded.GetBlockState(6, 100, 2),
                 "world reload restores double-slab state");
         TestAssert.Equal((byte)3, loaded.GetBlockState(8, 100, 2),
@@ -301,6 +350,55 @@ public static class BlockShapeTests
         DirAccess.RemoveAbsolute(WorldStore.PlayerSavePath(dir));
         DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
         DirAccess.RemoveAbsolute(dir);
+    }
+
+    private static int CheckBlockUvMapping(SurfaceData surface, Vector3 blockOrigin,
+            BlockId id, byte state, bool greedy, int faceFilter = -1)
+    {
+        Vector3 blockMax = blockOrigin + Vector3.One;
+        int matchedTriangles = 0;
+        for (int i = 0; i + 2 < surface.Vertex.Count; i += 3)
+        {
+            bool inside = true;
+            for (int vertex = 0; vertex < 3; vertex++)
+            {
+                Vector3 point = surface.Vertex[i + vertex];
+                inside &= point.X >= blockOrigin.X - 0.0001f && point.X <= blockMax.X + 0.0001f
+                        && point.Y >= blockOrigin.Y - 0.0001f && point.Y <= blockMax.Y + 0.0001f
+                        && point.Z >= blockOrigin.Z - 0.0001f && point.Z <= blockMax.Z + 0.0001f;
+            }
+            if (!inside) continue;
+
+            int face = -1;
+            Vector3 normal = surface.Normal[i];
+            for (int candidate = 0; candidate < 6; candidate++)
+            {
+                if (normal.Dot(BlockDb.FaceDirs[candidate]) > 0.999f)
+                {
+                    face = candidate;
+                    break;
+                }
+            }
+            if (face < 0 || (faceFilter >= 0 && face != faceFilter)) continue;
+
+            int tile = BlockDb.ShapeFaceTile(id, state, face);
+            for (int vertex = 0; vertex < 3; vertex++)
+            {
+                Vector2 expectedLocal = BlockDb.BlockFaceUvAt(
+                        id, state, face, surface.Vertex[i + vertex] - blockOrigin);
+                Vector2 expected = greedy
+                        ? expectedLocal
+                        : BlockDb.MapUv(BlockDb.TileUvRect(tile), expectedLocal);
+                TestAssert.Check((surface.Uv[i + vertex] - expected).Length() < 0.0001f,
+                        $"{id} face {face} vertex {i + vertex} has continuous block-relative UVs");
+                if (greedy)
+                    TestAssert.Check(Mathf.Abs(surface.Uv2[i + vertex].X - tile) < 0.0001f,
+                            $"{id} face {face} keeps its atlas-array layer");
+            }
+            matchedTriangles++;
+        }
+
+        return matchedTriangles;
     }
 
     private static int TriangleCountInCell(SurfaceData surface, int x, int y, int z) =>

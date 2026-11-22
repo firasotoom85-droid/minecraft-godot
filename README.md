@@ -9,6 +9,24 @@ event-driven “First Night” guide.
 The project is a long-running solo build with an extensive design log in
 [`PLAN.md`](PLAN.md) and a forward roadmap in [`ROADMAP.md`](ROADMAP.md).
 
+## Unified voxel material response
+
+World surfaces and first-person held items share the response palette in
+`scripts/MaterialResponse.cs`: stone, wood, soil, ore, foliage, glass, and
+metal each have explicit roughness, metallic, and specular values. Procedural
+atlas tile IDs are classified without changing persisted block/item IDs or
+world-generation output. One C# response table configures all world shaders
+and first-person materials. The mesher carries its compact family tag in vertex
+colour alpha; greedy meshes retain their tile-array layer in UV2.x, so existing
+merging, atlas UVs, and chunk streaming remain intact.
+
+The greedy texture array builds mipmaps from each isolated 32px tile rather
+than the combined atlas. This avoids cross-tile colour bleed at distance.
+The classic atlas path intentionally retains nearest sampling without atlas
+mipmaps because generating mipmaps from the packed atlas would blend adjacent
+tiles. Held-item sprites use the same response values through a cached-on-slot-
+change StandardMaterial3D; no per-frame material creation is performed.
+
 ## Highlights
 
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
@@ -21,11 +39,32 @@ The project is a long-running solo build with an extensive design log in
 - **Greedy meshing** — merged coplanar full-cube quads cut triangle count
   roughly in half; per-face meshing remains available for comparison. Vertex-light
   and AO samples are part of the merge key, preserving lighting boundaries.
+- **Terrain material transitions** — original procedural grass has a deeper,
+  irregular turf edge over exposed soil; farmland uses higher-contrast furrows
+  and a defined tilled cap. Far-view terrain samples each block's upward-facing
+  atlas tile, while coarse slopes retain a one-block surface cap over their
+  dirt/stone substrate. Edited top-block materials (including farmland and
+  exposed dirt) remain represented after chunk unload and save reload.
 - **Architectural voxel building** — bottom/top/double slabs and four-way,
   upside-down stairs use a shared 2×2×2 occupancy definition for geometry,
   collision, ray selection and placement. Partial faces are split only at shape
   boundaries; full cubes retain the greedy path. Shape surfaces use the regular
   atlas, AO and voxel-light pipeline, with procedurally painted original textures.
+- **Directional wood surfaces** — oak and birch logs have distinct, irregular
+  end grain and vertical bark; oak planks use dedicated top, long-grain side and
+  cut-end tiles. Slabs and stairs sample the same block-relative texel scale as
+  full cubes, and stair grain follows its facing. The existing nearest-filtered
+  atlas and texture-array materials remain in use, including the first-person
+  held-item icon path. Greedy terrain's texture-array layers build isolated
+  shared 2×2 noise detail units and isolated per-tile mip chains, retaining
+  the 32×32 close-range pixel art while reducing distant shimmer and preventing
+  mip-level bleed between atlas tiles.
+- **Foliage and mineral surfaces** — existing oak and birch canopies use clustered cutout gaps and clearer leaf-tone groups; stone-family tiles receive deterministic low-contrast world-space tone variation, while ores use larger connected deposits for distant readability.
+- **Shared material responses** — atlas, greedy texture-array and held-item surfaces use one roughness/metallic/specular palette for wood, soil, stone, ore, foliage, glass and metal.
+- **Readable glass** — dedicated alpha-blended chunk surface with bounds-center
+  transparency sorting, front-face culling to avoid double-blended internal
+  faces, and a restrained original atlas treatment that stays clear across
+  close and distant views. Glass keeps the existing voxel-light and atlas path.
 - **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
   voxels, warm multi-source propagation with opaque occlusion, cave darkness and
   live place/break updates across chunk boundaries. Emitter edits incrementally
@@ -357,11 +396,19 @@ worlds load without a vehicle list.
 | `scripts/` | Gameplay and engine code (C#), plus `verify.sh` |
 | `scenes/` | `main.tscn` (game) and `main_menu.tscn` |
 | `shaders/` | Water shader |
-| `tests/` | Headless test runner and suites |
+| `tests/` | Headless test runner, suites, and GPU-backed wood-art capture scene |
 | `docs/` | Performance baselines, benchmark procedure and audits |
 | `addons/godot_ai/` | Editor MCP assistant addon (development tooling) |
 | `PLAN.md` | Completed milestone log (M0–M4b) |
 | `ROADMAP.md` | Forward plan (M5–M10) and progress log |
+
+For a production-renderer inspection of directional wood textures, run
+`godot --path . res://tests/WoodArtVisualCapture.tscn -- 1337`. It builds a
+disposable test world through `VoxelWorld.SetBlock` and writes close and distant
+captures to `user://wood-art-validation-close.png` and
+`user://wood-art-validation-distant.png`. This is a manual visual check rather
+than part of the headless test suite; run it with the same Godot renderer and
+hardware profile you intend to validate.
 
 ## Combat equipment and enchantments
 
@@ -379,7 +426,11 @@ when the output cannot fit in the inventory.
 The progression is wood → stone → iron → diamond, with mining harvest gates
 preserved: stone picks unlock iron ore, while iron picks unlock gold and diamond
 ore. Ore is depth-banded with seeded V7 veins; mountains have denser gold and
-diamond hash sampling. One coal burns for 80 seconds and smelts eight items at
+diamond hash sampling. Ore atlas deposits use larger stepped mineral clusters
+with restrained edge shading and highlights so the four resources remain
+distinct at cave depth and at distance. Ore stays fully opaque and emits no
+block light; solid cave walls continue to hide valuable veins. One coal burns
+for 80 seconds and smelts eight items at
 ten seconds each; logs burn for 60 seconds, planks for 15, and sticks for five.
 Furnace updates carry elapsed time across fuel boundaries, including larger
 frame steps. Raw meat is low-value food; cooked meat restores 5–7 hunger and

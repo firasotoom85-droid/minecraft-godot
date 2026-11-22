@@ -175,6 +175,8 @@ public static class ContentTests
         TestAssert.Equal(16, BlockDb.AtlasCols, "atlas columns");
         TestAssert.Equal(256, BlockDb.TileCount, "atlas tile count");
 
+        CheckMaterialResponses();
+
         TestAssert.Empty(ContentValidation.Validate(), "content tables validate");
 
         CheckPersistedIds();
@@ -189,6 +191,40 @@ public static class ContentTests
         TestAssert.Equal((byte)0, BlockDb.LightOpacity[(int)BlockId.Glass], "glass transmits voxel light");
         TestAssert.Check(BlockDb.IsCross(BlockId.Torch), "torch uses the cross mesh");
         TestAssert.Check(!BlockDb.IsDefined((BlockId)127), "unused ids stay undefined");
+
+        // Ore remains visible through its shared atlas tiles, but never acts as
+        // a light source or weakens opaque cave-wall occlusion.
+        foreach (BlockId ore in new[]
+        {
+            BlockId.CoalOre, BlockId.IronOre, BlockId.GoldOre, BlockId.DiamondOre,
+        })
+        {
+            TestAssert.Check(BlockDb.IsSolid(ore) && !BlockDb.IsTransparent(ore),
+                    $"{ore} remains an opaque solid block");
+            TestAssert.Equal((byte)0, BlockDb.LightEmission[(int)ore],
+                    $"{ore} does not glow through cave walls");
+            TestAssert.Equal((byte)15, BlockDb.LightOpacity[(int)ore],
+                    $"{ore} fully occludes voxel light");
+        }
+
+        Image atlas = BlockDb.AtlasTexture().GetImage();
+        foreach ((int tile, Func<Color, bool> isOrePixel, string name) in new[]
+        {
+            (12, (Func<Color, bool>)(c => c.R < 0.28f && c.G < 0.28f && c.B < 0.30f), "coal"),
+            (13, (Func<Color, bool>)(c => c.R > 0.65f && c.G > 0.32f && c.G < 0.78f && c.B < 0.62f), "iron"),
+            (19, (Func<Color, bool>)(c => c.R > 0.78f && c.G > 0.55f && c.B < 0.52f), "gold"),
+            (20, (Func<Color, bool>)(c => c.R < 0.62f && c.G > 0.68f && c.B > 0.68f), "diamond"),
+        })
+        {
+            int originX = tile % BlockDb.AtlasCols * BlockDb.TilePx;
+            int originY = tile / BlockDb.AtlasCols * BlockDb.TilePx;
+            int visiblePixels = 0;
+            for (int y = 0; y < BlockDb.TilePx; y++)
+            for (int x = 0; x < BlockDb.TilePx; x++)
+                if (isOrePixel(atlas.GetPixel(originX + x, originY + y))) visiblePixels++;
+            TestAssert.Check(visiblePixels >= 55,
+                    $"{name} ore has enough high-contrast mineral pixels for distant readability");
+        }
 
         foreach (BlockId id in Enum.GetValues<BlockId>())
         {
@@ -213,6 +249,53 @@ public static class ContentTests
         TestAssert.Check(ItemDb.Placeable.Count > 0, "placeable item list is populated");
         TestAssert.Check(Recipes.All.Count > 0, "recipe list is populated");
         TestAssert.Check(BlockDb.Hotbar.Length == Inventory.HotbarSize, "hotbar defaults fill nine slots");
+    }
+
+    private static void CheckMaterialResponses()
+    {
+        SurfaceResponse stone = MaterialResponse.Get(SurfaceFamily.Stone);
+        SurfaceResponse wood = MaterialResponse.Get(SurfaceFamily.Wood);
+        SurfaceResponse soil = MaterialResponse.Get(SurfaceFamily.Soil);
+        SurfaceResponse ore = MaterialResponse.Get(SurfaceFamily.Ore);
+        SurfaceResponse foliage = MaterialResponse.Get(SurfaceFamily.Foliage);
+        SurfaceResponse glass = MaterialResponse.Get(SurfaceFamily.Glass);
+        SurfaceResponse metal = MaterialResponse.Get(SurfaceFamily.Metal);
+
+        TestAssert.Check(stone.Roughness > 0.7f && stone.Metallic < 0.1f,
+                "stone response stays rough and non-metallic");
+        TestAssert.Check(wood.Roughness > 0.7f && wood.Metallic == 0.0f,
+                "wood response stays matte and non-metallic");
+        TestAssert.Check(soil.Roughness > wood.Roughness,
+                "soil is more diffuse than wood");
+        TestAssert.Check(ore.Metallic > stone.Metallic && ore.Roughness < stone.Roughness,
+                "ore response has denser mineral highlights");
+        TestAssert.Check(foliage.Roughness > 0.85f && foliage.Metallic == 0.0f,
+                "foliage response remains matte");
+        TestAssert.Check(glass.Roughness < 0.25f && glass.Specular > stone.Specular,
+                "glass response remains smooth and reflective");
+        TestAssert.Check(metal.Metallic > 0.6f && metal.Roughness < 0.4f,
+                "metal response has a distinct polished metal finish");
+
+        TestAssert.Equal(SurfaceFamily.Stone, MaterialResponse.ForTile(3),
+                "stone atlas tile maps to stone response");
+        TestAssert.Equal(SurfaceFamily.Wood, MaterialResponse.ForTile(5),
+                "log atlas tile maps to wood response");
+        TestAssert.Equal(SurfaceFamily.Soil, MaterialResponse.ForTile(2),
+                "dirt atlas tile maps to soil response");
+        TestAssert.Equal(SurfaceFamily.Ore, MaterialResponse.ForTile(19),
+                "gold ore atlas tile maps to ore response");
+        TestAssert.Equal(SurfaceFamily.Foliage, MaterialResponse.ForTile(7),
+                "leaf atlas tile maps to foliage response");
+        TestAssert.Equal(SurfaceFamily.Glass, MaterialResponse.ForTile(14),
+                "glass atlas tile maps to glass response");
+        TestAssert.Equal(SurfaceFamily.Metal, MaterialResponse.ForItem(ItemId.IronIngot),
+                "metal inventory items map to metal response");
+        TestAssert.Equal(SurfaceFamily.Metal, MaterialResponse.ForItem(ItemId.IronPick),
+                "metal tools use the shared metal response");
+        TestAssert.Equal(SurfaceFamily.Wood, MaterialResponse.ForItem(ItemId.Bow),
+                "wooden ranged items use the shared wood response");
+        TestAssert.Equal((byte)0, (byte)SurfaceFamily.Stone, "stone response shader tag remains zero");
+        TestAssert.Equal((byte)6, (byte)SurfaceFamily.Metal, "metal response shader tag remains six");
     }
 
     private static void CheckPersistedIds()

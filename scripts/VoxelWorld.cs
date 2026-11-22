@@ -2079,6 +2079,7 @@ public partial class VoxelWorld : Node3D
     // -----------------------------------------------------------------------
 
     private readonly Dictionary<Vector2I, byte[]> _editTops = new();
+    private readonly Dictionary<Vector2I, byte[]> _editTopBlocks = new();
 
     /// <summary>Rescan one edited column's topmost solid block (air/water/plants ignored).</summary>
     private void UpdateEditTop(Vector2I cp, int lx, int lz, byte[] blocks)
@@ -2102,24 +2103,41 @@ public partial class VoxelWorld : Node3D
             _editTops[cp] = tops;
         }
 
+        if (!_editTopBlocks.TryGetValue(cp, out byte[]? topBlocks))
+        {
+            topBlocks = new byte[ChunkX * ChunkZ];
+            _editTopBlocks[cp] = topBlocks;
+        }
+
         tops[col] = (byte)top;
+        topBlocks[col] = top > 0
+                ? blocks[col + top * ChunkX * ChunkZ]
+                : (byte)BlockId.Air;
     }
 
     /// <summary>Topmost solid block of a column from player edits (false = no edits here).</summary>
-    public bool TryEditTop(int wx, int wz, out int topY)
+    public bool TryEditTop(int wx, int wz, out int topY) =>
+        TryEditTop(wx, wz, out topY, out _);
+
+    /// <summary>Topmost edited column height and its visible block type, without querying generated terrain.</summary>
+    public bool TryEditTop(int wx, int wz, out int topY, out BlockId topBlock)
     {
         topY = 0;
+        topBlock = BlockId.Air;
         Vector2I cp = new(Mathf.FloorToInt(wx / (float)ChunkX), Mathf.FloorToInt(wz / (float)ChunkZ));
         lock (_mutex)
         {
-            if (!_editTops.TryGetValue(cp, out byte[]? tops))
+            if (!_editTops.TryGetValue(cp, out byte[]? tops)
+                    || !_editTopBlocks.TryGetValue(cp, out byte[]? topBlocks))
             {
                 return false;
             }
 
             int lx = wx - cp.X * ChunkX;
             int lz = wz - cp.Y * ChunkZ;
-            topY = tops[lx + lz * ChunkX];
+            int column = lx + lz * ChunkX;
+            topY = tops[column];
+            topBlock = (BlockId)topBlocks[column];
             return topY > 0;
         }
     }

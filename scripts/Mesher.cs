@@ -286,7 +286,7 @@ public static class Mesher
                         if (partialNeighbor && fullCube && !isTrans)
                         {
                             EmitCubeFaceAgainstPartial(pad, statePad, lightPad, neighborIndex, f, tile,
-                                    b, opaque, buildCollision ? collision : null, kk, cornerLight);
+                                    id, state, b, opaque, buildCollision ? collision : null, kk, cornerLight);
                             continue;
                         }
 
@@ -317,7 +317,9 @@ public static class Mesher
                                 vertex.Y = f >= 2 ? waterBase + vertex.Y * (waterTop - waterBase) : vertex.Y * waterTop;
                             surf.Vertex.Add(b + vertex);
                             surf.Normal.Add(normal);
-                            surf.Color.Add(VoxelLighting.VertexColor(cornerLight[t], kk[t]));
+                            Color litColor = VoxelLighting.VertexColor(cornerLight[t], kk[t]);
+                            SurfaceFamily family = MaterialResponse.ForTile(tile);
+                            surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B, (float)family));
                             surf.Uv.Add(BlockDb.UvLut[ui + t]);
                             if (Greedy && ReferenceEquals(surf, opaque))
                                 surf.Uv2.Add(new Vector2(tile, 0.0f));
@@ -370,10 +372,10 @@ public static class Mesher
 
     private static void EmitCubeFaceAgainstPartial(
             byte[] pad, byte[] statePad, byte[] lightPad, int neighborIndex, int face,
-            int tile, Vector3 blockOrigin, SurfaceData surf, List<Vector3>? collision,
+            int tile, BlockId blockId, byte blockState, Vector3 blockOrigin,
+            SurfaceData surf, List<Vector3>? collision,
             Span<float> kk, Span<byte> cornerLight)
     {
-        int ui = (tile * 6 + face) * 4;
         int vi = face * 4;
         int uAxis = _uAxis[face];
         int vAxis = _vAxis[face];
@@ -389,8 +391,8 @@ public static class Mesher
                 p[vAxis] = (v + p[vAxis]) * 0.5f;
                 points[vertex] = blockOrigin + p;
             }
-            EmitLitFace(pad, lightPad, neighborIndex, face, ui, tile,
-                    points, surf, collision, kk, cornerLight);
+            EmitLitFace(pad, lightPad, neighborIndex, face, tile, blockId, blockState,
+                    blockOrigin, points, surf, collision, kk, cornerLight);
         }
     }
 
@@ -399,7 +401,6 @@ public static class Mesher
             BlockId id, byte state, SurfaceData surf, List<Vector3>? collision,
             Span<float> kk, Span<byte> cornerLight)
     {
-        int tileBase = (int)id * 6;
         Span<Vector3> points = stackalloc Vector3[4];
         for (int cy = 0; cy < 2; cy++)
         for (int cz = 0; cz < 2; cz++)
@@ -423,21 +424,21 @@ public static class Mesher
                 if (!BlockShapes.FaceExposed(id, state, cx, cy, cz, face, neighbor, neighborState))
                     continue;
 
-                int tile = BlockDb.Tiles[tileBase + face];
+                int tile = BlockDb.ShapeFaceTile(id, state, face);
                 if (tile < 0) continue;
                 Vector3 cellOrigin = blockOrigin + new Vector3(cx * 0.5f, cy * 0.5f, cz * 0.5f);
                 int vi = face * 4;
                 for (int vertex = 0; vertex < 4; vertex++)
                     points[vertex] = cellOrigin + BlockDb.FaceVerts[vi + vertex] * 0.5f;
-                int ui = (tile * 6 + face) * 4;
-                EmitLitFace(pad, lightPad, index + FaceOff[face], face, ui, tile,
-                        points, surf, collision, kk, cornerLight);
+                EmitLitFace(pad, lightPad, index + FaceOff[face], face, tile, id, state,
+                        blockOrigin, points, surf, collision, kk, cornerLight);
             }
         }
     }
 
     private static void EmitLitFace(
-            byte[] pad, byte[] lightPad, int neighborIndex, int face, int uvIndex, int textureTile,
+            byte[] pad, byte[] lightPad, int neighborIndex, int face, int textureTile,
+            BlockId blockId, byte blockState, Vector3 blockOrigin,
             Span<Vector3> points, SurfaceData surf, List<Vector3>? collision,
             Span<float> kk, Span<byte> cornerLight)
     {
@@ -460,8 +461,14 @@ public static class Mesher
         {
             surf.Vertex.Add(points[tri]);
             surf.Normal.Add(normal);
-            surf.Color.Add(VoxelLighting.VertexColor(cornerLight[tri], kk[tri]));
-            surf.Uv.Add(BlockDb.UvLut[uvIndex + tri]);
+            Color litColor = VoxelLighting.VertexColor(cornerLight[tri], kk[tri]);
+            surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B,
+                    (float)MaterialResponse.ForTile(textureTile)));
+            Vector2 localUv = BlockDb.BlockFaceUvAt(blockId, blockState, face,
+                    points[tri] - blockOrigin);
+            surf.Uv.Add(Greedy
+                    ? localUv
+                    : BlockDb.MapUv(BlockDb.TileUvRect(textureTile), localUv));
             if (Greedy)
                 surf.Uv2.Add(new Vector2(textureTile, 0.0f));
         }
@@ -713,7 +720,9 @@ public static class Mesher
             float k = shade * AoFactors[(int)(key >> (16 + (c * 2))) & 3];
             byte sky = (byte)((key >> (24 + c * 4)) & 0x0F);
             byte block = (byte)((key >> (40 + c * 4)) & 0x0F);
-            surf.Color.Add(VoxelLighting.VertexColor(VoxelLighting.Pack(sky, block), k));
+            Color litColor = VoxelLighting.VertexColor(VoxelLighting.Pack(sky, block), k);
+            surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B,
+                    (float)MaterialResponse.ForTile(tile)));
             Vector2 duv = BlockDb.FaceUvs[f * 4 + c];
             surf.Uv.Add(new Vector2(duv.X * su, duv.Y * sv));
             surf.Uv2.Add(new Vector2(tile, 0.0f));
@@ -758,7 +767,8 @@ public static class Mesher
     private static void EmitDoubleSided(SurfaceData surf, Vector3[] p, Vector2[] uv, int tile, Color lightColor)
     {
         Vector3 n = (p[1] - p[0]).Cross(p[3] - p[0]).Normalized();
-        Color white = lightColor;
+        SurfaceFamily family = MaterialResponse.ForTile(tile);
+        Color white = new(lightColor.R, lightColor.G, lightColor.B, (float)family);
         for (int pass = 0; pass < 2; pass++)
         {
             Vector3 normal = pass == 0 ? n : -n;
@@ -770,9 +780,7 @@ public static class Mesher
                 surf.Color.Add(white);
                 surf.Uv.Add(uv[idx]);
                 if (Greedy)
-                {
                     surf.Uv2.Add(new Vector2(tile, 0.0f));
-                }
             }
         }
     }
@@ -956,7 +964,7 @@ public sealed class SurfaceData
     public readonly List<Vector3> Normal = [];
     public readonly List<Color> Color = [];
     public readonly List<Vector2> Uv = [];
-    public readonly List<Vector2> Uv2 = [];   // greedy mode: tile layer in .x
+    public readonly List<Vector2> Uv2 = [];   // greedy mode only: texture-array layer in .x
 
     // Managed List backing arrays are what a queued payload retains until the
     // main thread returns it to PayloadPool. Godot mesh storage is estimated

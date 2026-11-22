@@ -13,6 +13,16 @@ remains pending.
 
 ---
 
+## Current follow-up implementation — 2026-11-21 (cave ore readability)
+
+- Refined the four existing ore atlas tiles with larger, stepped deposits,
+  restrained mineral highlights and a one-pixel shadow edge. The shared atlas
+  keeps world faces, inventory icons and held-item sprites visually consistent.
+- Kept ore fully opaque and non-emissive; no through-wall glow, dynamic lights,
+  mesh changes, new persisted IDs, save changes or generator-version changes.
+- Added content regression checks for each ore's light/opacity contract and a
+  minimum high-contrast pixel coverage in each existing atlas tile.
+
 ## Integrated 1.0 snapshot — 2026-11-21
 
 Six open feature branches were merged into `integration/v1.0-full` from
@@ -318,6 +328,24 @@ remains recommended before merging.
   and chunk seams, biome eligibility, trades, schedules, quest progression and
   save round-trips. GPU worldgen captures and the population soak were added
   later; see the integrated snapshot and V8 visual-validation document.
+
+## Glass rendering polish — 2026-11-21
+
+- Kept the existing dedicated glass chunk surface, atlas tile, alpha material,
+  voxel-light channels and face-culling rules; no new block/item IDs, save
+  fields, generator versions, or mesh/streaming paths were introduced.
+- Glass chunk instances now sort transparent geometry around their mesh AABB
+  center rather than the chunk origin, reducing incorrect ordering between
+  neighboring chunk surfaces viewed through windows.
+- Switched the glass shader to back-face culling so a closed glass block does
+  not blend both sides of the same surface. Transparent fragments remain out of
+  opaque depth writes.
+- Reduced the glass tile to a clear body, a one-pixel restrained edge and a
+  subtle diagonal glint; reduced shader alpha to limit grid-like visual buildup
+  across large windows while retaining a readable edge at distance.
+- Added regression checks for shader blend/cull/depth modes, glass instance
+  sorting and atlas alpha levels. `dotnet build` and `scripts/verify.sh` pass on
+  Godot 4.7.2 .NET; GPU visual validation remains a manual follow-up.
 
 ## 1. Current state
 
@@ -1165,6 +1193,35 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   suite passes the equipment, save and combat regressions. Live enchanting and
   ballistic-arrow playtesting was not performed.
 
+## 16b. Directional wood surfaces and shape texel consistency — 2026-11-21
+
+- Reworked procedural oak and birch log end grain with offset/warped growth
+  rings, a defined pith, subtle radial checks and species-matched sapwood. Oak
+  bark now has longer vertical fissures and restrained knots; birch bark retains
+  its characteristic dark marks with fine vertical streaks.
+- Appended atlas tiles 49–51 for plank top, long-grain side and cut-end views.
+  Existing atlas dimensions, earlier tile indices and the legacy crafting-table
+  texture remain unchanged. Oak planks, slabs and stairs now select those
+  directional faces instead of stretching one generic building tile over every
+  side.
+- Partial-shape and cube-to-shape boundary faces derive UVs from the full
+  block-local coordinate frame. A half-height/half-width face therefore samples
+  only its corresponding half of the texture rather than repeating a complete
+  tile at double texel density. East/west stairs rotate their tread grain and
+  swap side/end faces to follow their facing.
+- The existing ItemDb.Icon → first-person HeldItem sprite path naturally picks
+  the plank side-grain tile; no extra scene node or per-frame work was introduced.
+- No persisted block/item IDs, save fields, generator rules, world mutations,
+  greedy merge keys or chunk-streaming behavior changed. Original procedural
+  assets remain self-authored and are built into the existing atlas.
+- Added painter/layout tests plus real mesher-payload UV checks in both greedy
+  texture-array and per-face atlas modes, including clipped cube faces adjacent
+  to partial shapes.
+
+- Added an optional live-scene GPU capture fixture with close and distant
+  views of a disposable wood exhibit. Both views were rendered through the
+  production Forward+ pipeline on the NVIDIA MX230 and inspected successfully.
+
 ## 17. Integration of V7, UI and equipment — 2026-11-21
 
 - Merged `worldgen/v7-release-candidate` (PR #29),
@@ -1307,3 +1364,105 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - **Verification:** Godot 4.7.2 .NET build completed with 0 warnings and
   0 errors. The final full headless suite passed with 1,247 checks and
   0 failures. Live interactive playtesting was not performed.
+
+
+## 21. Terrain texture scale and distance consistency — 2026-11-21
+
+- Audited the existing 32×32 procedural atlas, atlas UV path, greedy texture
+  array, shape-face UV mapping and selected-item first-person icon path. The
+  atlas and close-range UV scale were already consistent; the missing piece was
+  distance filtering in the default greedy renderer.
+- Standardize procedural base-noise and speckle accents on coherent 2×2
+  texel clusters across terrain/material families, preserving the prior
+  approximate speckle coverage. Structural grain, seams and silhouettes retain
+  their intentional finer pixel accents.
+- Generate mipmaps independently for each texture-array tile before creating
+  the array. The greedy shader now uses nearest-mipmap filtering: native texels
+  remain crisp nearby, while smaller prefiltered levels suppress distant
+  high-frequency shimmer and detail popping.
+- Do not generate mipmaps on the packed atlas: that would blend adjacent atlas
+  tiles at lower levels. The existing atlas coordinates, texture-array layer
+  indices, 32×32 source art, UV tiling, block definitions and first-person icon
+  presentation remain unchanged.
+- Added regression assertions for all 256 array layers, array mipmap
+  availability and coherent 2×2 procedural noise clusters. No persisted IDs,
+  save fields, world generation, voxel edits, greedy merge keys or chunk
+  streaming behavior changed.
+- **Verification:** Godot 4.7.2/.NET 9 build passed with 0 warnings and
+  0 errors; `scripts/verify.sh` passed all 6,043 checks with 0 failures.
+  A Forward+ GPU capture also rendered both close and distant production-scene
+  views at 1280×720 on the GeForce MX230, with no shader compilation errors.
+  The capture confirms the mipmapped array path renders on the target GPU; a
+  controlled before/after FPS comparison was not performed. The complete
+  mip-chain payload is estimated at about 1.33 MiB versus 1.00 MiB without
+  mipmaps for 256 RGBA8 32×32 layers (approximately 0.33 MiB additional
+  texture data).
+## 21. Soil, grass and farmland transitions — 2026-11-21
+
+- Refined the existing procedural 32px atlas tiles rather than replacing the
+  art pipeline: grass sides now use a deeper, irregular turf band with a broken
+  dark-soil seam; farmland furrows have stronger shadow/ridge contrast and the
+  vertical face has a distinct dark tilled cap over its soil body.
+- Added face-aware atlas tile/color access. The existing icon/particle color
+  API retains its prior side-tile behavior; far LOD now samples upward-facing
+  tiles for terrain tops and side-facing tiles for coarse edges.
+- Split far-LOD slope skirts into a one-block surface-material cap and an
+  underlying substrate segment, so grassy/farmed edges transition into dirt
+  instead of stretching one surface tint down the entire slope.
+- Extended the derived per-column edit-top cache to retain the visible top
+  BlockId as well as its height. Far LOD now shows edited farmland, exposed
+  dirt and other edited top blocks after chunk unload. The cache rebuilds from
+  the existing sparse block edits on load; the original height-only lookup
+  remains available.
+- Compatibility: no persisted BlockId or ItemId values changed; no save fields
+  or generator rules were added; V1–V8 remain frozen. All voxel changes still
+  flow through the existing VoxelWorld.SetBlock path. Greedy meshing and
+  chunk streaming were not altered.
+- Added TerrainMaterialTests for face-tile assignments, face-color separation,
+  grass/soil row contrast, farmland furrow/cap contrast, and icon-color
+  compatibility. Added edit-cache round-trip/removal regressions to the shape
+  persistence integration test.
+- Performance characteristics: atlas averages are computed and cached once on
+  the main thread before LOD workers run; LOD worker builds use fixed color
+  tables and stack-allocated quad points. The edit material cache adds one
+  byte per column in each edited chunk; extra skirt quads are emitted only
+  where a coarse edge drops by more than one block. No per-frame terrain scans
+  or physics work were added.
+- **Verification:** Godot 4.7.2 .NET / .NET 9 Debug build and headless suite
+  pass; the completed run reports 4,247 checks and 0 failures. No generator,
+  save-format or persisted-ID migrations are required.
+
+
+## Unified voxel material response (implemented)
+
+- Added a shared response matrix for stone, wood, soil, ores, foliage, glass,
+  and metal. Block faces classify their existing procedural atlas tiles and
+  pass the response family through vertex colour alpha; greedy texture-array
+  tile selection remains in UV2.x.
+- Matched atlas and texture-array shader response values, including controlled
+  metallic/specular highlights instead of a single roughness-1 response.
+- Generated mipmaps from isolated tile images for the greedy texture array,
+  preventing adjacent atlas tiles from bleeding into distant surfaces.
+- First-person held-item sprites now use the same material response palette.
+  Material instances are created only when the selected item changes.
+- No persisted IDs, world saves, generator versions, atlas dimensions, or
+  texture coordinates were changed. The non-greedy packed-atlas path retains
+  nearest sampling without mipmaps to avoid atlas cross-tile contamination.
+- Performance: response tags reuse the existing vertex-colour alpha channel,
+  so per-face meshes gain no extra vertex attribute or UV allocation. The
+  isolated mip chain adds approximately 0.33 MiB to the 256-layer RGBA8 tile
+  array; generation occurs once during lazy texture-array creation. Held-item
+  materials are rebuilt only on hotbar item changes.
+- **Verification:** Godot 4.7.2 .NET / .NET 9 Debug build has 0 warnings and
+  0 errors; `scripts/verify.sh` passes 4,268 checks with 0 failures.
+
+
+## 22. Voxel material art consistency — 2026-11-21
+
+- Improved ore deposits with connected stepped silhouettes, mineral shadow edges and restrained highlights; ore remains opaque and non-emissive.
+- Refined the existing oak and birch foliage tiles with clustered cutout gaps and more coherent leaf-tone groups, preserving their original IDs, atlas coordinates, cutout mesh and light-transmission rules.
+- Added deterministic low-contrast world-space stone tone variation to both atlas and greedy texture-array shaders. The variation is bounded to the stone material family and does not add per-frame CPU work or mesh vertices.
+- Unified material response tags across atlas and greedy mesh paths, with shared roughness/metallic/specular values for stone, wood, soil, ore, foliage, glass and metal.
+- Refined glass alpha, front-face culling and bounds-center transparent sorting while retaining the existing chunk glass surface.
+- Added regression coverage for ore pixel readability/opacity, foliage alpha coverage and light transmission, stone shader consistency, material-family routing, glass sorting and texture mapping. Extended the production-scene GPU capture fixture to show these material families together at close and distant views.
+- No existing BlockId/ItemId values were reordered or reused. No generator, save format, voxel mutation, greedy meshing or chunk-streaming rules changed.
