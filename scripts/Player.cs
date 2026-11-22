@@ -115,7 +115,9 @@ public partial class Player : CharacterBody3D, IDamageable
             ShapeOutlineCache = [];
     private Node3D _arm = null!;
     private Sprite3D _heldItemSprite = null!;
+    private StandardMaterial3D? _heldItemMaterial;
     private int _heldItemId = -1;
+    private int _heldWearStage = -1;
     private Vector3 _armBase = Vector3.Zero;
     private double _bobPhase;
     private double _punch;
@@ -2398,12 +2400,12 @@ public partial class Player : CharacterBody3D, IDamageable
         Camera.AddChild(_arm);
     }
 
-    private static StandardMaterial3D MakeHeldItemMaterial(ItemId id)
+    private static StandardMaterial3D MakeHeldItemMaterial(ItemId id, Texture2D icon)
     {
         SurfaceResponse response = MaterialResponse.Get(MaterialResponse.ForItem(id));
         return new StandardMaterial3D
         {
-            AlbedoTexture = ItemDb.Icon(id),
+            AlbedoTexture = icon,
             Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
             ShadingMode = BaseMaterial3D.ShadingModeEnum.PerPixel,
             TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
@@ -2447,12 +2449,26 @@ public partial class Player : CharacterBody3D, IDamageable
 
         ItemStack held = Inventory.Hotbar[Selected];
         int heldId = held.IsEmpty ? 0 : (int)held.Id;
+        int wearStage = held.IsEmpty ? 0 : EquipmentDurabilityVisual.WearStage(held);
         if (heldId != _heldItemId)
         {
             _heldItemId = heldId;
-            _heldItemSprite.Texture = held.IsEmpty ? null : ItemDb.Icon(held.Id);
-            _heldItemSprite.MaterialOverride = held.IsEmpty ? null : MakeHeldItemMaterial(held.Id);
+            _heldWearStage = wearStage;
+            Texture2D? icon = held.IsEmpty ? null : ItemDb.Icon(held);
+            _heldItemSprite.Texture = icon;
+            _heldItemMaterial = icon == null ? null : MakeHeldItemMaterial(held.Id, icon);
+            _heldItemSprite.MaterialOverride = _heldItemMaterial;
             _heldItemSprite.Visible = !held.IsEmpty;
+        }
+        else if (wearStage != _heldWearStage)
+        {
+            _heldWearStage = wearStage;
+            Texture2D icon = ItemDb.Icon(held);
+            _heldItemSprite.Texture = icon;
+            if (_heldItemMaterial != null)
+            {
+                _heldItemMaterial.AlbedoTexture = icon;
+            }
         }
 
         if (Swimming)

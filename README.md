@@ -96,8 +96,8 @@ change StandardMaterial3D; no per-frame material creation is performed.
   caves, and rare Dreadwings flank players at night; the Ember Warden remains
   the arena boss. A wandering trader, weather, lightning and ambient life
   complete the ecosystem.
-- **Interface** — shared pixel-art menu, HUD, inventory, chest and furnace styling; viewport-aware panel scaling; slot hover feedback and tooltips; drag-and-drop and Shift-click stack movement.
-- **First-person presentation** — selected-item icon viewmodel with swing animation, layered onto the existing arm, swimming strokes, head bob and landing response.
+- **Interface** — shared pixel-art menu, HUD, inventory, chest and furnace styling; viewport-aware panel scaling; slot hover feedback and tooltips; drag-and-drop and Shift-click stack movement. Durable equipment uses cached scuffed icon stages plus a green/amber/red condition meter across hotbar, inventory, armor and container slots.
+- **First-person presentation** — selected-item icon viewmodel with swing animation and cached wear-state variants, layered onto the existing arm, swimming strokes, head bob and landing response.
 - **Controller support** — left-stick movement, right-stick look, gamepad actions for mining/placing, hotbar cycling, inventory, pause, map and journal, with persistent button rebinding.
 - **Quality of life** — minimap with zoom and waypoints, achievements journal,
   keyboard/controller rebinding, accessibility toggles, photo mode, dev console,
@@ -166,8 +166,13 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-The 2026-11-22 integration suite reports **186,327 checks, 0 failures** across
-38 suites, with 0 build warnings. It includes deterministic V9 weathering,
+For a rendered icon review, launch `res://tests/EquipmentDurabilityVisualCapture.tscn`
+with the Godot 4.7.2 .NET editor or executable. It uses the production `InvSlot`
+control and renders tools, weapons and armor at full, 74%, 49% and 24% durability;
+the PNG is written to `user://equipment-durability-visual-validation.png`.
+
+The 2026-11-22 integration suite reports **186,379 checks, 0 failures** across
+39 suites, with 0 build warnings. It includes deterministic V9 weathering,
 the V10 foliage-only delta, V8-to-V9 chunk-diff and chunk-order regressions,
 atmosphere/weather/water presentation, the performance runner, streaming memory
 accounting, the combined save round-trip (shapes + villagers + quests + boats),
@@ -470,6 +475,15 @@ armor mitigation and do not wear armor. Other landed physical/environmental hits
 wear equipped armor; successful shield blocks wear the shield. Tools used as
 emergency melee weapons also consume their durability on a landed hit.
 
+Equipment condition is visible without reading a number: tools, weapons and armor
+use the same original 32×32 procedural icon with three cached scuff stages as
+condition reaches or falls below 75%, 50% and 25%. Inventory, hotbar, armor and
+container slots also draw a crisp three-pixel meter (green / amber / red); worn
+values remain beside the icon, and the tooltip always shows current / maximum.
+The first-person held item uses the same wear variant while retaining its
+existing material response. Block-item icons continue sampling the unchanged
+atlas region. Icon painting occurs only when a new item/wear band is first used.
+
 Peaceful mode suppresses hostile spawns, cancels pending hostile attacks,
 removes hostile projectiles and keeps the Ember Warden dormant.
 Normal and hard share the same enemy health pools and encounter structure; hard
@@ -514,6 +528,11 @@ are never renumbered or reused; new content is appended and pinned by tests.
 | `ItemId` 97–100 | Empty bucket, water bucket, lava bucket, wooden boat |
 | `ItemId` 101–104 | Weathered material blocks, matching the block order above |
 | `ItemId` 105–107 | Spruce, jungle and swamp leaf blocks, matching BlockId 56–58 |
+
+`tests/EquipmentDurabilityVisualTests.cs` covers wear thresholds, malformed
+value clamping, pixel-distinct cached icon variants, block-atlas compatibility
+and the no-extra-slot-node draw path. Equipment wear visuals do not add persisted
+fields or require save migration.
 
 `tests/ContentTests.cs` pins every block and item value and asserts that the
 building, transportation, weathering and foliage ranges remain append-only.

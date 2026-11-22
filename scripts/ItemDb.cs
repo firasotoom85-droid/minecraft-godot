@@ -61,6 +61,7 @@ public static class ItemDb
         BlockItemPairs.ToDictionary(p => p.Item, p => p.Block);
 
     private static readonly Dictionary<ItemId, ImageTexture> IconCache = [];
+    private static readonly Dictionary<(ItemId Item, byte Stage), ImageTexture> WornIconCache = [];
 
     public static BlockId? BlockFor(ItemId id) =>
         ItemToBlock.TryGetValue(id, out BlockId block) ? block : null;
@@ -322,6 +323,30 @@ public static class ItemDb
         return texture;
     }
 
+    /// <summary>Equipment icon with a cached visual wear state; block icons stay on the atlas path.</summary>
+    public static Texture2D Icon(ItemStack stack) => Icon(stack.Id, stack.Durability);
+
+    public static Texture2D Icon(ItemId id, int durability)
+    {
+        int stage = EquipmentDurabilityVisual.WearStage(
+                durability, EquipmentProgression.MaxDurability(id));
+        if (stage == 0 || BlockFor(id) is not null)
+        {
+            return Icon(id);
+        }
+
+        var key = (id, (byte)stage);
+        if (!WornIconCache.TryGetValue(key, out ImageTexture? texture))
+        {
+            Image image = BuildIconImage(id);
+            PaintWear(image, id, stage);
+            texture = ImageTexture.CreateFromImage(image);
+            WornIconCache[key] = texture;
+        }
+
+        return texture;
+    }
+
     private const int IconPx = 32;
 
     private static Image BuildIconImage(ItemId id)
@@ -494,6 +519,86 @@ public static class ItemDb
                 Rect(img, 18, 8, 4, 4, head);
                 break;
         }
+    }
+
+    private static readonly Vector2I[] ToolWearMarks =
+        [new(14, 12), new(19, 19), new(11, 24)];
+    private static readonly Vector2I[] WeaponWearMarks =
+        [new(10, 12), new(8, 20), new(14, 8)];
+    private static readonly Vector2I[] BowWearMarks =
+        [new(9, 12), new(9, 20), new(10, 7)];
+    private static readonly Vector2I[] ShieldWearMarks =
+        [new(16, 12), new(18, 18), new(14, 22)];
+    private static readonly Vector2I[] ArmorWearMarks =
+        [new(14, 13), new(19, 19), new(11, 23)];
+
+    private static void PaintWear(Image img, ItemId id, int stage)
+    {
+        Vector2I[] marks = id == ItemId.Bow ? BowWearMarks
+                : id == ItemId.Shield ? ShieldWearMarks
+                : ArmorOf(id) is not null ? ArmorWearMarks
+                : ToolOf(id) is not null ? ToolWearMarks
+                : WeaponWearMarks;
+
+        for (int i = 0; i < Mathf.Min(stage, marks.Length); i++)
+        {
+            PaintWearMark(img, marks[i]);
+        }
+    }
+
+    private static void PaintWearMark(Image img, Vector2I target)
+    {
+        Vector2I anchor = FindOpaquePixel(img, target);
+        if (anchor.X < 0)
+        {
+            return;
+        }
+
+        ShadeIconPixel(img, anchor.X, anchor.Y, 0.42f);
+        ShadeIconPixel(img, anchor.X + 1, anchor.Y + 1, 0.52f);
+        ShadeIconPixel(img, anchor.X + 1, anchor.Y + 2, 0.60f);
+        HighlightIconPixel(img, anchor.X - 1, anchor.Y, 0.16f);
+    }
+
+    private static Vector2I FindOpaquePixel(Image img, Vector2I target)
+    {
+        for (int radius = 0; radius <= 3; radius++)
+        {
+            for (int y = target.Y - radius; y <= target.Y + radius; y++)
+            {
+                for (int x = target.X - radius; x <= target.X + radius; x++)
+                {
+                    if (Mathf.Max(Mathf.Abs(x - target.X), Mathf.Abs(y - target.Y)) != radius
+                            || x < 0 || y < 0 || x >= img.GetWidth() || y >= img.GetHeight())
+                    {
+                        continue;
+                    }
+
+                    if (img.GetPixel(x, y).A > 0.05f)
+                    {
+                        return new Vector2I(x, y);
+                    }
+                }
+            }
+        }
+
+        return new Vector2I(-1, -1);
+    }
+
+    private static void ShadeIconPixel(Image img, int x, int y, float amount)
+    {
+        if (x < 0 || y < 0 || x >= img.GetWidth() || y >= img.GetHeight()) return;
+        Color pixel = img.GetPixel(x, y);
+        if (pixel.A <= 0.05f) return;
+        img.SetPixel(x, y, pixel.Darkened(amount));
+    }
+
+    private static void HighlightIconPixel(Image img, int x, int y, float amount)
+    {
+        if (x < 0 || y < 0 || x >= img.GetWidth() || y >= img.GetHeight()) return;
+        Color pixel = img.GetPixel(x, y);
+        if (pixel.A <= 0.05f) return;
+        img.SetPixel(x, y, pixel.Lightened(amount));
     }
 
     private static void PaintWeapon(Image img, ItemId id, WeaponInfo weapon)

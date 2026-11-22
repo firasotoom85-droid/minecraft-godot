@@ -33,6 +33,7 @@ public partial class TestRunner : Node
         RunSuite("furnaces", FurnaceTests.Run);
         RunSuite("armor", ArmorTests.Run);
         RunSuite("equipment", EquipmentTests.Run);
+        RunSuite("equipment-durability-visuals", EquipmentDurabilityVisualTests.Run);
         RunSuite("survival-progression", SurvivalProgressionTests.Run);
         RunSuite("farming", FarmingTests.Run);
         RunSuite("mobs", () => MobContentTests.Run(this));

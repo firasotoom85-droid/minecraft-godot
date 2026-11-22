@@ -18,7 +18,7 @@ public enum SlotKind
 }
 
 /// <summary>One inventory grid cell: icon + count, clickable with either mouse button.</summary>
-public partial class InvSlot : Panel
+public partial class InvSlot : DurabilitySlotPanel
 {
     public SlotKind Kind { get; init; }
     public int Index { get; init; }
@@ -67,32 +67,32 @@ public partial class InvSlot : Panel
         }
 
         _hasStack = !stack.IsEmpty;
-        _icon.Texture = stack.IsEmpty ? null : ItemDb.Icon(stack.Id);
+        _icon.Texture = stack.IsEmpty ? null : ItemDb.Icon(stack);
         _icon.Visible = !stack.IsEmpty;
-        if (stack.IsEmpty)
+        SetDurability(stack);
+
+        int maxDurability = stack.IsEmpty ? 0 : EquipmentProgression.MaxDurability(stack.Id);
+        if (maxDurability > 0)
         {
-            _count.Text = "";
-        }
-        else if (ItemDb.ToolOf(stack.Id) is { } tool)
-        {
-            _count.Text = stack.Durability < tool.Durability ? stack.Durability.ToString() : "";
-        }
-        else if (ItemDb.WeaponOf(stack.Id) is { } weapon)
-        {
-            _count.Text = stack.Durability < weapon.Durability ? stack.Durability.ToString() : "";
+            _count.Text = stack.Durability < maxDurability ? stack.Durability.ToString() : "";
+            _count.SetAnchorsAndOffsetsPreset(
+                    stack.Durability < maxDurability ? LayoutPreset.TopRight : LayoutPreset.BottomRight,
+                    LayoutPresetMode.Minsize, 2);
         }
         else
         {
             _count.Text = stack.Count > 1 ? stack.Count.ToString() : "";
+            _count.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight, LayoutPresetMode.Minsize, 2);
         }
 
         string enchantments = EnchantmentSummary(stack);
+        string condition = maxDurability > 0
+                ? $"Durability: {stack.Durability}/{maxDurability}"
+                : $"Count: {stack.Count}";
         TooltipText = stack.IsEmpty
                 ? ""
                 : $"{ItemDb.NameOf(stack.Id)}\n{ItemDb.DescriptionOf(stack.Id)}\n"
-                + (ItemDb.ToolOf(stack.Id) is { } toolInfo
-                        ? $"Durability: {stack.Durability}/{toolInfo.Durability}"
-                        : $"Count: {stack.Count}")
+                + condition
                 + (enchantments.Length == 0 ? "" : "\n" + enchantments);
 
         AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(selected, _hovered));
@@ -1176,7 +1176,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         _cursorIcon.Visible = !_cursor.IsEmpty;
-        _cursorIcon.Texture = _cursor.IsEmpty ? null : ItemDb.Icon(_cursor.Id);
+        _cursorIcon.Texture = _cursor.IsEmpty ? null : ItemDb.Icon(_cursor);
         _cursorCount.Text = !_cursor.IsEmpty && _cursor.Count > 1 ? _cursor.Count.ToString() : "";
         Vector2 pos = GetViewport().GetMousePosition() + new Vector2(10, 10);
         _cursorIcon.GlobalPosition = pos;
