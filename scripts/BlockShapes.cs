@@ -1,3 +1,4 @@
+using System;
 using Godot;
 
 namespace Minecraft;
@@ -21,6 +22,14 @@ public static class BlockShapes
     public const byte SlabDouble = 2;
     public const byte StairFacingMask = 0x03;
     public const byte StairUpsideDown = 0x04;
+
+    // Compute the small finite shape/state domain once. The propagation flood
+    // queries these masks per neighbour, so a one-time LUT avoids repeating
+    // half-cell connectivity work for every light step.
+    private static readonly uint[] SlabLightPassageMasks =
+            BuildLightPassageMasks(BlockId.PlanksSlab, 3);
+    private static readonly uint[] StairLightPassageMasks =
+            BuildLightPassageMasks(BlockId.PlanksStairs, 8);
 
     public static BlockShapeKind Kind(BlockId id) => id switch
     {
@@ -121,6 +130,105 @@ public static class BlockShapes
     public static int DropCount(BlockId id, byte state, int baseDropCount) =>
         Kind(id) == BlockShapeKind.Slab && NormalizeState(id, state) == SlabDouble
                 ? baseDropCount * 2 : baseDropCount;
+
+    /// <summary>
+    /// Returns a 24-bit mask of the four open micro-cells on each face that
+    /// belong to the shape's connected empty cavity. Face order matches the
+    /// mesher: +Y, -Y, +X, -X, +Z, -Z. The four bits on opposite faces use
+    /// identical world-axis tangent coordinates so adjacent openings align.
+    /// </summary>
+    public static uint LightPassageMask(BlockId id, byte state) => Kind(id) switch
+    {
+        BlockShapeKind.Slab => SlabLightPassageMasks[NormalizeState(id, state)],
+        BlockShapeKind.Stairs => StairLightPassageMasks[NormalizeState(id, state)],
+        _ => 0x00FF_FFFFu,
+    };
+
+    private static uint[] BuildLightPassageMasks(BlockId id, int stateCount)
+    {
+        uint[] masks = new uint[stateCount];
+        for (byte state = 0; state < stateCount; state++)
+            masks[state] = CalculateLightPassageMask(id, state);
+        return masks;
+    }
+
+    private static uint CalculateLightPassageMask(BlockId id, byte state)
+    {
+        byte empty = (byte)~OccupancyMask(id, state);
+        if (empty == 0) return 0;
+
+        Span<byte> pending = stackalloc byte[8];
+        byte visited = 0;
+        uint faces = 0;
+        int componentCount = 0;
+
+        for (int start = 0; start < 8; start++)
+        {
+            byte startBit = (byte)(1 << start);
+            if ((empty & startBit) == 0 || (visited & startBit) != 0) continue;
+
+            // A single packed block-light value cannot represent disconnected
+            // cavities independently. Keep such a future shape opaque until it
+            // has a dedicated multi-component light representation.
+            if (++componentCount > 1) return 0;
+
+            int head = 0;
+            int tail = 0;
+            pending[tail++] = (byte)start;
+            visited |= startBit;
+
+            while (head < tail)
+            {
+                int cell = pending[head++];
+                int x = cell & 1;
+                int z = (cell >> 1) & 1;
+                int y = (cell >> 2) & 1;
+
+                if (y == 1) AddFaceAperture(ref faces, 0, x, y, z);
+                if (y == 0) AddFaceAperture(ref faces, 1, x, y, z);
+                if (x == 1) AddFaceAperture(ref faces, 2, x, y, z);
+                if (x == 0) AddFaceAperture(ref faces, 3, x, y, z);
+                if (z == 1) AddFaceAperture(ref faces, 4, x, y, z);
+                if (z == 0) AddFaceAperture(ref faces, 5, x, y, z);
+
+                if (x > 0) PushEmpty(cell - 1, empty, ref visited, pending, ref tail);
+                if (x < 1) PushEmpty(cell + 1, empty, ref visited, pending, ref tail);
+                if (z > 0) PushEmpty(cell - 2, empty, ref visited, pending, ref tail);
+                if (z < 1) PushEmpty(cell + 2, empty, ref visited, pending, ref tail);
+                if (y > 0) PushEmpty(cell - 4, empty, ref visited, pending, ref tail);
+                if (y < 1) PushEmpty(cell + 4, empty, ref visited, pending, ref tail);
+            }
+        }
+
+        return faces;
+    }
+
+    /// <summary>Four aligned open micro-cells on one face (bits 0..3).</summary>
+    public static byte LightPassageFaceMask(BlockId id, byte state, int face)
+    {
+        if ((uint)face >= 6) return 0;
+        return (byte)((LightPassageMask(id, state) >> (face * 4)) & 0x0F);
+    }
+
+    private static void AddFaceAperture(ref uint faces, int face, int x, int y, int z)
+    {
+        int tangentIndex = face switch
+        {
+            0 or 1 => x + z * 2,
+            2 or 3 => z + y * 2,
+            _ => x + y * 2,
+        };
+        faces |= 1u << (face * 4 + tangentIndex);
+    }
+
+    private static void PushEmpty(int cell, byte empty, ref byte visited,
+            Span<byte> pending, ref int tail)
+    {
+        byte bit = (byte)(1 << cell);
+        if ((empty & bit) == 0 || (visited & bit) != 0) return;
+        visited |= bit;
+        pending[tail++] = (byte)cell;
+    }
 
     public static bool IsFullCube(BlockId id, byte state) => OccupancyMask(id, state) == 0xFF;
 

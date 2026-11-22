@@ -2317,3 +2317,55 @@ commit ancestry traceable.
   the packed atlas and texture-array contracts, and the `SetBlock`/`ApplyEdit`
   mutation seam are unchanged. No world generation version was introduced by
   this batch because no generator rule changed.
+
+## 42. Shape-aware baked light continuity — 2026-11-22
+
+- Closed a mismatch between the existing 2×2×2 slab/stair geometry and the
+  baked voxel-light solver: partial solid shapes no longer inherit the
+  full-cube opacity rule when their connected empty half-cells form a passage.
+- Added cached 24-bit face-aperture masks for the three slab states and eight
+  stair orientations. Each of the six faces carries four half-face bits in
+  shared tangent coordinates. A flood crosses a voxel boundary only where
+  the source and destination apertures overlap, preventing an upper stair
+  opening from leaking into a lower opening that does not meet it. Direct
+  sunlight uses matching top/bottom aperture bits, so an open slab cavity can
+  receive sun without passing it through an occupied underside.
+- Existing cube opacity and attenuation remain authoritative: glass keeps its
+  zero-loss path, water and foliage keep their current attenuation, and
+  full-block/double-slab occlusion is unchanged. The solver deliberately
+  treats disconnected empty components as opaque because one packed nibble
+  cannot represent independent cavity light levels.
+- LightDataNeighborhood, the per-chunk block-light halo, and incremental
+  emitter updates now carry optional sparse shape states. The contiguous
+  state snapshot is allocated only when the sampled neighbourhood contains a
+  non-default shape state. Shape orientation/half changes are detected at
+  VoxelWorld.SetBlock and invalidate the existing affected 3×3 packed-light
+  cache; no voxel array is edited outside the normal mutation seam.
+- Automated regressions cover all four stair facings and inverted states,
+  exact four-bit aperture alignment, mismatched adjacent stair openings,
+  horizontal light through slab/stair cavities, direct sunlight through open
+  and closed shape faces, foliage gaps, and a SetBlock slab-state change
+  crossing a chunk boundary. Existing greedy/per-face geometry, saved shape
+  states, streaming and V1–V11 world-generation checks remain in place.
+- Performance boundary: aperture connectivity is computed once for the 11
+  registered shape states and accessed through a static lookup table. Ordinary
+  blocks retain the existing opacity fast path. Shape-state buffers are
+  conditional, light work remains baked and event/cache driven, and the change
+  adds no emitter nodes, render passes, per-frame scans, physics work or mesh
+  topology changes.
+- Compatibility: no BlockId/ItemId values, save fields, atlas indices or
+  generator rules changed. Save V4 and generator V1–V11 remain byte-compatible;
+  V1–V8 stay frozen. Greedy meshing, chunk streaming, packed vertex channels,
+  shaders and SetBlock/ApplyEdit ownership remain intact.
+- Verification: Godot 4.7.2 .NET Debug and Release builds completed with
+  0 warnings and 0 errors. scripts/verify.sh passed **198,771 checks / 0
+  failures**. The only save output was the suite's two intentional
+  atomic-write-failure / backup-recovery warnings.
+- Real-scene validation: the new repeatable capture ran on GeForce MX230,
+  Vulkan Forward+, 1600×900, seed 1337 / V11, centre (8, 8), with 34 chunks.
+  Baked samples were glass 6, water 5, bottom slab 6 and upright stairs 6;
+  skylight below foliage was 13 and below the open canopy gap was 15. The
+  reference frame is docs/visual/screenshots/voxel-light-continuity.png.
+  The production main scene reported pre-existing stale external-resource UID
+  warnings and loaded each affected script using its text path; the capture
+  completed successfully. No controlled FPS delta was measured.

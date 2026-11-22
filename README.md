@@ -126,6 +126,68 @@ shared corners, and compares every common corner between per-face and greedy
 outputs. The material-family tag in vertex alpha is intentionally excluded
 from this RGB lighting comparison.
 
+## Baked light through transparent and partial blocks
+
+The existing packed four-bit skylight and block-light channels now follow the
+actual empty cavity of slabs and stairs instead of treating every solid shape
+as a fully opaque cube. BlockShapes builds a small lookup table for the three
+slab states and eight stair orientations. Each state describes four open
+half-cells on each of the six faces; adjacent voxels exchange light only where
+those apertures overlap on the shared face. Direct sunlight also checks that
+the top and bottom apertures line up before continuing vertically.
+
+This keeps full cubes on the existing opacity-table path. Glass still transmits
+without material attenuation, water and foliage retain their existing
+attenuation, and fully occupied slabs remain opaque. Foliage gaps preserve
+direct sunlight independently of the neighbouring cutout leaves. Slab/stair
+cavities allow light to pass through their real openings while their occupied
+risers, bases and covered faces continue to block it. The light solver
+conservatively treats a future shape with disconnected empty cavities as
+opaque until it has a representation that can retain separate cavity levels.
+
+VoxelWorld passes the existing sparse shape-state data into the baked
+neighbourhood solves. Dense state snapshots are allocated only when a solve
+neighbourhood contains non-default shape states; the ordinary cube-only world
+keeps its existing empty-state representation. Changing a shape orientation
+or half through VoxelWorld.SetBlock invalidates the same affected 3×3 light
+cache neighbourhood used by opacity and emitter edits. Incremental emitter
+updates also receive the local shape-state snapshot, so they cannot propagate
+through a closed half-face.
+
+The four-bit vertex channels, shared atlas/greedy-array/glass/water shader
+response, greedy mesher, chunk streaming, and absence of per-emitter light
+nodes are unchanged. No shader pass or per-frame work is added; aperture masks
+are cached once for the finite shape-state domain, and occupancy/state checks
+run only during baked lighting solves. No persisted IDs, save fields or
+generator rules change.
+
+The focused LightingTests regressions cover glass/water transmission,
+isolated foliage columns beside true canopy gaps, all stair facings and their
+inverted states, aligned and misaligned stair apertures, horizontal block-light
+paths through slabs/stairs, and direct skylight through open/closed slab and
+stair faces. BlockShapeTests changes a slab state through SetBlock in a
+tunnel crossing a chunk boundary, then checks cache invalidation and restored
+light after reopening the cavity.
+
+Run the repeatable production-scene comparison on Godot 4.7.2 .NET / Vulkan
+Forward+ with:
+
+    godot --path . res://tests/VoxelLightContinuityVisualCapture.tscn -- 1337 11 8 8 /tmp/voxel-light-continuity.png
+
+The disposable capture freezes the existing fluid processor so the source-water
+fixture remains stable, and it logs baked samples for glass, water, a bottom
+slab, upright stairs, a foliage column and an adjacent open sky gap. It uses
+the real main scene, chunk meshes and world edit path; all fixture mutations
+go through VoxelWorld.SetBlock.
+
+The 2026-11-22 MX230 Forward+ reference uses seed 1337, generator V11, fixture
+centre (8, 8), a 1600×900 viewport and 34 streamed chunks. It reported block
+light 6 / 5 / 6 / 6 through glass / water / bottom slab / upright stairs, and
+skylight 13 below foliage versus 15 below the open gap. The capture is a
+repeatable visual reference rather than an FPS benchmark:
+
+![Voxel light continuity comparison on MX230](docs/visual/screenshots/voxel-light-continuity.png)
+
 ## Water-adjacent materials and shoreline vegetation
 
 Faces that directly touch water keep their original material family and receive
