@@ -18,17 +18,19 @@ public partial class Gfx : Node
         bool Ssao, bool Ssr, bool Glow, bool VolFog, float Scale, int Msaa,
         bool Taa, bool Fxaa, float Lod, bool Fsr2);
 
-    // Ordered low -> max.
+    // Ordered from the MX230-friendly baseline to high-end options. Values
+    // are deliberately conservative below HIGH; effects are opt-in above it.
     public static readonly IReadOnlyList<Preset> Presets =
     [
-        new("LOW", 5, 3, 60.0f, 1024, false, false, false, false, 0.85f, 0, false, true, 0.0f, false),
-        new("HIGH", 8, 5, 90.0f, 2048, true, false, true, false, 1.0f, 0, true, false, 320.0f, false),
-        new("ULTRA", 10, 6, 110.0f, 4096, true, true, true, false, 1.1f, 0, true, false, 512.0f, false),
+        new("LOW", 5, 3, 45.0f, 1024, false, false, false, false, 0.80f, 0, false, true, 0.0f, false),
+        new("BALANCED", 7, 4, 65.0f, 1024, false, false, false, false, 0.90f, 0, false, true, 256.0f, false),
+        new("HIGH", 9, 5, 90.0f, 2048, true, false, true, false, 1.0f, 0, true, false, 384.0f, false),
+        new("ULTRA", 12, 6, 120.0f, 4096, true, true, true, false, 1.0f, 0, true, false, 512.0f, false),
         new("MAX", 12, 6, 130.0f, 4096, true, true, true, true, 1.25f, 0, true, false, 640.0f, false),
         new("MAX · FSR2", 12, 6, 130.0f, 4096, true, true, true, true, 0.7f, 0, false, false, 640.0f, true),
     ];
 
-    public const int DefaultPreset = 3;  // MAX
+    public const int DefaultPreset = 0;  // LOW is the reference-laptop default
 
     public int Current = DefaultPreset;
     public VoxelWorld? World;

@@ -56,6 +56,8 @@ public partial class Weather : Node
     private double _flashAgain = -1.0;
     private double _lightningTimer = 6.0;
     private bool _snowing;
+    private int _lastSplashSampleX = int.MinValue;
+    private int _lastSplashSampleZ = int.MinValue;
     private readonly RandomNumberGenerator _rng = new();
 
     public void Setup(VoxelWorld world, Player player, DayNight daynight, Sound sound)
@@ -93,14 +95,32 @@ public partial class Weather : Node
         _rain.Emitting = precip && !_snowing;
         _snow.Emitting = precip && _snowing;
 
-        // Ground splashes pop where the rain lands (approximate local ground).
-        if (World != null)
+        // Ground splashes are visible only during rain. Their anchor moves in
+        // four-metre cells, so terrain height is sampled only when that cell
+        // changes rather than on every frame (and never during clear weather).
+        bool raining = precip && !_snowing && World != null;
+        _groundSplash.Emitting = raining;
+        if (raining)
         {
-            int gx = Mathf.FloorToInt(pp.X);
-            int gz = Mathf.FloorToInt(pp.Z);
-            float gy = World.SurfaceHeight(gx, gz);
-            _groundSplash.GlobalPosition = new Vector3(Mathf.Snapped(pp.X, 4.0f), gy + 0.2f, Mathf.Snapped(pp.Z, 4.0f));
-            _groundSplash.Emitting = precip && !_snowing;
+            float splashX = Mathf.Snapped(pp.X, 4.0f);
+            float splashZ = Mathf.Snapped(pp.Z, 4.0f);
+            int sampleX = Mathf.FloorToInt(splashX);
+            int sampleZ = Mathf.FloorToInt(splashZ);
+            if (sampleX != _lastSplashSampleX || sampleZ != _lastSplashSampleZ)
+            {
+                _lastSplashSampleX = sampleX;
+                _lastSplashSampleZ = sampleZ;
+                int groundHeight = World!.SurfaceHeight(sampleX, sampleZ);
+                _groundSplash.GlobalPosition = new Vector3(
+                        splashX, groundHeight + 0.2f, splashZ);
+            }
+        }
+        else
+        {
+            // Force a fresh height sample when rain resumes, even if the
+            // player and the snapped anchor have not moved in the meantime.
+            _lastSplashSampleX = int.MinValue;
+            _lastSplashSampleZ = int.MinValue;
         }
 
         // Ground darkens while rain soaks in (seconds) and dries out slowly.

@@ -9,6 +9,24 @@ event-driven “First Night” guide.
 The project is a long-running solo build with an extensive design log in
 [`PLAN.md`](PLAN.md) and a forward roadmap in [`ROADMAP.md`](ROADMAP.md).
 
+## Unified voxel material response
+
+World surfaces and first-person held items share the response palette in
+`scripts/MaterialResponse.cs`: stone, wood, soil, ore, foliage, glass, and
+metal each have explicit roughness, metallic, and specular values. Procedural
+atlas tile IDs are classified without changing persisted block/item IDs or
+world-generation output. One C# response table configures all world shaders
+and first-person materials. The mesher carries its compact family tag in vertex
+colour alpha; greedy meshes retain their tile-array layer in UV2.x, so existing
+merging, atlas UVs, and chunk streaming remain intact.
+
+The greedy texture array builds mipmaps from each isolated 32px tile rather
+than the combined atlas. This avoids cross-tile colour bleed at distance.
+The classic atlas path intentionally retains nearest sampling without atlas
+mipmaps because generating mipmaps from the packed atlas would blend adjacent
+tiles. Held-item sprites use the same response values through a cached-on-slot-
+change StandardMaterial3D; no per-frame material creation is performed.
+
 ## Highlights
 
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
@@ -22,11 +40,32 @@ The project is a long-running solo build with an extensive design log in
 - **Greedy meshing** — merged coplanar full-cube quads cut triangle count
   roughly in half; per-face meshing remains available for comparison. Vertex-light
   and AO samples are part of the merge key, preserving lighting boundaries.
+- **Terrain material transitions** — original procedural grass has a deeper,
+  irregular turf edge over exposed soil; farmland uses higher-contrast furrows
+  and a defined tilled cap. Far-view terrain samples each block's upward-facing
+  atlas tile, while coarse slopes retain a one-block surface cap over their
+  dirt/stone substrate. Edited top-block materials (including farmland and
+  exposed dirt) remain represented after chunk unload and save reload.
 - **Architectural voxel building** — bottom/top/double slabs and four-way,
   upside-down stairs use a shared 2×2×2 occupancy definition for geometry,
   collision, ray selection and placement. Partial faces are split only at shape
   boundaries; full cubes retain the greedy path. Shape surfaces use the regular
   atlas, AO and voxel-light pipeline, with procedurally painted original textures.
+- **Directional wood surfaces** — oak and birch logs have distinct, irregular
+  end grain and vertical bark; oak planks use dedicated top, long-grain side and
+  cut-end tiles. Slabs and stairs sample the same block-relative texel scale as
+  full cubes, and stair grain follows its facing. The existing nearest-filtered
+  atlas and texture-array materials remain in use, including the first-person
+  held-item icon path. Greedy terrain's texture-array layers build isolated
+  shared 2×2 noise detail units and isolated per-tile mip chains, retaining
+  the 32×32 close-range pixel art while reducing distant shimmer and preventing
+  mip-level bleed between atlas tiles.
+- **Foliage and mineral surfaces** — existing oak and birch canopies use clustered cutout gaps and clearer leaf-tone groups; stone-family tiles receive deterministic low-contrast world-space tone variation, while ores use larger connected deposits for distant readability.
+- **Shared material responses** — atlas, greedy texture-array and held-item surfaces use one roughness/metallic/specular palette for wood, soil, stone, ore, foliage, glass and metal.
+- **Readable glass** — dedicated alpha-blended chunk surface with bounds-center
+  transparency sorting, front-face culling to avoid double-blended internal
+  faces, and a restrained original atlas treatment that stays clear across
+  close and distant views. Glass keeps the existing voxel-light and atlas path.
 - **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
   voxels, warm multi-source propagation with opaque occlusion, cave darkness and
   live place/break updates across chunk boundaries. Emitter edits incrementally
@@ -127,15 +166,76 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-The current 2026-11-21 suite reports **150,325 checks, 0 failures** across 28
-suites, with 0 build warnings. It includes deterministic V9 weathering,
-V8-to-V9 chunk-diff and chunk-order regressions, the combined save round-trip
-(shapes + villagers + quests + boats), quest reward wiring, fluid/shape
+The current 2026-11-22 suite reports the full check count printed by
+`scripts/verify.sh` across all suites, with 0 build warnings. It includes
+deterministic V9 weathering, V8-to-V9 chunk-diff and chunk-order regressions,
+the combined save round-trip (shapes + villagers + quests + boats), graphics-
+preset migration, render-only mesher collision checks, quest reward wiring,
+fluid/shape
 boundaries, legacy saves, every pinned block/item ID and V1–V8 golden chunk
 hashes. The headless runner and a verbose real-scene soak both exit without
 leaked ObjectDB instances or RIDs. The project-specific reliability audit,
 including seven confirmed fixes and the remaining manual-coverage gaps, is in
 [`docs/RELIABILITY_AUDIT_2026-11-21.md`](docs/RELIABILITY_AUDIT_2026-11-21.md).
+
+### Performance benchmarking
+
+An opt-in runner at `res://tests/PerformanceRunner.tscn` benchmarks the real
+main scene with a disposable V8 world and deterministic routes for open
+terrain, dense forest, mountain/river, villages, caves, ocean, storms, hostile
+encounters and fast exploration. It exports a JSON summary plus per-frame CSV
+under `user://benchmarks/`. The report includes frame-time percentiles,
+Godot process/physics timings, process/managed memory and GC, VRAM, draw calls,
+mesh-build distribution, chunk counts and queue high-water marks. It does not
+write to the selected player world.
+
+See [`docs/PERFORMANCE_BENCHMARKS.md`](docs/PERFORMANCE_BENCHMARKS.md) for
+arguments, repeatability requirements and interpretation. Headless runs are
+for lifecycle smoke tests only, not rendered performance measurements.
+Older `docs/PERF_BASELINE.md` figures remain historical; the RTX 4060 comparison
+is still pending.
+
+The MX230 controlled Release comparison for Milestone 2 is recorded in
+[docs/PERFORMANCE_MILESTONE_2_MX230.md](docs/PERFORMANCE_MILESTONE_2_MX230.md):
+three matched runs show approximately 9% higher median FPS in both open terrain
+and heavy rain. These results apply only to the measured configuration and
+should not be generalized to other GPUs or presets.
+
+### Performance Milestone 3 — bounded streaming and memory accounting
+
+Chunk meshing now reserves capacity before building a payload. A cancellable
+`SemaphoreSlim` replaces worker-side polling/sleep backpressure, bounding
+in-flight payload work to 18 items (including completed payloads waiting for the
+main thread). Scene teardown cancels blocked workers, waits for the worker
+batch, drains both apply queues and returns remaining payloads to the existing
+pool. Main-thread application prioritizes edit rebuilds and targets 2 ms per
+frame, always allowing one payload to make progress.
+
+The runtime profiler records pending payload counts/estimated bytes and their
+high-water marks, exact managed voxel-cache array bytes, a view-distance-aware
+cache budget, edit/light metadata estimates, applied mesh source-array estimates,
+retained pool-buffer bytes, main-thread apply timings and collider timings.
+Metadata and mesh values are estimates; Godot driver allocations and VRAM are
+not represented as exact byte counts. The cache budget is a guardrail for
+managed voxel arrays, not a whole-process memory limit.
+
+Validation on Godot 4.7.2 .NET:
+- Debug and Release builds: 0 warnings and 0 errors.
+- `scripts/verify.sh`: 4,283 checks, 0 failures.
+- Benchmark matrix: 54/54 runs passed across nine scenarios in Debug and
+  Release.
+- Thirty-minute real-scene survival soak: PASS at 1,800 seconds; peak RSS
+  304.1 MiB, peak managed memory 57.1 MiB, voxel-cache arrays 4.2 MiB against
+  an 18.9 MiB budget, payload high-water 14/18, 0 invalid creature positions,
+  0 orphan nodes, successful save/reload and temporary-world cleanup.
+- Rendered Forward+ visual review selected the NVIDIA GeForce MX230. The real
+  survival scene streamed cave geometry with the HUD and minimap; a second
+  production-scene V8 surface capture at seed 1337 / center (512,-372) rendered
+  49 chunks at 1600×900. Both captures are committed under
+  `docs/performance/screenshots/` and documented in the milestone report.
+
+Detailed implementation, measurement definitions and run conditions are in
+[`docs/PERFORMANCE_MILESTONE_3_STREAMING.md`](docs/PERFORMANCE_MILESTONE_3_STREAMING.md).
 
 ### Reliability audit
 
@@ -206,6 +306,12 @@ simulation, so survival time remains real-time. The script bounds runtime to
 duration + 300 seconds by default; override that with
 `SOAK_TIMEOUT_SECONDS`. The soak remains separate from the fast headless
 suite and is not a human combat or visual gameplay playtest.
+
+The Milestone 3 run additionally gates pending-payload bounds and shutdown
+drain, managed voxel-cache array memory, save/reload, temporary-world cleanup,
+and finite creature positions. The completed 30-minute result and its memory
+measurements are recorded in
+[`docs/PERFORMANCE_MILESTONE_3_STREAMING.md`](docs/PERFORMANCE_MILESTONE_3_STREAMING.md).
 
 ## Controls
 
@@ -295,11 +401,19 @@ worlds load without a vehicle list.
 | `scripts/` | Gameplay and engine code (C#), plus `verify.sh` |
 | `scenes/` | `main.tscn` (game) and `main_menu.tscn` |
 | `shaders/` | Water shader |
-| `tests/` | Headless test runner and suites |
-| `docs/` | Performance baseline notes |
+| `tests/` | Headless test runner, suites, and GPU-backed wood-art capture scene |
+| `docs/` | Performance baselines, benchmark procedure and audits |
 | `addons/godot_ai/` | Editor MCP assistant addon (development tooling) |
 | `PLAN.md` | Completed milestone log (M0–M4b) |
 | `ROADMAP.md` | Forward plan (M5–M10) and progress log |
+
+For a production-renderer inspection of directional wood textures, run
+`godot --path . res://tests/WoodArtVisualCapture.tscn -- 1337`. It builds a
+disposable test world through `VoxelWorld.SetBlock` and writes close and distant
+captures to `user://wood-art-validation-close.png` and
+`user://wood-art-validation-distant.png`. This is a manual visual check rather
+than part of the headless test suite; run it with the same Godot renderer and
+hardware profile you intend to validate.
 
 ## Combat equipment and enchantments
 
@@ -317,7 +431,11 @@ when the output cannot fit in the inventory.
 The progression is wood → stone → iron → diamond, with mining harvest gates
 preserved: stone picks unlock iron ore, while iron picks unlock gold and diamond
 ore. Ore is depth-banded with seeded V7 veins; mountains have denser gold and
-diamond hash sampling. One coal burns for 80 seconds and smelts eight items at
+diamond hash sampling. Ore atlas deposits use larger stepped mineral clusters
+with restrained edge shading and highlights so the four resources remain
+distinct at cave depth and at distance. Ore stays fully opaque and emits no
+block light; solid cave walls continue to hide valuable veins. One coal burns
+for 80 seconds and smelts eight items at
 ten seconds each; logs burn for 60 seconds, planks for 15, and sticks for five.
 Furnace updates carry elapsed time across fuel boundaries, including larger
 frame steps. Raw meat is low-value food; cooked meat restores 5–7 hunger and
@@ -421,8 +539,11 @@ completion and reward claims persist in `world.json`.
   recorded below; the one-hour run uses the same pass criteria.
 - **High-end hardware not measured.** Performance was recorded on the MX230
   laptop only; no RTX 4060-class machine was available for comparison.
-- **Debug-build meshing cost.** Chunk mesh builds are expensive in Debug on the
-  MX230; release builds are faster. See `docs/PERF_BASELINE.md`.
+- **Controlled performance retest pending.** A repeatable runner now exists
+  with fixed seeds/routes and JSON/CSV output, but no new comparable Release
+  baseline has been recorded yet. The historical 30.6 FPS result is a single
+  unseeded Debug measurement. See `docs/PERFORMANCE_BENCHMARKS.md` and
+  `docs/PERF_BASELINE.md`.
 
 ## License
 

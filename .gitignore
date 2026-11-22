@@ -8,3 +8,6 @@ bin/
 obj/
 .vs/
 *.user
+
+# Local .NET SDK provisioned for offline/CI-parity builds
+.dotnet/

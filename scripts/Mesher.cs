@@ -145,7 +145,7 @@ public static class Mesher
     };
 
     /// <summary>
-    /// Build the render + collision payload for one chunk.
+    /// Build the render payload and, for gameplay chunks, its collision geometry.
     /// The epoch is captured before any data is read; the caller discards the
     /// payload if the world was edited meanwhile.
     /// </summary>
@@ -171,6 +171,7 @@ public static class Mesher
         SurfaceData glass = PayloadPool.RentSurface();
         SurfaceData water = PayloadPool.RentSurface();
         SurfaceData lava = PayloadPool.RentSurface();
+        bool buildCollision = world.BuildCollision;
         List<Vector3> collision = PayloadPool.RentCollision();
 
         // Reused per face; all four entries are always (re)assigned before use.
@@ -220,7 +221,7 @@ public static class Mesher
                     if (BlockShapes.IsShape(id) && !fullCube)
                     {
                         AddShapeGeometry(pad, statePad, lightPad, i, new Vector3(x - 1, y - 1, z - 1),
-                                id, state, opaque, collision, kk, cornerLight);
+                                id, state, opaque, buildCollision ? collision : null, kk, cornerLight);
                         continue;
                     }
 
@@ -269,7 +270,7 @@ public static class Mesher
                         {
                             // Quad already emitted by BuildOpaqueGreedy; here we
                             // only need the collision triangle pair.
-                            if (BlockDb.SolidMask[(int)id] == 1)
+                            if (buildCollision && BlockDb.SolidMask[(int)id] == 1)
                             {
                                 collision.Add(b + BlockDb.FaceVerts[vi]);
                                 collision.Add(b + BlockDb.FaceVerts[vi + 1]);
@@ -285,7 +286,7 @@ public static class Mesher
                         if (partialNeighbor && fullCube && !isTrans)
                         {
                             EmitCubeFaceAgainstPartial(pad, statePad, lightPad, neighborIndex, f, tile,
-                                    b, opaque, collision, kk, cornerLight);
+                                    id, state, b, opaque, buildCollision ? collision : null, kk, cornerLight);
                             continue;
                         }
 
@@ -316,13 +317,15 @@ public static class Mesher
                                 vertex.Y = f >= 2 ? waterBase + vertex.Y * (waterTop - waterBase) : vertex.Y * waterTop;
                             surf.Vertex.Add(b + vertex);
                             surf.Normal.Add(normal);
-                            surf.Color.Add(VoxelLighting.VertexColor(cornerLight[t], kk[t]));
+                            Color litColor = VoxelLighting.VertexColor(cornerLight[t], kk[t]);
+                            SurfaceFamily family = MaterialResponse.ForTile(tile);
+                            surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B, (float)family));
                             surf.Uv.Add(BlockDb.UvLut[ui + t]);
                             if (Greedy && ReferenceEquals(surf, opaque))
                                 surf.Uv2.Add(new Vector2(tile, 0.0f));
                         }
 
-                        if (BlockDb.SolidMask[(int)id] == 1)
+                        if (buildCollision && BlockDb.SolidMask[(int)id] == 1)
                         {
                             collision.Add(b + BlockDb.FaceVerts[vi]);
                             collision.Add(b + BlockDb.FaceVerts[vi + 1]);
@@ -369,10 +372,10 @@ public static class Mesher
 
     private static void EmitCubeFaceAgainstPartial(
             byte[] pad, byte[] statePad, byte[] lightPad, int neighborIndex, int face,
-            int tile, Vector3 blockOrigin, SurfaceData surf, List<Vector3> collision,
+            int tile, BlockId blockId, byte blockState, Vector3 blockOrigin,
+            SurfaceData surf, List<Vector3>? collision,
             Span<float> kk, Span<byte> cornerLight)
     {
-        int ui = (tile * 6 + face) * 4;
         int vi = face * 4;
         int uAxis = _uAxis[face];
         int vAxis = _vAxis[face];
@@ -388,17 +391,16 @@ public static class Mesher
                 p[vAxis] = (v + p[vAxis]) * 0.5f;
                 points[vertex] = blockOrigin + p;
             }
-            EmitLitFace(pad, lightPad, neighborIndex, face, ui, tile,
-                    points, surf, collision, kk, cornerLight);
+            EmitLitFace(pad, lightPad, neighborIndex, face, tile, blockId, blockState,
+                    blockOrigin, points, surf, collision, kk, cornerLight);
         }
     }
 
     private static void AddShapeGeometry(
             byte[] pad, byte[] statePad, byte[] lightPad, int index, Vector3 blockOrigin,
-            BlockId id, byte state, SurfaceData surf, List<Vector3> collision,
+            BlockId id, byte state, SurfaceData surf, List<Vector3>? collision,
             Span<float> kk, Span<byte> cornerLight)
     {
-        int tileBase = (int)id * 6;
         Span<Vector3> points = stackalloc Vector3[4];
         for (int cy = 0; cy < 2; cy++)
         for (int cz = 0; cz < 2; cz++)
@@ -422,21 +424,21 @@ public static class Mesher
                 if (!BlockShapes.FaceExposed(id, state, cx, cy, cz, face, neighbor, neighborState))
                     continue;
 
-                int tile = BlockDb.Tiles[tileBase + face];
+                int tile = BlockDb.ShapeFaceTile(id, state, face);
                 if (tile < 0) continue;
                 Vector3 cellOrigin = blockOrigin + new Vector3(cx * 0.5f, cy * 0.5f, cz * 0.5f);
                 int vi = face * 4;
                 for (int vertex = 0; vertex < 4; vertex++)
                     points[vertex] = cellOrigin + BlockDb.FaceVerts[vi + vertex] * 0.5f;
-                int ui = (tile * 6 + face) * 4;
-                EmitLitFace(pad, lightPad, index + FaceOff[face], face, ui, tile,
-                        points, surf, collision, kk, cornerLight);
+                EmitLitFace(pad, lightPad, index + FaceOff[face], face, tile, id, state,
+                        blockOrigin, points, surf, collision, kk, cornerLight);
             }
         }
     }
 
     private static void EmitLitFace(
-            byte[] pad, byte[] lightPad, int neighborIndex, int face, int uvIndex, int textureTile,
+            byte[] pad, byte[] lightPad, int neighborIndex, int face, int textureTile,
+            BlockId blockId, byte blockState, Vector3 blockOrigin,
             Span<Vector3> points, SurfaceData surf, List<Vector3>? collision,
             Span<float> kk, Span<byte> cornerLight)
     {
@@ -459,8 +461,14 @@ public static class Mesher
         {
             surf.Vertex.Add(points[tri]);
             surf.Normal.Add(normal);
-            surf.Color.Add(VoxelLighting.VertexColor(cornerLight[tri], kk[tri]));
-            surf.Uv.Add(BlockDb.UvLut[uvIndex + tri]);
+            Color litColor = VoxelLighting.VertexColor(cornerLight[tri], kk[tri]);
+            surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B,
+                    (float)MaterialResponse.ForTile(textureTile)));
+            Vector2 localUv = BlockDb.BlockFaceUvAt(blockId, blockState, face,
+                    points[tri] - blockOrigin);
+            surf.Uv.Add(Greedy
+                    ? localUv
+                    : BlockDb.MapUv(BlockDb.TileUvRect(textureTile), localUv));
             if (Greedy)
                 surf.Uv2.Add(new Vector2(textureTile, 0.0f));
         }
@@ -712,7 +720,9 @@ public static class Mesher
             float k = shade * AoFactors[(int)(key >> (16 + (c * 2))) & 3];
             byte sky = (byte)((key >> (24 + c * 4)) & 0x0F);
             byte block = (byte)((key >> (40 + c * 4)) & 0x0F);
-            surf.Color.Add(VoxelLighting.VertexColor(VoxelLighting.Pack(sky, block), k));
+            Color litColor = VoxelLighting.VertexColor(VoxelLighting.Pack(sky, block), k);
+            surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B,
+                    (float)MaterialResponse.ForTile(tile)));
             Vector2 duv = BlockDb.FaceUvs[f * 4 + c];
             surf.Uv.Add(new Vector2(duv.X * su, duv.Y * sv));
             surf.Uv2.Add(new Vector2(tile, 0.0f));
@@ -757,7 +767,8 @@ public static class Mesher
     private static void EmitDoubleSided(SurfaceData surf, Vector3[] p, Vector2[] uv, int tile, Color lightColor)
     {
         Vector3 n = (p[1] - p[0]).Cross(p[3] - p[0]).Normalized();
-        Color white = lightColor;
+        SurfaceFamily family = MaterialResponse.ForTile(tile);
+        Color white = new(lightColor.R, lightColor.G, lightColor.B, (float)family);
         for (int pass = 0; pass < 2; pass++)
         {
             Vector3 normal = pass == 0 ? n : -n;
@@ -769,9 +780,7 @@ public static class Mesher
                 surf.Color.Add(white);
                 surf.Uv.Add(uv[idx]);
                 if (Greedy)
-                {
                     surf.Uv2.Add(new Vector2(tile, 0.0f));
-                }
             }
         }
     }
@@ -955,7 +964,18 @@ public sealed class SurfaceData
     public readonly List<Vector3> Normal = [];
     public readonly List<Color> Color = [];
     public readonly List<Vector2> Uv = [];
-    public readonly List<Vector2> Uv2 = [];   // greedy mode: tile layer in .x
+    public readonly List<Vector2> Uv2 = [];   // greedy mode only: texture-array layer in .x
+
+    // Managed List backing arrays are what a queued payload retains until the
+    // main thread returns it to PayloadPool. Godot mesh storage is estimated
+    // separately from item counts after the payload has been applied.
+    public long EstimatedBufferBytes => (long)Vertex.Capacity * 12
+            + (long)Normal.Capacity * 12 + (long)Color.Capacity * 16
+            + (long)Uv.Capacity * 8 + (long)Uv2.Capacity * 8;
+
+    public long EstimatedResourceBytes => (long)Vertex.Count * 12
+            + (long)Normal.Count * 12 + (long)Color.Count * 16
+            + (long)Uv.Count * 8 + (long)Uv2.Count * 8;
 }
 
 /// <summary>Worker result of a chunk mesh build; applied on the main thread.
@@ -975,6 +995,14 @@ public sealed class MeshPayload(
     public readonly List<Vector3> Collision = collision;
     public readonly long Epoch = epoch;
     public bool Released;
+
+    public long EstimatedBufferBytes => Opaque.EstimatedBufferBytes + Glass.EstimatedBufferBytes
+            + Water.EstimatedBufferBytes + Lava.EstimatedBufferBytes
+            + (long)Collision.Capacity * 12;
+
+    public long EstimatedResourceBytes => Opaque.EstimatedResourceBytes + Glass.EstimatedResourceBytes
+            + Water.EstimatedResourceBytes + Lava.EstimatedResourceBytes
+            + (long)Collision.Count * 12;
 }
 
 /// <summary>
@@ -986,10 +1014,30 @@ public static class PayloadPool
 {
     private static readonly System.Collections.Concurrent.ConcurrentBag<SurfaceData> Surfaces = new();
     private static readonly System.Collections.Concurrent.ConcurrentBag<List<Vector3>> Collisions = new();
+    private static long _retainedBufferBytes;
+    private static int _retainedSurfaceCount;
+    private static int _retainedCollisionCount;
 
-    public static SurfaceData RentSurface() => Surfaces.TryTake(out SurfaceData? s) ? s : new SurfaceData();
+    /// <summary>Capacity bytes retained by reusable mesher buffers across all active worlds.</summary>
+    public static long RetainedBufferBytes => Interlocked.Read(ref _retainedBufferBytes);
+    public static int RetainedSurfaceCount => Volatile.Read(ref _retainedSurfaceCount);
+    public static int RetainedCollisionCount => Volatile.Read(ref _retainedCollisionCount);
 
-    public static List<Vector3> RentCollision() => Collisions.TryTake(out List<Vector3>? c) ? c : [];
+    public static SurfaceData RentSurface()
+    {
+        if (!Surfaces.TryTake(out SurfaceData? surface)) return new SurfaceData();
+        Interlocked.Add(ref _retainedBufferBytes, -surface.EstimatedBufferBytes);
+        Interlocked.Decrement(ref _retainedSurfaceCount);
+        return surface;
+    }
+
+    public static List<Vector3> RentCollision()
+    {
+        if (!Collisions.TryTake(out List<Vector3>? collision)) return [];
+        Interlocked.Add(ref _retainedBufferBytes, -(long)collision.Capacity * 12);
+        Interlocked.Decrement(ref _retainedCollisionCount);
+        return collision;
+    }
 
     public static void Release(MeshPayload payload)
     {
@@ -1004,6 +1052,8 @@ public static class PayloadPool
         ReturnSurface(payload.Water);
         ReturnSurface(payload.Lava);
         payload.Collision.Clear();
+        Interlocked.Add(ref _retainedBufferBytes, (long)payload.Collision.Capacity * 12);
+        Interlocked.Increment(ref _retainedCollisionCount);
         Collisions.Add(payload.Collision);
     }
 
@@ -1014,6 +1064,8 @@ public static class PayloadPool
         surf.Color.Clear();
         surf.Uv.Clear();
         surf.Uv2.Clear();
+        Interlocked.Add(ref _retainedBufferBytes, surf.EstimatedBufferBytes);
+        Interlocked.Increment(ref _retainedSurfaceCount);
         Surfaces.Add(surf);
     }
 
