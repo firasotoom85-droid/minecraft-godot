@@ -339,7 +339,12 @@ public static class ItemDb
         if (!WornIconCache.TryGetValue(key, out ImageTexture? texture))
         {
             Image image = BuildIconImage(id);
+            // The shared finish already generated a mip chain for the pristine
+            // pixels. Wear marks alter the base level, so rebuild the chain
+            // instead of sampling a stale 16/8/4/2/1 set.
+            image.ClearMipmaps();
             PaintWear(image, id, stage);
+            image.GenerateMipmaps();
             texture = ImageTexture.CreateFromImage(image);
             WornIconCache[key] = texture;
         }
@@ -472,7 +477,165 @@ public static class ItemDb
             }
         }
 
-        return img;
+        return StyleGeneratedIcon(img);
+    }
+
+    internal static readonly Color GeneratedIconOutlineColor =
+        new(0.075f, 0.065f, 0.09f, 1.0f);
+
+    private const int IconPaddingPx = 4;
+    private const int IconContentPx = IconPx - (IconPaddingPx + 1) * 2;
+    private const float IconDirectionalFillAmount = 0.05f;
+    private const float IconHighlightAmount = 0.12f;
+    private const float IconShadowAmount = 0.12f;
+
+    /// <summary>
+    /// Applies the shared standalone-item finish without touching atlas-backed
+    /// block icons. The painted silhouette is nearest-scaled into a 22px frame,
+    /// then given a one-pixel contour and consistent upper-left key light.
+    /// </summary>
+    internal static Image StyleGeneratedIcon(Image source)
+    {
+        if (source.GetSize() != new Vector2I(IconPx, IconPx))
+        {
+            throw new ArgumentException(
+                    $"Generated item icons must be {IconPx}x{IconPx} pixels.",
+                    nameof(source));
+        }
+
+        int minX = IconPx;
+        int minY = IconPx;
+        int maxX = -1;
+        int maxY = -1;
+        for (int y = 0; y < IconPx; y++)
+        {
+            for (int x = 0; x < IconPx; x++)
+            {
+                if (source.GetPixel(x, y).A > 0.5f)
+                {
+                    minX = Math.Min(minX, x);
+                    minY = Math.Min(minY, y);
+                    maxX = Math.Max(maxX, x);
+                    maxY = Math.Max(maxY, y);
+                }
+            }
+        }
+
+        // ItemId.None intentionally has an empty icon. Keep that sentinel
+        // transparent; all concrete items are checked by ItemIconTests.
+        if (maxX < minX || maxY < minY)
+        {
+            return source;
+        }
+
+        int sourceWidth = maxX - minX + 1;
+        int sourceHeight = maxY - minY + 1;
+        float scale = IconContentPx / (float)Math.Max(sourceWidth, sourceHeight);
+        int targetWidth = Math.Max(1,
+                (int)Math.Round(sourceWidth * scale, MidpointRounding.AwayFromZero));
+        int targetHeight = Math.Max(1,
+                (int)Math.Round(sourceHeight * scale, MidpointRounding.AwayFromZero));
+        int originX = (IconPx - targetWidth) / 2;
+        int originY = (IconPx - targetHeight) / 2;
+
+        bool[] silhouette = new bool[IconPx * IconPx];
+        Color[] pixels = new Color[IconPx * IconPx];
+        for (int y = 0; y < targetHeight; y++)
+        {
+            int sampleY = minY + Math.Min(sourceHeight - 1,
+                    (int)((y + 0.5f) * sourceHeight / targetHeight));
+            for (int x = 0; x < targetWidth; x++)
+            {
+                int sampleX = minX + Math.Min(sourceWidth - 1,
+                        (int)((x + 0.5f) * sourceWidth / targetWidth));
+                Color color = source.GetPixel(sampleX, sampleY);
+                if (color.A <= 0.5f)
+                {
+                    continue;
+                }
+
+                int index = (originY + y) * IconPx + originX + x;
+                silhouette[index] = true;
+                pixels[index] = color;
+            }
+        }
+
+        Image finished = Image.CreateEmpty(IconPx, IconPx, false, Image.Format.Rgba8);
+        finished.Fill(Colors.Transparent);
+        for (int y = 1; y < IconPx - 1; y++)
+        {
+            for (int x = 1; x < IconPx - 1; x++)
+            {
+                int index = y * IconPx + x;
+                if (silhouette[index])
+                {
+                    bool north = silhouette[index - IconPx];
+                    bool east = silhouette[index + 1];
+                    bool south = silhouette[index + IconPx];
+                    bool west = silhouette[index - 1];
+                    int upperLeftEdges = (north ? 0 : 1) + (west ? 0 : 1);
+                    int lowerRightEdges = (south ? 0 : 1) + (east ? 0 : 1);
+
+                    int localX = x - originX;
+                    int localY = y - originY;
+                    float lightDirection = 1.0f
+                            - localX / (float)Math.Max(1, targetWidth - 1)
+                            - localY / (float)Math.Max(1, targetHeight - 1);
+                    Color color = pixels[index];
+                    if (lightDirection > 0.0f)
+                    {
+                        color = color.Lightened(lightDirection * IconDirectionalFillAmount);
+                    }
+                    else if (lightDirection < 0.0f)
+                    {
+                        color = color.Darkened(-lightDirection * IconDirectionalFillAmount);
+                    }
+
+                    if (upperLeftEdges > lowerRightEdges)
+                    {
+                        color = color.Lightened(IconHighlightAmount);
+                    }
+                    else if (lowerRightEdges > upperLeftEdges)
+                    {
+                        color = color.Darkened(IconShadowAmount);
+                    }
+
+                    finished.SetPixel(x, y, color);
+                    continue;
+                }
+
+                bool touchesSilhouette = false;
+                for (int offsetY = -1; offsetY <= 1 && !touchesSilhouette; offsetY++)
+                {
+                    for (int offsetX = -1; offsetX <= 1; offsetX++)
+                    {
+                        if (offsetX == 0 && offsetY == 0)
+                        {
+                            continue;
+                        }
+
+                        if (silhouette[(y + offsetY) * IconPx + x + offsetX])
+                        {
+                            touchesSilhouette = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (touchesSilhouette)
+                {
+                    finished.SetPixel(x, y, GeneratedIconOutlineColor);
+                }
+            }
+        }
+
+        Error mipmapError = finished.GenerateMipmaps();
+        if (mipmapError != Error.Ok)
+        {
+            GD.PushWarning($"Could not generate item icon mipmaps: {mipmapError}");
+        }
+
+        return finished;
     }
 
     private static Color TierColor(int tier) => tier switch
@@ -656,11 +819,11 @@ public static class ItemDb
     private static void PaintSeeds(Image img)
     {
         Color seed = new(0.56f, 0.68f, 0.22f);
-        Rect(img, 10, 10, 4, 3, seed);
-        Rect(img, 17, 9, 4, 3, seed.Lightened(0.1f));
-        Rect(img, 13, 17, 4, 3, seed.Darkened(0.1f));
-        Rect(img, 19, 18, 3, 3, seed);
-        Rect(img, 8, 20, 3, 3, seed.Darkened(0.15f));
+        Rect(img, 10, 10, 4, 3, seed.Lightened(0.1f));
+        Rect(img, 17, 9, 4, 3, seed);
+        Rect(img, 13, 17, 4, 3, seed);
+        Rect(img, 19, 18, 3, 3, seed.Darkened(0.1f));
+        Rect(img, 8, 20, 3, 3, seed);
     }
 
     private static void PaintWheatItem(Image img)
@@ -769,7 +932,7 @@ public static class ItemDb
                 if (d < edge)
                 {
                     Color c = d > edge - 3.0f ? dark : baseColor;
-                    img.SetPixel(x, y, c.Lightened(rng.RandfRange(0.0f, 0.12f)));
+                    img.SetPixel(x, y, c);
                 }
             }
         }

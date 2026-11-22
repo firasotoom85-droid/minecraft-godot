@@ -1672,3 +1672,31 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   half-size review retained the colored meter and recognizable scuff states.
   The fixture is repeatable via the README command and writes its PNG under
   `user://`.
+## 25. Generated standalone item icon cohesion — 2026-11-22
+
+- Audited the full persisted item-icon set using a generated contact sheet.
+  Block-backed items continue to return their existing 32px AtlasTexture
+  regions; the packed atlas, tile coordinates, atlas mip policy and material
+  response matrix are unchanged.
+- Unified standalone procedural icons at the existing 32px source size:
+  silhouettes are centered and scaled to a 22px maximum content frame, receive
+  a one-pixel graphite outline and a consistent upper-left key-light gradient
+  with lower-right edge shading, and retain four transparent pixels outside
+  the contour.
+- Generated a complete per-image mip chain down to 1×1. The existing first-
+  person held-item Sprite3D and its slot-change-cached material now use
+  nearest-with-mipmaps filtering; the packed atlas and unrelated crack overlay
+  retain their original nearest-only sampling.
+- Added ItemIconTests coverage for every persisted item, the empty None
+  sentinel, atlas-region compatibility, cached standalone texture identity,
+  silhouette bounds, binary alpha, transparent padding, contour color/width,
+  shared lighting direction, and mip-chain completeness. Set
+  MINECRAFT_ICON_AUDIT_PATH when running scripts/verify.sh to export a
+  contact sheet for manual review.
+- The finishing pass runs once when each generated standalone icon is first
+  requested and the existing texture cache retains it. No per-frame scans,
+  allocations, scene nodes, voxel edits, meshing, chunk streaming, persisted
+  IDs, save formats, or generator versions were changed.
+- Compatibility: no new assets or third-party textures were introduced; all
+  icons remain procedurally authored, and existing world/save data is
+  unaffected.
