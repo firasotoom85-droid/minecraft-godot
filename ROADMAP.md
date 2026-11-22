@@ -1507,3 +1507,9 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - Refined glass alpha, front-face culling and bounds-center transparent sorting while retaining the existing chunk glass surface.
 - Added regression coverage for ore pixel readability/opacity, foliage alpha coverage and light transmission, stone shader consistency, material-family routing, glass sorting and texture mapping. Extended the production-scene GPU capture fixture to show these material families together at close and distant views.
 - No existing BlockId/ItemId values were reordered or reused. No generator, save format, voxel mutation, greedy meshing or chunk-streaming rules changed.
+
+## 23. Player journey repair audit — 2026-11-21
+
+- Added a source-level first-time Survival player-journey audit, covering world creation, starter inventory, crafting, First Night onboarding, mining, exploration, villages, quests, and reward retention. The report separates confirmed code-path defects from design decisions and playtest candidates.
+- Repair candidates are prioritized in `docs/PLAYER_JOURNEY_REPAIR_REPORT_2026-11-21.md`, with affected code paths, proposed repair directions, and regression-test expectations.
+- This entry records audit findings only; no gameplay fixes or verification claims are implied. Resolve the design questions before implementation, preserve existing saves and generator behavior, and add integration tests for confirmed fixes.
