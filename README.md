@@ -287,10 +287,25 @@ generation or save data.
   add/remove block light in cached 3×3 regions; opacity edits invalidate the
   affected light maps so direct sun and cave spill are recalculated. Lighting is
   baked into mesh vertex channels; no per-torch light-node pool is required.
+  Torches and live generated campfires share one 14-level warm source channel;
+  campfires keep their GPU fire and smoke particles but use the baked map
+  instead of one OmniLight3D per site. All terrain, greedy-array and glass
+  shaders share a compressed warm response with restrained emission, so
+  overlapping sources use the brightest propagated voxel level rather than
+  summing into washed-out textures. Campfire sources sit in the flame air cell
+  above the opaque log; changing the base log moves/removes that virtual source
+  through SetBlock. The source registry feeds the halo solve directly, while
+  emitter edits update or invalidate existing caches. The sky environment stays
+  neutral and Filmic; LOW/BALANCED keep expensive post effects disabled.
   Cave fog and ambient fill follow the camera's cached baked skylight, sampled
   trilinearly and blended through the entrance rather than switching at a fixed
   terrain-depth threshold. Cache misses use a smooth terrain-depth fallback;
   the frame path performs only eight cache reads and no chunk generation.
+  Repeatable GPU comparison (same seed/site/camera): run
+  `res://tests/WarmLightingVisualCapture.tscn` with arguments `1337 11 0 0
+  torch`, `1337 11 0 0 campfire`, or `1337 11 0 0 overlap`, followed by an
+  output PNG path. The capture uses the real main scene and prints baked flame
+  and adjacent light levels for parity checks.
 - **World presets** — normal, flat, amplified, and floating sky islands, with
   share codes and per-world seeds.
 - **Survival** — health, hunger, breath, drowning, fall damage, softcore

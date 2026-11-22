@@ -1594,6 +1594,41 @@ public partial class VoxelWorld : Node3D
             int x = rem - z * ChunkX;
             _lightSources[new Vector3I(ox + x, y, oz + z)] = emission;
         }
+
+        RegisterCampfireLightSourcesLocked(cp, blocks);
+    }
+
+    /// <summary>
+    /// Generated campfires are represented by a virtual source in the flame
+    /// air cell above their log. Only register it while the centre log remains,
+    /// so saved edits and later block removal keep baked light authoritative.
+    /// </summary>
+    private void RegisterCampfireLightSourcesLocked(Vector2I cp, byte[] blocks)
+    {
+        int ox = cp.X * ChunkX;
+        int oz = cp.Y * ChunkZ;
+        int stride = ChunkX * ChunkZ;
+        int minCellX = Mathf.FloorToInt(ox / (float)Campfires.Cell);
+        int maxCellX = Mathf.FloorToInt((ox + ChunkX - 1) / (float)Campfires.Cell);
+        int minCellZ = Mathf.FloorToInt(oz / (float)Campfires.Cell);
+        int maxCellZ = Mathf.FloorToInt((oz + ChunkZ - 1) / (float)Campfires.Cell);
+
+        for (int cellZ = minCellZ; cellZ <= maxCellZ; cellZ++)
+        for (int cellX = minCellX; cellX <= maxCellX; cellX++)
+        {
+            if (GetCampfireSite(cellX, cellZ) is not { } site) continue;
+
+            int localX = site.X - ox;
+            int localZ = site.Z - oz;
+            if ((uint)localX >= ChunkX || (uint)localZ >= ChunkZ
+                    || (uint)site.Y >= Height)
+                continue;
+
+            int index = localX + localZ * ChunkX + site.Y * stride;
+            Vector3I flame = new(site.X, site.Y + 1, site.Z);
+            if (blocks[index] == (byte)BlockId.Log && flame.Y < Height)
+                _lightSources[flame] = VoxelLighting.CampfireEmission;
+        }
     }
 
     private byte[] SkyLightBase(Vector2I cp)
@@ -1683,18 +1718,18 @@ public partial class VoxelWorld : Node3D
             }
 
             byte[] sky = VoxelLighting.BuildSkyLight(region, width, Height, depth);
-            List<VoxelLightSource> sources = new();
             int plane = width * depth;
-            for (int i = 0; i < region.Length; i++)
+            List<VoxelLightSource> sources = NearbyLightSources(
+                    originX, originX + width - 1, originZ, originZ + depth - 1);
+            for (int i = 0; i < sources.Count; i++)
             {
-                byte emission = BlockDb.LightEmission[region[i]];
-                if (emission == 0) continue;
-                int y = i / plane;
-                int rem = i - y * plane;
-                int z = rem / width;
-                int x = rem - z * width;
-                sources.Add(new VoxelLightSource(new Vector3I(x, y, z), emission));
+                VoxelLightSource source = sources[i];
+                Vector3I position = source.Position;
+                sources[i] = new VoxelLightSource(
+                        new Vector3I(position.X - originX, position.Y, position.Z - originZ),
+                        source.Level);
             }
+
             byte[] block = VoxelLighting.PropagateBlockLight(region, width, Height, depth, sources);
 
             for (int dz = -1; dz <= 1; dz++)
@@ -2007,6 +2042,7 @@ public partial class VoxelWorld : Node3D
         int lx = x - cp.X * ChunkX;
         int lz = z - cp.Y * ChunkZ;
         int i = lx + lz * ChunkZ + y * ChunkX * ChunkZ;
+        bool isCampfireCell = IsCampfireSiteCell(x, y, z);
         lock (SnapshotLock)
         {
             // Chunk.Blocks is also read by worker meshing. Mutate it while
@@ -2017,7 +2053,7 @@ public partial class VoxelWorld : Node3D
                 return false;
             }
 
-            UpdateLightSource(x, y, z, id);
+            UpdateLightSource(x, y, z, oldBlock, id, isCampfireCell);
             UpdateCropSource(x, y, z, id);
             lock (_mutex)
             {
@@ -2051,10 +2087,20 @@ public partial class VoxelWorld : Node3D
                         ? BlockDb.LightOpacity[oldBlock] : (byte)VoxelLighting.MaxLevel;
                 byte newOpacity = BlockDb.IsDefined(id)
                         ? BlockDb.LightOpacity[(int)id] : (byte)VoxelLighting.MaxLevel;
+                bool oldCampfireEmitter = isCampfireCell && oldBlock == (byte)BlockId.Log;
+                bool newCampfireEmitter = isCampfireCell && id == BlockId.Log;
                 byte oldEmission = oldBlock < BlockDb.LightEmission.Length
                         ? BlockDb.LightEmission[oldBlock] : (byte)0;
                 byte newEmission = BlockDb.IsDefined(id)
                         ? BlockDb.LightEmission[(int)id] : (byte)0;
+                if (oldCampfireEmitter) oldEmission = VoxelLighting.CampfireEmission;
+                if (newCampfireEmitter) newEmission = VoxelLighting.CampfireEmission;
+
+                bool sourcePositionChanged = oldEmission > 0 && newEmission > 0
+                        && oldCampfireEmitter != newCampfireEmitter;
+                Vector3I changedSource = oldEmission > 0
+                        ? new Vector3I(x, y + (oldCampfireEmitter ? 1 : 0), z)
+                        : new Vector3I(x, y + (newCampfireEmitter ? 1 : 0), z);
 
                 if (oldOpacity != newOpacity)
                 {
@@ -2063,8 +2109,16 @@ public partial class VoxelWorld : Node3D
                     // from the edited block volume.
                     InvalidateLightingLocked(cp);
                 }
+                else if (sourcePositionChanged)
+                {
+                    // A log-backed campfire emits from its flame cell above
+                    // the log, while a torch block emits from its own cell.
+                    // Equal-strength replacement still moves the source.
+                    InvalidateBlockLightingLocked(cp);
+                }
                 else if (oldEmission != newEmission
-                        && !TryApplyIncrementalBlockLightLocked(cp, x, y, z, newEmission))
+                        && !TryApplyIncrementalBlockLightLocked(
+                                cp, changedSource.X, changedSource.Y, changedSource.Z, newEmission))
                 {
                     // No complete cached 3x3 exists yet: keep the lazy full
                     // solve as the safe fallback, without discarding valid sky.
@@ -2159,14 +2213,39 @@ public partial class VoxelWorld : Node3D
         return result;
     }
 
-    private void UpdateLightSource(int x, int y, int z, BlockId id)
+    private bool IsCampfireSiteCell(int x, int y, int z)
     {
-        Vector3I cell = new(x, y, z);
-        byte emission = BlockDb.IsDefined(id) ? BlockDb.LightEmission[(int)id] : (byte)0;
+        Vector3I? site = CachedCampfireSite(
+                Mathf.FloorToInt(x / (float)Campfires.Cell),
+                Mathf.FloorToInt(z / (float)Campfires.Cell));
+        return site is { } position
+                && position.X == x && position.Y == y && position.Z == z;
+    }
+
+    private void UpdateLightSource(
+            int x, int y, int z, byte oldBlock, BlockId id, bool isCampfireCell)
+    {
+        bool wasCampfireEmitter = isCampfireCell && oldBlock == (byte)BlockId.Log;
+        bool isCampfireEmitter = isCampfireCell && id == BlockId.Log;
+        bool hadSource = wasCampfireEmitter
+                || oldBlock < BlockDb.LightEmission.Length && BlockDb.LightEmission[oldBlock] > 0;
+        bool hasSource = isCampfireEmitter
+                || BlockDb.IsDefined(id) && BlockDb.LightEmission[(int)id] > 0;
+        Vector3I oldCell = wasCampfireEmitter
+                ? new Vector3I(x, y + 1, z)
+                : new Vector3I(x, y, z);
+        Vector3I newCell = isCampfireEmitter
+                ? new Vector3I(x, y + 1, z)
+                : new Vector3I(x, y, z);
+        byte emission = isCampfireEmitter
+                ? VoxelLighting.CampfireEmission
+                : BlockDb.IsDefined(id) ? BlockDb.LightEmission[(int)id] : (byte)0;
+
         lock (_mutex)
         {
-            if (emission > 0) _lightSources[cell] = emission;
-            else _lightSources.Remove(cell);
+            if (hadSource && (!hasSource || oldCell != newCell))
+                _lightSources.Remove(oldCell);
+            if (emission > 0) _lightSources[newCell] = emission;
         }
     }
 

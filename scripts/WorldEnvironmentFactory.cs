@@ -46,6 +46,8 @@ public static class WorldEnvironmentFactory
         {
             BackgroundMode = Godot.Environment.BGMode.Sky,
             Sky = sky,
+            // Keep ambient sky neutral; warm block light is localized by the
+            // baked voxel channel rather than tinting the whole environment.
             AmbientLightSource = Godot.Environment.AmbientSource.Sky,
             AmbientLightSkyContribution = 1.0f,
             AmbientLightEnergy = 1.0f,
@@ -66,9 +68,9 @@ public static class WorldEnvironmentFactory
             SsrEnabled = true,
             SsrMaxSteps = 64,
             GlowEnabled = true,
-            GlowIntensity = 0.5f,
-            GlowBloom = 0.04f,
-            GlowHdrThreshold = 0.9f,
+            GlowIntensity = 0.38f,
+            GlowBloom = 0.025f,
+            GlowHdrThreshold = 1.05f,
             VolumetricFogEnabled = true,
             VolumetricFogDensity = improvedWorldgenLighting ? 0.00025f : 0.0028f,
             VolumetricFogLength = improvedWorldgenLighting ? 180.0f : 140.0f,

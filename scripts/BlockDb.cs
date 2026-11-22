@@ -688,6 +688,22 @@ public static class BlockDb
         return uv;
     }
 
+    private const string WarmBlockLightingShader = @"
+uniform vec3 warm_block_light_color = vec3(1.0, 0.68, 0.42);
+
+float warm_block_response(float sky, float block) {
+    return (1.0 - exp(-block * 1.25)) * (1.0 - sky);
+}
+
+vec3 warm_block_illumination(float response) {
+    return warm_block_light_color * response * 0.34;
+}
+
+vec3 warm_block_emission(float response) {
+    return warm_block_light_color * response * 0.025;
+}
+";
+
     private const string LitAtlasShader = @"
 shader_type spatial;
 render_mode cull_back, depth_draw_opaque, alpha_to_coverage;
@@ -742,6 +758,7 @@ void vertex() {
     surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
 }
 
+" + WarmBlockLightingShader + @"
 void fragment() {
     vec4 tex = texture(atlas, UV);
     if (COLOR.a < 0.5) {
@@ -751,12 +768,12 @@ void fragment() {
     }
     float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
     float block = clamp(COLOR.g, 0.0, 1.0);
-    float shadowed_block = block * (1.0 - sky);
+    float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
-    vec3 warm = vec3(1.0, 0.68, 0.38);
-    vec3 illumination = vec3(0.035) + directional_sky_light(surface_world_normal, sky) + warm * shadowed_block * 0.42;
+    vec3 illumination = vec3(0.035) + directional_sky_light(surface_world_normal, sky)
+            + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
-    EMISSION = tex.rgb * warm * shadowed_block * 0.08;
+    EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
     float encoded_family = floor(COLOR.a + 0.5);
@@ -813,16 +830,17 @@ void vertex() {
     surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
 }
 
+" + WarmBlockLightingShader + @"
 void fragment() {
     vec4 tex = texture(atlas, UV);
     float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
     float block = clamp(COLOR.g, 0.0, 1.0);
-    float shadowed_block = block * (1.0 - sky);
+    float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
-    vec3 warm = vec3(1.0, 0.72, 0.46);
-    vec3 illumination = vec3(0.05) + directional_sky_light(surface_world_normal, sky) + warm * shadowed_block * 0.4;
+    vec3 illumination = vec3(0.05) + directional_sky_light(surface_world_normal, sky)
+            + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade;
-    EMISSION = tex.rgb * warm * shadowed_block * 0.08;
+    EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a * 0.58;
     vec3 response = surface_response(COLOR.a);
     ROUGHNESS = response.x;
@@ -917,6 +935,7 @@ void vertex() {
     surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
 }
 
+" + WarmBlockLightingShader + @"
 void fragment() {
     vec4 tex = texture(tiles, vec3(fract(tile_uv), tile_layer));
     if (COLOR.a < 0.5) {
@@ -926,12 +945,12 @@ void fragment() {
     }
     float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
     float block = clamp(COLOR.g, 0.0, 1.0);
-    float shadowed_block = block * (1.0 - sky);
+    float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
-    vec3 warm = vec3(1.0, 0.68, 0.38);
-    vec3 illumination = vec3(0.035) + directional_sky_light(surface_world_normal, sky) + warm * shadowed_block * 0.42;
+    vec3 illumination = vec3(0.035) + directional_sky_light(surface_world_normal, sky)
+            + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
-    EMISSION = tex.rgb * warm * shadowed_block * 0.08;
+    EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
     float encoded_family = floor(COLOR.a + 0.5);
@@ -944,6 +963,13 @@ void fragment() {
     SPECULAR = mix(response.z, 0.34, wet * 0.70);
 }
 ";
+
+    internal static readonly string[] WarmLightingShaderSources =
+    [
+        LitAtlasShader,
+        LitGlassShader,
+        OpaqueArrayShader,
+    ];
 
     public static ShaderMaterial MakeArrayOpaqueMaterial()
     {
