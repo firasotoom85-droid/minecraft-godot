@@ -70,6 +70,7 @@ public partial class InvSlot : DurabilitySlotPanel
         _icon.Texture = stack.IsEmpty ? null : ItemDb.Icon(stack);
         _icon.Visible = !stack.IsEmpty;
         SetDurability(stack);
+        SetRarity(stack.IsEmpty ? ItemRarity.Common : ItemDb.RarityOf(stack.Id));
 
         int maxDurability = stack.IsEmpty ? 0 : EquipmentProgression.MaxDurability(stack.Id);
         if (maxDurability > 0)

@@ -39,6 +39,17 @@ sampling to retain crisp pixels close up and reduce distant shimmer. The icon
 finish runs only when a standalone texture is first requested; there is no
 per-frame icon work or new scene-node system.
 
+Rare and enchanted equipment extends this same 32px stack-icon pipeline. Common,
+uncommon, rare and legendary bands are derived from the existing tool/armor/
+weapon tiers and material identity; Sharpness, Protection and Unbreaking add
+small, colour-coded pixel glints to the existing silhouette. Wear and quality
+accents are composed before mipmaps are rebuilt, then cached by item, wear band
+and enchantment family. Exact enchantment levels stay in the existing tooltip
+and save fields. ItemDb.Icon(ItemStack) supplies the same cached result to
+inventory, hotbar, cursor and first-person presentation. Block-backed items
+still return the original AtlasTexture; their rarity is shown by a compact
+marker drawn by the slot panel that already owns durability feedback.
+
 ## Transparency and cutout rendering
 
 Foliage and crossed plants use the opaque atlas/texture-array shader with a
@@ -292,13 +303,17 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-For a rendered icon review, launch `res://tests/EquipmentDurabilityVisualCapture.tscn`
+For a rendered item-quality review, launch `res://tests/EquipmentDurabilityVisualCapture.tscn`
 with the Godot 4.7.2 .NET editor or executable. It uses the production `InvSlot`
-control and renders tools, weapons and armor at full, 74%, 49% and 24% durability;
-the PNG is written to `user://equipment-durability-visual-validation.png`.
+control and shows common through legendary gear, plain and enchanted examples,
+and full / 74% / 49% / 24% durability states. The PNG is written to
+`user://equipment-durability-visual-validation.png`.
 
-The integrated PR #49–#57 suite reports **189,838 checks, 0 failures** across
-46 suites, with 0 build warnings. Loop-based worldgen scans can vary by a few
+The current headless suite reports **189,870 checks, 0 failures across 47
+suites**, with 0 Debug build warnings or errors. The added
+`item-visual-quality` suite pins rarity bands, cached enchantment variants,
+wear/enchantment composition, first-person visual-state signatures and block
+atlas-region compatibility. Loop-based worldgen scans can vary by a few
 checks between runs, but zero failures is required. The selection-outline suite
 adds 275 checks for two-pass contrast materials and cube/slab/stair geometry,
 including every partial-block state. `integration-regressions` pins V9, V10 and
@@ -667,9 +682,18 @@ use the same original 32×32 procedural icon with three cached scuff stages as
 condition reaches or falls below 75%, 50% and 25%. Inventory, hotbar, armor and
 container slots also draw a crisp three-pixel meter (green / amber / red); worn
 values remain beside the icon, and the tooltip always shows current / maximum.
-The first-person held item uses the same wear variant while retaining its
-existing material response. Block-item icons continue sampling the unchanged
-atlas region. Icon painting occurs only when a new item/wear band is first used.
+
+A shared quality language distinguishes common gear, uncommon iron/gold/lapis,
+rare diamond equipment and legendary Warden rewards. Rare and legendary icons
+receive restrained cyan or ember pixel facets; enchanted stacks add icy
+Sharpness, violet Protection or warm-gold Unbreaking glints without changing
+the icon silhouette. The same accent palette appears as a four-pixel rarity
+pin in the existing slot draw pass, including for rare block-backed materials.
+The first-person held item uses the identical cached quality/wear texture and
+refreshes when enchantments change even if its item ID stays the same, while
+retaining its registered material response. Block-item icons continue sampling
+their unchanged atlas region. Icon variants are painted and mipmapped only
+when a new item / wear / enchantment combination is first used.
 
 Peaceful mode suppresses hostile spawns, cancels pending hostile attacks,
 removes hostile projectiles and keeps the Ember Warden dormant.

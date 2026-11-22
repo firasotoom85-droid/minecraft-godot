@@ -11,6 +11,24 @@ public partial class DurabilitySlotPanel : Panel
     private bool _showDurability;
     private float _durabilityFraction;
 
+    public ItemRarity CurrentRarity { get; private set; }
+
+    public void SetRarity(ItemRarity rarity)
+    {
+        if ((byte)rarity > (byte)ItemRarity.Legendary)
+        {
+            rarity = ItemRarity.Common;
+        }
+
+        if (CurrentRarity == rarity)
+        {
+            return;
+        }
+
+        CurrentRarity = rarity;
+        QueueRedraw();
+    }
+
     public void SetDurability(ItemStack stack)
     {
         bool showDurability = EquipmentDurabilityVisual.TryGetFraction(stack, out float fraction);
@@ -28,6 +46,19 @@ public partial class DurabilitySlotPanel : Panel
     public override void _Draw()
     {
         base._Draw();
+        if (CurrentRarity != ItemRarity.Common && Size.X >= 24.0f && Size.Y >= 18.0f)
+        {
+            Color rarity = ItemDb.RarityColor(CurrentRarity);
+            DrawRect(new Rect2(2.0f, 2.0f, 6.0f, 6.0f),
+                    new Color(0.025f, 0.03f, 0.035f, 0.98f));
+            DrawRect(new Rect2(3.0f, 3.0f, 4.0f, 4.0f), rarity);
+            DrawRect(new Rect2(3.0f, 3.0f, 2.0f, 2.0f), rarity.Lightened(0.24f));
+            if (CurrentRarity == ItemRarity.Legendary)
+            {
+                DrawRect(new Rect2(5.0f, 5.0f, 2.0f, 2.0f), rarity.Darkened(0.18f));
+            }
+        }
+
         if (!_showDurability || Size.X < 24.0f || Size.Y < 18.0f)
         {
             return;

@@ -11,25 +11,29 @@ namespace Minecraft;
 /// </summary>
 public partial class EquipmentDurabilityVisualCapture : Control
 {
-    private static readonly ItemId[] Samples =
+    private readonly record struct Sample(
+            ItemId Item, string Label, int Sharpness = 0, int Protection = 0, int Unbreaking = 0);
+
+    private static readonly Sample[] Samples =
     [
-        ItemId.WoodPick,
-        ItemId.IronAxe,
-        ItemId.DiamondSword,
-        ItemId.Bow,
-        ItemId.Shield,
-        ItemId.IronHelmet,
-        ItemId.DiamondChestplate,
-        ItemId.IronLegs,
-        ItemId.DiamondBoots,
+        new(ItemId.WoodPick, "COMMON  ·  UNBREAKING II", Unbreaking: 2),
+        new(ItemId.IronAxe, "UNCOMMON  ·  UNBREAKING III", Unbreaking: 3),
+        new(ItemId.DiamondSword, "RARE  ·  PLAIN"),
+        new(ItemId.DiamondSword, "RARE  ·  SHARPNESS III", Sharpness: 3, Unbreaking: 2),
+        new(ItemId.Bow, "COMMON  ·  UNBREAKING III", Unbreaking: 3),
+        new(ItemId.IronHelmet, "UNCOMMON  ·  PROTECTION II", Protection: 2, Unbreaking: 1),
+        new(ItemId.DiamondChestplate, "RARE  ·  PLAIN"),
+        new(ItemId.DiamondChestplate, "RARE  ·  PROTECTION III", Protection: 3, Unbreaking: 2),
+        new(ItemId.EmberBlade, "LEGENDARY  ·  PLAIN"),
+        new(ItemId.EmberBlade, "LEGENDARY  ·  SHARPNESS III", Sharpness: 3, Unbreaking: 3),
     ];
 
     private static readonly float[] Ratios = [1.0f, 0.74f, 0.49f, 0.24f];
 
     public override async void _Ready()
     {
-        GetWindow().Title = "Equipment Durability Icon Validation";
-        GetWindow().Size = new Vector2I(960, 760);
+        GetWindow().Title = "Rare and Enchanted Equipment Visual Validation";
+        GetWindow().Size = new Vector2I(960, 880);
 
         ColorRect background = new()
         {
@@ -56,7 +60,7 @@ public partial class EquipmentDurabilityVisualCapture : Control
 
         Label title = new()
         {
-            Text = "EQUIPMENT CONDITION  ·  32PX PROCEDURAL ICONS",
+            Text = "ITEM QUALITY  ·  RARITY / ENCHANTMENTS / CONDITION",
             CustomMinimumSize = new Vector2(0, 30),
         };
         title.AddThemeFontSizeOverride("font_size", 19);
@@ -65,7 +69,7 @@ public partial class EquipmentDurabilityVisualCapture : Control
 
         Label legend = new()
         {
-            Text = "FULL  ·  74%  ·  49%  ·  24%     /     icon scuffs + green / amber / red meter",
+            Text = "COMMON  ·  UNCOMMON  ·  RARE  ·  LEGENDARY     /     wear bands + enchant glints",
             CustomMinimumSize = new Vector2(0, 24),
         };
         legend.AddThemeFontSizeOverride("font_size", 13);
@@ -84,10 +88,11 @@ public partial class EquipmentDurabilityVisualCapture : Control
         List<(InvSlot Slot, ItemStack Stack)> pending = [];
         for (int row = 0; row < Samples.Length; row++)
         {
-            ItemId id = Samples[row];
+            Sample sample = Samples[row];
+            ItemId id = sample.Item;
             Label itemName = new()
             {
-                Text = ItemDb.NameOf(id),
+                Text = sample.Label,
                 CustomMinimumSize = new Vector2(142, 58),
                 VerticalAlignment = VerticalAlignment.Center,
             };
@@ -99,7 +104,13 @@ public partial class EquipmentDurabilityVisualCapture : Control
             for (int column = 0; column < Ratios.Length; column++)
             {
                 int durability = Mathf.RoundToInt(maximum * Ratios[column]);
-                ItemStack stack = ItemDb.New(id, 1) with { Durability = durability };
+                ItemStack stack = ItemDb.New(id, 1) with
+                {
+                    Durability = durability,
+                    Sharpness = sample.Sharpness,
+                    Protection = sample.Protection,
+                    Unbreaking = sample.Unbreaking,
+                };
                 InvSlot slot = new()
                 {
                     Kind = SlotKind.Backpack,
@@ -129,7 +140,7 @@ public partial class EquipmentDurabilityVisualCapture : Control
             return;
         }
 
-        GD.Print($"EQUIPMENT_DURABILITY_CAPTURE {path}");
+        GD.Print($"ITEM_QUALITY_CAPTURE {path}");
         GetTree().Quit();
     }
 }

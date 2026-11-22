@@ -21,7 +21,7 @@ This audit is based on the implemented code, not on the original schedule.
 
 | Milestone | Status | Evidence | Remaining |
 |---|---|---|---|
-| **M5** Foundation & guardrails | Complete | `BlockCount` 128, `TileCount` 256, append-only content validator, 46-suite headless runner, `WorldSave` V4 with atomic backups, performance runner with JSON/CSV output | RTX 4060 comparison and a new controlled Release baseline |
+| **M5** Foundation & guardrails | Complete | `BlockCount` 128, `TileCount` 256, append-only content validator, 47-suite headless runner, `WorldSave` V4 with atomic backups, performance runner with JSON/CSV output | RTX 4060 comparison and a new controlled Release baseline |
 | **M6** Base & progression | Complete | Torch/light propagation, chest, furnace and ingots, armor, farming, bed, ladder, swimming, fluid buckets | Broader survival balance and human playtesting |
 | **M7** Living world & goals | Complete | Species herds, hostile roster, dungeon and Ember Warden, trader, fishing, achievements, villages/quests | Human combat and quest readability review |
 | **M8** UX, platform & 1.0 | Partially complete | Rebinding, gamepad actions, contextual onboarding, world management/portability, photo mode/quality governor, export presets | Arabic/RTL localization and authored music tracks are not implemented; final 1.0 sign-off remains |
@@ -37,11 +37,33 @@ shoreline reeds. The full contribution map and validation are in
 [`docs/INTEGRATION_PR49_57.md`](docs/INTEGRATION_PR49_57.md).
 
 **Validation:** Debug and Release builds report 0 warnings and 0 errors; the
-headless suite reports **189,838 checks, 0 failures across 46 suites**. V9 and
+headless suite reports **189,870 checks, 0 failures across 47 suites**. V9 and
 V10 golden hashes match the pre-integration baseline. Matched headless
 measurements put greedy meshing at about 7.9 ms/chunk versus 6.9 ms on main
 (roughly 15% more CPU for shared partial-block AO); V11 chunk generation is at
 parity with V10. These are mesh/generation CPU timings, not rendered FPS claims.
+
+## Current follow-up implementation — 2026-11-22 (rare and enchanted item language)
+
+The existing 32px generated-icon pipeline now expresses item quality without
+adding persisted content. ItemDb.RarityOf derives Common / Uncommon / Rare /
+Legendary from existing equipment tiers and material identity: iron and
+gold/lapis sit in the middle band, diamond equipment is rare, and Ember Core /
+Ember Blade are legendary. Sharpness, Protection and Unbreaking add distinct
+icy-blue, violet and warm-gold pixel glints. Rare / legendary items get a
+cohesive cyan / ember facet; the marks are painted over existing silhouette
+pixels, preserving the graphite contour and transparent frame.
+
+ItemDb.Icon(ItemStack) caches the combined item / wear-band / enchantment-
+family variant and regenerates mipmaps only on first use. Inventory, hotbar,
+cursor and first-person held-item presentation share this path. The first-person
+viewmodel now notices an enchantment-state change when the held item ID stays
+the same, without recreating its material. Existing slot panels draw a small
+rarity pin through their current _Draw pass, so atlas-backed rare materials
+remain on their original AtlasTexture region. No atlas tile, block/item ID,
+save field, generator version, world mutation, meshing or chunk-streaming
+behavior changes. The expanded Forward+ equipment capture covers rarity,
+enchantment combinations and the existing four wear bands.
 
 ## Current follow-up implementation — 2026-11-22 (V11 shoreline readability)
 
