@@ -723,13 +723,14 @@ void fragment() {
         float tone = float(surface_cell_hash(cell) & 65535u) / 65535.0 * 2.0 - 1.0;
         tex.rgb *= 1.0 + tone * 0.035;
     }
-    float sky = COLOR.r * sky_light_energy;
-    float block = COLOR.g;
+    float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+    float block = clamp(COLOR.g, 0.0, 1.0);
+    float shadowed_block = block * (1.0 - sky);
     float shade = COLOR.b;
     vec3 warm = vec3(1.0, 0.68, 0.38);
-    vec3 illumination = vec3(0.035) + vec3(1.0, 0.98, 0.92) * sky + warm * block * 0.42;
+    vec3 illumination = vec3(0.035) + vec3(1.0, 0.98, 0.92) * sky + warm * shadowed_block * 0.42;
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
-    EMISSION = tex.rgb * warm * block * 0.88;
+    EMISSION = tex.rgb * warm * shadowed_block * 0.08;
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
     vec3 response = surface_response(COLOR.a);
@@ -766,13 +767,14 @@ vec3 surface_response(float family) {
 
 void fragment() {
     vec4 tex = texture(atlas, UV);
-    float sky = COLOR.r * sky_light_energy;
-    float block = COLOR.g;
+    float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+    float block = clamp(COLOR.g, 0.0, 1.0);
+    float shadowed_block = block * (1.0 - sky);
     float shade = COLOR.b;
     vec3 warm = vec3(1.0, 0.72, 0.46);
-    vec3 illumination = vec3(0.05) + vec3(1.0, 0.98, 0.92) * sky + warm * block * 0.4;
+    vec3 illumination = vec3(0.05) + vec3(1.0, 0.98, 0.92) * sky + warm * shadowed_block * 0.4;
     ALBEDO = tex.rgb * illumination * shade;
-    EMISSION = tex.rgb * warm * block * 0.72;
+    EMISSION = tex.rgb * warm * shadowed_block * 0.08;
     ALPHA = tex.a * 0.58;
     vec3 response = surface_response(COLOR.a);
     ROUGHNESS = response.x;
@@ -862,13 +864,14 @@ void fragment() {
         float tone = float(surface_cell_hash(cell) & 65535u) / 65535.0 * 2.0 - 1.0;
         tex.rgb *= 1.0 + tone * 0.035;
     }
-    float sky = COLOR.r * sky_light_energy;
-    float block = COLOR.g;
+    float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+    float block = clamp(COLOR.g, 0.0, 1.0);
+    float shadowed_block = block * (1.0 - sky);
     float shade = COLOR.b;
     vec3 warm = vec3(1.0, 0.68, 0.38);
-    vec3 illumination = vec3(0.035) + vec3(1.0, 0.98, 0.92) * sky + warm * block * 0.42;
+    vec3 illumination = vec3(0.035) + vec3(1.0, 0.98, 0.92) * sky + warm * shadowed_block * 0.42;
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
-    EMISSION = tex.rgb * warm * block * 0.88;
+    EMISSION = tex.rgb * warm * shadowed_block * 0.08;
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
     vec3 response = surface_response(COLOR.a);

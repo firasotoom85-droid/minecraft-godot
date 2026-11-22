@@ -13,6 +13,42 @@ remains pending.
 
 ---
 
+## Current follow-up implementation — 2026-11-22 (texture/light contrast audit)
+
+The integrated material pipeline was audited across clear daylight, overcast
+rain, night and cave/torch lighting. The audit found two atlas-family gaps:
+new canopy tiles 56–58 fell through to the default stone family (including its
+stone-only world-space tone variation), and held placeable items maintained a
+separate classification list from their placed block textures. Tile 56–58 now
+use the foliage response; all placeable held sprites resolve their family from
+the registered block's icon tile. The torch, stairs, weathered blocks and all
+other block items therefore stay aligned with their world surfaces.
+
+The opaque atlas, greedy texture-array, glass and animated-water shaders now
+clamp the sky channel and blend warm block light only into the remaining
+skylight headroom.
+A restrained shadow-gated emission term preserves torch readability without
+double-counting the full block-light channel on already sunlit surfaces. The
+same light response is used by both meshing paths; isolated per-tile mipmaps,
+atlas coordinates, AO/light vertex channels, greedy merge keys and chunk
+streaming are unchanged.
+
+No texture assets, persisted block/item IDs, save fields or generator rules
+were added or modified. This is a shader/classification correction only; V1–V10
+world generation remains frozen and no voxel mutation path changed. Focused
+regressions cover tile-family ownership, every placeable item's held/world
+response parity, all four shader-path light blends and the
+daylight/rain/night/cave light contribution ordering.
+
+**Validation:** Debug and Release builds and `scripts/verify.sh` complete with
+0 compiler warnings, 0 compiler errors and 186,449 checks / 0 failures. Real
+scenes were rendered on the MX230 with Godot 4.7.2 Forward+ at 1600×900 for
+clear noon, rain, midnight and a torch-lit cave chamber at midnight. The
+optional `[torch]` capture selects a flat dry column, carves a temporary
+chamber and places the torch through `VoxelWorld.SetBlock` in its disposable
+visual-test world. No standalone GPU benchmark was added for the shader-only
+change; the existing benchmark matrix and baselines are unchanged.
+
 ## Current follow-up implementation — 2026-11-22 (V10 biome foliage)
 
 Newly created worlds now use generator V10. V10 keeps V9 terrain, structure

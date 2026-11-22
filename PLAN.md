@@ -566,3 +566,27 @@ suites, including V1–V8 golden hashes, V8-vs-V9 weathering deltas and the V10
 foliage-only delta. No new GPU capture, benchmark run or human playthrough was
 performed during this integration; the committed captures and benchmark
 records come from the individual PRs.
+
+## 10. Texture/light contrast audit — 2026-11-22
+
+Audited the integrated atlas, greedy texture-array, glass and animated-water material paths
+against daylight, torchlight, caves, rain and night. Corrected the newly
+allocated biome foliage tiles (56–58) so they use foliage rather than the
+stone response/tone-variation path. Placeable first-person item sprites now
+resolve their response through `ItemDb.BlockFor` and the registered block's
+icon tile, keeping torch, foliage and future placeable content aligned with
+world geometry.
+
+The atlas, greedy-array, glass and water shader paths clamp skylight and let
+warm block light fill only the remaining skylight headroom. A restrained,
+shadow-gated emission term retains warm torch readability without double-
+counting full torch light in daylight.
+Atlas IDs, tile coordinates, texture-array mipmaps, greedy meshing, chunk
+streaming, save format, persisted IDs and all generator versions are unchanged.
+
+Real-scene validation used Godot 4.7.2 Forward+ on the NVIDIA MX230 at
+1600×900: clear noon, rain at noon, midnight and a torch-lit cave chamber at
+midnight. The optional `[torch]` capture argument selects a flat dry column,
+carves a temporary chamber and places the torch through `VoxelWorld.SetBlock`
+in its disposable visual-test world. No additional GPU benchmark was run for
+this shader-only change.
