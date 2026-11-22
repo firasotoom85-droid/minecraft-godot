@@ -192,6 +192,31 @@ public static class BlockShapeTests
         world.SetBlock(13, 99, 4, BlockId.Dirt);
         world.SetBlock(13, 100, 4, BlockId.Farmland);
 
+        // Clear the negative-Z/east chunk corner too; these are AO-only
+        // neighbours for the final diagonal-seam regression.
+        for (int y = 99; y <= 102; y++)
+        for (int z = -1; z <= 0; z++)
+        for (int x = 14; x <= 16; x++)
+            world.SetBlock(x, y, z, BlockId.Air);
+
+        // AO must use the actual occupied half of neighbouring shape blocks.
+        world.SetBlock(1, 100, 4, BlockId.Stone);
+        world.SetBlock(2, 101, 4, BlockId.PlanksSlab, BlockShapes.SlabBottom);
+        world.SetBlock(4, 100, 4, BlockId.Stone);
+        world.SetBlock(5, 101, 4, BlockId.PlanksSlab, BlockShapes.SlabTop);
+
+        // Stair risers have an occupied micro-cell on one side of their edge,
+        // even though the neighbouring whole voxel is air.
+        world.SetBlock(8, 100, 5, BlockId.PlanksStairs, 0);
+        world.SetBlock(10, 100, 5, BlockId.PlanksStairs, BlockShapes.StairUpsideDown);
+
+        // The top-slab state lives in the diagonal chunk and must remain visible
+        // to the AO sampler at the center chunk's north-east corner.
+        TestAssert.Check(world.SetBlock(15, 100, 0, BlockId.Stone),
+                "chunk-edge cube edit succeeds in the center chunk");
+        TestAssert.Check(world.SetBlock(16, 101, -1, BlockId.PlanksSlab, BlockShapes.SlabTop),
+                "diagonal top-slab edit succeeds in the north-east chunk");
+
         TestAssert.Check(world.TryEditTop(13, 4, out int farmlandTop, out BlockId farmlandSurface),
                 "edited surface lookup exposes the topmost edited column");
         TestAssert.Equal(100, farmlandTop, "farmland edit surface height is retained");
@@ -214,6 +239,24 @@ public static class BlockShapeTests
         bool originalGreedy = Mesher.Greedy;
         Mesher.Greedy = false;
         MeshPayload perFace = Mesher.Build(world, Vector2I.Zero);
+
+        // Same geometric corner rule for a cube face and a partial occluder:
+        // a lower slab occupies the sampled lower micro-cell; an upper slab
+        // does not. This also catches the old id-only Occl lookup.
+        CheckVertexShade(perFace.Opaque, new Vector3(2, 101, 4), Vector3.Right,
+                0.68f, "bottom-slab occupancy darkens the matching cube corner");
+        CheckVertexShade(perFace.Opaque, new Vector3(5, 101, 4), Vector3.Right,
+                0.80f, "top-slab occupancy leaves the lower sampled corner open");
+        CheckVertexShade(perFace.Opaque, new Vector3(16, 101, 0), Vector3.Right,
+                0.80f, "diagonal-chunk top-slab state reaches corner AO without cardinal-edge aliasing");
+
+        // The shape's own occupied half-cells participate in AO at the stair
+        // riser, including the mirrored upside-down orientation.
+        CheckVertexShade(perFace.Opaque, new Vector3(8, 100.5f, 5.5f), BlockDb.FaceDirs[5],
+                0.5525f, "upright stair riser shades its occupied lower edge");
+        CheckVertexShade(perFace.Opaque, new Vector3(10, 100.5f, 5.5f), BlockDb.FaceDirs[5],
+                0.5525f, "inverted stair riser shades its occupied upper edge");
+
         TestAssert.Equal(perFace.Opaque.Vertex.Count, perFace.Opaque.Normal.Count,
                 "shape surfaces carry a normal for every emitted vertex");
         TestAssert.Equal(perFace.Opaque.Vertex.Count, perFace.Opaque.Color.Count,
@@ -283,6 +326,16 @@ public static class BlockShapeTests
                 "greedy and split opaque faces carry texture-array tile indices");
         TestAssert.Equal(greedy.Opaque.Vertex.Count, greedy.Opaque.Color.Count,
                 "greedy and split shape faces preserve AO/voxel-light attributes");
+        CheckVertexShade(greedy.Opaque, new Vector3(2, 101, 4), Vector3.Right,
+                0.68f, "greedy cube corner uses the same bottom-slab occupancy AO");
+        CheckVertexShade(greedy.Opaque, new Vector3(5, 101, 4), Vector3.Right,
+                0.80f, "greedy cube corner ignores the unoccupied top-slab half");
+        CheckVertexShade(greedy.Opaque, new Vector3(16, 101, 0), Vector3.Right,
+                0.80f, "greedy AO reads the diagonal chunk's partial-shape state");
+        CheckVertexShade(greedy.Opaque, new Vector3(8, 100.5f, 5.5f), BlockDb.FaceDirs[5],
+                0.5525f, "greedy mode keeps upright stair-riser AO aligned");
+        CheckVertexShade(greedy.Opaque, new Vector3(10, 100.5f, 5.5f), BlockDb.FaceDirs[5],
+                0.5525f, "greedy mode keeps inverted stair-riser AO aligned");
         TestAssert.Check(CheckBlockUvMapping(greedy.Opaque, new Vector3(2, 100, 2),
                     BlockId.PlanksSlab, BlockShapes.SlabBottom, true) > 0,
                 "greedy texture-array slab faces preserve full-block UV scale and tile layer");
@@ -350,6 +403,24 @@ public static class BlockShapeTests
         DirAccess.RemoveAbsolute(WorldStore.PlayerSavePath(dir));
         DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
         DirAccess.RemoveAbsolute(dir);
+    }
+
+    private static void CheckVertexShade(SurfaceData surface, Vector3 position,
+            Vector3 normal, float expected, string message)
+    {
+        float actual = float.NaN;
+        for (int i = 0; i < surface.Vertex.Count; i++)
+        {
+            if (surface.Vertex[i].DistanceSquaredTo(position) < 0.000001f
+                    && surface.Normal[i].DistanceSquaredTo(normal) < 0.000001f)
+            {
+                actual = surface.Color[i].B;
+                break;
+            }
+        }
+
+        TestAssert.Check(float.IsFinite(actual) && Mathf.Abs(actual - expected) < 0.0001f,
+                $"{message} (expected shade {expected:F4}, got {actual:F4})");
     }
 
     private static int CheckBlockUvMapping(SurfaceData surface, Vector3 blockOrigin,

@@ -1547,3 +1547,28 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   preset views manually. One GPU reference frame is not a complete art review.
 - See `docs/VISUAL_MILESTONE_4_ENVIRONMENT.md` for scope, exact capture command,
   rendered sample, and validation detail.
+
+
+## 25. Consistent block-edge shading — 2026-11-22
+
+- Standardized corner lighting for full cubes, faces split around partial
+  neighbours, slab/stair micro-faces and greedy opaque merge keys. The shared
+  half-voxel sampler uses the existing 2×2×2 occupancy mask and saved shape
+  state, so only occupied half-cells contribute AO at a shared edge.
+- Baked sky and block light are averaged from the same four half-voxel corner
+  samples. Actual diagonal block and sparse state data is now copied into the
+  padded chunk corners, preventing shading differences where four chunks meet.
+- Kept the current four-sample AO response, vertex colour channels, face tint,
+  greedy merge topology, atlas UVs, texture-array layers/mipmaps, material tags,
+  first-person held-item palette and chunk streaming. No new textures, licensed
+  assets, scene nodes, vertex attributes or per-frame operations were added.
+- Added regressions for upper/lower slab occupancy, both stair vertical
+  orientations, diagonal chunk state, packed-light averaging, and matching
+  corner values in greedy and per-face mesh modes. Existing save and generator
+  behavior is unaffected: no IDs, save fields, or worldgen rules changed;
+  V1–V8 remain frozen and mutations remain owned by SetBlock/ApplyEdit.
+- **Performance:** occupancy checks and diagonal border reads are mesh-build
+  work only; no extra vertices, draw calls or per-frame CPU/GPU work are added.
+  The production capture was run on Godot 4.7.2 Forward+ / GeForce MX230 and
+  inspected at close and distant framing. A controlled before/after frame-time
+  benchmark was not run, so no FPS delta is claimed.

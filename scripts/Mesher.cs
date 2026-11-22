@@ -33,11 +33,10 @@ public static class Mesher
     // Classic voxel corner AO: both sides occluded -> 0, else 3 - (s1 + s2 + corner).
     private static readonly float[] AoFactors = [0.5f, 0.7f, 0.85f, 1.0f];
 
-    // (f * 4 + v) * 2 + {0, 1} -> padded-array delta of the two tangent
-    // neighbours around that face corner. Samples sit in the neighbour's layer
-    // (one step out along the face normal), per the standard AO scheme.
+    // Cached face-axis lookup tables. Corner occlusion is sampled on a
+    // half-voxel occupancy grid so slabs/stairs and full cubes share the same
+    // geometric corner rules without changing greedy mesh topology.
     private static readonly Lock TableLock = new();
-    private static int[] _aoDeltas = [];
 
     // Greedy-meshing sweep tables, derived per face: the two tangent axes, and
     // which world tangent axis each UV component scales with (1 tile per block).
@@ -50,13 +49,12 @@ public static class Mesher
     {
         lock (TableLock)
         {
-            if (_aoDeltas.Length != 0)
+            if (_normalAxis.Length != 0)
             {
                 return;
             }
 
             BlockDb.EnsureTables();
-            _aoDeltas = new int[6 * 4 * 2];
             _normalAxis = new int[6];
             _uAxis = new int[6];
             _vAxis = new int[6];
@@ -90,15 +88,6 @@ public static class Mesher
                 int vAxis = axes[1];
                 _uAxis[f] = uAxis;
                 _vAxis[f] = vAxis;
-                for (int i = 0; i < 4; i++)
-                {
-                    Vector3 v = BlockDb.FaceVerts[f * 4 + i];
-                    int su = v[uAxis] > 0.5f ? 1 : -1;
-                    int sv = v[vAxis] > 0.5f ? 1 : -1;
-                    _aoDeltas[(f * 4 + i) * 2] = AxisDelta(uAxis, su);
-                    _aoDeltas[(f * 4 + i) * 2 + 1] = AxisDelta(vAxis, sv);
-                }
-
                 // Which tangent axis does each UV component scale with? Found by
                 // comparing two corners that differ along exactly one tangent axis.
                 for (int i = 0; i < 4; i++)
@@ -137,12 +126,94 @@ public static class Mesher
         }
     }
 
-    private static int AxisDelta(int axis, int axisSign) => axis switch
+    private static int MicroBlockOffset(int coordinate) =>
+        coordinate < 0 ? -1 : coordinate > 1 ? 1 : 0;
+
+    private static int MicroLocalCoordinate(int coordinate) =>
+        coordinate < 0 ? 1 : coordinate > 1 ? 0 : coordinate;
+
+    /// <summary>
+    /// Map a half-voxel cell coordinate around one block into the padded voxel
+    /// array. Coordinates -1 and 2 cross into the adjacent voxel; all other
+    /// values address one of the block's two occupancy cells on that axis.
+    /// </summary>
+    private static int MicroSampleIndex(int sourceIndex, int x, int y, int z) =>
+        sourceIndex + MicroBlockOffset(x) + MicroBlockOffset(y) * PLANE
+                + MicroBlockOffset(z) * PX;
+
+    private static bool IsMicroOccluder(
+            byte[] pad, byte[] statePad, int sourceIndex, int x, int y, int z)
     {
-        0 => axisSign,
-        1 => axisSign * PLANE,
-        _ => axisSign * PX,
-    };
+        int sampleIndex = MicroSampleIndex(sourceIndex, x, y, z);
+        BlockId id = (BlockId)pad[sampleIndex];
+        if (BlockDb.Occl[(int)id] == 0) return false;
+        if (!BlockShapes.IsShape(id)) return true;
+
+        return BlockShapes.Occupied(id, statePad[sampleIndex],
+                MicroLocalCoordinate(x), MicroLocalCoordinate(y), MicroLocalCoordinate(z));
+    }
+
+    private static void GetCubeCornerMicroCell(int face, int vertex,
+            out int x, out int y, out int z)
+    {
+        Vector3 corner = BlockDb.FaceVerts[face * 4 + vertex];
+        int normalAxis = _normalAxis[face];
+        Vector3 direction = BlockDb.FaceDirs[face];
+        x = normalAxis == 0 ? (direction.X > 0.0f ? 1 : 0) : (corner.X > 0.5f ? 1 : 0);
+        y = normalAxis == 1 ? (direction.Y > 0.0f ? 1 : 0) : (corner.Y > 0.5f ? 1 : 0);
+        z = normalAxis == 2 ? (direction.Z > 0.0f ? 1 : 0) : (corner.Z > 0.5f ? 1 : 0);
+    }
+
+    /// <summary>
+    /// Samples ambient occlusion and packed voxel light at one emitted face
+    /// corner. The same half-voxel coordinates are used by cubes, clipped
+    /// cube faces, and slab/stair micro-faces.
+    /// </summary>
+    private static void SampleFaceCorner(
+            byte[] pad, byte[] statePad, byte[] lightPad,
+            int sourceIndex, int face, int cellX, int cellY, int cellZ, int vertex,
+            bool applyAo, out byte packedLight, out int ao)
+    {
+        Vector3 corner = BlockDb.FaceVerts[face * 4 + vertex];
+        Vector3 direction = BlockDb.FaceDirs[face];
+        int x = cellX + (int)direction.X;
+        int y = cellY + (int)direction.Y;
+        int z = cellZ + (int)direction.Z;
+        int signU = corner[_uAxis[face]] > 0.5f ? 1 : -1;
+        int signV = corner[_vAxis[face]] > 0.5f ? 1 : -1;
+
+        int ux = x + (_uAxis[face] == 0 ? signU : 0);
+        int uy = y + (_uAxis[face] == 1 ? signU : 0);
+        int uz = z + (_uAxis[face] == 2 ? signU : 0);
+        int vx = x + (_vAxis[face] == 0 ? signV : 0);
+        int vy = y + (_vAxis[face] == 1 ? signV : 0);
+        int vz = z + (_vAxis[face] == 2 ? signV : 0);
+
+        int baseIndex = MicroSampleIndex(sourceIndex, x, y, z);
+        int sideUIndex = MicroSampleIndex(sourceIndex, ux, uy, uz);
+        int sideVIndex = MicroSampleIndex(sourceIndex, vx, vy, vz);
+        int cornerIndex = MicroSampleIndex(sourceIndex, ux + (_vAxis[face] == 0 ? signV : 0),
+                uy + (_vAxis[face] == 1 ? signV : 0),
+                uz + (_vAxis[face] == 2 ? signV : 0));
+
+        packedLight = VoxelLighting.AverageCorner(
+                lightPad[baseIndex], lightPad[sideUIndex],
+                lightPad[sideVIndex], lightPad[cornerIndex]);
+
+        if (!applyAo)
+        {
+            ao = 3;
+            return;
+        }
+
+        int side1 = IsMicroOccluder(pad, statePad, sourceIndex, ux, uy, uz) ? 1 : 0;
+        int side2 = IsMicroOccluder(pad, statePad, sourceIndex, vx, vy, vz) ? 1 : 0;
+        int diagonal = IsMicroOccluder(pad, statePad, sourceIndex,
+                ux + (_vAxis[face] == 0 ? signV : 0),
+                uy + (_vAxis[face] == 1 ? signV : 0),
+                uz + (_vAxis[face] == 2 ? signV : 0)) ? 1 : 0;
+        ao = side1 == 1 && side2 == 1 ? 0 : 3 - side1 - side2 - diagonal;
+    }
 
     /// <summary>
     /// Build the render payload and, for gameplay chunks, its collision geometry.
@@ -285,28 +356,20 @@ public static class Mesher
 
                         if (partialNeighbor && fullCube && !isTrans)
                         {
-                            EmitCubeFaceAgainstPartial(pad, statePad, lightPad, neighborIndex, f, tile,
+                            EmitCubeFaceAgainstPartial(pad, statePad, lightPad, i, neighborIndex, f, tile,
                                     id, state, b, opaque, buildCollision ? collision : null, kk, cornerLight);
                             continue;
                         }
 
                         int ui = (tile * 6 + f) * 4;
                         float shade = BlockDb.FaceColors[f].R;
-                        int iNb = i + FaceOff[f];
                         for (int v4 = 0; v4 < 4; v4++)
                         {
-                            int du = _aoDeltas[(f * 4 + v4) * 2];
-                            int dv = _aoDeltas[(f * 4 + v4) * 2 + 1];
-                            cornerLight[v4] = VoxelLighting.AverageCorner(lightPad, iNb, du, dv);
-                            kk[v4] = shade;
-                            if (!isTrans)
-                            {
-                                int s1 = BlockDb.Occl[pad[iNb + du]];
-                                int s2 = BlockDb.Occl[pad[iNb + dv]];
-                                int co = BlockDb.Occl[pad[iNb + du + dv]];
-                                int ao = s1 == 1 && s2 == 1 ? 0 : 3 - (s1 + s2 + co);
-                                kk[v4] = shade * AoFactors[ao];
-                            }
+                            GetCubeCornerMicroCell(f, v4, out int cellX, out int cellY, out int cellZ);
+                            SampleFaceCorner(pad, statePad, lightPad, i, f,
+                                    cellX, cellY, cellZ, v4, !isTrans,
+                                    out cornerLight[v4], out int ao);
+                            kk[v4] = shade * AoFactors[ao];
                         }
 
                         Vector3 normal = BlockDb.FaceNormals[f];
@@ -371,19 +434,24 @@ public static class Mesher
     }
 
     private static void EmitCubeFaceAgainstPartial(
-            byte[] pad, byte[] statePad, byte[] lightPad, int neighborIndex, int face,
+            byte[] pad, byte[] statePad, byte[] lightPad, int sourceIndex, int neighborIndex, int face,
             int tile, BlockId blockId, byte blockState, Vector3 blockOrigin,
             SurfaceData surf, List<Vector3>? collision,
             Span<float> kk, Span<byte> cornerLight)
     {
         int vi = face * 4;
+        int normalAxis = _normalAxis[face];
         int uAxis = _uAxis[face];
         int vAxis = _vAxis[face];
+        Span<int> microCell = stackalloc int[3];
+        microCell[normalAxis] = BlockDb.FaceDirs[face][normalAxis] > 0.0f ? 1 : 0;
         Span<Vector3> points = stackalloc Vector3[4];
         for (int v = 0; v < 2; v++)
         for (int u = 0; u < 2; u++)
         {
             if (NeighborOccupiesFaceCell(pad, statePad, neighborIndex, face, u, v)) continue;
+            microCell[uAxis] = u;
+            microCell[vAxis] = v;
             for (int vertex = 0; vertex < 4; vertex++)
             {
                 Vector3 p = BlockDb.FaceVerts[vi + vertex];
@@ -391,8 +459,9 @@ public static class Mesher
                 p[vAxis] = (v + p[vAxis]) * 0.5f;
                 points[vertex] = blockOrigin + p;
             }
-            EmitLitFace(pad, lightPad, neighborIndex, face, tile, blockId, blockState,
-                    blockOrigin, points, surf, collision, kk, cornerLight);
+            EmitLitFace(pad, statePad, lightPad, sourceIndex, face, tile,
+                    blockId, blockState, blockOrigin, points, surf, collision,
+                    microCell[0], microCell[1], microCell[2], false, true, kk, cornerLight);
         }
     }
 
@@ -430,29 +499,32 @@ public static class Mesher
                 int vi = face * 4;
                 for (int vertex = 0; vertex < 4; vertex++)
                     points[vertex] = cellOrigin + BlockDb.FaceVerts[vi + vertex] * 0.5f;
-                EmitLitFace(pad, lightPad, index + FaceOff[face], face, tile, id, state,
-                        blockOrigin, points, surf, collision, kk, cornerLight);
+                EmitLitFace(pad, statePad, lightPad, index, face, tile, id, state,
+                        blockOrigin, points, surf, collision,
+                        cx, cy, cz, false, true, kk, cornerLight);
             }
         }
     }
 
     private static void EmitLitFace(
-            byte[] pad, byte[] lightPad, int neighborIndex, int face, int textureTile,
-            BlockId blockId, byte blockState, Vector3 blockOrigin,
+            byte[] pad, byte[] statePad, byte[] lightPad, int sourceIndex,
+            int face, int textureTile, BlockId blockId, byte blockState, Vector3 blockOrigin,
             Span<Vector3> points, SurfaceData surf, List<Vector3>? collision,
+            int cellX, int cellY, int cellZ, bool deriveCellFromVertex, bool applyAo,
             Span<float> kk, Span<byte> cornerLight)
     {
         float shade = BlockDb.FaceColors[face].R;
         for (int vertex = 0; vertex < 4; vertex++)
         {
-            int du = _aoDeltas[(face * 4 + vertex) * 2];
-            int dv = _aoDeltas[(face * 4 + vertex) * 2 + 1];
-            cornerLight[vertex] = VoxelLighting.AverageCorner(lightPad, neighborIndex, du, dv);
-            kk[vertex] = shade;
-            int s1 = BlockDb.Occl[pad[neighborIndex + du]];
-            int s2 = BlockDb.Occl[pad[neighborIndex + dv]];
-            int co = BlockDb.Occl[pad[neighborIndex + du + dv]];
-            int ao = s1 == 1 && s2 == 1 ? 0 : 3 - (s1 + s2 + co);
+            int sampleX = cellX;
+            int sampleY = cellY;
+            int sampleZ = cellZ;
+            if (deriveCellFromVertex)
+                GetCubeCornerMicroCell(face, vertex, out sampleX, out sampleY, out sampleZ);
+
+            SampleFaceCorner(pad, statePad, lightPad, sourceIndex, face,
+                    sampleX, sampleY, sampleZ, vertex, applyAo,
+                    out cornerLight[vertex], out int ao);
             kk[vertex] = shade * AoFactors[ao];
         }
 
@@ -675,17 +747,12 @@ public static class Mesher
         }
 
         long key = (uint)id | ((long)tile << 8);
-        int iNb = i + FaceOff[f];
         for (int v4 = 0; v4 < 4; v4++)
         {
-            int du = _aoDeltas[(f * 4 + v4) * 2];
-            int dv = _aoDeltas[(f * 4 + v4) * 2 + 1];
-            int s1 = BlockDb.Occl[pad[iNb + du]];
-            int s2 = BlockDb.Occl[pad[iNb + dv]];
-            int co = BlockDb.Occl[pad[iNb + du + dv]];
-            int ao = s1 == 1 && s2 == 1 ? 0 : 3 - (s1 + s2 + co);
+            GetCubeCornerMicroCell(f, v4, out int cellX, out int cellY, out int cellZ);
+            SampleFaceCorner(pad, statePad, lightPad, i, f,
+                    cellX, cellY, cellZ, v4, true, out byte light, out int ao);
             key |= (long)ao << (16 + (v4 * 2));
-            byte light = VoxelLighting.AverageCorner(lightPad, iNb, du, dv);
             key |= (long)(light >> 4) << (24 + v4 * 4);
             key |= (long)(light & 0x0F) << (40 + v4 * 4);
         }
@@ -789,7 +856,8 @@ public static class Mesher
     /// Padded copy of the chunk's block array (1-cell shell, y padded with air).
     /// Neighbour data comes from world.ChunkData (built chunk or generated
     /// cache), so this is plain array reads. The buffer is rented from a
-    /// per-thread scratch pool and zeroed first; diagonal cells are left empty.
+    /// per-thread scratch pool and zeroed first; cardinal and diagonal borders
+    /// are copied so corner AO resolves the actual neighbouring voxels.
     /// </summary>
     private static byte[] BuildPadded(VoxelWorld world, Vector2I cp, byte[] data, int sy)
     {
@@ -811,6 +879,10 @@ public static class Mesher
         byte[] east = world.ChunkData(cp + new Vector2I(1, 0));
         byte[] north = world.ChunkData(cp + new Vector2I(0, -1));
         byte[] south = world.ChunkData(cp + new Vector2I(0, 1));
+        byte[] northWest = world.ChunkData(cp + new Vector2I(-1, -1));
+        byte[] northEast = world.ChunkData(cp + new Vector2I(1, -1));
+        byte[] southWest = world.ChunkData(cp + new Vector2I(-1, 1));
+        byte[] southEast = world.ChunkData(cp + new Vector2I(1, 1));
         for (int y = -1; y <= sy; y++)
         {
             if (y < 0 || y >= sy)
@@ -848,6 +920,17 @@ public static class Mesher
                 if (south.Length > 0)
                     pad[(row + PZ - 1) * PX + x + 1] = south[nrow * SX + xi];
             }
+
+            // The four AO corner samples must come from their actual diagonal
+            // chunks, not from a clamped edge of one of the cardinal chunks.
+            if (northWest.Length > 0)
+                pad[row * PX] = northWest[(nrow + SZ - 1) * SX + SX - 1];
+            if (northEast.Length > 0)
+                pad[row * PX + PX - 1] = northEast[(nrow + SZ - 1) * SX];
+            if (southWest.Length > 0)
+                pad[(row + PZ - 1) * PX] = southWest[nrow * SX + SX - 1];
+            if (southEast.Length > 0)
+                pad[(row + PZ - 1) * PX + PX - 1] = southEast[nrow * SX];
         }
 
         return pad;
@@ -860,9 +943,14 @@ public static class Mesher
         byte[] east = world.ChunkBlockStates(cp + new Vector2I(1, 0));
         byte[] north = world.ChunkBlockStates(cp + new Vector2I(0, -1));
         byte[] south = world.ChunkBlockStates(cp + new Vector2I(0, 1));
+        byte[] northWest = world.ChunkBlockStates(cp + new Vector2I(-1, -1));
+        byte[] northEast = world.ChunkBlockStates(cp + new Vector2I(1, -1));
+        byte[] southWest = world.ChunkBlockStates(cp + new Vector2I(-1, 1));
+        byte[] southEast = world.ChunkBlockStates(cp + new Vector2I(1, 1));
         byte[] pad = RentStatePad(PX * (sy + 2) * PZ);
         if (data.Length == 0 && west.Length == 0 && east.Length == 0
-                && north.Length == 0 && south.Length == 0)
+                && north.Length == 0 && south.Length == 0 && northWest.Length == 0
+                && northEast.Length == 0 && southWest.Length == 0 && southEast.Length == 0)
             return pad;
 
         for (int y = 0; y < sy; y++)
@@ -900,6 +988,15 @@ public static class Mesher
                 if (south.Length > 0)
                     pad[(row + PZ - 1) * PX + x + 1] = south[nrow * SX + xi];
             }
+
+            if (northWest.Length > 0)
+                pad[row * PX] = northWest[(nrow + SZ - 1) * SX + SX - 1];
+            if (northEast.Length > 0)
+                pad[row * PX + PX - 1] = northEast[(nrow + SZ - 1) * SX];
+            if (southWest.Length > 0)
+                pad[(row + PZ - 1) * PX] = southWest[nrow * SX + SX - 1];
+            if (southEast.Length > 0)
+                pad[(row + PZ - 1) * PX + PX - 1] = southEast[nrow * SX];
         }
         return pad;
     }
