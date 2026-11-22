@@ -33,7 +33,9 @@ public partial class DayNight : Node
             double FogDensityMultiplier,
             Vector3 SunDirection,
             Color SunColor,
-            Color SkyLightColor);
+            Color SkyLightColor,
+            Color CloudColor,
+            float CloudOpacity);
 
     /// <summary>
     /// Deterministic atmosphere palette shared by gameplay and visual tests.
@@ -42,7 +44,8 @@ public partial class DayNight : Node
     /// </summary>
     internal static SkyPalette EvaluatePalette(double timeOfDay, double cloudiness, double flash)
     {
-        double t = timeOfDay - System.Math.Floor(timeOfDay);
+        double safeTime = double.IsFinite(timeOfDay) ? timeOfDay : 0.5;
+        double t = safeTime - System.Math.Floor(safeTime);
         double angle = (t - 0.25) * System.Math.Tau;
         double elevation = System.Math.Sin(angle);
         double day = SmoothStep(-0.14, 0.28, elevation);
@@ -50,9 +53,11 @@ public partial class DayNight : Node
         double sunrise = GaussianPulse(t, 0.25, 0.065);
         double sunset = GaussianPulse(t, 0.75, 0.065);
         double twilight = System.Math.Clamp(System.Math.Max(sunrise, sunset), 0.0, 1.0);
-        double cover = System.Math.Clamp(cloudiness, 0.0, 1.0);
+        double cover = double.IsFinite(cloudiness)
+                ? System.Math.Clamp(cloudiness, 0.0, 1.0) : 0.05;
         double clouds = SmoothStep(0.12, 0.92, cover);
-        double lightning = System.Math.Clamp(flash, 0.0, 1.0);
+        double lightning = double.IsFinite(flash)
+                ? System.Math.Clamp(flash, 0.0, 1.0) : 0.0;
 
         Color top = new Color(0.012f, 0.020f, 0.055f)
                 .Lerp(new Color(0.22f, 0.44f, 0.80f), (float)day);
@@ -99,9 +104,20 @@ public partial class DayNight : Node
         skyLightColor = skyLightColor.Lerp(new Color(0.72f, 0.79f, 0.90f), (float)(clouds * 0.45));
         skyLightColor = skyLightColor.Lerp(Colors.White, (float)(lightning * 0.55));
 
+        // Clouds share the sky's day/night, overcast, twilight and lightning
+        // inputs. Coverage is weather-driven, not a quality setting: the same
+        // two existing layers remain available on LOW without extra draw nodes.
+        Color cloudColor = new Color(0.22f, 0.27f, 0.40f)
+                .Lerp(new Color(0.99f, 0.99f, 1.0f), (float)day);
+        cloudColor = cloudColor.Lerp(new Color(0.34f, 0.38f, 0.46f),
+                (float)(clouds * 0.86));
+        cloudColor = cloudColor.Lerp(twilightSun, (float)(twilight * 0.12));
+        cloudColor = cloudColor.Lerp(Colors.White, (float)(lightning * 0.92));
+        float cloudOpacity = (float)(0.18 + clouds * 0.80);
+
         return new SkyPalette(day, night, twilight, top, horizon, ground,
                 skyLight, ambient, sunEnergy, moonEnergy, 1.0 + cover * 1.6,
-                EvaluateSunDirection(t), sunColor, skyLightColor);
+                EvaluateSunDirection(t), sunColor, skyLightColor, cloudColor, cloudOpacity);
     }
 
     /// <summary>
@@ -354,10 +370,10 @@ public partial class DayNight : Node
                 Mathf.Snapped(cam.GlobalPosition.Z, 16.0f));
         }
 
-        UpdateCloudLayer(_clouds, day, Cloudiness, palette.Horizon, palette.Twilight,
-                0.85 + Cloudiness * 0.15, 0.004, delta);
-        UpdateCloudLayer(_cloudsHigh, day, Cloudiness, palette.Horizon, palette.Twilight,
-                0.5 + Cloudiness * 0.2, 0.0068, delta);
+        UpdateCloudLayer(_clouds, palette.CloudColor, palette.CloudOpacity * 0.92f,
+                0.004, delta);
+        UpdateCloudLayer(_cloudsHigh, palette.CloudColor, palette.CloudOpacity * 0.58f,
+                0.0068, delta);
     }
 
     private void UpdateTerrainSample()
@@ -384,17 +400,10 @@ public partial class DayNight : Node
     }
 
     private static void UpdateCloudLayer(
-            MeshInstance3D layer, double day, double cloudiness,
-            Color twilightHorizon, double twilight, double alpha, double speed, double delta)
+            MeshInstance3D layer, Color cloudColor, float alpha, double speed, double delta)
     {
         StandardMaterial3D cloudMat = (StandardMaterial3D)layer.MaterialOverride;
-        Color cloudColor = new Color(1, 1, 1).Lerp(
-                new Color(0.24f, 0.28f, 0.42f), (float)(1.0 - day));
-        cloudColor = cloudColor.Lerp(
-                new Color(0.42f, 0.45f, 0.52f), (float)cloudiness);
-        cloudColor = cloudColor.Lerp(twilightHorizon, (float)(twilight * 0.18))
-                .WithAlpha((float)alpha);
-        cloudMat.AlbedoColor = cloudColor;
+        cloudMat.AlbedoColor = cloudColor.WithAlpha(alpha);
         Vector3 uvOffset = cloudMat.Uv1Offset;
         cloudMat.Uv1Offset = uvOffset.WithX((float)((uvOffset.X + delta * speed) % 1.0));
     }

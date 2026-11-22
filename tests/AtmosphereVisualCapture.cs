@@ -9,7 +9,8 @@ namespace Minecraft;
 /// Captures one deterministic real-scene atmosphere frame for visual review.
 /// Usage:
 /// godot --path . res://tests/AtmosphereVisualCapture.tscn --
-///   <seed> <generator-version> <x> <z> <time-of-day> <Clear|Cloudy|Rain> <output.png> [include-torch:true|false] [view-distance:3-5]
+///   <seed> <generator-version> <x> <z> <time-of-day> <Clear|Cloudy|Rain|Storm> <output.png> [preset-index:0-5] [view-distance:3-5] [include-torch:true|false]
+/// The legacy [include-torch] [view-distance] form is still accepted.
 /// </summary>
 public partial class AtmosphereVisualCapture : Node
 {
@@ -25,13 +26,47 @@ public partial class AtmosphereVisualCapture : Node
             int centerX = ParseInt(args, 2, 512);
             int centerZ = ParseInt(args, 3, -372);
             double timeOfDay = ParseDouble(args, 4, 0.5);
-            Weather.State weatherState = ParseWeather(args, 5);
+            Weather.State weatherState = Weather.State.Clear;
+            if (args.Length > 5 && !TryParseWeather(args[5], out weatherState))
+            {
+                GD.PushError($"Unknown weather state '{args[5]}'. Expected Clear, Cloudy, Rain or Storm.");
+                GetTree().Quit(2);
+                return;
+            }
+
             string output = args.Length > 6
                     ? args[6]
                     : $"res://docs/visual/screenshots/atmosphere-{weatherState.ToString().ToLowerInvariant()}.png";
-            bool includeTorch = args.Length > 7
-                    && bool.TryParse(args[7], out bool parsedTorch) && parsedTorch;
-            int captureViewDistance = Math.Clamp(ParseInt(args, 8, 3), 3, 5);
+            int presetIndex = Settings.GfxPreset;
+            bool includeTorch = false;
+            int captureViewDistance = 3;
+            if (args.Length > 7)
+            {
+                if (bool.TryParse(args[7], out bool legacyIncludeTorch))
+                {
+                    // Preserve the old include-torch / view-distance argument order.
+                    includeTorch = legacyIncludeTorch;
+                    captureViewDistance = Math.Clamp(ParseInt(args, 8, 3), 3, 5);
+                }
+                else
+                {
+                    presetIndex = ParseInt(args, 7, Settings.GfxPreset);
+                    captureViewDistance = Math.Clamp(ParseInt(args, 8, 3), 3, 5);
+                    if (args.Length > 9 && !bool.TryParse(args[9], out includeTorch))
+                    {
+                        GD.PushError($"Invalid include-torch value '{args[9]}'. Expected true or false.");
+                        GetTree().Quit(2);
+                        return;
+                    }
+                }
+            }
+
+            if (presetIndex < 0 || presetIndex >= Gfx.Presets.Count)
+            {
+                GD.PushError($"Invalid graphics preset index {presetIndex}. Expected 0–{Gfx.Presets.Count - 1}.");
+                GetTree().Quit(2);
+                return;
+            }
             int expectedChunkCount = (captureViewDistance * 2 + 1)
                     * (captureViewDistance * 2 + 1);
 
@@ -72,12 +107,17 @@ public partial class AtmosphereVisualCapture : Node
             Player player = game.GetNode<Player>("Player");
             DayNight? dayNight = FindNode<DayNight>(game);
             Weather? weather = FindNode<Weather>(game);
-            if (dayNight == null || weather == null)
+            Gfx? gfx = FindNode<Gfx>(game);
+            WorldEnvironment? worldEnvironment = FindNode<WorldEnvironment>(game);
+            if (dayNight == null || weather == null || gfx == null || worldEnvironment == null)
             {
-                GD.PushError("Main scene did not initialize its existing day/night and weather systems.");
+                GD.PushError("Main scene did not initialize its existing day/night, weather, graphics and environment systems.");
                 GetTree().Quit(5);
                 return;
             }
+
+            gfx.ApplyPreset(presetIndex, persist: false);
+            double captureSettleSeconds = SettleSecondsForPreset(gfx.CurrentPreset);
 
             player.SetPhysicsProcess(false);
             player.Camera.Current = false;
@@ -89,8 +129,7 @@ public partial class AtmosphereVisualCapture : Node
 
             world.TimeOfDay = timeOfDay - Math.Floor(timeOfDay);
             dayNight.Paused = true;
-            weather.Current = weatherState;
-            weather.Cloudiness = Weather.TargetCloudinessFor(weatherState);
+            weather.ConfigureVisualCapture(weatherState);
             world.SetViewDistance(captureViewDistance);
             world.SetLodRadius(0.0f);
 
@@ -109,7 +148,7 @@ public partial class AtmosphereVisualCapture : Node
             camera.GlobalPosition = target + new Vector3(62.0f, 72.0f, 78.0f);
             camera.LookAt(target + new Vector3(0.0f, 5.0f, 0.0f), Vector3.Up);
 
-            GD.Print($"ATMOSPHERE_CAPTURE_START seed={seed} version={version} center=({centerX},{centerZ}) time={world.TimeOfDay:F3} weather={weatherState} torch={includeTorch} view_distance={captureViewDistance} expected_chunks={expectedChunkCount} output={output}");
+            GD.Print($"ATMOSPHERE_CAPTURE_START seed={seed} version={version} center=({centerX},{centerZ}) time={world.TimeOfDay:F3} weather={weatherState} preset={Gfx.Presets[presetIndex].Name} torch={includeTorch} view_distance={captureViewDistance} settle_seconds={captureSettleSeconds:F1} expected_chunks={expectedChunkCount} output={output}");
             double started = Time.GetTicksMsec() / 1000.0;
             int frames = 0;
             while (frames < 1800)
@@ -117,7 +156,7 @@ public partial class AtmosphereVisualCapture : Node
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
                 frames++;
                 double elapsed = Time.GetTicksMsec() / 1000.0 - started;
-                if (elapsed >= 8.0 && world.ChunkCount >= expectedChunkCount)
+                if (elapsed >= captureSettleSeconds && world.ChunkCount >= expectedChunkCount)
                 {
                     break;
                 }
@@ -269,6 +308,16 @@ public partial class AtmosphereVisualCapture : Node
             {
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
             }
+            DayNight.SkyPalette capturePalette = DayNight.EvaluatePalette(
+                    world.TimeOfDay, weather.Cloudiness, dayNight.SkyFlash);
+            Godot.Environment activeEnvironment = worldEnvironment.Environment;
+            GD.Print($"ATMOSPHERE_CAPTURE_PROFILE preset={Gfx.Presets[presetIndex].Name} " +
+                    $"ssao={activeEnvironment.SsaoEnabled} ssr={activeEnvironment.SsrEnabled} " +
+                    $"glow={activeEnvironment.GlowEnabled} volfog={activeEnvironment.VolumetricFogEnabled} " +
+                    $"fog_mode={activeEnvironment.FogMode} " +
+                    $"sky_top={capturePalette.Top} sky_horizon={capturePalette.Horizon} " +
+                    $"cloud={capturePalette.CloudColor} cloud_opacity={capturePalette.CloudOpacity:F3}");
+
             string absoluteOutput = ProjectSettings.GlobalizePath(output);
             string? outputDirectory = Path.GetDirectoryName(absoluteOutput);
             if (!string.IsNullOrEmpty(outputDirectory))
@@ -349,8 +398,10 @@ public partial class AtmosphereVisualCapture : Node
                     CultureInfo.InvariantCulture, out double value) && double.IsFinite(value)
                     ? value : fallback;
 
-    private static Weather.State ParseWeather(string[] args, int index) =>
-            index < args.Length && Enum.TryParse(args[index], true, out Weather.State state)
-                    && state != Weather.State.Storm
-                    ? state : Weather.State.Clear;
+    internal static double SettleSecondsForPreset(Gfx.Preset preset) =>
+            preset.Fsr2 ? 16.0 : 8.0;
+
+    internal static bool TryParseWeather(string value, out Weather.State state) =>
+            Enum.TryParse(value, true, out state)
+                    && Enum.IsDefined(typeof(Weather.State), state);
 }

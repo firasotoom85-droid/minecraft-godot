@@ -2317,3 +2317,71 @@ commit ancestry traceable.
   the packed atlas and texture-array contracts, and the `SetBlock`/`ApplyEdit`
   mutation seam are unchanged. No world generation version was introduced by
   this batch because no generator rule changed.
+
+
+## 42. Weather sky, horizon and cloud quality audit — 2026-11-22
+
+The atmosphere audit found two concrete gaps despite the existing day/night
+and distance-haze work: cloud tint was computed separately from the sky
+palette and barely distinguished the four weather targets, and the visual
+capture parser explicitly rejected `Storm`, silently falling back to clear
+weather. The capture runner also had no way to select each live graphics
+preset, so the requested weather/preset matrix could not be reproduced from
+one fixture.
+
+- Added cloud tint and weather-driven opacity to the existing deterministic
+  `DayNight.SkyPalette`. Daylight/night, overcast cover, twilight and lightning
+  now feed both sky/horizon and the two existing cloud materials. Clear weather
+  retains faint cloud wisps; cloudy, rain and storm increase coverage and
+  progressively lower cloud brightness. Lightning lifts the storm cloud tint
+  together with the horizon.
+- Reused the two existing cloud planes and standard materials. No extra nodes,
+  emitters, per-frame world scans, shader passes, textures, voxel edits or
+  persisted data were added. The sky/cloud palette is quality-independent;
+  LOW/BALANCED still disable SSAO, SSR, glow and volumetric fog while retaining
+  inexpensive base fog and the existing two cloud layers.
+- Extended `AtmosphereVisualCapture` to select presets 0–5 through
+  `Gfx.ApplyPreset(..., persist: false)`, report the active environment profile
+  and capture all four weather states. Its legacy include-torch/view-distance
+  argument order remains supported. The capture-only weather setup freezes
+  state transitions and random lightning so matrix images stay comparable;
+  lightning illumination itself remains part of the deterministic palette
+  regression coverage.
+- Added automated checks for ordered cloud coverage and brightness across
+  clear/cloudy/rain/storm, upper-sky and horizon dimming, night cloud colour,
+  lightning lift, non-finite inputs, weather parser validation, all six
+  quality-preset weather combinations and the LOW/BALANCED post-effect limits.
+- Compatibility: no save or world format, persisted IDs, generator V1–V11,
+  baked light channels, voxel mutation paths, greedy meshing, chunk streaming,
+  renderer material ownership or world-generation code changed.
+- **Verification:** Godot 4.7.2 .NET Debug and Release builds both succeeded
+  with 0 warnings / 0 errors. `scripts/verify.sh` passed **198,807 checks,
+  0 failures** across the registered suites. The two save warnings are the
+  existing negative-path checks for a deliberate failed atomic write and
+  backup recovery.
+- **Real-scene visual matrix:** all 24 unique captures (four weather states
+  × six presets) passed on NVIDIA GeForce MX230 / Vulkan Forward+ using seed
+  1337, generator V11, centre (512, -372), noon, 1600×900 and 49 streamed
+  chunks. The first FSR2/cloudy frame was discarded because the temporal
+  output had not settled; a 16-second FSR2 warm-up produced the stable
+  replacement. The standard presets retain the 8-second warm-up.
+- The matched central-sky / horizon 8-bit mean-luminance samples consistently
+  fall from Clear → Cloudy → Rain → Storm. Sky/horizon values are:
+  LOW 136.7/140.9 → 127.0/108.5 → 119.1/71.2 → 117.0/59.8;
+  BALANCED 136.5/140.3 → 126.9/108.2 → 119.1/71.0 → 116.9/59.7;
+  HIGH 136.5/138.8 → 127.5/108.4 → 119.1/70.5 → 117.0/59.0;
+  ULTRA 136.7/139.2 → 127.5/107.9 → 119.2/70.2 → 117.0/58.9;
+  MAX 138.6/142.0 → 128.2/110.0 → 119.6/72.8 → 117.0/61.2;
+  MAX · FSR2 138.5/140.2 → 128.1/109.7 → 120.5/75.7 → 117.9/63.5.
+  These are repeatable screenshot-region comparisons, not absolute
+  photometric calibration.
+- LOW/BALANCED captures reported SSAO, SSR, glow and volumetric fog disabled;
+  HIGH/ULTRA enable SSAO and glow, ULTRA also enables SSR; MAX / MAX · FSR2
+  enable volumetric fog. The shared weather palette remains unchanged across
+  the quality settings.
+- **Performance:** only the existing per-frame DayNight palette calculation
+  and two existing cloud-material colour/alpha updates changed. No added
+  scene nodes, materials, shader samples/passes, textures, emitters,
+  per-frame world scans, voxel work or physics work. No FPS delta is claimed;
+  the capture matrix is a visual compatibility check, not a controlled
+  frame-time benchmark.
