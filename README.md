@@ -723,6 +723,24 @@ and finite creature positions. The completed 30-minute result and its memory
 measurements are recorded in
 [`docs/PERFORMANCE_MILESTONE_3_STREAMING.md`](docs/PERFORMANCE_MILESTONE_3_STREAMING.md).
 
+### Nighttime hostile silhouette contrast
+
+Night preserves a dark environment floor instead of increasing global fill to reveal enemies. Clear midnight now uses **0.065** for both environment ambient and baked skylight response (previously 0.10); the existing directional moon remains the outdoor key at **0.18** energy (previously 0.22). Clear midday is unchanged, and cloud cover continues to attenuate the night palette.
+
+Hostile procedural bodies use the existing sun/moon lights with a restrained `StandardMaterial3D` rim response (`Rim = 0.48`, `RimTint = 0.36`). This highlights glancing-angle contours without material emission, additional light nodes, terrain-wide illumination, or changes to passive-creature materials. The Shade's existing emissive eyes are unchanged. Baked 4-bit sky/block channels, shared voxel shaders, chunk meshes, and renderer presets are unchanged.
+
+The production atmosphere capture accepts an optional final `true` argument to frame a frozen Dreadwing, Shade, and Ember Warden together. Its temporary stage is placed in the sky and built exclusively through `VoxelWorld.SetBlock`, then removed with the disposable capture world:
+
+```bash
+godot --path . res://tests/AtmosphereVisualCapture.tscn -- \
+  1337 11 512 -372 0.0 Clear \
+  res://docs/visual/screenshots/night-hostiles-after.png false 3 true
+```
+
+The capture uses the normal main scene, existing hostile models, the selected renderer preset, and a fixed V11 seed. It disables actor physics and ecology spawning solely for deterministic framing.
+
+Matched baseline and updated captures use the same seed, generator, camera, weather, and MX230 renderer path: [before](docs/visual/screenshots/night-hostiles-before.png) and [after](docs/visual/screenshots/night-hostiles-after.png). Mean grayscale luminance fell from 26.29 to 25.96 for the full frame, 20.37 to 19.96 in the sky, and 10.01 to 6.77 on the unlit stage surface. The silhouettes become more readable without raising the background luminance.
+
 ## Controls
 
 | Input | Action |

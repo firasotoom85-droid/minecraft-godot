@@ -9,7 +9,7 @@ namespace Minecraft;
 /// Captures one deterministic real-scene atmosphere frame for visual review.
 /// Usage:
 /// godot --path . res://tests/AtmosphereVisualCapture.tscn --
-///   <seed> <generator-version> <x> <z> <time-of-day> <Clear|Cloudy|Rain> <output.png> [include-torch:true|false] [view-distance:3-5]
+///   <seed> <generator-version> <x> <z> <time-of-day> <Clear|Cloudy|Rain> <output.png> [include-torch:true|false] [view-distance:3-5] [include-hostiles:true|false]
 /// </summary>
 public partial class AtmosphereVisualCapture : Node
 {
@@ -32,6 +32,8 @@ public partial class AtmosphereVisualCapture : Node
             bool includeTorch = args.Length > 7
                     && bool.TryParse(args[7], out bool parsedTorch) && parsedTorch;
             int captureViewDistance = Math.Clamp(ParseInt(args, 8, 3), 3, 5);
+            bool includeHostiles = args.Length > 9
+                    && bool.TryParse(args[9], out bool parsedHostiles) && parsedHostiles;
             int expectedChunkCount = (captureViewDistance * 2 + 1)
                     * (captureViewDistance * 2 + 1);
 
@@ -109,7 +111,7 @@ public partial class AtmosphereVisualCapture : Node
             camera.GlobalPosition = target + new Vector3(62.0f, 72.0f, 78.0f);
             camera.LookAt(target + new Vector3(0.0f, 5.0f, 0.0f), Vector3.Up);
 
-            GD.Print($"ATMOSPHERE_CAPTURE_START seed={seed} version={version} center=({centerX},{centerZ}) time={world.TimeOfDay:F3} weather={weatherState} torch={includeTorch} view_distance={captureViewDistance} expected_chunks={expectedChunkCount} output={output}");
+            GD.Print($"ATMOSPHERE_CAPTURE_START seed={seed} version={version} center=({centerX},{centerZ}) time={world.TimeOfDay:F3} weather={weatherState} torch={includeTorch} hostiles={includeHostiles} view_distance={captureViewDistance} expected_chunks={expectedChunkCount} output={output}");
             double started = Time.GetTicksMsec() / 1000.0;
             int frames = 0;
             while (frames < 1800)
@@ -269,6 +271,23 @@ public partial class AtmosphereVisualCapture : Node
             {
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
             }
+
+            if (includeHostiles)
+            {
+                Mobs? mobs = FindNode<Mobs>(game);
+                if (mobs == null)
+                {
+                    GD.PushError("Main scene did not initialize the existing mob director.");
+                    GetTree().Quit(10);
+                    return;
+                }
+
+                ConfigureHostileSilhouetteComposition(world, player, mobs, camera,
+                        centerX, centerZ);
+                for (int frame = 0; frame < 12; frame++)
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            }
+
             string absoluteOutput = ProjectSettings.GlobalizePath(output);
             string? outputDirectory = Path.GetDirectoryName(absoluteOutput);
             if (!string.IsNullOrEmpty(outputDirectory))
@@ -278,7 +297,7 @@ public partial class AtmosphereVisualCapture : Node
 
             Image image = GetViewport().GetTexture().GetImage();
             Error saveResult = image.SavePng(absoluteOutput);
-            GD.Print($"ATMOSPHERE_CAPTURE_RESULT success={(saveResult == Error.Ok)} chunks={world.ChunkCount} frames={frames} size={image.GetWidth()}x{image.GetHeight()} path={absoluteOutput}");
+            GD.Print($"ATMOSPHERE_CAPTURE_RESULT success={(saveResult == Error.Ok)} chunks={world.ChunkCount} frames={frames} size={image.GetWidth()}x{image.GetHeight()} hostiles={includeHostiles} path={absoluteOutput}");
             if (saveResult != Error.Ok)
             {
                 GD.PushError($"Screenshot save failed: {saveResult}");
@@ -319,6 +338,52 @@ public partial class AtmosphereVisualCapture : Node
         }
 
         GetTree().Quit();
+    }
+
+    private static void ConfigureHostileSilhouetteComposition(
+            VoxelWorld world, Player player, Mobs mobs, Camera3D camera,
+            int centerX, int centerZ)
+    {
+        // Use the production hostile models and material pipeline, but stop
+        // the ecology director and actor physics so every capture has identical
+        // subjects and framing without random spawn or movement variance.
+        mobs.SetProcess(false);
+
+        // A small disposable platform puts the subjects above generated
+        // ridges, so the same camera framing is valid for every fixed seed.
+        // Every voxel in this visual fixture still uses the production edit API.
+        int platformY = world.Height - 12;
+        for (int z = centerZ - 4; z <= centerZ + 4; z++)
+        for (int x = centerX - 6; x <= centerX + 6; x++)
+        {
+            if (world.GetBlock(x, platformY, z) != BlockId.Stone
+                    && !world.SetBlock(x, platformY, z, BlockId.Stone))
+            {
+                throw new InvalidOperationException(
+                        "Could not build the temporary hostile inspection platform through VoxelWorld.SetBlock.");
+            }
+        }
+
+        Mob[] subjects = [new Dreadwing(), new Shade(), new EmberWarden()];
+        for (int i = 0; i < subjects.Length; i++)
+        {
+            int x = centerX + (i - 1) * 3;
+            Vector3 position = new(x + 0.5f, platformY + 1.0f, centerZ + 0.5f);
+            Mob subject = subjects[i];
+            mobs.AddChild(subject);
+            subject.Setup(world, mobs, position);
+            subject.SetPhysicsProcess(false);
+            subject.GlobalPosition = position;
+            subject.GlobalRotation = Vector3.Zero;
+        }
+
+        player.GlobalPosition = new Vector3(centerX + 0.5f,
+                platformY + 1.1f, centerZ + 5.0f);
+        camera.Fov = 52.0f;
+        camera.GlobalPosition = new Vector3(centerX + 0.5f,
+                platformY + 3.6f, centerZ - 9.0f);
+        camera.LookAt(new Vector3(centerX + 0.5f,
+                platformY + 2.0f, centerZ + 0.5f), Vector3.Up);
     }
 
     private static T? FindNode<T>(Node root) where T : Node

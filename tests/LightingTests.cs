@@ -12,6 +12,7 @@ public static class LightingTests
         BlockDb.EnsureTables();
         TestCornerAverageChannels();
         TestSkyLightInterpolation();
+        TestHostileSilhouetteResponse();
         TestWarmEmitterResponse();
         TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Torch] >= 13, "torch has a strong nibble emission");
         TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Lava] > 0
@@ -73,6 +74,25 @@ public static class LightingTests
         TestAssert.Equal(initialChunks, emptyWorld.ChunkCount,
                 "camera exposure cache miss does not create or stream chunks");
         TestAssert.FreeAll(emptyWorld);
+    }
+
+    private static void TestHostileSilhouetteResponse()
+    {
+        StandardMaterial3D hostile = Mob.CreateBodyMaterial(hostile: true);
+        StandardMaterial3D passive = Mob.CreateBodyMaterial(hostile: false);
+
+        TestAssert.Check(hostile.RimEnabled,
+                "hostile vertex-colour bodies enable a contour rim for silhouette separation");
+        TestAssert.Equal(Mob.HostileRimStrength, hostile.Rim,
+                "hostile rim strength stays at the deliberately restrained level");
+        TestAssert.Equal(Mob.HostileRimTint, hostile.RimTint,
+                "hostile rim blends moon/sun light with the creature's existing albedo");
+        TestAssert.Check(!hostile.EmissionEnabled,
+                "hostile silhouette readability does not use self-emission or create scene-wide fill");
+        TestAssert.Check(!passive.RimEnabled,
+                "passive creature materials do not receive the hostile-only contour treatment");
+        TestAssert.Check(hostile.VertexColorUseAsAlbedo && passive.VertexColorUseAsAlbedo,
+                "hostile and passive bodies retain the existing procedural vertex-colour pipeline");
     }
 
     private static void TestWarmEmitterResponse()
