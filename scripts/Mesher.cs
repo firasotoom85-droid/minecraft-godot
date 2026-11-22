@@ -957,6 +957,17 @@ public sealed class SurfaceData
     public readonly List<Color> Color = [];
     public readonly List<Vector2> Uv = [];
     public readonly List<Vector2> Uv2 = [];   // greedy mode: tile layer in .x
+
+    // Managed List backing arrays are what a queued payload retains until the
+    // main thread returns it to PayloadPool. Godot mesh storage is estimated
+    // separately from item counts after the payload has been applied.
+    public long EstimatedBufferBytes => (long)Vertex.Capacity * 12
+            + (long)Normal.Capacity * 12 + (long)Color.Capacity * 16
+            + (long)Uv.Capacity * 8 + (long)Uv2.Capacity * 8;
+
+    public long EstimatedResourceBytes => (long)Vertex.Count * 12
+            + (long)Normal.Count * 12 + (long)Color.Count * 16
+            + (long)Uv.Count * 8 + (long)Uv2.Count * 8;
 }
 
 /// <summary>Worker result of a chunk mesh build; applied on the main thread.
@@ -976,6 +987,14 @@ public sealed class MeshPayload(
     public readonly List<Vector3> Collision = collision;
     public readonly long Epoch = epoch;
     public bool Released;
+
+    public long EstimatedBufferBytes => Opaque.EstimatedBufferBytes + Glass.EstimatedBufferBytes
+            + Water.EstimatedBufferBytes + Lava.EstimatedBufferBytes
+            + (long)Collision.Capacity * 12;
+
+    public long EstimatedResourceBytes => Opaque.EstimatedResourceBytes + Glass.EstimatedResourceBytes
+            + Water.EstimatedResourceBytes + Lava.EstimatedResourceBytes
+            + (long)Collision.Count * 12;
 }
 
 /// <summary>
@@ -987,10 +1006,30 @@ public static class PayloadPool
 {
     private static readonly System.Collections.Concurrent.ConcurrentBag<SurfaceData> Surfaces = new();
     private static readonly System.Collections.Concurrent.ConcurrentBag<List<Vector3>> Collisions = new();
+    private static long _retainedBufferBytes;
+    private static int _retainedSurfaceCount;
+    private static int _retainedCollisionCount;
 
-    public static SurfaceData RentSurface() => Surfaces.TryTake(out SurfaceData? s) ? s : new SurfaceData();
+    /// <summary>Capacity bytes retained by reusable mesher buffers across all active worlds.</summary>
+    public static long RetainedBufferBytes => Interlocked.Read(ref _retainedBufferBytes);
+    public static int RetainedSurfaceCount => Volatile.Read(ref _retainedSurfaceCount);
+    public static int RetainedCollisionCount => Volatile.Read(ref _retainedCollisionCount);
 
-    public static List<Vector3> RentCollision() => Collisions.TryTake(out List<Vector3>? c) ? c : [];
+    public static SurfaceData RentSurface()
+    {
+        if (!Surfaces.TryTake(out SurfaceData? surface)) return new SurfaceData();
+        Interlocked.Add(ref _retainedBufferBytes, -surface.EstimatedBufferBytes);
+        Interlocked.Decrement(ref _retainedSurfaceCount);
+        return surface;
+    }
+
+    public static List<Vector3> RentCollision()
+    {
+        if (!Collisions.TryTake(out List<Vector3>? collision)) return [];
+        Interlocked.Add(ref _retainedBufferBytes, -(long)collision.Capacity * 12);
+        Interlocked.Decrement(ref _retainedCollisionCount);
+        return collision;
+    }
 
     public static void Release(MeshPayload payload)
     {
@@ -1005,6 +1044,8 @@ public static class PayloadPool
         ReturnSurface(payload.Water);
         ReturnSurface(payload.Lava);
         payload.Collision.Clear();
+        Interlocked.Add(ref _retainedBufferBytes, (long)payload.Collision.Capacity * 12);
+        Interlocked.Increment(ref _retainedCollisionCount);
         Collisions.Add(payload.Collision);
     }
 
@@ -1015,6 +1056,8 @@ public static class PayloadPool
         surf.Color.Clear();
         surf.Uv.Clear();
         surf.Uv2.Clear();
+        Interlocked.Add(ref _retainedBufferBytes, surf.EstimatedBufferBytes);
+        Interlocked.Increment(ref _retainedSurfaceCount);
         Surfaces.Add(surf);
     }
 

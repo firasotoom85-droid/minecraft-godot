@@ -29,6 +29,9 @@ public partial class FluidSystem : Node
     private int _sourcePulse;
     private int _editsRemaining;
 
+    public int ActiveCellCount => _active.Count;
+    public int ActiveSourceCount => _sources.Count;
+
     public void Setup(VoxelWorld world, Player player)
     {
         AttachWorld(world);
