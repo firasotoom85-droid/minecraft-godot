@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using System.Linq;
 
@@ -239,6 +240,8 @@ public static class BlockShapeTests
         bool originalGreedy = Mesher.Greedy;
         Mesher.Greedy = false;
         MeshPayload perFace = Mesher.Build(world, Vector2I.Zero);
+        Dictionary<SharedCornerKey, Color> perFaceCornerColors = CaptureCornerColors(perFace.Opaque);
+        CheckSharedCornerContinuity(perFace.Opaque, "per-face");
 
         // Same geometric corner rule for a cube face and a partial occluder:
         // a lower slab occupies the sampled lower micro-cell; an upper slab
@@ -321,6 +324,8 @@ public static class BlockShapeTests
 
         Mesher.Greedy = true;
         MeshPayload greedy = Mesher.Build(world, Vector2I.Zero);
+        CheckSharedCornerContinuity(greedy.Opaque, "greedy");
+        CheckRendererCornerParity(perFaceCornerColors, greedy.Opaque);
         geometryChunk!.ApplyPayload(greedy);
         TestAssert.Equal(greedy.Opaque.Vertex.Count, greedy.Opaque.Uv2.Count,
                 "greedy and split opaque faces carry texture-array tile indices");
@@ -403,6 +408,106 @@ public static class BlockShapeTests
         DirAccess.RemoveAbsolute(WorldStore.PlayerSavePath(dir));
         DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
         DirAccess.RemoveAbsolute(dir);
+    }
+
+    // The opaque surface is emitted as triangle-list quads (six vertices each).
+    // Ignore duplicates from a quad's own two triangles and compare only vertices
+    // shared by distinct coplanar quads: those are the places where a dark seam
+    // can appear if adjacent AO/light stencils disagree.
+    private readonly record struct SharedCornerKey(
+            int X2, int Y2, int Z2, int NormalX, int NormalY, int NormalZ);
+
+    private readonly record struct SharedCornerSample(Color Color, int QuadIndex);
+
+    private static SharedCornerKey GetSharedCornerKey(SurfaceData surface, int index)
+    {
+        Vector3 position = surface.Vertex[index];
+        Vector3 normal = surface.Normal[index];
+        return new SharedCornerKey(
+                Mathf.RoundToInt(position.X * 2.0f),
+                Mathf.RoundToInt(position.Y * 2.0f),
+                Mathf.RoundToInt(position.Z * 2.0f),
+                Mathf.RoundToInt(normal.X),
+                Mathf.RoundToInt(normal.Y),
+                Mathf.RoundToInt(normal.Z));
+    }
+
+    private static bool SameBakedChannels(Color a, Color b) =>
+            Mathf.Abs(a.R - b.R) <= 0.0001f
+            && Mathf.Abs(a.G - b.G) <= 0.0001f
+            && Mathf.Abs(a.B - b.B) <= 0.0001f;
+
+    private static Dictionary<SharedCornerKey, Color> CaptureCornerColors(SurfaceData surface)
+    {
+        Dictionary<SharedCornerKey, Color> colors = new(surface.Vertex.Count);
+        for (int i = 0; i < surface.Vertex.Count; i++)
+            colors.TryAdd(GetSharedCornerKey(surface, i), surface.Color[i]);
+        return colors;
+    }
+
+    private static void CheckSharedCornerContinuity(SurfaceData surface, string renderer)
+    {
+        Dictionary<SharedCornerKey, SharedCornerSample> firstSamples = new(surface.Vertex.Count);
+        int sharedCorners = 0;
+        int mismatchedCorners = 0;
+        SharedCornerKey firstMismatch = default;
+
+        for (int i = 0; i < surface.Vertex.Count; i++)
+        {
+            SharedCornerKey key = GetSharedCornerKey(surface, i);
+            int quadIndex = i / 6;
+            if (!firstSamples.TryGetValue(key, out SharedCornerSample previous))
+            {
+                firstSamples.Add(key, new SharedCornerSample(surface.Color[i], quadIndex));
+                continue;
+            }
+
+            if (previous.QuadIndex == quadIndex)
+                continue;
+
+            sharedCorners++;
+            if (!SameBakedChannels(previous.Color, surface.Color[i]))
+            {
+                mismatchedCorners++;
+                firstMismatch = key;
+            }
+        }
+
+        TestAssert.Check(sharedCorners > 0,
+                $"{renderer} mesh exposes shared vertices across independently emitted quads");
+        TestAssert.Equal(0, mismatchedCorners,
+                $"{renderer} mesh has continuous sky, block-light and AO channels at shared corners"
+                + (mismatchedCorners == 0 ? string.Empty
+                        : $" (first mismatch at half-voxel ({firstMismatch.X2}, {firstMismatch.Y2}, {firstMismatch.Z2}))"));
+    }
+
+    private static void CheckRendererCornerParity(
+            Dictionary<SharedCornerKey, Color> perFaceColors, SurfaceData greedy)
+    {
+        int comparedCorners = 0;
+        int mismatchedCorners = 0;
+        SharedCornerKey firstMismatch = default;
+
+        for (int i = 0; i < greedy.Vertex.Count; i++)
+        {
+            SharedCornerKey key = GetSharedCornerKey(greedy, i);
+            if (!perFaceColors.TryGetValue(key, out Color perFaceColor))
+                continue;
+
+            comparedCorners++;
+            if (!SameBakedChannels(perFaceColor, greedy.Color[i]))
+            {
+                mismatchedCorners++;
+                firstMismatch = key;
+            }
+        }
+
+        TestAssert.Check(comparedCorners > 0,
+                "greedy mesh shares geometric corners with the per-face reference mesh");
+        TestAssert.Equal(0, mismatchedCorners,
+                "greedy and per-face meshes agree on every common baked-light/AO corner"
+                + (mismatchedCorners == 0 ? string.Empty
+                        : $" (first mismatch at half-voxel ({firstMismatch.X2}, {firstMismatch.Y2}, {firstMismatch.Z2}))"));
     }
 
     private static void CheckVertexShade(SurfaceData surface, Vector3 position,
