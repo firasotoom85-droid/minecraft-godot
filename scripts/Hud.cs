@@ -351,6 +351,7 @@ public partial class Hud : CanvasLayer
             _slotIcons[i].Visible = !stack.IsEmpty;
             DurabilitySlotPanel slot = _slots[i];
             slot.SetDurability(stack);
+            slot.SetRarity(stack.IsEmpty ? ItemRarity.Common : ItemDb.RarityOf(stack.Id));
 
             int maxDurability = stack.IsEmpty ? 0 : EquipmentProgression.MaxDurability(stack.Id);
             if (maxDurability > 0)

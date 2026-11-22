@@ -5,6 +5,15 @@ using Godot;
 
 namespace Minecraft;
 
+/// <summary>Stable visual quality bands; these are presentation metadata, not persisted item IDs.</summary>
+public enum ItemRarity : byte
+{
+    Common,
+    Uncommon,
+    Rare,
+    Legendary,
+}
+
 /// <summary>Tool behaviour: kind, tier (1 wood .. 4 diamond), mining speed, durability.</summary>
 public readonly record struct ToolInfo(ToolKind Kind, int Tier, float Speed, int Durability);
 
@@ -62,7 +71,8 @@ public static class ItemDb
         BlockItemPairs.ToDictionary(p => p.Item, p => p.Block);
 
     private static readonly Dictionary<ItemId, ImageTexture> IconCache = [];
-    private static readonly Dictionary<(ItemId Item, byte Stage), ImageTexture> WornIconCache = [];
+    private static readonly Dictionary<(ItemId Item, byte WearStage, byte EnchantmentMask), ImageTexture>
+            QualityIconCache = [];
 
     public static BlockId? BlockFor(ItemId id) =>
         ItemToBlock.TryGetValue(id, out BlockId block) ? block : null;
@@ -239,6 +249,43 @@ public static class ItemDb
         ItemId.EmberBlade => new(8, 0.52f, 1200, 5, 4.5f), ItemId.Bow => new(5, 0.8f, 384, 2, 0),
         ItemId.Shield => new(0, 0, 420, 2, 0), _ => null,
     };
+
+    /// <summary>Presentation tier derived from existing item metadata and material identity.</summary>
+    public static ItemRarity RarityOf(ItemId id)
+    {
+        if (id is ItemId.EmberCore or ItemId.EmberBlade)
+        {
+            return ItemRarity.Legendary;
+        }
+
+        int tier = ToolOf(id)?.Tier ?? ArmorOf(id)?.Tier ?? WeaponOf(id)?.Tier ?? 0;
+        if (tier >= 5)
+        {
+            return ItemRarity.Legendary;
+        }
+
+        if (tier >= 4 || id is ItemId.Diamond or ItemId.DiamondOre)
+        {
+            return ItemRarity.Rare;
+        }
+
+        if (tier >= 3 || id is ItemId.RawIron or ItemId.IronIngot or ItemId.IronOre
+                or ItemId.RawGold or ItemId.GoldIngot or ItemId.GoldOre or ItemId.LapisLazuli)
+        {
+            return ItemRarity.Uncommon;
+        }
+
+        return ItemRarity.Common;
+    }
+
+    /// <summary>Shared accent palette used by icon pixels and the existing inventory-slot draw pass.</summary>
+    public static Color RarityColor(ItemRarity rarity) => rarity switch
+    {
+        ItemRarity.Uncommon => new Color(0.42f, 0.84f, 0.54f),
+        ItemRarity.Rare => new Color(0.28f, 0.76f, 0.96f),
+        ItemRarity.Legendary => new Color(1.0f, 0.58f, 0.22f),
+        _ => new Color(0.68f, 0.70f, 0.72f),
+    };
     public static string DescriptionOf(ItemId id) => id switch
     {
         ItemId.WoodSword => "Fast starter weapon; limited durability.", ItemId.StoneSword => "Reliable cave weapon with improved stopping force.",
@@ -329,6 +376,7 @@ public static class ItemDb
     }
 
     /// <summary>
+    /// <summary>
     /// Shape-specific placeable blocks need a silhouette as well as a material
     /// texture. Their cached previews are projected from the existing atlas;
     /// ordinary block items continue to use their exact AtlasTexture region.
@@ -337,30 +385,101 @@ public static class ItemDb
             ItemId.PlanksSlab or ItemId.CobblestoneSlab or ItemId.BrickSlab
             or ItemId.PlanksStairs or ItemId.CobblestoneStairs or ItemId.BrickStairs;
 
-    /// <summary>Equipment icon with a cached visual wear state; block icons stay on the atlas path.</summary>
-    public static Texture2D Icon(ItemStack stack) => Icon(stack.Id, stack.Durability);
+    /// <summary>
+    /// Equipment stack icon with cached wear, rarity and enchantment accents.
+    /// Block-backed items intentionally retain their exact atlas texture/region.
+    /// </summary>
+    public static Texture2D Icon(ItemStack stack) =>
+        Icon(stack.Id, stack.Durability, EnchantmentVisualMask(stack));
 
-    public static Texture2D Icon(ItemId id, int durability)
+    /// <summary>
+    /// Compact allocation-free state used by the first-person viewmodel to
+    /// refresh only when a held item's visible wear/enchantment treatment changes.
+    /// The item ID and therefore its rarity are tracked separately by Player.
+    /// </summary>
+    public static byte IconVisualState(ItemStack stack)
     {
-        int stage = EquipmentDurabilityVisual.WearStage(
-                durability, EquipmentProgression.MaxDurability(id));
-        if (stage == 0 || BlockFor(id) is not null)
+        if (stack.IsEmpty)
+        {
+            return 0;
+        }
+
+        int wearStage = EquipmentDurabilityVisual.WearStage(stack);
+        return (byte)(wearStage | (EnchantmentVisualMask(stack) << 2));
+    }
+
+    private static byte EnchantmentVisualMask(ItemStack stack)
+    {
+        byte mask = 0;
+        if (stack.Sharpness > 0
+                && EquipmentProgression.CanEnchant(stack.Id, Enchantment.Sharpness))
+        {
+            mask |= 1;
+        }
+
+        if (stack.Protection > 0
+                && EquipmentProgression.CanEnchant(stack.Id, Enchantment.Protection))
+        {
+            mask |= 2;
+        }
+
+        if (stack.Unbreaking > 0
+                && EquipmentProgression.CanEnchant(stack.Id, Enchantment.Unbreaking))
+        {
+            mask |= 4;
+        }
+
+        return mask;
+    }
+
+    public static Texture2D Icon(ItemId id, int durability) => Icon(id, durability, 0);
+
+    private static Texture2D Icon(ItemId id, int durability, byte enchantmentMask)
+    {
+        // Placeable items must continue using their original tile coordinates.
+        if (BlockFor(id) is not null)
         {
             return Icon(id);
         }
 
-        var key = (id, (byte)stage);
-        if (!WornIconCache.TryGetValue(key, out ImageTexture? texture))
+        int stage = EquipmentDurabilityVisual.WearStage(
+                durability, EquipmentProgression.MaxDurability(id));
+        ItemRarity rarity = RarityOf(id);
+        if (stage == 0 && rarity == ItemRarity.Common && enchantmentMask == 0)
+        {
+            return Icon(id);
+        }
+
+        var key = (id, (byte)stage, enchantmentMask);
+        if (!QualityIconCache.TryGetValue(key, out ImageTexture? texture))
         {
             Image image = BuildIconImage(id);
-            // The shared finish already generated a mip chain for the pristine
-            // pixels. Wear marks alter the base level, so rebuild the chain
-            // instead of sampling a stale 16/8/4/2/1 set.
+            // Wear and quality marks modify the finished base pixels, so rebuild
+            // the mip chain from the final icon instead of sampling stale levels.
             image.ClearMipmaps();
-            PaintWear(image, id, stage);
-            image.GenerateMipmaps();
+            if (stage > 0)
+            {
+                PaintWear(image, id, stage);
+            }
+
+            if (rarity != ItemRarity.Common)
+            {
+                PaintRarityAccent(image, rarity);
+            }
+
+            if (enchantmentMask != 0)
+            {
+                PaintEnchantmentAccents(image, enchantmentMask);
+            }
+
+            Error mipmapError = image.GenerateMipmaps();
+            if (mipmapError != Error.Ok)
+            {
+                GD.PushWarning($"Could not generate item quality icon mipmaps: {mipmapError}");
+            }
+
             texture = ImageTexture.CreateFromImage(image);
-            WornIconCache[key] = texture;
+            QualityIconCache[key] = texture;
         }
 
         return texture;
@@ -772,6 +891,102 @@ public static class ItemDb
         }
 
         return finished;
+    }
+
+    private static void PaintRarityAccent(Image image, ItemRarity rarity)
+    {
+        Color accent = RarityColor(rarity);
+        PaintIconSparkle(image, new Vector2I(23, 8), accent,
+                rarity == ItemRarity.Legendary);
+    }
+
+    private static void PaintEnchantmentAccents(Image image, byte mask)
+    {
+        if ((mask & 1) != 0)
+        {
+            PaintIconSparkle(image, new Vector2I(8, 8),
+                    new Color(0.58f, 0.88f, 1.0f));
+        }
+
+        if ((mask & 2) != 0)
+        {
+            PaintIconSparkle(image, new Vector2I(8, 23),
+                    new Color(0.74f, 0.62f, 1.0f));
+        }
+
+        if ((mask & 4) != 0)
+        {
+            PaintIconSparkle(image, new Vector2I(23, 23),
+                    new Color(1.0f, 0.82f, 0.42f));
+        }
+    }
+
+    /// <summary>
+    /// Paints a small, nearest-neighbour glint only over existing item pixels.
+    /// The silhouette, outline, transparent frame and atlas-backed icons remain
+    /// untouched; final mipmaps are generated after all accents are applied.
+    /// </summary>
+    private static void PaintIconSparkle(Image image, Vector2I target, Color accent,
+            bool large = false)
+    {
+        Vector2I center = FindIconFillPixel(image, target);
+        if (center.X < 0)
+        {
+            return;
+        }
+
+        PaintAccentPixel(image, center.X, center.Y, accent.Lightened(0.12f));
+        PaintAccentPixel(image, center.X - 1, center.Y, accent);
+        PaintAccentPixel(image, center.X + 1, center.Y, accent.Darkened(0.12f));
+        PaintAccentPixel(image, center.X, center.Y - 1, accent);
+        PaintAccentPixel(image, center.X, center.Y + 1, accent.Darkened(0.12f));
+        if (large)
+        {
+            PaintAccentPixel(image, center.X - 1, center.Y - 1, accent);
+            PaintAccentPixel(image, center.X + 1, center.Y - 1, accent.Lightened(0.12f));
+            PaintAccentPixel(image, center.X - 1, center.Y + 1, accent.Darkened(0.12f));
+            PaintAccentPixel(image, center.X + 1, center.Y + 1, accent);
+        }
+    }
+
+    private static Vector2I FindIconFillPixel(Image image, Vector2I target)
+    {
+        for (int radius = 0; radius <= 10; radius++)
+        {
+            for (int y = target.Y - radius; y <= target.Y + radius; y++)
+            {
+                for (int x = target.X - radius; x <= target.X + radius; x++)
+                {
+                    if (Mathf.Max(Mathf.Abs(x - target.X), Mathf.Abs(y - target.Y)) != radius
+                            || x < 0 || y < 0 || x >= image.GetWidth() || y >= image.GetHeight())
+                    {
+                        continue;
+                    }
+
+                    Color pixel = image.GetPixel(x, y);
+                    if (pixel.A > 0.05f && pixel != GeneratedIconOutlineColor)
+                    {
+                        return new Vector2I(x, y);
+                    }
+                }
+            }
+        }
+
+        return new Vector2I(-1, -1);
+    }
+
+    private static void PaintAccentPixel(Image image, int x, int y, Color accent)
+    {
+        if (x < 0 || y < 0 || x >= image.GetWidth() || y >= image.GetHeight())
+        {
+            return;
+        }
+
+        Color pixel = image.GetPixel(x, y);
+        if (pixel.A > 0.05f && pixel != GeneratedIconOutlineColor)
+        {
+            image.SetPixel(x, y, accent);
+        }
     }
 
     private static Color TierColor(int tier) => tier switch
