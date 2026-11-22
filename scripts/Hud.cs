@@ -781,6 +781,9 @@ public partial class Hud : CanvasLayer
         _hintLabel.Text = text;
     }
 
+    public void SetHint(string text, int step, int total) =>
+            SetHint($"{step}/{total} · {text}");
+
     public void HideHint()
     {
         if (_hintPanel != null)

@@ -42,6 +42,7 @@ public partial class TestRunner : Node
         RunSuite("villages-quests", VillageTests.Run);
         RunSuite("fishing", FishingTests.Run);
         RunSuite("keybinds", KeybindTests.Run);
+        RunSuite("onboarding", OnboardingTests.Run);
         RunSuite("recipes", RecipeTests.Run);
         RunSuite("stats", StatsTests.Run);
         RunSuite("fluids", FluidTests.Run);

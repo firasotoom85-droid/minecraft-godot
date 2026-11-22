@@ -1547,3 +1547,37 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   preset views manually. One GPU reference frame is not a complete art review.
 - See `docs/VISUAL_MILESTONE_4_ENVIRONMENT.md` for scope, exact capture command,
   rendered sample, and validation detail.
+
+## 25. Gameplay polish: first-hour flow and interaction guidance — 2026-11-22
+
+- Expanded the existing six-step First Night hint chain into a contextual
+  15-step first-hour guide: movement, wood gathering, inventory, crafting,
+  stone mining, torch placement, food gathering/eating, shelter construction,
+  furnace use, hostile combat, cave exploration, village interaction and
+  surviving the night.
+- Reused the existing Player signals/events and Mobs defeat event. The guide
+  records successful actions rather than checking starter inventory; passive
+  creature defeats do not satisfy the hostile-combat step, and farmland tilling
+  does not count as shelter construction.
+- Persisted individual facts in the existing world flag dictionary and retained
+  the previous First Night step keys and completion flag. No world-save schema,
+  generator version, BlockId, ItemId or voxel mutation changes were made.
+- Added compact step progress to the existing HUD hint panel. Existing
+  Settings.ShowHints and Creative-mode behavior remain in effect.
+- Added quest objective stage-completion feedback through the existing quest
+  progression event; the HUD announces intermediate stage advancement and
+  final objective completion without changing reward-claim behavior.
+- Fixed nested pause/keybind Escape ownership with a small input policy:
+  while controls are open above pause, the keybind modal owns back/Escape and
+  the pause menu stays paused underneath.
+- Added OnboardingTests, quest-stage event regression assertions and pause /
+  keybind input-policy tests.
+- **Verification:** Godot 4.7.2 .NET Debug build: 0 warnings / 0 errors;
+  Release build: 0 warnings / 0 errors; scripts/verify.sh: **186,372
+  checks / 0 failures**.
+- **Remaining Milestone 5 work:** manual controller navigation/rebinding on
+  physical hardware, first-person mining/building animation review, combat
+  balance and enemy readability playtests, boat handling and edge-case playtests,
+  and broader village/trading/quest usability review. This increment does not
+  claim the entire gameplay-polish milestone is complete.
+- See docs/GAMEPLAY_MILESTONE_5.md for implementation and validation details.

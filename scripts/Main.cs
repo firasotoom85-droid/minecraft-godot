@@ -96,6 +96,13 @@ public partial class Main : Node3D
 
         _questSystem = AddSystem(new QuestSystem());
         _questSystem.Setup(_world, _player, _mobs);
+        _questSystem.StageCompleted += (quest, progress) =>
+        {
+            string message = progress.Completed
+                    ? $"{quest.Title} complete — return to the village to claim your reward"
+                    : $"{quest.Title}: {quest.Stages[progress.Stage].Description}";
+            _hud.ShowToast(message);
+        };
         _dungeonSystem.DungeonCleared += _questSystem.ReportDungeonClear;
 
         _villageSystem = AddSystem(new VillageSystem());
@@ -137,7 +144,7 @@ public partial class Main : Node3D
         _achievementUi.Setup(_player, _world);
 
         _onboarding = AddSystem(new OnboardingSystem());
-        _onboarding.Setup(_world, _player, _hud);
+        _onboarding.Setup(_world, _player, _hud, _mobs);
 
         _player.Notice += _hud.ShowToast;
         _player.CampfireUsed += _hud.ShowToast;
