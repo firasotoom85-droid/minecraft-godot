@@ -533,25 +533,41 @@ saving the 1600×900 viewport image.
 
 The environment polish pass adds a deterministic dawn/day/dusk/night palette,
 biome-aware rain/snow transitions, and world-space water depth with restrained
-shoreline foam. It extends the existing day/night, weather and water shader
-systems without changing save formats, persisted IDs, world generation, voxel
-lighting propagation, greedy meshing or chunk streaming.
+shoreline foam. V8+ outdoor worlds also use a shared camera-depth haze profile:
+near terrain stays clear, while distant mountain slopes and tree lines gently
+blend toward the current sky/horizon colour. The fog is evaluated by the
+existing scene environment, not independently by each chunk, so streamed
+chunk edges and far-LOD surfaces share the same distance field. V1–V7 retain
+their original exponential fog; caves and underwater/lava views return to their
+close-range exponential profiles. LOW and BALANCED keep depth haze while the
+existing graphics presets disable volumetric fog. No fog volumes or per-emitter
+light nodes are created.
 
-Run a fixed real-scene Forward+ atmosphere capture with:
+Run a fixed real-scene Forward+ mountain capture with:
 
 ```bash
-godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 8 512 -372 0.50 Clear res://docs/visual/screenshots/atmosphere-river-valley-noon-clear.png
+godot --path . res://tests/AtmosphereVisualCapture.tscn -- 777 11 -424 760 0.50 Clear res://docs/visual/screenshots/distance-haze-v11-mountain-after.png false 5
 ```
 
-Arguments are seed, generator version (1–11 on current main), world X/Z, time of day, weather
-(`Clear`, `Cloudy` or `Rain`) and output PNG path. The separate
-`WorldgenVisualCapture` also accepts optional camera scale (0.2–2.0) and far-LOD
-radius in metres after its output path. The runner creates and removes a
-disposable world. Matching V8 and V9 MX230 samples and the remaining manual
-capture matrix are documented in
+Arguments are seed, generator version (1–11 on current main), world X/Z, time of
+day, weather (`Clear`, `Cloudy` or `Rain`), output PNG path, optional torch
+(`true`/`false`), and optional capture view distance (3–5 chunks). The
+capture waits for the full requested square of chunks before saving, making
+wide inspection views comparable without a streamed-square cutoff. The runner
+creates and removes a disposable world. The V11 MX230 before/after comparison
+uses the same seed, mountain coordinate, noon weather, camera, and view
+distance:
+
+| Original exponential air fog | Shared camera-depth distance haze |
+|---|---|
+| ![V11 mountain before distance haze](docs/visual/screenshots/distance-haze-v11-mountain-before.png) | ![V11 mountain after distance haze](docs/visual/screenshots/distance-haze-v11-mountain-after.png) |
+
+Capture conditions: Godot 4.7.2 .NET, Vulkan Forward+, GeForce MX230,
+1600×900, seed 777, V11, centre (-424, 760), time 0.50, clear weather,
+view distance 5 (121 chunks). Matching V8 and V9 environment references and
+the remaining manual capture matrix are documented in
 [`docs/VISUAL_MILESTONE_4_ENVIRONMENT.md`](docs/VISUAL_MILESTONE_4_ENVIRONMENT.md).
 
-<<<<<<< HEAD
 For a repeatable cave-mouth exposure check, pass `true` as the final argument.
 The fixture opens a temporary shaft and short passage into a torch-lit chamber
 through `VoxelWorld.SetBlock`, then logs cached skylight at the entrance,
@@ -560,7 +576,7 @@ passage and player camera:
 ```bash
 godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 11 512 -372 0.50 Clear /tmp/cave-exposure.png true
 ```
-=======
+
 ### Directional sunlight and baked skylight
 
 The existing 600-second day/night clock and single rotating directional sun
@@ -605,7 +621,6 @@ camera and weather remain matched. The mean frame luminance was 0.389 at dawn,
 [noon](docs/visual/screenshots/sunlight-noon-clear.png) ·
 [sunset](docs/visual/screenshots/sunlight-sunset-clear.png) ·
 [night](docs/visual/screenshots/sunlight-night-clear.png).
->>>>>>> origin/feature/directional-sunlight-atmosphere
 
 ### Water-adjacent visual validation
 

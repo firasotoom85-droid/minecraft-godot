@@ -165,12 +165,17 @@ public partial class Player : CharacterBody3D, IDamageable
     public void SetWaterEnvironment(Godot.Environment environment)
     {
         _underwaterEnvironment = (Godot.Environment)environment.Duplicate();
-        _airFogDensity = environment.FogDensity;
+        // Immersion uses its existing close-range exponential fog even when
+        // the outdoor world uses camera-depth haze.
+        _airFogDensity = environment.FogMode == Godot.Environment.FogModeEnum.Depth
+                ? WorldEnvironmentFactory.ImmersionAirFogDensity : environment.FogDensity;
         _airFogColor = environment.FogLightColor;
         _underwaterEnvironment.FogEnabled = true;
+        _underwaterEnvironment.FogMode = Godot.Environment.FogModeEnum.Exponential;
         _underwaterEnvironment.VolumetricFogEnabled = false;
         _lavaEnvironment = (Godot.Environment)environment.Duplicate();
         _lavaEnvironment.FogEnabled = true;
+        _lavaEnvironment.FogMode = Godot.Environment.FogModeEnum.Exponential;
         _lavaEnvironment.VolumetricFogEnabled = false;
     }
 

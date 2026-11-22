@@ -11,6 +11,7 @@ public static class AtmosphereTests
         TestDayNightPalette();
         TestCaveExposure();
         TestSunlightDirectionAndBakedChannels();
+        TestDistanceHazeProfile();
         TestWeatherPrecipitationSelection();
         TestWaterDepthSpace();
     }
@@ -65,7 +66,6 @@ public static class AtmosphereTests
         }
     }
 
-<<<<<<< HEAD
     private static void TestCaveExposure()
     {
         float openSky = DayNight.EvaluateCaveDarkness(15.0f);
@@ -219,6 +219,89 @@ public static class AtmosphereTests
 
         ChunkMaterials.SetSkyLighting(noon.SkyLightEnergy, noon.SunDirection,
                 noon.SunColor, noon.SkyLightColor, noon.SunEnergy);
+    }
+
+    private static void TestDistanceHazeProfile()
+    {
+        Godot.Environment legacy = WorldEnvironmentFactory.Build(WorldGenV7.Version);
+        Godot.Environment modern = WorldEnvironmentFactory.Build(WorldGenV8.Version);
+
+        TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential, legacy.FogMode,
+                "V1–V7 worlds retain the original exponential fog model");
+        TestAssert.Equal(WorldEnvironmentFactory.LegacyAirFogDensity, legacy.FogDensity,
+                "legacy worlds retain their original air fog density");
+        TestAssert.Equal(Godot.Environment.FogModeEnum.Depth, modern.FogMode,
+                "V8+ worlds use camera-depth haze for distant terrain");
+        TestAssert.Equal(WorldEnvironmentFactory.DistanceHazeDensity, modern.FogDensity,
+                "modern worlds start from the restrained distance-haze density");
+        TestAssert.Equal(WorldEnvironmentFactory.DistanceHazeBegin, modern.FogDepthBegin,
+                "distance haze starts after nearby terrain remains clear");
+        TestAssert.Equal(WorldEnvironmentFactory.DistanceHazeEnd, modern.FogDepthEnd,
+                "distance haze fades gradually through the visible horizon");
+        TestAssert.Check(modern.FogDepthBegin > 0.0f
+                && modern.FogDepthEnd > modern.FogDepthBegin,
+                "distance haze has a valid positive depth interval");
+
+        TestAssert.Equal(WorldEnvironmentFactory.DistanceHazeCurve, modern.FogDepthCurve,
+                "modern environment uses the authored gentle depth-fog power curve");
+
+        float nearHaze = WorldEnvironmentFactory.EvaluateDistanceHaze(150.0f,
+                WorldEnvironmentFactory.DistanceHazeDensity);
+        float midHaze = WorldEnvironmentFactory.EvaluateDistanceHaze(213.0f,
+                WorldEnvironmentFactory.DistanceHazeDensity);
+        float farHaze = WorldEnvironmentFactory.EvaluateDistanceHaze(300.0f,
+                WorldEnvironmentFactory.DistanceHazeDensity);
+        float maximumHaze = WorldEnvironmentFactory.EvaluateDistanceHaze(
+                WorldEnvironmentFactory.DistanceHazeEnd, 2.0f);
+        TestAssert.Check(nearHaze < 0.01f,
+                "distance haze leaves near terrain almost completely clear");
+        TestAssert.Check(midHaze > nearHaze && midHaze < 0.10f,
+                "distance haze stays subtle through the middle distance");
+        TestAssert.Check(farHaze > midHaze && farHaze < 0.42f,
+                "distant mountain silhouettes receive haze without disappearing");
+        TestAssert.Check(maximumHaze <= WorldEnvironmentFactory.MaxDistanceHazeDensity
+                && maximumHaze < 1.0f,
+                "maximum overcast haze is bounded below full scene occlusion");
+
+        float previous = -1.0f;
+        for (int i = 0; i <= 64; i++)
+        {
+            float distance = WorldEnvironmentFactory.DistanceHazeBegin
+                    + (WorldEnvironmentFactory.DistanceHazeEnd
+                            - WorldEnvironmentFactory.DistanceHazeBegin) * i / 64.0f;
+            float sample = WorldEnvironmentFactory.EvaluateDistanceHaze(
+                    distance, WorldEnvironmentFactory.DistanceHazeDensity);
+            TestAssert.Check(float.IsFinite(sample) && sample >= 0.0f
+                    && sample <= WorldEnvironmentFactory.DistanceHazeDensity,
+                    $"distance haze remains finite and bounded at sample {i}/64");
+            TestAssert.Check(sample + 0.0001f >= previous,
+                    $"distance haze never decreases at sample {i}/64");
+            previous = sample;
+        }
+
+        TestAssert.Equal(Godot.Environment.FogModeEnum.Depth,
+                WorldEnvironmentFactory.FogModeFor(true, underground: false, underwater: false),
+                "outdoor V8+ views use depth haze");
+        TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential,
+                WorldEnvironmentFactory.FogModeFor(false, underground: false, underwater: false),
+                "legacy outdoor worlds keep exponential fog");
+        TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential,
+                WorldEnvironmentFactory.FogModeFor(true, underground: true, underwater: false),
+                "cave darkness retains close-range exponential fog");
+        TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential,
+                WorldEnvironmentFactory.FogModeFor(true, underground: false, underwater: true),
+                "underwater immersion retains close-range exponential fog");
+
+        foreach (int presetIndex in new[] { 0, 1 })
+        {
+            Gfx.Preset preset = Gfx.Presets[presetIndex];
+            Godot.Environment lowCost = WorldEnvironmentFactory.Build();
+            lowCost.VolumetricFogEnabled = preset.VolFog;
+            TestAssert.Check(lowCost.FogEnabled
+                    && lowCost.FogMode == Godot.Environment.FogModeEnum.Depth
+                    && !lowCost.VolumetricFogEnabled,
+                    $"{preset.Name} retains inexpensive depth haze without volumetric fog");
+        }
     }
 
     private static void TestWeatherPrecipitationSelection()

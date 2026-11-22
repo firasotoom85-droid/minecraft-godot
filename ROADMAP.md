@@ -1967,7 +1967,6 @@ the existing per-shape cache.
   allocations were added. The additional plane, labels and preview geometry are
   confined to this opt-in test scene.
 
-<<<<<<< HEAD
 ## 35. Procedural atlas integrity report — 2026-11-22
 
 Added an opt-in, headless TextureAtlasValidator and Markdown report runner.
@@ -2074,8 +2073,8 @@ mipmaps; the greedy path retains isolated per-tile mipmaps for distant views.
   item contact sheet was manually reviewed; the registered-block close/distant
   material-gallery captures were also checked. Tests confirm all 108 item icons
   remain cached at 32×32 with complete mipmaps after contact-sheet capture.
-=======
-## 35. Directional sunlight and baked skylight response — 2026-11-22
+
+## 38. Directional sunlight and baked skylight response — 2026-11-22
 
 - Kept the existing 600-second day/night clock, rotating directional sun,
   moon, PSSM shadow configuration and atmosphere evaluator. Added a normalized
@@ -2105,4 +2104,49 @@ mipmaps; the greedy path retains isolated per-tile mipmaps for distant views.
 - Compatibility: no save fields, persisted IDs, generator rules or versions,
   atlas tiles, packed-light propagation, SetBlock / ApplyEdit mutation paths,
   greedy meshing or chunk streaming changed.
->>>>>>> origin/feature/directional-sunlight-atmosphere
+
+## 39. Shared camera-depth distance haze — 2026-11-22
+
+- V8+ outdoor environments now use Godot's built-in depth-fog mode. The
+  shared environment starts haze at 96 m and eases it toward the sky through
+  330 m with a 2.2 power curve and 0.42 density; the runtime cloud multiplier
+  is clamped to 0.68. The ramp preserves nearby block contrast and avoids
+  turning the visible horizon into an opaque fog wall.
+- The effect is scene-level camera-depth fog, so opaque terrain, glass,
+  water-compatible surfaces, and far-LOD geometry use the same distance
+  calculation. It does not encode fog in voxel-light vertex channels or
+  chunk-local shaders; a chunk boundary cannot restart the haze ramp. No
+  additional fog volume, scene node, emitter light, mesh attribute, or per-frame
+  terrain scan was introduced.
+- The existing `DayNight` owner selects depth fog only for outdoor V8+ views.
+  Cave darkness, underwater and lava immersion, the menu backdrop, and V1–V7
+  worlds keep exponential fog. The existing LOW/BALANCED presets retain the
+  inexpensive depth fog while continuing to disable volumetric fog.
+- Added deterministic atmosphere regression checks for the depth interval,
+  exponent, monotonic bounded falloff, maximum cloud-density clamp, legacy
+  compatibility, cave/immersion mode transitions, and LOW/BALANCED settings.
+  The real-scene capture runner accepts an optional view distance (3–5) and
+  waits for the full requested chunk square before capturing.
+- Repeatable Forward+ comparison: Godot 4.7.2 .NET, GeForce MX230, 1600×900,
+  seed 777, V11, centre `(-424, 760)`, noon, clear weather, view distance 5
+  (121 streamed chunks). Before/after images are
+  `docs/visual/screenshots/distance-haze-v11-mountain-{before,after}.png`.
+  The sky remains effectively unchanged; most pixel change is confined to
+  terrain and the distance/horizon region, consistent with a restrained
+  depth haze rather than a full-screen colour grade.
+- Compatibility: rendering-only. No block/item IDs, save fields, world
+  generation, voxel edit paths, baked-light propagation, greedy meshing,
+  chunk streaming, or far-LOD generation rules changed. V1–V8 remain frozen.
+- Verification on this branch: Debug build 0 warnings / 0 errors;
+  `scripts/verify.sh` passed **189,988 checks / 0 failures** across all 46
+  suites. The real-scene mountain comparison completed on MX230 at 121 chunks;
+  the before/after captures settled in 471 / 470 frames respectively (capture
+  settling is not a frame-time benchmark). The save suite's two intentional
+  write/recovery warnings remain expected.
+- Performance: no per-frame terrain sampling, voxel-light solve, chunk
+  mutation, mesh rebuild, or additional draw node is added. Depth haze uses
+  Godot's existing environment fog path; no stand-alone FPS delta was claimed
+  because a controlled before/after frame-time benchmark was not run.
+- Remaining manual review: compare sunrise, sunset, overcast and rain across
+  plains, snow, forest and distant mountain ridges; recheck cave entrances,
+  villages, and underwater transitions on LOW and HIGH presets.
