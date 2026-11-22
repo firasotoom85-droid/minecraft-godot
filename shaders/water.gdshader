@@ -12,10 +12,23 @@ uniform float alpha_base : hint_range(0.0, 1.0) = 0.82;
 uniform float shore_fade : hint_range(0.1, 8.0) = 2.5;
 uniform float dim : hint_range(0.0, 1.0) = 1.0;
 uniform float sky_light_energy : hint_range(0.0, 1.25) = 1.0;
+uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
+uniform vec3 sun_color = vec3(1.0, 0.96, 0.89);
+uniform vec3 sky_light_color = vec3(0.88, 0.94, 1.0);
+uniform float sunlight_energy : hint_range(0.0, 1.25) = 1.0;
 uniform float caustic_strength : hint_range(0.0, 2.0) = 0.0;
 
 varying vec3 world_pos;
+varying vec3 world_normal;
 varying float view_depth;
+
+vec3 directional_sky_light(vec3 normal, float sky) {
+    float sun_facing = max(dot(normalize(normal), sun_direction), 0.0);
+    float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
+    float directional_gain = 0.88 + direct_sun * 0.12;
+    vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
+    return sky * sky_tint * directional_gain;
+}
 
 void vertex() {
 	vec3 base_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -38,6 +51,7 @@ void vertex() {
 	float rz = cos(world_pos.z * 2.3 + TIME * 1.5) * 0.04
 		+ cos(world_pos.x * 1.9 + TIME * 0.9) * 0.03;
 	NORMAL = normalize(NORMAL + vec3(rx, 0.0, rz) * max(NORMAL.y, 0.0) * ripple_fade);
+    world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
 }
 
 void fragment() {
@@ -47,7 +61,7 @@ void fragment() {
 	float shadowed_block = block * (1.0 - sky);
 	float shade = COLOR.b;
 	vec3 warm = vec3(1.0, 0.68, 0.38);
-	vec3 illumination = vec3(0.04) + vec3(1.0, 0.98, 0.92) * sky + warm * shadowed_block * 0.35;
+	vec3 illumination = vec3(0.04) + directional_sky_light(world_normal, sky) + warm * shadowed_block * 0.35;
 	vec3 base = tex.rgb * illumination * shade;
 	// Shoreline fade: how much water sits between this fragment and the
 	// opaque scene behind it.

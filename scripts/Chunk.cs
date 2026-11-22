@@ -186,6 +186,10 @@ public partial class Chunk : StaticBody3D
 public static class ChunkMaterials
 {
     private static float _skyEnergy = 1.0f;
+    private static Vector3 _sunDirection = Vector3.Up;
+    private static Color _sunColor = new(1.0f, 0.96f, 0.89f);
+    private static Color _skyLightColor = new(0.88f, 0.94f, 1.0f);
+    private static float _sunlightEnergy = 1.0f;
 
     private static readonly Lazy<ShaderMaterial> OpaqueLazy = new(CreateOpaqueMaterial);
     private static readonly Lazy<ShaderMaterial> OpaqueArrayLazy = new(CreateArrayOpaqueMaterial);
@@ -193,22 +197,28 @@ public static class ChunkMaterials
     private static readonly Lazy<Material> WaterLazy = new(CreateWaterMaterial);
     private static readonly Lazy<ShaderMaterial> LavaLazy = new(CreateLavaMaterial);
 
-    private static ShaderMaterial ApplySky(ShaderMaterial material)
+    private static ShaderMaterial ApplyLighting(ShaderMaterial material)
     {
         material.SetShaderParameter("sky_light_energy", _skyEnergy);
+        material.SetShaderParameter("sun_direction", _sunDirection);
+        material.SetShaderParameter("sun_color",
+                new Vector3(_sunColor.R, _sunColor.G, _sunColor.B));
+        material.SetShaderParameter("sky_light_color",
+                new Vector3(_skyLightColor.R, _skyLightColor.G, _skyLightColor.B));
+        material.SetShaderParameter("sunlight_energy", _sunlightEnergy);
         return material;
     }
 
-    private static ShaderMaterial CreateOpaqueMaterial() => ApplySky(BlockDb.MakeOpaqueMaterial());
-    private static ShaderMaterial CreateArrayOpaqueMaterial() => ApplySky(BlockDb.MakeArrayOpaqueMaterial());
-    private static ShaderMaterial CreateGlassMaterial() => ApplySky(BlockDb.MakeGlassMaterial());
-    private static ShaderMaterial CreateLavaMaterial() => ApplySky(BlockDb.MakeLavaMaterial());
+    private static ShaderMaterial CreateOpaqueMaterial() => ApplyLighting(BlockDb.MakeOpaqueMaterial());
+    private static ShaderMaterial CreateArrayOpaqueMaterial() => ApplyLighting(BlockDb.MakeArrayOpaqueMaterial());
+    private static ShaderMaterial CreateGlassMaterial() => ApplyLighting(BlockDb.MakeGlassMaterial());
+    private static ShaderMaterial CreateLavaMaterial() => ApplyLighting(BlockDb.MakeLavaMaterial());
 
     private static Material CreateWaterMaterial()
     {
         Material material = BlockDb.MakeWaterMaterial();
         if (material is ShaderMaterial shader)
-            shader.SetShaderParameter("sky_light_energy", _skyEnergy);
+            ApplyLighting(shader);
         return material;
     }
 
@@ -221,15 +231,31 @@ public static class ChunkMaterials
 
     public static ShaderMaterial Lava => LavaLazy.Value;
 
-    /// <summary>Adjusts baked skylight response without rebuilding chunk meshes.</summary>
-    public static void SetSkyEnergy(float energy)
+    /// <summary>
+    /// Updates the shared baked-sky response for every renderer path. Existing
+    /// chunk meshes keep their packed light and vertex layout; only five shared
+    /// material uniforms change as the existing sun moves through the day.
+    /// </summary>
+    public static void SetSkyLighting(
+            float skyEnergy, Vector3 sunDirection, Color sunColor,
+            Color skyLightColor, float sunlightEnergy)
     {
-        _skyEnergy = Mathf.Clamp(energy, 0.0f, 1.25f);
-        if (OpaqueLazy.IsValueCreated) OpaqueLazy.Value.SetShaderParameter("sky_light_energy", _skyEnergy);
-        if (OpaqueArrayLazy.IsValueCreated) OpaqueArrayLazy.Value.SetShaderParameter("sky_light_energy", _skyEnergy);
-        if (GlassLazy.IsValueCreated) GlassLazy.Value.SetShaderParameter("sky_light_energy", _skyEnergy);
+        _skyEnergy = Mathf.Clamp(skyEnergy, 0.0f, 1.25f);
+        _sunDirection = sunDirection.LengthSquared() > 0.0001f
+                ? sunDirection.Normalized() : Vector3.Up;
+        _sunColor = sunColor;
+        _skyLightColor = skyLightColor;
+        _sunlightEnergy = Mathf.Clamp(sunlightEnergy, 0.0f, 1.25f);
+
+        if (OpaqueLazy.IsValueCreated) ApplyLighting(OpaqueLazy.Value);
+        if (OpaqueArrayLazy.IsValueCreated) ApplyLighting(OpaqueArrayLazy.Value);
+        if (GlassLazy.IsValueCreated) ApplyLighting(GlassLazy.Value);
         if (WaterLazy.IsValueCreated && WaterLazy.Value is ShaderMaterial water)
-            water.SetShaderParameter("sky_light_energy", _skyEnergy);
-        if (LavaLazy.IsValueCreated) LavaLazy.Value.SetShaderParameter("sky_light_energy", _skyEnergy);
+            ApplyLighting(water);
+        if (LavaLazy.IsValueCreated) ApplyLighting(LavaLazy.Value);
     }
+
+    /// <summary>Compatibility helper for callers that only need to scale baked skylight.</summary>
+    public static void SetSkyEnergy(float energy) =>
+            SetSkyLighting(energy, _sunDirection, _sunColor, _skyLightColor, _sunlightEnergy);
 }

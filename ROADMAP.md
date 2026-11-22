@@ -1914,3 +1914,34 @@ the existing per-shape cache.
 - No production per-frame work, collider generation, or persistent resource
   allocations were added. The additional plane, labels and preview geometry are
   confined to this opt-in test scene.
+
+## 35. Directional sunlight and baked skylight response — 2026-11-22
+
+- Kept the existing 600-second day/night clock, rotating directional sun,
+  moon, PSSM shadow configuration and atmosphere evaluator. Added a normalized
+  world-space sun direction that mirrors the existing -35-degree azimuth and
+  the same time-of-day elevation, plus smooth phase-based sun and sky-fill
+  colours. Dawn and sunset warm the existing directional light; night retains
+  a cool skylight tint.
+- Routed the direction and colour palette through ChunkMaterials, updating
+  only the existing shared atlas, greedy-array, glass, lava and water
+  materials. Their shaders use world-space face normals to bias the existing
+  baked sky channel toward the sun-facing side. The directional light
+  continues to provide the actual dynamic shadows.
+- Design boundary: packed sky/block nibbles remain mesh-time lighting data;
+  this is a presentation response, not a new per-frame voxel-light solve.
+  No per-emitter light nodes, mesh rebuilds, vertex channels, texture assets,
+  scene nodes or screen-space effects were added. Existing LOW/BALANCED
+  renderer settings remain unchanged.
+- Automated regressions cover dawn/noon/sunset/night directions, wraparound,
+  normalization and continuity, warm low-angle colour, cool night fill, all
+  five shader variants and propagation of palette uniforms into shared
+  materials. The real-scene capture runner compares four clock phases at one
+  fixed V8 seed/coordinate, clear-weather state, camera and viewport on the
+  MX230 using Godot 4.7.2 .NET / Vulkan Forward+. All four captures completed
+  at 1600×900 with 49 streamed chunks; per-frame mean luminance was 0.389
+  (dawn), 0.524 (noon), 0.353 (sunset) and 0.260 (night). The captured PNGs
+  are in `docs/visual/screenshots/sunlight-*-clear.png`.
+- Compatibility: no save fields, persisted IDs, generator rules or versions,
+  atlas tiles, packed-light propagation, SetBlock / ApplyEdit mutation paths,
+  greedy meshing or chunk streaming changed.

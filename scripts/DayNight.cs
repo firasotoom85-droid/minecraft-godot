@@ -16,6 +16,7 @@ public partial class DayNight : Node
     public WorldEnvironment? WorldEnv;
 
     private const double DayLength = 600.0;   // seconds for a full day
+    private const float SunAzimuthDegrees = -35.0f;
     private const int CausticFrames = 6;
 
     internal readonly record struct SkyPalette(
@@ -29,7 +30,10 @@ public partial class DayNight : Node
             float AmbientLightEnergy,
             float SunEnergy,
             float MoonEnergy,
-            double FogDensityMultiplier);
+            double FogDensityMultiplier,
+            Vector3 SunDirection,
+            Color SunColor,
+            Color SkyLightColor);
 
     /// <summary>
     /// Deterministic atmosphere palette shared by gameplay and visual tests.
@@ -81,8 +85,42 @@ public partial class DayNight : Node
         float sunEnergy = (float)(day * 1.15 * (1.0 - cover * 0.60));
         float moonEnergy = (float)(night * 0.22 * (1.0 - cover * 0.50));
 
+        Color dawnSun = new(1.0f, 0.66f, 0.40f);
+        Color duskSun = new(1.0f, 0.49f, 0.31f);
+        Color twilightSun = dawnSun.Lerp(duskSun, (float)duskShare);
+        Color sunColor = new Color(1.0f, 0.96f, 0.89f)
+                .Lerp(twilightSun, (float)(twilight * 0.96));
+        sunColor = sunColor.Lerp(new Color(0.82f, 0.88f, 0.98f), (float)(night * 0.65));
+        sunColor = sunColor.Lerp(Colors.White, (float)(lightning * 0.85));
+
+        Color skyLightColor = new Color(0.88f, 0.94f, 1.0f)
+                .Lerp(new Color(0.42f, 0.52f, 0.78f), (float)(night * 0.72));
+        skyLightColor = skyLightColor.Lerp(twilightSun, (float)(twilight * 0.20));
+        skyLightColor = skyLightColor.Lerp(new Color(0.72f, 0.79f, 0.90f), (float)(clouds * 0.45));
+        skyLightColor = skyLightColor.Lerp(Colors.White, (float)(lightning * 0.55));
+
         return new SkyPalette(day, night, twilight, top, horizon, ground,
-                skyLight, ambient, sunEnergy, moonEnergy, 1.0 + cover * 1.6);
+                skyLight, ambient, sunEnergy, moonEnergy, 1.0 + cover * 1.6,
+                EvaluateSunDirection(t), sunColor, skyLightColor);
+    }
+
+    /// <summary>
+    /// Direction from a shaded surface toward the sun, matching the existing
+    /// runtime light rotation and its fixed 35-degree azimuth.
+    /// </summary>
+    internal static Vector3 EvaluateSunDirection(double timeOfDay)
+    {
+        if (!double.IsFinite(timeOfDay))
+            return Vector3.Down;
+
+        double t = timeOfDay - System.Math.Floor(timeOfDay);
+        double angle = (t - 0.25) * System.Math.Tau;
+        float azimuthRadians = SunAzimuthDegrees * (Mathf.Pi / 180.0f);
+        float horizontal = (float)System.Math.Cos(angle);
+        return new Vector3(
+                Mathf.Sin(azimuthRadians) * horizontal,
+                (float)System.Math.Sin(angle),
+                Mathf.Cos(azimuthRadians) * horizontal).Normalized();
     }
 
     private static double SmoothStep(double edge0, double edge1, double value)
@@ -185,7 +223,9 @@ public partial class DayNight : Node
         // Smooth per-frame sun/moon angle: the PSSM near cascade has such fine
         // texels that each frame's movement is sub-pixel on screen, so the
         // shadows drift continuously instead of dancing in visible steps.
-        Sun!.RotationDegrees = new Vector3(-Mathf.RadToDeg((float)a), -35.0f, 0.0f);
+        Sun!.RotationDegrees = new Vector3(
+                -Mathf.RadToDeg((float)a), SunAzimuthDegrees, 0.0f);
+        Sun.LightColor = palette.SunColor;
         Sun.LightEnergy = palette.SunEnergy;
         Sun.Visible = sinA > -0.15;
         _moon.RotationDegrees = new Vector3(-Mathf.RadToDeg((float)(a + System.Math.PI)), -35.0f, 0.0f);
@@ -198,7 +238,8 @@ public partial class DayNight : Node
         _skyMat.GroundHorizonColor = palette.GroundHorizon;
 
         Godot.Environment env = WorldEnv!.Environment;
-        ChunkMaterials.SetSkyEnergy(palette.SkyLightEnergy);
+        ChunkMaterials.SetSkyLighting(palette.SkyLightEnergy, palette.SunDirection,
+                palette.SunColor, palette.SkyLightColor, palette.SunEnergy);
         env.AmbientLightEnergy = palette.AmbientLightEnergy;
         Color fogColor = palette.Horizon;
         double fogDensity = _fogDensityAir * palette.FogDensityMultiplier;
