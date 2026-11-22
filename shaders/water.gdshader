@@ -16,18 +16,24 @@ uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
 uniform vec3 sun_color = vec3(1.0, 0.96, 0.89);
 uniform vec3 sky_light_color = vec3(0.88, 0.94, 1.0);
 uniform float sunlight_energy : hint_range(0.0, 1.25) = 1.0;
+uniform vec3 moon_direction = vec3(0.0, -1.0, 0.0);
+uniform vec3 moon_color = vec3(0.62, 0.74, 1.0);
+uniform float moonlight_energy : hint_range(0.0, 0.35) = 0.0;
 uniform float caustic_strength : hint_range(0.0, 2.0) = 0.0;
 
 varying vec3 world_pos;
 varying vec3 world_normal;
 varying float view_depth;
 
-vec3 directional_sky_light(vec3 normal, float sky) {
+vec3 directional_sky_light(vec3 normal, float sky, float sky_exposure) {
     float sun_facing = max(dot(normalize(normal), sun_direction), 0.0);
     float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
     float directional_gain = 0.88 + direct_sun * 0.12;
+    float moon_facing = max(dot(normalize(normal), moon_direction), 0.0);
+    float moon_fill = clamp(sky_exposure, 0.0, 1.0)
+            * moonlight_energy * (0.28 + moon_facing * 0.72);
     vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
-    return sky * sky_tint * directional_gain;
+    return sky * sky_tint * directional_gain + moon_color * moon_fill;
 }
 
 void vertex() {
@@ -61,7 +67,7 @@ void fragment() {
 	float shadowed_block = block * (1.0 - sky);
 	float shade = COLOR.b;
 	vec3 warm = vec3(1.0, 0.68, 0.38);
-	vec3 illumination = vec3(0.04) + directional_sky_light(world_normal, sky) + warm * shadowed_block * 0.35;
+	vec3 illumination = vec3(0.04) + directional_sky_light(world_normal, sky, COLOR.r) + warm * shadowed_block * 0.35;
 	vec3 base = tex.rgb * illumination * shade;
 	// Shoreline fade: how much water sits between this fragment and the
 	// opaque scene behind it.
