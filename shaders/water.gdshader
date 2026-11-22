@@ -18,13 +18,17 @@ varying vec3 world_pos;
 varying float view_depth;
 
 void vertex() {
-	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	float swell = sin(world_pos.x * 1.1 + TIME * wave_speed)
-		+ cos(world_pos.z * 1.3 + TIME * wave_speed * 0.8)
-		+ sin((world_pos.x + world_pos.z) * 0.6 + TIME * wave_speed * 1.2);
+	vec3 base_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	float swell = sin(base_world_pos.x * 1.1 + TIME * wave_speed)
+		+ cos(base_world_pos.z * 1.3 + TIME * wave_speed * 0.8)
+		+ sin((base_world_pos.x + base_world_pos.z) * 0.6 + TIME * wave_speed * 1.2);
 	// Only the surface (upward faces) moves, so shorelines never tear.
 	VERTEX.y += swell * wave_strength * max(NORMAL.y, 0.0);
-	view_depth = -(VIEW_MATRIX * vec4(VERTEX, 1.0)).z;
+	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	// VERTEX is chunk-local. Reconstruct positive camera-space depth from the
+	// translated world position so shoreline fading and distant ripple damping
+	// behave identically in every streamed chunk.
+	view_depth = -(VIEW_MATRIX * vec4(world_pos, 1.0)).z;
 	// Damp ripples with distance: far sparkle is temporal AA's worst enemy.
 	float ripple_fade = 1.0 - smoothstep(40.0, 120.0, view_depth);
 	// Ripple the surface normal with two scrolling waves (model space; the
@@ -54,10 +58,15 @@ void fragment() {
 	float thickness = max(scene_depth - view_depth, 0.0);
 	float depth_alpha = clamp(thickness / shore_fade, 0.18, 1.0);
 	float fresnel = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 2.0);
-	ALBEDO = base * dim;
+	// Restrained animated foam gives shallow river/lake edges a readable
+	// transition without adding another material or particle system.
+	float shoreline = 1.0 - smoothstep(0.15, max(shore_fade, 0.16), thickness);
+	float foam_wave = 0.5 + 0.5 * sin(world_pos.x * 1.9 + world_pos.z * 1.4 + TIME * 0.55);
+	float foam = shoreline * smoothstep(0.58, 0.88, foam_wave) * 0.20;
+	ALBEDO = mix(base * dim, vec3(0.78, 0.89, 0.94), foam);
 	EMISSION += tex.rgb * warm * block * 0.5;
 	ALPHA = clamp(tex.a * alpha_base * depth_alpha + fresnel * 0.2, 0.0, 1.0);
-	ROUGHNESS = mix(0.12, 0.5, smoothstep(40.0, 120.0, view_depth));
+	ROUGHNESS = mix(0.12, 0.5, smoothstep(40.0, 120.0, view_depth) + foam * 0.4);
 	// Caustic light webs on the underside of the surface (diver's view).
 	if (!FRONT_FACING && caustic_strength > 0.0) {
 		float w1 = sin(world_pos.x * 1.9 + TIME * 1.1) * sin(world_pos.z * 1.5 - TIME * 0.8);

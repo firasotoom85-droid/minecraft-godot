@@ -16,8 +16,86 @@ public partial class DayNight : Node
     public WorldEnvironment? WorldEnv;
 
     private const double DayLength = 600.0;   // seconds for a full day
-    private static readonly Color Sunset = new(1.0f, 0.5f, 0.25f);
     private const int CausticFrames = 6;
+
+    internal readonly record struct SkyPalette(
+            double Daylight,
+            double Night,
+            double Twilight,
+            Color Top,
+            Color Horizon,
+            Color GroundHorizon,
+            float SkyLightEnergy,
+            float AmbientLightEnergy,
+            float SunEnergy,
+            float MoonEnergy,
+            double FogDensityMultiplier);
+
+    /// <summary>
+    /// Deterministic atmosphere palette shared by gameplay and visual tests.
+    /// Twilight uses narrow dawn/dusk envelopes while daylight follows the sun
+    /// elevation, avoiding a hard colour jump at either horizon crossing.
+    /// </summary>
+    internal static SkyPalette EvaluatePalette(double timeOfDay, double cloudiness, double flash)
+    {
+        double t = timeOfDay - System.Math.Floor(timeOfDay);
+        double angle = (t - 0.25) * System.Math.Tau;
+        double elevation = System.Math.Sin(angle);
+        double day = SmoothStep(-0.14, 0.28, elevation);
+        double night = 1.0 - day;
+        double sunrise = GaussianPulse(t, 0.25, 0.065);
+        double sunset = GaussianPulse(t, 0.75, 0.065);
+        double twilight = System.Math.Clamp(System.Math.Max(sunrise, sunset), 0.0, 1.0);
+        double cover = System.Math.Clamp(cloudiness, 0.0, 1.0);
+        double clouds = SmoothStep(0.12, 0.92, cover);
+        double lightning = System.Math.Clamp(flash, 0.0, 1.0);
+
+        Color top = new Color(0.012f, 0.020f, 0.055f)
+                .Lerp(new Color(0.22f, 0.44f, 0.80f), (float)day);
+        Color horizon = new Color(0.04f, 0.065f, 0.14f)
+                .Lerp(new Color(0.66f, 0.78f, 0.95f), (float)day);
+        Color ground = new Color(0.012f, 0.018f, 0.032f)
+                .Lerp(new Color(0.25f, 0.30f, 0.26f), (float)day);
+
+        double duskShare = sunset / System.Math.Max(sunrise + sunset, 0.0001);
+        Color twilightHorizon = new Color(1.0f, 0.56f, 0.34f)
+                .Lerp(new Color(1.0f, 0.36f, 0.25f), (float)duskShare);
+        top = top.Lerp(new Color(0.39f, 0.24f, 0.40f), (float)(twilight * 0.68));
+        horizon = horizon.Lerp(twilightHorizon, (float)(twilight * 0.92));
+        ground = ground.Lerp(new Color(0.24f, 0.13f, 0.17f), (float)(twilight * 0.32));
+
+        // Overcast skies lose saturation and brightness without becoming a
+        // flat grey; a small horizon lift preserves distance readability.
+        top = top.Lerp(new Color(0.27f, 0.31f, 0.39f), (float)(clouds * 0.72));
+        horizon = horizon.Lerp(new Color(0.50f, 0.56f, 0.64f), (float)(clouds * 0.62));
+        ground = ground.Lerp(new Color(0.17f, 0.19f, 0.22f), (float)(clouds * 0.28));
+
+        top = top.Lerp(new Color(0.88f, 0.92f, 1.0f), (float)(lightning * 0.85));
+        horizon = horizon.Lerp(new Color(0.95f, 0.97f, 1.0f), (float)(lightning * 0.90));
+        ground = ground.Lerp(new Color(0.78f, 0.84f, 0.94f), (float)(lightning * 0.55));
+
+        float skyLight = (float)System.Math.Clamp(
+                day * (1.0 - cover * 0.65) + night * 0.10, 0.0, 1.25);
+        float ambient = (float)((0.10 + day * 0.90) * (1.0 - cover * 0.30)
+                + lightning * 2.0);
+        float sunEnergy = (float)(day * 1.15 * (1.0 - cover * 0.60));
+        float moonEnergy = (float)(night * 0.22 * (1.0 - cover * 0.50));
+
+        return new SkyPalette(day, night, twilight, top, horizon, ground,
+                skyLight, ambient, sunEnergy, moonEnergy, 1.0 + cover * 1.6);
+    }
+
+    private static double SmoothStep(double edge0, double edge1, double value)
+    {
+        double x = System.Math.Clamp((value - edge0) / (edge1 - edge0), 0.0, 1.0);
+        return x * x * (3.0 - 2.0 * x);
+    }
+
+    private static double GaussianPulse(double value, double center, double width)
+    {
+        double distance = (value - center) / width;
+        return System.Math.Exp(-distance * distance);
+    }
     private const double CausticFrameTime = 0.1;
 
     private readonly DirectionalLight3D _moon = new();
@@ -100,43 +178,30 @@ public partial class DayNight : Node
         double t = World.TimeOfDay;
         double a = (t - 0.25) * System.Math.Tau;   // 0.25 sunrise, 0.5 noon, 0.75 sunset
         double sinA = System.Math.Sin(a);
-        double day = System.Math.Clamp(sinA * 1.8, 0.0, 1.0);      // daylight factor
-        double night = System.Math.Clamp(-sinA * 1.8, 0.0, 1.0);   // night factor
-        double dusk = System.Math.Clamp(1.0 - System.Math.Abs(sinA) * 4.0, 0.0, 1.0);
+        SkyPalette palette = EvaluatePalette(t, Cloudiness, SkyFlash);
+        double day = palette.Daylight;
+        double night = palette.Night;
 
         // Smooth per-frame sun/moon angle: the PSSM near cascade has such fine
         // texels that each frame's movement is sub-pixel on screen, so the
         // shadows drift continuously instead of dancing in visible steps.
         Sun!.RotationDegrees = new Vector3(-Mathf.RadToDeg((float)a), -35.0f, 0.0f);
-        Sun.LightEnergy = (float)(day * 1.15 * (1.0 - Cloudiness * 0.6));
+        Sun.LightEnergy = palette.SunEnergy;
         Sun.Visible = sinA > -0.15;
         _moon.RotationDegrees = new Vector3(-Mathf.RadToDeg((float)(a + System.Math.PI)), -35.0f, 0.0f);
-        _moon.LightEnergy = (float)(night * 0.22 * (1.0 - Cloudiness * 0.5));
+        _moon.LightEnergy = palette.MoonEnergy;
         _moon.Visible = night > 0.02;
 
         double flash = System.Math.Clamp(SkyFlash, 0.0, 1.0);
-        Color gray = new Color(0.02f, 0.025f, 0.045f).Lerp(new Color(0.45f, 0.48f, 0.54f), (float)day);
-        Color top = new Color(0.02f, 0.03f, 0.09f).Lerp(new Color(0.22f, 0.44f, 0.80f), (float)day);
-        Color horizon = new Color(0.05f, 0.07f, 0.16f).Lerp(new Color(0.66f, 0.78f, 0.95f), (float)day);
-        horizon = horizon.Lerp(Sunset, (float)(dusk * (0.25 + day * 0.8)));
-        top = top.Lerp(gray, (float)Cloudiness);
-        horizon = horizon.Lerp(gray, (float)(Cloudiness * 0.9));
-        if (flash > 0.001)
-        {
-            top = top.Lerp(new Color(0.90f, 0.93f, 1.0f), (float)(flash * 0.85));
-            horizon = horizon.Lerp(new Color(0.95f, 0.97f, 1.0f), (float)(flash * 0.9));
-        }
-
-        _skyMat.SkyTopColor = top;
-        _skyMat.SkyHorizonColor = horizon;
-        _skyMat.GroundHorizonColor = horizon;
+        _skyMat.SkyTopColor = palette.Top;
+        _skyMat.SkyHorizonColor = palette.Horizon;
+        _skyMat.GroundHorizonColor = palette.GroundHorizon;
 
         Godot.Environment env = WorldEnv!.Environment;
-        float skyLightEnergy = (float)(day * (1.0 - Cloudiness * 0.65) + night * 0.10);
-        ChunkMaterials.SetSkyEnergy(skyLightEnergy);
-        env.AmbientLightEnergy = (float)((0.10 + day * 0.90) * (1.0 - Cloudiness * 0.3) + flash * 2.0);
-        Color fogColor = horizon;
-        double fogDensity = _fogDensityAir * (1.0 + Cloudiness * 1.6);
+        ChunkMaterials.SetSkyEnergy(palette.SkyLightEnergy);
+        env.AmbientLightEnergy = palette.AmbientLightEnergy;
+        Color fogColor = palette.Horizon;
+        double fogDensity = _fogDensityAir * palette.FogDensityMultiplier;
 
         // Biome tint and cave depth share one cached generator sample.
         bool hasTerrainSample = World != null && PlayerRef != null;
@@ -178,7 +243,8 @@ public partial class DayNight : Node
         env.FogLightColor = env.FogLightColor.Lerp(fogColor, blend);
         env.FogDensity = Mathf.Lerp(env.FogDensity, (float)fogDensity, blend);
 
-        _starMaterial.AlbedoColor = _starMaterial.AlbedoColor.WithAlpha((float)System.Math.Clamp(night * 1.4 - 0.3, 0.0, 1.0));
+        _starMaterial.AlbedoColor = _starMaterial.AlbedoColor.WithAlpha(
+                (float)System.Math.Clamp(night * 1.4 - 0.3, 0.0, 1.0));
         UpdateCaustics(delta);
         Camera3D? cam = GetViewport().GetCamera3D();
         if (cam != null)
@@ -195,8 +261,10 @@ public partial class DayNight : Node
                 Mathf.Snapped(cam.GlobalPosition.Z, 16.0f));
         }
 
-        UpdateCloudLayer(_clouds, day, Cloudiness, 0.85 + Cloudiness * 0.15, 0.004, delta);
-        UpdateCloudLayer(_cloudsHigh, day, Cloudiness, 0.5 + Cloudiness * 0.2, 0.0068, delta);
+        UpdateCloudLayer(_clouds, day, Cloudiness, palette.Horizon, palette.Twilight,
+                0.85 + Cloudiness * 0.15, 0.004, delta);
+        UpdateCloudLayer(_cloudsHigh, day, Cloudiness, palette.Horizon, palette.Twilight,
+                0.5 + Cloudiness * 0.2, 0.0068, delta);
     }
 
     private void UpdateTerrainSample()
@@ -224,13 +292,15 @@ public partial class DayNight : Node
 
     private static void UpdateCloudLayer(
             MeshInstance3D layer, double day, double cloudiness,
-            double alpha, double speed, double delta)
+            Color twilightHorizon, double twilight, double alpha, double speed, double delta)
     {
         StandardMaterial3D cloudMat = (StandardMaterial3D)layer.MaterialOverride;
         Color cloudColor = new Color(1, 1, 1).Lerp(
-                new Color(0.30f, 0.35f, 0.52f), (float)(1.0 - day));
+                new Color(0.24f, 0.28f, 0.42f), (float)(1.0 - day));
         cloudColor = cloudColor.Lerp(
-                new Color(0.42f, 0.44f, 0.50f), (float)cloudiness).WithAlpha((float)alpha);
+                new Color(0.42f, 0.45f, 0.52f), (float)cloudiness);
+        cloudColor = cloudColor.Lerp(twilightHorizon, (float)(twilight * 0.18))
+                .WithAlpha((float)alpha);
         cloudMat.AlbedoColor = cloudColor;
         Vector3 uvOffset = cloudMat.Uv1Offset;
         cloudMat.Uv1Offset = uvOffset.WithX((float)((uvOffset.X + delta * speed) % 1.0));

@@ -274,6 +274,26 @@ optional camera scale (0.2–2.0; smaller values move the inspection camera
 closer). The capture scene waits for surrounding chunks to stream before
 saving the 1600×900 viewport image.
 
+## Environment and water visual validation
+
+The environment polish pass adds a deterministic dawn/day/dusk/night palette,
+biome-aware rain/snow transitions, and world-space water depth with restrained
+shoreline foam. It extends the existing day/night, weather and water shader
+systems without changing save formats, persisted IDs, world generation, voxel
+lighting propagation, greedy meshing or chunk streaming.
+
+Run a fixed real-scene Forward+ atmosphere capture with:
+
+```bash
+godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 8 512 -372 0.50 Clear res://docs/visual/screenshots/atmosphere-river-valley-noon-clear.png
+```
+
+Arguments are seed, generator version (1–9 on current main), world X/Z, time of day, weather
+(`Clear`, `Cloudy` or `Rain`) and output PNG path. The runner creates and
+removes a disposable world. Matching V8 and V9 MX230 samples and the remaining manual capture matrix are
+documented in
+[`docs/VISUAL_MILESTONE_4_ENVIRONMENT.md`](docs/VISUAL_MILESTONE_4_ENVIRONMENT.md).
+
 ### Long-duration survival soak
 
 An opt-in integration runner loads the real main scene in Normal Survival and

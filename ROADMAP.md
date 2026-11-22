@@ -1492,3 +1492,37 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - Refined glass alpha, front-face culling and bounds-center transparent sorting while retaining the existing chunk glass surface.
 - Added regression coverage for ore pixel readability/opacity, foliage alpha coverage and light transmission, stone shader consistency, material-family routing, glass sorting and texture mapping. Extended the production-scene GPU capture fixture to show these material families together at close and distant views.
 - No existing BlockId/ItemId values were reordered or reused. No generator, save format, voxel mutation, greedy meshing or chunk-streaming rules changed.
+
+## 23. Visual quality pass — environment and water — 2026-11-22
+
+- Extended the existing `DayNight` runtime with a deterministic atmosphere
+  palette for dawn, day, dusk, night, overcast and lightning. Sky, ground
+  horizon, sun/moon energy, ambient light and fog response share one evaluator;
+  existing cave, underwater, biome tint, clouds, stars and caustics remain.
+- Updated the existing weather system to switch between rain and snow when the
+  player crosses into or out of a snow biome. Biome sampling is cached per
+  integer player column and is not repeated every frame in a stationary cell.
+- Corrected the water shader's camera-depth calculation to use the transformed
+  world position after top-face wave displacement. Added restrained procedural
+  shoreline foam without a new material, texture or node system.
+- Added deterministic atmosphere and water presentation regression tests, plus
+  a real-scene GPU capture runner for fixed seed, generator version, position,
+  time and weather. A 1600×900 V8 river-valley noon capture rendered 49 chunks
+  on the MX230 with Forward+ / Vulkan.
+- Validation after rebasing onto current main: Godot 4.7.2 .NET Debug and
+  Release builds passed with 0 warnings and 0 errors; the integrated suite
+  passed **153,482 checks / 0 failures**, including performance, streaming,
+  graphics, material, glass, V9 weathering and gameplay regressions. A
+  real-scene Forward+ / Vulkan captures rendered 49 chunks on V8 and 40 chunks
+  on V9 on the MX230, both at 1600×900 with the same seed and camera target.
+- Compatibility: no persisted IDs, save fields, generator outputs, voxel edit
+  paths, packed light propagation, greedy meshing or chunk streaming changed.
+- The current main branch already contains the material-response matrix,
+  isolated texture-array mipmaps, ore/foliage/glass presentation, terrain
+  transitions, and generated-ruin weathering. This increment leaves those
+  systems and assets unchanged.
+- Remaining visual sign-off: repeat the capture matrix across biome/time/
+  weather combinations and inspect cave, village, underwater and LOW/HIGH
+  preset views manually. One GPU reference frame is not a complete art review.
+- See `docs/VISUAL_MILESTONE_4_ENVIRONMENT.md` for scope, exact capture command,
+  rendered sample, and validation detail.
