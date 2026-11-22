@@ -1636,3 +1636,39 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   targets; verify controller-trigger hold/release timing. The available run was
   headless and does not claim rendered visual approval.
 - See docs/FIRST_PERSON_ANIMATION.md for profile intent and test coverage.
+## 25. Equipment durability icon readability — 2026-11-22
+
+- Audited the existing procedural `ItemDb` equipment art, atlas-backed block
+  icons, inventory/hotbar slot refresh paths, and first-person held-item sprite.
+  Durability was already saved and displayed as text for some tools/weapons,
+  but armor had no visual condition indicator and hotbar weapon handling could
+  treat a worn item as an ordinary count.
+- Added three cached scuff stages for tools, weapons, bows, shields and armor by
+  painting restrained pixel marks into the existing original 32×32 icon image.
+  The pristine icon remains unchanged; block items retain the exact atlas path,
+  region and sampler.
+- Added a shared green/amber/red three-pixel condition meter to the existing
+  inventory and hotbar slot panel draw pass. Durability values now cover every
+  durable equipment type in hotbar labels and slot tooltips; worn values move
+  away from the meter. Armor, chest and furnace slot panels use the same path.
+- First-person held-item presentation switches to the cached icon when the wear
+  stage changes and keeps the existing shared material response. It creates no
+  per-frame textures or materials. Slot panels draw the meter directly, so the
+  slot hierarchy gains no additional controls.
+- Added `EquipmentDurabilityVisualTests` for tools/weapons/armor, empty and
+  non-durable items, threshold boundaries, clamping, meter colors, icon pixel
+  changes and cache reuse, atlas compatibility, and unchanged slot child count.
+- Compatibility: no persisted block/item IDs, save fields, atlas tile indices,
+  generator versions or world-generation output changed. No voxel edit, greedy
+  meshing, lighting or chunk-streaming code was modified.
+- Performance design: at most three lazy 32×32 variants per durable item, shared
+  per-process cache; stage checks are constant-time, and the held sprite updates
+  only on a band transition. Durability meters reuse the existing slot controls
+  and are redrawn only when the displayed condition changes.
+- Verification: Godot 4.7.2 .NET Debug build completed with 0 warnings and 0
+  errors; `scripts/verify.sh` passed 186,379 checks with 0 failures across 39
+  suites. A rendered production
+  `InvSlot` fixture ran through Forward+ / Vulkan on the MX230 (960×760); a
+  half-size review retained the colored meter and recognizable scuff states.
+  The fixture is repeatable via the README command and writes its PNG under
+  `user://`.
