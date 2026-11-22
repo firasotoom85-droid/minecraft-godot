@@ -6,6 +6,16 @@ namespace Minecraft;
 /// Escape overlay: pauses the tree, resumes it, saves on demand, shares the
 /// settings form with the main menu and can quit back to the menu.
 /// </summary>
+public static class PauseInputPolicy
+{
+    /// <summary>
+    /// A nested keybind modal owns Escape/back. The pause menu must not consume
+    /// the same event and close the parent pause layer underneath it.
+    /// </summary>
+    public static bool CanHandlePause(bool pauseOpen, bool keybindOpen, bool playerInputLocked) =>
+            !(pauseOpen && keybindOpen) && (pauseOpen || !playerInputLocked);
+}
+
 public partial class PauseMenu : CanvasLayer, IModalUi
 {
     public const string MenuScene = "res://scenes/main_menu.tscn";
@@ -104,9 +114,10 @@ public partial class PauseMenu : CanvasLayer, IModalUi
     public override void _UnhandledInput(InputEvent @event)
     {
         if (@event is InputEventKey { Echo: true }) return;
-        // Never stack pause over another modal; closing pause would stop the
-        // pause tree and hand input back while the other panel stays open.
-        if (!_open && _player.InputLocked) return;
+        // The keybind modal owns Escape/back while it is nested over pause.
+        // Consuming the same pause action here would unpause beneath the modal.
+        if (!PauseInputPolicy.CanHandlePause(_open, _keybinds.IsOpen, _player.InputLocked))
+            return;
         if (@event.IsActionPressed("pause"))
         {
             Toggle();

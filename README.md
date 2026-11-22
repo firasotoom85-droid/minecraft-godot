@@ -4,7 +4,7 @@ A from-scratch, infinite-world voxel game built with **Godot 4.7.2 (.NET)** and
 **C#**. It keeps the Minecraft loop — mine, craft, build, survive the night —
 and adds a cozy-leaning survival layer: campfires that heal and repel hostiles,
 an adaptive procedural soundscape, a live 3D main menu, photo mode, and an
-event-driven “First Night” guide.
+event-driven first-hour survival guide.
 
 The project is a long-running solo build with an extensive design log in
 [`PLAN.md`](PLAN.md) and a forward roadmap in [`ROADMAP.md`](ROADMAP.md).
@@ -113,11 +113,16 @@ with the procedural atlas.
   the arena boss. A wandering trader, weather, lightning and ambient life
   complete the ecosystem.
 - **Interface** — shared pixel-art menu, HUD, inventory, chest and furnace styling; viewport-aware panel scaling; slot hover feedback and tooltips; drag-and-drop and Shift-click stack movement.
-- **First-person presentation** — selected-item icon viewmodel with swing animation, layered onto the existing arm, swimming strokes, head bob and landing response.
+- **First-person presentation** — the existing arm and held-item viewmodel now use distinct mining, melee, placement, eating, bow-release, shield-block and landing profiles, layered with locomotion bob, idle breathing, climbing, swimming, bow draw and shield guard. The item material/icon cache and camera attachment remain unchanged.
 - **Controller support** — left-stick movement, right-stick look, gamepad actions for mining/placing, hotbar cycling, inventory, pause, map and journal, with persistent button rebinding.
 - **Quality of life** — minimap with zoom and waypoints, achievements journal,
   keyboard/controller rebinding, accessibility toggles, photo mode, dev console,
   and an automatic quality governor.
+- **First-hour guidance** — a contextual, per-world 15-step survival guide
+  teaches movement, gathering, crafting, mining, food, shelter, furnace use,
+  combat, caves, villages and the first night. Steps are completed by successful
+  gameplay events rather than starter-kit inventory, and progress is retained
+  in the existing world flags.
 - **Deterministic saves** — per-world folders, atomic writes, rotating backups,
   and byte-parity anchors so old worlds never change under new worldgen. Save
   format v4 adds optional block-shape state, villager and quest records, and
@@ -182,8 +187,8 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-The 2026-11-22 integration suite reports **186,327 checks, 0 failures** across
-38 suites, with 0 build warnings. It includes deterministic V9 weathering,
+The 2026-11-22 integration suite reports **186,422 checks, 0 failures** across
+40 suites, with 0 build warnings. It includes deterministic V9 weathering,
 the V10 foliage-only delta, V8-to-V9 chunk-diff and chunk-order regressions,
 atmosphere/weather/water presentation, the performance runner, streaming memory
 accounting, the combined save round-trip (shapes + villagers + quests + boats),
@@ -193,6 +198,37 @@ V1–V8 golden chunk hashes. The headless runner and a verbose real-scene soak b
 leaked ObjectDB instances or RIDs. The project-specific reliability audit,
 including seven confirmed fixes and the remaining manual-coverage gaps, is in
 [`docs/RELIABILITY_AUDIT_2026-11-21.md`](docs/RELIABILITY_AUDIT_2026-11-21.md).
+
+### Gameplay polish — Milestone 5 increment
+
+The existing first-night hint chain has been expanded into a contextual
+15-step first-hour guide. It observes successful player actions (block breaks,
+crafting, food gathering/eating, block placement, furnace use and resident
+interaction), natural cave entry, hostile defeats and the night-to-dawn
+transition. The guide preserves the previous `onboard/wood`, `table`,
+`pick`, `stone`, `torch`, `night` and `done` flags; new facts use the
+existing world flag dictionary, so no save-version migration is required.
+Shelter progress counts placed solid blocks, not torch placement or farmland
+tilling.
+
+Quest objective completion now emits an event consumed by the HUD to announce
+stage advancement and completion, while reward claims remain in the existing
+transactional quest path. The pause input policy also leaves Escape/back to the
+keybind modal while it is open above the pause menu. Regression coverage is
+included for the onboarding action rules, quest stage events and nested modal
+input policy.
+
+Validation on Godot 4.7.2 .NET / .NET 9:
+- Debug build: 0 warnings, 0 errors.
+- Release build: 0 warnings, 0 errors.
+- `scripts/verify.sh`: **186,422 checks, 0 failures**.
+- First-person animation profiles and pose envelopes have automated coverage;
+  rendered pose sign-off on the MX230 and physical controller action review
+  remain manual. Boat handling and broader village/trading usability also
+  require interactive playtesting.
+
+Implementation notes and remaining Milestone 5 scope are in
+[`docs/GAMEPLAY_MILESTONE_5.md`](docs/GAMEPLAY_MILESTONE_5.md).
 
 ### Performance benchmarking
 
