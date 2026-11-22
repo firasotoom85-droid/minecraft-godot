@@ -82,4 +82,7 @@ public enum BlockId : byte
 
     // V11 shoreline vegetation (append-only persisted ID).
     RiverReeds = 59,
+
+    // Original procedural volcanic ash surface (append-only persisted ID).
+    Ash = 60,
 }

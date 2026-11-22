@@ -850,7 +850,7 @@ content is stable.
 
 | Risk | Mitigation |
 |---|---|
-| Content capacity/atlas overflow | Satisfied: 128 block slots, 256 atlas tiles, append-only validator and 60 registered blocks |
+| Content capacity/atlas overflow | Satisfied: 128 block slots, 256 atlas tiles, append-only validator and 61 registered blocks |
 | Torch lighting looks flat or costs FPS | Ship pooled-light v1; only build voxel propagation with measured justification |
 | Chest/furnace save bloat | Save only non-empty containers; cap; versioned migration |
 | Localization touches every code-built UI string | Central `Tr()` first, extract incrementally; prototype Arabic/RTL early |
@@ -1914,3 +1914,60 @@ the existing per-shape cache.
 - No production per-frame work, collider generation, or persistent resource
   allocations were added. The additional plane, labels and preview geometry are
   confined to this opt-in test scene.
+
+## 35. Snow, sand and ash surface variation — 2026-11-22
+
+The texture audit found that snow and sand were authored with independent
+random speckles, which did not guarantee a seamless tile edge, and the block
+registry had no ash material. The existing surface-variation suite now inspects
+the generated atlas pixels directly, in addition to its shader-family checks.
+
+- Replaced the final snow and sand paint with deterministic multi-scale
+  periodic value noise. Broad, drift, grain and fine octaves use smooth
+  interpolation and wrap in both axes. All samples share the existing 2×2
+  texel detail footprint, keeping the texture quiet under distant mipmapping
+  without adding a shader sample or runtime noise lookup.
+- Applied the same calm periodic field to the exposed soil body of the
+  snowy-grass side tile. Its snow cap follows a low-frequency periodic edge
+  quantized to the same two-pixel detail unit, so the white/soil boundary meets
+  cleanly across horizontal tile repeats without splitting a detail cluster.
+- Added original procedural ash art at atlas tile 60, with append-only
+  `BlockId.Ash` 60 and `ItemId.Ash` 109. Ash is a solid opaque shovel block
+  that drops itself, appears in the normal item palette and material gallery,
+  and uses the diffuse soil/wet-contact response plus the existing sand-like
+  dig/place sounds. The held icon uses the shared atlas region.
+- Design decision: retain the existing 32px atlas, isolated texture-array
+  mipmaps, classic atlas sampling policy, material-family tag, greedy meshing
+  and chunk streaming. The pre-existing random paint calls still consume their
+  original seeded RNG draws before the new periodic pass, so later unrelated
+  procedural tiles keep their deterministic appearance.
+- Compatibility: existing `BlockId` 0–59, `ItemId` 0–108, atlas tiles 0–59,
+  save format V4, and generator V1–V11 are unchanged. Ash does not alter terrain
+  stamps or world generation. Placement/mining continue through the standard
+  `VoxelWorld.SetBlock` / `ApplyEdit` architecture.
+- Automated checks cover opaque pixels, tonal range, horizontal/vertical seam
+  energy against interior detail for uniform surfaces, snowy-grass side
+  continuity, append-only IDs, block/item round-trips, all six atlas faces,
+  first-person atlas mapping and soil material classification. Existing
+  mipmap and texture-detail regression tests remain active.
+- Performance: the periodic field is painted once during atlas initialization;
+  no per-frame scans, additional scene nodes, shader samples, physics work or
+  persistent runtime allocations are introduced. The additional art occupies
+  one 32×32 tile within the existing 256-tile atlas.
+- **Real-scene verification:** Godot 4.7.2 .NET / Vulkan Forward+ on the
+  GeForce MX230 rendered the 61-block production gallery in both classic atlas
+  and greedy texture-array modes at 1280×720. Each mode reached 9 streamed
+  chunks with zero pending payloads; close and distant PNG captures all
+  reported successful writes. The four frames are committed under
+  `docs/visual/screenshots/surface-variation-{atlas,greedy}-{close,distant}.png`.
+- **Automated verification:** `dotnet build -c Release` and
+  `scripts/verify.sh` passed on Godot 4.7.2 .NET with 0 compiler
+  warnings/errors and **198,108 checks / 0 failures**. The atlas seam, 2×2
+  cluster, opacity and tonal checks cover sand, snow and ash; the snowy-grass
+  side also passes its horizontal seam and 2×2-cluster checks. The integration
+  suite retains the existing V9–V11 generation anchors.
+- **Performance review:** the additional periodic painting runs once during
+  atlas construction. No per-frame cost, shader instruction, geometry, mesh
+  rebuild, collider, streaming or physics changes were introduced. No
+  controlled FPS delta is claimed; the manual captures confirm the MX230 path
+  remains functional at the gallery's existing 1280×720 profile.

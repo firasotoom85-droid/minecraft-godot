@@ -65,6 +65,9 @@ public enum ItemId : byte
 
     // Biome-specific canopy foliage (append-only; matches BlockId 56-58).
     SpruceLeaves, JungleLeaves, SwampLeaves, RiverReeds,
+
+    // Original procedural volcanic ash block item (append-only persisted ID).
+    Ash,
 }
 
 public enum ToolKind : byte
