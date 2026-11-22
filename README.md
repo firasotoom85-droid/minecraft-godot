@@ -4,10 +4,14 @@ A from-scratch, infinite-world voxel game built with **Godot 4.7.2 (.NET)** and
 **C#**. It keeps the Minecraft loop — mine, craft, build, survive the night —
 and adds a cozy-leaning survival layer: campfires that heal and repel hostiles,
 an adaptive procedural soundscape, a live 3D main menu, photo mode, and an
-event-driven “First Night” guide.
+event-driven first-hour survival guide.
 
 The project is a long-running solo build with an extensive design log in
 [`PLAN.md`](PLAN.md) and a forward roadmap in [`ROADMAP.md`](ROADMAP.md).
+
+PRs #49–#57 are integrated on `integration/pr49-57`; the contribution map,
+conflict resolutions, compatibility checks and measured validation are in
+[`docs/INTEGRATION_PR49_57.md`](docs/INTEGRATION_PR49_57.md).
 
 ## Unified voxel material response
 
@@ -18,25 +22,141 @@ atlas tile IDs are classified without changing persisted block/item IDs or
 world-generation output. One C# response table configures all world shaders
 and first-person materials. The mesher carries its compact family tag in vertex
 colour alpha; greedy meshes retain their tile-array layer in UV2.x, so existing
-merging, atlas UVs, and chunk streaming remain intact.
+merging, atlas UVs, and chunk streaming remain intact. Water-contact wetness is
+encoded in the unused alpha-tag range without adding a vertex attribute.
 
 The greedy texture array builds mipmaps from each isolated 32px tile rather
 than the combined atlas. This avoids cross-tile colour bleed at distance.
 The classic atlas path intentionally retains nearest sampling without atlas
 mipmaps because generating mipmaps from the packed atlas would blend adjacent
-tiles. Held-item sprites use the same response values through a cached-on-slot-
-change StandardMaterial3D; no per-frame material creation is performed.
+tiles. Block-backed item icons remain AtlasTexture regions of this unchanged
+atlas. Standalone procedural item icons are normalized into a centered 22px
+silhouette frame inside their 32px image, with a one-pixel graphite contour,
+a subtle upper-left-to-lower-right fill-light gradient, and four transparent pixels
+of outer padding. Each standalone image owns its own five-level mip chain;
+the first-person Sprite3D and its cached material use nearest-with-mipmaps
+sampling to retain crisp pixels close up and reduce distant shimmer. The icon
+finish runs only when a standalone texture is first requested; there is no
+per-frame icon work or new scene-node system.
+
+## Transparency and cutout rendering
+
+Foliage and crossed plants use the opaque atlas/texture-array shader with a
+shared 0.5 alpha-scissor threshold, opaque depth writes for surviving texels,
+and alpha-to-coverage under the project's MSAA setting. This keeps canopy and
+plant silhouettes out of the transparent sorting pass. Glass and animated
+water stay on dedicated alpha-blended chunk surfaces with `depth_draw_opaque`,
+so translucent fragments do not overwrite the scene depth buffer. Both
+transparent surfaces sort by their mesh AABB center rather than the chunk
+origin; glass culls back faces while water remains visible from both sides.
+Lava remains on its separate opaque, depth-writing emissive surface rather
+than entering transparent sorting. The first-person held-item `Sprite3D`
+retains texture alpha and nearest sampling so its icon edges stay consistent
+with the procedural atlas.
+
+The atlas/greedy-array/glass/water lighting shaders share a bounded sky/block blend:
+torch light fills only the remaining skylight headroom, with a small shadow-gated
+emission contribution. This prevents full daylight and torch channels from
+being stacked into washed-out surfaces while retaining warm contrast at night
+and in caves. New canopy tiles 56–58 are explicitly foliage, and every
+placeable held item derives its first-person response from its registered block
+atlas tile, preventing drift between the held sprite and placed geometry.
+
+## Consistent block-edge shading
+
+Cube corners, split cube faces, slabs and stairs now use the same half-voxel
+corner sampler for baked sky/block light and ambient occlusion. AO checks the
+actual 2×2×2 occupancy of neighbouring partial blocks instead of treating every
+slab or stair as a fully occupied cube. Internal stair risers therefore shade
+against the occupied half-cells that meet their edges, while unoccupied halves
+do not create false dark corners.
+
+The sampler is shared by the per-face path and the greedy face merge key, so
+both renderers agree on corner values. The padded block and shape-state
+neighbourhood also copies diagonal chunk corners; this keeps AO continuous at
+four-chunk intersections rather than substituting a clamped cardinal edge.
+Packed light is averaged from the same four corner-adjacent samples used by the
+AO calculation.
+
+This is a mesh-time shading correction, not a new lighting or art pipeline.
+The existing greedy mesher, partial-face splitting, atlas coordinates,
+texture-array tile layers/mipmaps, material-family tags and first-person
+held-item response remain in use. It adds no vertex attributes, scene nodes,
+runtime light nodes or per-frame scans; the additional occupancy and diagonal
+snapshot work happens while a chunk mesh is built. The production capture scene
+also includes a lower/upper slab and upright/inverted stair comparison row for
+close and distant inspection:
+
+```sh
+godot --path . res://tests/WoodArtVisualCapture.tscn -- 1337 /tmp/edge-distant.png /tmp/edge-close.png
+```
+
+## Water-adjacent materials and shoreline vegetation
+
+Faces that directly touch water keep their original material family and receive
+a compact wet tag. The atlas and greedy-array shaders apply the same cool,
+slightly darker response and softened roughness; dry faces retain their original
+values. Grass, dirt, sand, gravel and farmland can use the treatment. The far
+LOD applies the same tint when an existing coarse cell straddles the waterline,
+using its four terrain-corner samples rather than additional noise queries.
+
+New worlds use generator V11, which adds original procedural alpha-cutout river
+reeds to shallow sand and grass shorelines. `BlockId.RiverReeds` 59,
+`ItemId.RiverReeds` 108 and atlas tile 59 are appended; all prior IDs and atlas
+coordinates remain unchanged.
+V1–V10 generation remains frozen; this visual increment does not change save
+format, voxel mutation APIs, greedy meshing or chunk streaming.
+
+## Material test gallery
+
+`res://tests/MaterialGallery.tscn` is a standalone Forward+ inspection scene for
+every registered block ID. It lays the current 60 definitions into an 8×8
+pedestal gallery, adds an ID/name legend, and captures the complete set at close
+and distant camera scales. The scene uses a neutral display stage and fixed key /
+ambient lighting so material families can be compared under one repeatable setup.
+
+The fixture streams nine production `VoxelWorld` chunks with collision disabled
+and a two-worker meshing limit. All sample voxel changes go through
+`VoxelWorld.SetBlock`; the existing atlas, classic atlas shader, greedy
+texture-array shader, lighting tags and block definitions are reused. The
+streaming anchor has processing and physics disabled. Air is shown with a small
+wire outline because it has no rendered surface; Bedrock is a display-only cube
+using its registered face tiles and material response because `SetBlock`
+intentionally rejects Bedrock placement. Neither exception changes world data
+or weakens the gameplay mutation rules.
+
+Run both renderer paths on a desktop with Godot 4.7.2 .NET:
+
+```bash
+GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64
+PATH=/path/to/dotnet:$PATH DOTNET_ROOT=/path/to/dotnet DISPLAY=:0 \
+  "$GODOT" --path . res://tests/MaterialGallery.tscn -- 1337 \
+  res://docs/visual/screenshots/material-gallery-close.png \
+  res://docs/visual/screenshots/material-gallery-distant.png greedy
+
+# Replace the final renderer argument with "atlas" to exercise the classic atlas path.
+```
+
+The runner accepts a seed, close output path, distant output path, and optional
+`greedy` / `atlas` renderer override. It creates a disposable `user://tests/`
+world, restores the previously selected world and meshing setting, and removes
+the temporary directory on exit. The committed MX230 Forward+ reference frames
+are [`material-gallery-close.png`](docs/visual/screenshots/material-gallery-close.png)
+and [`material-gallery-distant.png`](docs/visual/screenshots/material-gallery-distant.png).
+`MaterialGalleryTests` also checks complete ID coverage, unique sample positions,
+face-to-atlas UV bounds, all 256 isolated mipmapped array layers, material
+response ranges, block/item mapping, and the first-person block-icon atlas /
+response mapping.
 
 ## Highlights
 
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
   climate-shaped continents, smooth river valleys, mountain ranges, multi-form
   caves, aquifers, magma pockets, depth-aware ore veins, biome-specific trees,
-  surface ruins and underground chambers. New worlds use generator V10, which
-  preserves V9 terrain, structure placement and deterministic ruin weathering
-  while mapping the tree species V8 already selects to distinct spruce, jungle
-  and swamp canopies. Generator versions 1–9 retain their frozen generation
-  rules, golden chunk hashes and save compatibility.
+  surface ruins and underground chambers. New worlds use generator V11, which
+  preserves V10 terrain, structures, weathering and species canopies, then adds
+  deterministic shoreline reeds. Generator versions 1–10 retain their frozen
+  generation rules, golden chunk hashes and save compatibility.
 - **Greedy meshing** — merged coplanar full-cube quads cut triangle count
   roughly in half; per-face meshing remains available for comparison. Vertex-light
   and AO samples are part of the merge key, preserving lighting boundaries.
@@ -62,10 +182,11 @@ change StandardMaterial3D; no per-frame material creation is performed.
   mip-level bleed between atlas tiles.
 - **Foliage and mineral surfaces** — existing oak and birch canopies use clustered cutout gaps and clearer leaf-tone groups; stone-family tiles receive deterministic low-contrast world-space tone variation, while ores use larger connected deposits for distant readability.
 - **Shared material responses** — atlas, greedy texture-array and held-item surfaces use one roughness/metallic/specular palette for wood, soil, stone, ore, foliage, glass and metal.
-- **Readable glass** — dedicated alpha-blended chunk surface with bounds-center
-  transparency sorting, front-face culling to avoid double-blended internal
-  faces, and a restrained original atlas treatment that stays clear across
-  close and distant views. Glass keeps the existing voxel-light and atlas path.
+- **Transparent and cutout surfaces** — foliage and cross-plants use depth-writing
+  alpha scissor with alpha-to-coverage on the existing atlas/texture-array path;
+  glass and animated water use separate alpha-blended chunk surfaces with
+  opaque-only depth writes and mesh-bounds-center sorting. Glass culls back faces;
+  water is two-sided. Both retain the existing atlas and voxel-light pipeline.
 - **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
   voxels, warm multi-source propagation with opaque occlusion, cave darkness and
   live place/break updates across chunk boundaries. Emitter edits incrementally
@@ -96,12 +217,17 @@ change StandardMaterial3D; no per-frame material creation is performed.
   caves, and rare Dreadwings flank players at night; the Ember Warden remains
   the arena boss. A wandering trader, weather, lightning and ambient life
   complete the ecosystem.
-- **Interface** — shared pixel-art menu, HUD, inventory, chest and furnace styling; viewport-aware panel scaling; slot hover feedback and tooltips; drag-and-drop and Shift-click stack movement.
-- **First-person presentation** — selected-item icon viewmodel with swing animation, layered onto the existing arm, swimming strokes, head bob and landing response.
+- **Interface** — shared pixel-art menu, HUD, inventory, chest and furnace styling; viewport-aware panel scaling; slot hover feedback and tooltips; drag-and-drop and Shift-click stack movement. Durable equipment uses cached scuffed icon stages plus a green/amber/red condition meter across hotbar, inventory, armor and container slots.
+- **First-person presentation** — the existing arm and held-item viewmodel use distinct mining, melee, placement, eating, bow-release, shield-block and landing profiles, layered with locomotion bob, idle breathing, climbing, swimming, bow draw and shield guard. Cached wear-state variants are reused by the selected-item icon; the item material/icon cache and camera attachment remain unchanged. Block targeting uses a paired unshaded dark silhouette and fine bright inset tracks, with cached cube/slab/stair geometry for readable contrast on snow, water and in dark caves.
 - **Controller support** — left-stick movement, right-stick look, gamepad actions for mining/placing, hotbar cycling, inventory, pause, map and journal, with persistent button rebinding.
 - **Quality of life** — minimap with zoom and waypoints, achievements journal,
   keyboard/controller rebinding, accessibility toggles, photo mode, dev console,
   and an automatic quality governor.
+- **First-hour guidance** — a contextual, per-world 15-step survival guide
+  teaches movement, gathering, crafting, mining, food, shelter, furnace use,
+  combat, caves, villages and the first night. Steps are completed by successful
+  gameplay events rather than starter-kit inventory, and progress is retained
+  in the existing world flags.
 - **Deterministic saves** — per-world folders, atomic writes, rotating backups,
   and byte-parity anchors so old worlds never change under new worldgen. Save
   format v4 adds optional block-shape state, villager and quest records, and
@@ -166,9 +292,22 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-The 2026-11-22 integration suite reports **186,327 checks, 0 failures** across
-38 suites, with 0 build warnings. It includes deterministic V9 weathering,
-the V10 foliage-only delta, V8-to-V9 chunk-diff and chunk-order regressions,
+For a rendered icon review, launch `res://tests/EquipmentDurabilityVisualCapture.tscn`
+with the Godot 4.7.2 .NET editor or executable. It uses the production `InvSlot`
+control and renders tools, weapons and armor at full, 74%, 49% and 24% durability;
+the PNG is written to `user://equipment-durability-visual-validation.png`.
+
+The integrated PR #49–#57 suite reports **189,838 checks, 0 failures** across
+46 suites, with 0 build warnings. Loop-based worldgen scans can vary by a few
+checks between runs, but zero failures is required. The selection-outline suite
+adds 275 checks for two-pass contrast materials and cube/slab/stair geometry,
+including every partial-block state. `integration-regressions` pins V9, V10 and
+V11 golden chunk hashes, runs V11 forward and reversed chunk order across
+positive and negative coordinates, proves the V11 delta is only air-to-reed
+cells, round-trips appended reed content through V4 saves, and checks the wet
+merge bit directly. Coverage also includes deterministic V9 weathering,
+the V10 foliage-only delta, the V10-to-V11 shoreline-only delta,
+V8-to-V9 chunk-diff and chunk-order regressions,
 atmosphere/weather/water presentation, the performance runner, streaming memory
 accounting, the combined save round-trip (shapes + villagers + quests + boats),
 graphics-preset migration, render-only mesher collision checks, quest reward
@@ -177,6 +316,37 @@ V1–V8 golden chunk hashes. The headless runner and a verbose real-scene soak b
 leaked ObjectDB instances or RIDs. The project-specific reliability audit,
 including seven confirmed fixes and the remaining manual-coverage gaps, is in
 [`docs/RELIABILITY_AUDIT_2026-11-21.md`](docs/RELIABILITY_AUDIT_2026-11-21.md).
+
+### Gameplay polish — Milestone 5 increment
+
+The existing first-night hint chain has been expanded into a contextual
+15-step first-hour guide. It observes successful player actions (block breaks,
+crafting, food gathering/eating, block placement, furnace use and resident
+interaction), natural cave entry, hostile defeats and the night-to-dawn
+transition. The guide preserves the previous `onboard/wood`, `table`,
+`pick`, `stone`, `torch`, `night` and `done` flags; new facts use the
+existing world flag dictionary, so no save-version migration is required.
+Shelter progress counts placed solid blocks, not torch placement or farmland
+tilling.
+
+Quest objective completion now emits an event consumed by the HUD to announce
+stage advancement and completion, while reward claims remain in the existing
+transactional quest path. The pause input policy also leaves Escape/back to the
+keybind modal while it is open above the pause menu. Regression coverage is
+included for the onboarding action rules, quest stage events and nested modal
+input policy.
+
+Validation on Godot 4.7.2 .NET / .NET 9:
+- Debug build: 0 warnings, 0 errors.
+- Release build: 0 warnings, 0 errors.
+- `scripts/verify.sh`: **189,838 checks, 0 failures**.
+- First-person animation profiles and pose envelopes have automated coverage;
+  rendered pose sign-off on the MX230 and physical controller action review
+  remain manual. Boat handling and broader village/trading usability also
+  require interactive playtesting.
+
+Implementation notes and remaining Milestone 5 scope are in
+[`docs/GAMEPLAY_MILESTONE_5.md`](docs/GAMEPLAY_MILESTONE_5.md).
 
 ### Performance benchmarking
 
@@ -288,11 +458,33 @@ Run a fixed real-scene Forward+ atmosphere capture with:
 godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 8 512 -372 0.50 Clear res://docs/visual/screenshots/atmosphere-river-valley-noon-clear.png
 ```
 
-Arguments are seed, generator version (1–9 on current main), world X/Z, time of day, weather
-(`Clear`, `Cloudy` or `Rain`) and output PNG path. The runner creates and
-removes a disposable world. Matching V8 and V9 MX230 samples and the remaining manual capture matrix are
-documented in
+Arguments are seed, generator version (1–11 on current main), world X/Z, time of day, weather
+(`Clear`, `Cloudy` or `Rain`) and output PNG path. The separate
+`WorldgenVisualCapture` also accepts optional camera scale (0.2–2.0) and far-LOD
+radius in metres after its output path. The runner creates and removes a
+disposable world. Matching V8 and V9 MX230 samples and the remaining manual
+capture matrix are documented in
 [`docs/VISUAL_MILESTONE_4_ENVIRONMENT.md`](docs/VISUAL_MILESTONE_4_ENVIRONMENT.md).
+
+### Water-adjacent visual validation
+
+The V11 shoreline was captured in the production main scene on the NVIDIA
+GeForce MX230 using Godot 4.7.2 .NET, Vulkan Forward+ and a 1600×900 viewport.
+Both captures use seed 1337 around world coordinate `(558, -478)`, where a
+reed grows on a sandy bank beside source water. The close frame uses camera
+scale 0.20; the distant frame uses scale 1.00 and a 256 m far-LOD ring.
+Both settled with 49 streamed chunks and saved successfully. The images are
+committed below for repeatable review:
+
+![V11 shoreline close view](docs/visual/screenshots/water-adjacent-v11-close.png)
+
+![V11 shoreline distant view with far LOD](docs/visual/screenshots/water-adjacent-v11-distant.png)
+
+The real-scene loader reports pre-existing invalid resource-UID fallbacks for
+several scene scripts and resolves them through their tracked `res://` paths;
+these did not prevent either capture. No shader compilation or rendering errors
+were reported. The captures validate this seed and camera setup, not every
+biome, weather and graphics-preset combination.
 
 ### Long-duration survival soak
 
@@ -470,6 +662,15 @@ armor mitigation and do not wear armor. Other landed physical/environmental hits
 wear equipped armor; successful shield blocks wear the shield. Tools used as
 emergency melee weapons also consume their durability on a landed hit.
 
+Equipment condition is visible without reading a number: tools, weapons and armor
+use the same original 32×32 procedural icon with three cached scuff stages as
+condition reaches or falls below 75%, 50% and 25%. Inventory, hotbar, armor and
+container slots also draw a crisp three-pixel meter (green / amber / red); worn
+values remain beside the icon, and the tooltip always shows current / maximum.
+The first-person held item uses the same wear variant while retaining its
+existing material response. Block-item icons continue sampling the unchanged
+atlas region. Icon painting occurs only when a new item/wear band is first used.
+
 Peaceful mode suppresses hostile spawns, cancels pending hostile attacks,
 removes hostile projectiles and keeps the Ember Warden dormant.
 Normal and hard share the same enemy health pools and encounter structure; hard
@@ -508,19 +709,29 @@ are never renumbered or reused; new content is appended and pinned by tests.
 | `BlockId` 0–45 | Original terrain, plants, fluids and M6/M7 blocks, unchanged |
 | `BlockId` 46–51 | Oak-planks, cobblestone and brick slabs/stairs |
 | `BlockId` 52–55 | Mossy cobblestone, weathered cobblestone, cracked brick, mossy brick |
-| `BlockId` 56–58 | Spruce, jungle and swamp canopy foliage (V10 generation only) |
+| `BlockId` 56–58 | Spruce, jungle and swamp canopy foliage (V10+ generation) |
+| `BlockId` 59 | River reeds (V11 shoreline generation) |
 | `ItemId` 0–90 | Original items, armor, tools, food, boss trophy and enchanting table, unchanged |
 | `ItemId` 91–96 | Slab and stair items, matching the block order above |
 | `ItemId` 97–100 | Empty bucket, water bucket, lava bucket, wooden boat |
 | `ItemId` 101–104 | Weathered material blocks, matching the block order above |
 | `ItemId` 105–107 | Spruce, jungle and swamp leaf blocks, matching BlockId 56–58 |
+| `ItemId` 108 | River reed item, matching BlockId 59 |
+
+`tests/EquipmentDurabilityVisualTests.cs` covers wear thresholds, malformed
+value clamping, pixel-distinct cached icon variants, block-atlas compatibility
+and the no-extra-slot-node draw path. Equipment wear visuals do not add persisted
+fields or require save migration.
 
 `tests/ContentTests.cs` pins every block and item value and asserts that the
-building, transportation, weathering and foliage ranges remain append-only.
-`tests/WorldgenTests.cs` pins golden chunk hashes for V1, V3, V5, V6, V7 and V8;
-`tests/WeatheringTests.cs` checks deterministic V9 replacements against V8
-chunks and reversed chunk order; `tests/FoliageTests.cs` proves V10 changes only
-leaf cells relative to V9 and keeps every other byte identical.
+building, transportation, weathering, foliage and reed ranges remain
+append-only. `tests/WorldgenTests.cs` pins golden chunk hashes for V1, V3, V5,
+V6, V7 and V8; `tests/IntegrationRegressionTests.cs` pins V9, V10 and V11
+anchors across positive and negative coordinates. `tests/WeatheringTests.cs`
+checks deterministic V9 replacements against V8 chunks and reversed chunk
+order; `tests/FoliageTests.cs` proves V10 changes only leaf cells relative to
+V9 and keeps every other byte identical; the integration suite proves V11
+changes only air cells into shoreline reeds relative to V10.
 
 ## Villages, residents and quests
 
@@ -558,8 +769,10 @@ completion and reward claims persist in `world.json`.
   frames, but there is no full human playthrough across every structure, biome,
   preset and lighting condition. V10's spruce/jungle/swamp canopies are covered
   by headless atlas and chunk-delta tests but have not yet been captured on the
-  GPU as a dedicated before/after set. Far-terrain LOD remains terrain-only and
-  does not independently render surface structure meshes.
+  GPU as a dedicated before/after set. V11 shoreline reeds have close and
+  distant MX230 captures at seed 1337; other biomes, weather and presets still
+  need visual review. Far-terrain LOD remains terrain-only and does not
+  independently render surface structure meshes.
 - **Soak coverage is headless.** The 5- and 60-minute survival soaks exercise
   the real main scene, physics, mobs, weather, saves and cleanup, but they do not
   replace a human combat, building or visual playtest. The five-minute run is
@@ -570,7 +783,10 @@ completion and reward claims persist in `world.json`.
   with fixed seeds/routes and JSON/CSV output, but no new comparable Release
   baseline has been recorded yet. The historical 30.6 FPS result is a single
   unseeded Debug measurement. See `docs/PERFORMANCE_BENCHMARKS.md` and
-  `docs/PERF_BASELINE.md`.
+  `docs/PERF_BASELINE.md`. Headless mesher measurements for this integration
+  show the shared partial-block AO path at about 7.9 ms per greedy chunk versus
+  6.9 ms on the pre-integration baseline (roughly 15%); V11 world generation is
+  at parity with V10. These are CPU measurements only, not rendered FPS claims.
 
 ## License
 

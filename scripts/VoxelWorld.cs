@@ -1407,6 +1407,45 @@ public partial class VoxelWorld : Node3D
         }
     }
 
+    /// <summary>V11-only reed stamp reuses the V8 decorator's surface sample.</summary>
+    private void TryStampShorelineReedV11(int wx, int wz, int height, Biome biome,
+            byte[] data, int strideY, int ox, int oz)
+    {
+        BlockId ground = BlockAtV8(wx, height, wz, height, biome);
+        if (!WorldGenV11.IsShorelineColumn(height, SeaLevel, biome, ground,
+                adjacentToShallowWater: true))
+            return;
+
+        // Reject the common non-reed rolls before the four neighbour-height
+        // samples; the hash is independent of those samples, so the generated
+        // output is identical while eligible banks pay the full shoreline cost.
+        uint hash = GeneratorV8.CoordinateHash(wx, height, wz, 0x52564431u);
+        if (!WorldGenV11.ShouldPlaceReed(hash, biome) || !IsShallowWaterNear(wx, wz))
+            return;
+
+        int lx = wx - ox;
+        int lz = wz - oz;
+        if ((uint)lx >= ChunkX || (uint)lz >= ChunkZ) return;
+        int below = lx + lz * ChunkX + height * strideY;
+        // The terrain sample can disagree with the stamped chunk at village
+        // paths, cave mouths and structure foundations. Reeds belong on the
+        // actual grass/sand surface, not on a path or over a carved-out hole.
+        if ((BlockId)data[below] is not (BlockId.Grass or BlockId.Sand)) return;
+        int above = below + strideY;
+        if ((BlockId)data[above] == BlockId.Air)
+            data[above] = (byte)BlockId.RiverReeds;
+    }
+
+    private bool IsShallowWaterNear(int x, int z) =>
+            IsShallowWaterColumn(x + 1, z) || IsShallowWaterColumn(x - 1, z)
+            || IsShallowWaterColumn(x, z + 1) || IsShallowWaterColumn(x, z - 1);
+
+    private bool IsShallowWaterColumn(int x, int z)
+    {
+        int height = GeneratorV8.SurfaceHeight(x, z, SeaLevel);
+        return WorldGenV11.IsShallowWaterNeighbor(height, SeaLevel);
+    }
+
     /// <summary>2x2x2 ragged cobble/stone pile, partially buried, clipped into this chunk.</summary>
     private void StampBoulder(int wx, int h, int wz, byte[] data, int strideY, int ox, int oz)
     {

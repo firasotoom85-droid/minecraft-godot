@@ -45,5 +45,14 @@ public static class KeybindTests
 
         TestAssert.Check(Settings.ShowHints, "hints default on");
         TestAssert.Check(Settings.HeadBob, "head bob default on");
+
+        TestAssert.Check(PauseInputPolicy.CanHandlePause(false, false, false),
+                "pause opens during normal gameplay");
+        TestAssert.Check(!PauseInputPolicy.CanHandlePause(false, false, true),
+                "pause does not stack over another modal");
+        TestAssert.Check(PauseInputPolicy.CanHandlePause(true, false, true),
+                "pause can resume when no nested modal is open");
+        TestAssert.Check(!PauseInputPolicy.CanHandlePause(true, true, true),
+                "keybind modal owns Escape and prevents its parent pause menu from resuming");
     }
 }

@@ -15,6 +15,7 @@ public static class VillageTests
         CheckRosterAndSchedules();
         CheckGoldTrades();
         CheckQuestStages();
+        CheckQuestStageFeedback();
         CheckVillageQuestSaveRoundTrip();
     }
 
@@ -144,6 +145,41 @@ public static class VillageTests
         QuestProgressSave wrong = QuestProgression.Apply(new QuestProgressSave(0, 0), quest,
                 QuestObjectiveKind.Craft, nameof(ItemId.WoodPick), 1);
         TestAssert.Equal(0, wrong.Progress, "unrelated events do not advance quests");
+    }
+
+    private static void CheckQuestStageFeedback()
+    {
+        VoxelWorld world = new();
+        Player player = new();
+        Mobs mobs = new();
+        QuestSystem quests = new();
+        quests.Setup(world, player, mobs);
+
+        QuestDefinition definition = QuestCatalog.Find("village/farmers-harvest")!;
+        TestAssert.Check(quests.Accept(definition.Id), "quest can be accepted for stage feedback test");
+        int stageEvents = 0;
+        int lastStage = -1;
+        bool completed = false;
+        quests.StageCompleted += (quest, progress) =>
+        {
+            stageEvents++;
+            lastStage = progress.Stage;
+            completed = progress.Completed;
+        };
+
+        quests.Report(QuestObjectiveKind.Gather, nameof(ItemId.Wheat), 7);
+        TestAssert.Equal(0, stageEvents, "partial objective progress does not emit a stage-complete event");
+        quests.Report(QuestObjectiveKind.Gather, nameof(ItemId.Wheat), 1);
+        TestAssert.Equal(1, stageEvents, "finishing an objective emits stage feedback");
+        TestAssert.Equal(1, lastStage, "stage feedback reports the next stage index");
+        TestAssert.Check(!completed, "intermediate stage feedback does not report quest completion");
+
+        quests.Report(QuestObjectiveKind.Craft, nameof(ItemId.Bread), 2);
+        TestAssert.Equal(2, stageEvents, "finishing the final objective emits completion feedback");
+        TestAssert.Equal(2, lastStage, "final stage feedback reports the terminal stage index");
+        TestAssert.Check(completed, "final stage feedback marks the quest completed");
+
+        TestAssert.FreeAll(quests, mobs, player, world);
     }
 
     private static void CheckVillageQuestSaveRoundTrip()

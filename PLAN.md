@@ -566,3 +566,65 @@ suites, including V1–V8 golden hashes, V8-vs-V9 weathering deltas and the V10
 foliage-only delta. No new GPU capture, benchmark run or human playthrough was
 performed during this integration; the committed captures and benchmark
 records come from the individual PRs.
+
+**Addendum — PRs #49–#57:** the next integration appended `BlockId.RiverReeds`
+59 and `ItemId.RiverReeds` 108 and introduced deterministic V11 shoreline
+reeds. V1–V10 remain byte-identical, save format stays V4, and V11’s only delta
+from V10 is air cells becoming reeds on shallow grass/sand banks. The combined
+suite now registers 46 suites; the latest full run reported 189,838 checks and
+0 failures. V9/V10 anchors match the pre-integration baseline, reversed V11
+chunk order produces identical hashes, and the wet bit is part of the greedy
+merge key. See `docs/INTEGRATION_PR49_57.md`. This addendum records the newer
+result without replacing the historical measurement above.
+
+## 10. Texture/light contrast audit — 2026-11-22
+
+Audited the integrated atlas, greedy texture-array, glass and animated-water material paths
+against daylight, torchlight, caves, rain and night. Corrected the newly
+allocated biome foliage tiles (56–58) so they use foliage rather than the
+stone response/tone-variation path. Placeable first-person item sprites now
+resolve their response through `ItemDb.BlockFor` and the registered block's
+icon tile, keeping torch, foliage and future placeable content aligned with
+world geometry.
+
+The atlas, greedy-array, glass and water shader paths clamp skylight and let
+warm block light fill only the remaining skylight headroom. A restrained,
+shadow-gated emission term retains warm torch readability without double-
+counting full torch light in daylight.
+Atlas IDs, tile coordinates, texture-array mipmaps, greedy meshing, chunk
+streaming, save format, persisted IDs and all generator versions are unchanged.
+
+Real-scene validation used Godot 4.7.2 Forward+ on the NVIDIA MX230 at
+1600×900: clear noon, rain at noon, midnight and a torch-lit cave chamber at
+midnight. The optional `[torch]` capture argument selects a flat dry column,
+carves a temporary chamber and places the torch through `VoxelWorld.SetBlock`
+in its disposable visual-test world. No additional GPU benchmark was run for
+this shader-only change.
+
+## 11. Consistent block-edge shading — 2026-11-22
+
+- The existing mesher already baked packed sky/block light and four-corner AO;
+  the gap was that the AO stencil sampled whole neighbouring block IDs. A slab
+  or stair therefore occluded all of its neighbouring corner samples even when
+  the relevant half-cell was empty. Partial faces also reused the full-cube
+  stencil despite sitting on half-voxel planes.
+- Replaced the duplicated face and greedy-key stencil code with one half-voxel
+  corner sampler. It maps each sample into the existing 2×2×2 occupancy mask,
+  checks the neighbour's shape state, averages the four matching packed-light
+  samples, and produces the AO value carried by the existing vertex colour.
+- The per-face cube path, cube faces split around partial neighbours, slab/stair
+  micro-faces and greedy face merge keys share the same corner convention.
+  Diagonal block and sparse state borders now use the actual four diagonal
+  chunks, removing a cardinal-edge alias at chunk intersections.
+- Design boundary: retain the classic four-sample AO response and existing
+  face-direction tint; this is not a new shadow system or screen-space AO pass.
+  No extra mesh vertices, material attributes, scene nodes or per-frame work
+  are introduced. The occupancy checks and neighbour lookups run only while
+  chunk meshes are built. The atlas and first-person item response are unchanged.
+- Compatibility: no BlockId/ItemId values, saves, world-generation code or
+  generator versions changed. V1–V8 stay frozen; voxel edits still use the
+  existing SetBlock/ApplyEdit ownership path. Greedy merging and chunk streaming
+  remain enabled and structurally unchanged.
+- Added corner regressions for lower-vs-upper slab occupancy, upright and
+  inverted stair risers, diagonal chunk state sampling, per-face/greedy
+  shading parity, and independent sky/block corner-light averaging.

@@ -9,7 +9,7 @@ namespace Minecraft;
 /// Captures one deterministic real-scene atmosphere frame for visual review.
 /// Usage:
 /// godot --path . res://tests/AtmosphereVisualCapture.tscn --
-///   <seed> <generator-version> <x> <z> <time-of-day> <Clear|Cloudy|Rain> <output.png>
+///   <seed> <generator-version> <x> <z> <time-of-day> <Clear|Cloudy|Rain> <output.png> [include-torch:true|false]
 /// </summary>
 public partial class AtmosphereVisualCapture : Node
 {
@@ -29,6 +29,8 @@ public partial class AtmosphereVisualCapture : Node
             string output = args.Length > 6
                     ? args[6]
                     : $"res://docs/visual/screenshots/atmosphere-{weatherState.ToString().ToLowerInvariant()}.png";
+            bool includeTorch = args.Length > 7
+                    && bool.TryParse(args[7], out bool parsedTorch) && parsedTorch;
 
             if (version is < 1 or > WorldStore.CurrentGenVersion)
             {
@@ -104,7 +106,7 @@ public partial class AtmosphereVisualCapture : Node
             camera.GlobalPosition = target + new Vector3(62.0f, 72.0f, 78.0f);
             camera.LookAt(target + new Vector3(0.0f, 5.0f, 0.0f), Vector3.Up);
 
-            GD.Print($"ATMOSPHERE_CAPTURE_START seed={seed} version={version} center=({centerX},{centerZ}) time={world.TimeOfDay:F3} weather={weatherState} output={output}");
+            GD.Print($"ATMOSPHERE_CAPTURE_START seed={seed} version={version} center=({centerX},{centerZ}) time={world.TimeOfDay:F3} weather={weatherState} torch={includeTorch} output={output}");
             double started = Time.GetTicksMsec() / 1000.0;
             int frames = 0;
             while (frames < 1800)
@@ -125,7 +127,96 @@ public partial class AtmosphereVisualCapture : Node
                 return;
             }
 
-            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            if (includeTorch)
+            {
+                // Pick a nearby, flat, dry column so the small torch sprite and
+                // the surfaces it lights are not hidden by a river bank.
+                int bestX = centerX;
+                int bestZ = centerZ;
+                int bestHeight = int.MinValue;
+                int bestDistance = int.MaxValue;
+                for (int dz = -24; dz <= 24; dz++)
+                for (int dx = -24; dx <= 24; dx++)
+                {
+                    int sampleX = centerX + dx;
+                    int sampleZ = centerZ + dz;
+                    int sampleHeight = world.SurfaceHeight(sampleX, sampleZ);
+                    if (sampleHeight <= 2 || sampleHeight + 2 >= world.Height)
+                        continue;
+
+                    BlockId surface = world.GetBlock(sampleX, sampleHeight, sampleZ);
+                    if (!BlockDb.IsSolid(surface) || BlockDb.IsTransparent(surface)
+                            || BlockDb.IsWater(surface))
+                        continue;
+
+                    int neighborDelta = 0;
+                    for (int nz = -1; nz <= 1; nz++)
+                    for (int nx = -1; nx <= 1; nx++)
+                    {
+                        if (nx == 0 && nz == 0)
+                            continue;
+                        neighborDelta = Math.Max(neighborDelta,
+                                Math.Abs(world.SurfaceHeight(sampleX + nx, sampleZ + nz) - sampleHeight));
+                    }
+                    if (neighborDelta > 2)
+                        continue;
+
+                    int distance = dx * dx + dz * dz;
+                    if (sampleHeight > bestHeight
+                            || (sampleHeight == bestHeight && distance < bestDistance))
+                    {
+                        bestX = sampleX;
+                        bestZ = sampleZ;
+                        bestHeight = sampleHeight;
+                        bestDistance = distance;
+                    }
+                }
+
+                if (bestHeight != int.MinValue)
+                {
+                    centerX = bestX;
+                    centerZ = bestZ;
+                    height = bestHeight;
+                    target = new Vector3(centerX + 0.5f, height + 1.0f, centerZ + 0.5f);
+                }
+
+                // Carve a small enclosed chamber below the surface. Every edit
+                // uses SetBlock; this world is disposable and never saved.
+                int floorY = Math.Max(2, height - 6);
+                for (int y = floorY + 1; y <= floorY + 4; y++)
+                for (int dz = -2; dz <= 2; dz++)
+                for (int dx = -2; dx <= 2; dx++)
+                {
+                    int x = centerX + dx;
+                    int z = centerZ + dz;
+                    if (world.GetBlock(x, y, z) != BlockId.Air
+                            && !world.SetBlock(x, y, z, BlockId.Air))
+                    {
+                        GD.PushError("Could not carve the temporary cave through VoxelWorld.SetBlock.");
+                        GetTree().Quit(9);
+                        return;
+                    }
+                }
+
+                int torchY = floorY + 1;
+                if (!world.SetBlock(centerX, torchY, centerZ, BlockId.Torch))
+                {
+                    GD.PushError("Could not place the temporary visual-test torch through VoxelWorld.SetBlock.");
+                    GetTree().Quit(9);
+                    return;
+                }
+
+                target = new Vector3(centerX + 0.5f, torchY + 0.5f, centerZ + 0.5f);
+                camera.Fov = 64.0f;
+                camera.GlobalPosition = target + new Vector3(2.0f, 1.2f, 2.0f);
+                camera.LookAt(target, Vector3.Up);
+                for (int frame = 0; frame < 60; frame++)
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            }
+            else
+            {
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            }
             string absoluteOutput = ProjectSettings.GlobalizePath(output);
             string? outputDirectory = Path.GetDirectoryName(absoluteOutput);
             if (!string.IsNullOrEmpty(outputDirectory))

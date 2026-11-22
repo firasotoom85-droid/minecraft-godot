@@ -15,6 +15,7 @@ public partial class TestRunner : Node
     {
         GD.Print("minecraft tests: start");
         RunSuite("content", ContentTests.Run);
+        RunSuite("item-icons", ItemIconTests.Run);
         RunSuite("performance-benchmark", PerformanceBenchmarkTests.Run);
         RunSuite("voxel-streaming", VoxelStreamingTests.Run);
         RunSuite("graphics", GraphicsTests.Run);
@@ -22,10 +23,13 @@ public partial class TestRunner : Node
         RunSuite("surface-variation", SurfaceVariationTests.Run);
         RunSuite("wood-textures", WoodTextureTests.Run);
         RunSuite("terrain-materials", TerrainMaterialTests.Run);
+        RunSuite("water-adjacent-materials", () => WaterAdjacentTests.Run(this));
         RunSuite("texture-scale", TextureScaleTests.Run);
+        RunSuite("material-gallery", MaterialGalleryTests.Run);
         RunSuite("block-shapes", () => BlockShapeTests.Run(this));
+        RunSuite("selection-outline", SelectionOutlineTests.Run);
         RunSuite("lighting", LightingTests.Run);
-        RunSuite("glass", GlassTests.Run);
+        RunSuite("transparent-materials", () => GlassTests.Run(this));
         RunSuite("atmosphere", AtmosphereTests.Run);
         RunSuite("mining", MiningTests.Run);
         RunSuite("inventory", InventoryTests.Run);
@@ -33,6 +37,7 @@ public partial class TestRunner : Node
         RunSuite("furnaces", FurnaceTests.Run);
         RunSuite("armor", ArmorTests.Run);
         RunSuite("equipment", EquipmentTests.Run);
+        RunSuite("equipment-durability-visuals", EquipmentDurabilityVisualTests.Run);
         RunSuite("survival-progression", SurvivalProgressionTests.Run);
         RunSuite("farming", FarmingTests.Run);
         RunSuite("mobs", () => MobContentTests.Run(this));
@@ -42,6 +47,8 @@ public partial class TestRunner : Node
         RunSuite("villages-quests", VillageTests.Run);
         RunSuite("fishing", FishingTests.Run);
         RunSuite("keybinds", KeybindTests.Run);
+        RunSuite("first-person-animation", FirstPersonAnimationTests.Run);
+        RunSuite("onboarding", OnboardingTests.Run);
         RunSuite("recipes", RecipeTests.Run);
         RunSuite("stats", StatsTests.Run);
         RunSuite("fluids", FluidTests.Run);
@@ -51,6 +58,7 @@ public partial class TestRunner : Node
         RunSuite("integration", () => IntegrationTests.Run(this));
         RunSuite("world-archives", WorldArchiveTests.Run);
         RunSuite("worldgen", () => WorldgenTests.Run(this));
+        RunSuite("integration-regressions", () => IntegrationRegressionTests.Run(this));
         await RunSuiteAsync("mob-perception", () => MobPerceptionTests.Run(this));
 
         // Tests queue-free their temporary worlds, mobs and physics bodies.

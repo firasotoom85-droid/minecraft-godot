@@ -64,7 +64,7 @@ public enum ItemId : byte
     MossyCobblestone, WeatheredCobblestone, CrackedBrick, MossyBrick,
 
     // Biome-specific canopy foliage (append-only; matches BlockId 56-58).
-    SpruceLeaves, JungleLeaves, SwampLeaves,
+    SpruceLeaves, JungleLeaves, SwampLeaves, RiverReeds,
 }
 
 public enum ToolKind : byte

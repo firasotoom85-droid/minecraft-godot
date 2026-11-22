@@ -107,18 +107,26 @@ public partial class Player : CharacterBody3D, IDamageable
     private double _coyote;
     private double _jumpBuffer;
     private MeshInstance3D _outline = null!;
+    private MeshInstance3D _outlineContrast = null!;
     private Mesh _cubeOutlineMesh = null!;
+    private Mesh _cubeOutlineContrastMesh = null!;
     private Vector3I _outlinedBlock = new(int.MinValue, 0, 0);
     private BlockId _outlinedId = BlockId.Air;
     private byte _outlinedState = byte.MaxValue;
-    private static readonly System.Collections.Generic.Dictionary<(BlockId Id, byte State), Mesh>
-            ShapeOutlineCache = [];
+    private static readonly System.Collections.Generic.Dictionary<(BlockId Id, byte State),
+            BlockSelectionOutline.MeshSet> ShapeOutlineCache = [];
     private Node3D _arm = null!;
     private Sprite3D _heldItemSprite = null!;
+    private StandardMaterial3D? _heldItemMaterial;
     private int _heldItemId = -1;
+    private int _heldWearStage = -1;
     private Vector3 _armBase = Vector3.Zero;
     private double _bobPhase;
-    private double _punch;
+    private double _idleArmPhase;
+    private double _climbArmPhase;
+    private float _bowDrawBlend;
+    private float _shieldGuardBlend;
+    private readonly FirstPersonAnimationState _firstPersonAnimation = new();
     private double _mineTimer;
     private float _mineProgress;
     private double _mineSoundTimer;
@@ -679,6 +687,7 @@ public partial class Player : CharacterBody3D, IDamageable
         if (Mode == GameMode.Survival && EquipmentProgression.BlocksWithShield(held, forward, position, info))
         {
             Inventory.DamageEquipment(Selected);
+            StartPunch(FirstPersonAction.ShieldBlock);
             EmitSignal(SignalName.Notice, "Blocked");
             return false;
         }
@@ -866,6 +875,7 @@ public partial class Player : CharacterBody3D, IDamageable
             }
 
             _landKick = Mathf.Min(fallen * 0.02f, 0.14f);
+            StartPunch(FirstPersonAction.Landing);
             EmitSignal(SignalName.Landed, GlobalPosition, fallen);
             if (Mode == GameMode.Survival && fallen > FallSafe && World != null)
             {
@@ -931,7 +941,7 @@ public partial class Player : CharacterBody3D, IDamageable
         _mineProgress = 0.0f;
         _mineSoundTimer = 0.0;
         _crackStage = -1;
-        StartPunch();
+        StartPunch(FirstPersonAction.Mine);
     }
 
     /// <summary>One melee swing: tool tier picks the damage, swing cadence is capped.</summary>
@@ -948,7 +958,7 @@ public partial class Player : CharacterBody3D, IDamageable
         }
 
         _lastSwing = now;
-        StartPunch();
+        StartPunch(FirstPersonAction.Melee);
         float damage = (weapon?.Damage ?? (1.0f + (tool?.Tier ?? 0)))
                 + EquipmentProgression.SharpnessBonus(held);
         bool critical = !IsOnFloor() && Velocity.Y < -0.1f;
@@ -1209,7 +1219,7 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        StartPunch();
+        StartPunch(FirstPersonAction.Place);
         EmitSignal(SignalName.BlockPlaced,
                 new Vector3(soil.X + 0.5f, soil.Y + 0.5f, soil.Z + 0.5f), (int)BlockId.Farmland);
         DamageTool();
@@ -1238,7 +1248,7 @@ public partial class Player : CharacterBody3D, IDamageable
         }
 
         Inventory.Consume(ItemId.Seeds, 1);
-        StartPunch();
+        StartPunch(FirstPersonAction.Place);
         EmitSignal(SignalName.BlockPlaced,
                 new Vector3(plantAt.X + 0.5f, plantAt.Y + 0.5f, plantAt.Z + 0.5f), (int)BlockId.Wheat0);
         Inventory.RaiseChanged();
@@ -1445,7 +1455,7 @@ public partial class Player : CharacterBody3D, IDamageable
         Stats.AddHunger(food.Hunger);
         Stats.Heal(food.Heal);
         EmitSignal(SignalName.Ate);
-        StartPunch();
+        StartPunch(FirstPersonAction.Eat);
     }
 
     private void FinishBreak(Vector3I bp, BlockId id, BlockDb.BlockDef def, ToolInfo? tool)
@@ -1493,7 +1503,7 @@ public partial class Player : CharacterBody3D, IDamageable
             World.RemoveFurnace(bp);
         }
 
-        StartPunch();
+        StartPunch(FirstPersonAction.Mine);
         Vector3 center = new(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
         EmitSignal(SignalName.BlockBroken, center, (int)id);
 
@@ -1574,7 +1584,7 @@ public partial class Player : CharacterBody3D, IDamageable
         }
         _lastSwing = now;
         if (Mode == GameMode.Survival) Inventory.DamageEquipment(Selected);
-        StartPunch();
+        StartPunch(FirstPersonAction.BowRelease);
         ArrowProjectile arrow = new();
         Node parent = GetTree().CurrentScene ?? this;
         parent.AddChild(arrow);
@@ -1616,13 +1626,19 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        if (Inventory.Hotbar[Selected].Id == ItemId.Bow)
+        ItemId selectedItem = Inventory.Hotbar[Selected].Id;
+        if (selectedItem == ItemId.Bow)
         {
             FireBow();
             return;
         }
+        if (selectedItem == ItemId.Shield)
+        {
+            StartPunch(FirstPersonAction.ShieldBlock);
+            return;
+        }
 
-        StartPunch();
+        StartPunch(FirstPersonAction.Place);
         // Mobs first: right-click is "use" on a creature (tame a sheep).
         if (Ray.IsColliding() && Ray.GetCollider() is Mob mob)
         {
@@ -1771,7 +1787,7 @@ public partial class Player : CharacterBody3D, IDamageable
             else if (place == BlockId.Furnace)
                 World.GetFurnace(new Vector3I(bx, by, bz));
 
-            StartPunch();
+            StartPunch(FirstPersonAction.Place);
             EmitSignal(SignalName.BlockPlaced,
                     new Vector3(bx + 0.5f, by + 0.5f, bz + 0.5f), (int)place);
             Inventory.Hotbar[Selected] = stack.Count <= 1
@@ -1849,7 +1865,7 @@ public partial class Player : CharacterBody3D, IDamageable
 
         Inventory.Hotbar[Selected] = ItemStack.Empty;
         Inventory.RaiseChanged();
-        StartPunch();
+        StartPunch(FirstPersonAction.Place);
     }
 
     /// <summary>
@@ -1978,7 +1994,7 @@ public partial class Player : CharacterBody3D, IDamageable
     {
         int next = Mathf.Wrap(i, 0, Inventory.HotbarSize);
         if (next != Selected)
-            StartPunch();
+            StartPunch(FirstPersonAction.Select);
         Selected = next;
         EmitSignal(SignalName.HotbarChanged, Selected, (int)Inventory.Hotbar[Selected].Id);
     }
@@ -2043,7 +2059,7 @@ public partial class Player : CharacterBody3D, IDamageable
             _mineProgress = 0.0f;
             _mineSoundTimer = 0.0;
             _crackStage = -1;
-            StartPunch();
+            StartPunch(FirstPersonAction.Mine);
         }
 
         BlockDb.BlockDef def = BlockDb.DefOf(id);
@@ -2071,7 +2087,7 @@ public partial class Player : CharacterBody3D, IDamageable
             _mineSoundTimer = 0.25;
             Vector3 center = new(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
             EmitSignal(SignalName.MiningTick, center, (int)id);
-            StartPunch();
+            StartPunch(FirstPersonAction.Mine);
         }
 
         int stage = BlockDb.CrackStage(_mineProgress);
@@ -2143,100 +2159,28 @@ public partial class Player : CharacterBody3D, IDamageable
 
     private void BuildOutline()
     {
-        SurfaceTool st = new();
-        st.Begin(Mesh.PrimitiveType.Triangles);
-        float t = 0.012f;
-        for (int axis = 0; axis < 3; axis++)
-        {
-            for (int a = 0; a < 2; a++)
-            {
-                for (int b = 0; b < 2; b++)
-                {
-                    Vector3 center = new(0.5f, 0.5f, 0.5f);
-                    Vector3 size = new(t * 2.0f, t * 2.0f, t * 2.0f);
-                    size[axis] = 1.0f + t * 2.0f;
-                    center[(axis + 1) % 3] = a;
-                    center[(axis + 2) % 3] = b;
-                    AddBox(st, center, size, Colors.White);
-                }
-            }
-        }
+        BlockSelectionOutline.MeshSet cube = BlockSelectionOutline.BuildCube();
+        _cubeOutlineMesh = cube.Silhouette;
+        _cubeOutlineContrastMesh = cube.Contrast;
 
-        StandardMaterial3D mat = new()
-        {
-            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            AlbedoColor = new Color(0.05f, 0.05f, 0.05f, 0.9f),
-        };
         _outline = new MeshInstance3D
         {
             Name = "Outline",
-            Mesh = st.Commit(),
-            MaterialOverride = mat,
+            Mesh = _cubeOutlineMesh,
+            MaterialOverride = BlockSelectionOutline.CreateSilhouetteMaterial(),
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
             Visible = false,
         };
-        _cubeOutlineMesh = _outline.Mesh;
+        _outlineContrast = new MeshInstance3D
+        {
+            Name = "OutlineContrast",
+            Mesh = _cubeOutlineContrastMesh,
+            MaterialOverride = BlockSelectionOutline.CreateContrastMaterial(),
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            Visible = false,
+        };
         AddChild(_outline);
-    }
-
-    private readonly record struct ShapeOutlineEdge(int Face, Vector3I A, Vector3I B);
-    private static readonly int[] ShapeOutlineEdgeIndices = [0, 1, 1, 2, 2, 3, 3, 0];
-
-    private static Mesh BuildShapeOutline(BlockId id, byte state)
-    {
-        // Toggle matching co-planar micro-face edges so internal half-cell seams
-        // disappear while the outer silhouette and stair risers remain.
-        System.Collections.Generic.Dictionary<ShapeOutlineEdge, (Vector3 A, Vector3 B)> segments = [];
-        Span<Vector3I> gridPoints = stackalloc Vector3I[4];
-        Span<Vector3> localPoints = stackalloc Vector3[4];
-
-        for (int y = 0; y < 2; y++)
-        for (int z = 0; z < 2; z++)
-        for (int x = 0; x < 2; x++)
-        {
-            if (!BlockShapes.Occupied(id, state, x, y, z)) continue;
-            for (int face = 0; face < 6; face++)
-            {
-                if (!BlockShapes.FaceExposed(id, state, x, y, z, face, BlockId.Air, 0))
-                    continue;
-
-                for (int vertex = 0; vertex < 4; vertex++)
-                {
-                    Vector3 unit = BlockDb.FaceVerts[face * 4 + vertex];
-                    Vector3I point = new(x + Mathf.RoundToInt(unit.X),
-                            y + Mathf.RoundToInt(unit.Y), z + Mathf.RoundToInt(unit.Z));
-                    gridPoints[vertex] = point;
-                    localPoints[vertex] = new Vector3(point.X * 0.5f - 0.5f,
-                            point.Y * 0.5f - 0.5f, point.Z * 0.5f - 0.5f);
-                }
-
-                for (int edge = 0; edge < 4; edge++)
-                {
-                    Vector3I a = gridPoints[ShapeOutlineEdgeIndices[edge * 2]];
-                    Vector3I b = gridPoints[ShapeOutlineEdgeIndices[edge * 2 + 1]];
-                    bool ordered = a.X < b.X || (a.X == b.X && (a.Y < b.Y
-                            || (a.Y == b.Y && a.Z <= b.Z)));
-                    ShapeOutlineEdge key = ordered ? new ShapeOutlineEdge(face, a, b)
-                            : new ShapeOutlineEdge(face, b, a);
-                    if (!segments.Remove(key))
-                    {
-                        Vector3 va = localPoints[ShapeOutlineEdgeIndices[edge * 2]];
-                        Vector3 vb = localPoints[ShapeOutlineEdgeIndices[edge * 2 + 1]];
-                        segments[key] = (va, vb);
-                    }
-                }
-            }
-        }
-
-        SurfaceTool st = new();
-        st.Begin(Mesh.PrimitiveType.Lines);
-        foreach ((Vector3 a, Vector3 b) in segments.Values)
-        {
-            st.SetColor(Colors.White);
-            st.AddVertex(a);
-            st.AddVertex(b);
-        }
-        return st.Commit();
+        AddChild(_outlineContrast);
     }
 
     private void BuildCrack()
@@ -2321,10 +2265,8 @@ public partial class Player : CharacterBody3D, IDamageable
 
     private void UpdateOutline()
     {
-        if (World == null || _outline == null)
-        {
+        if (World == null || _outline == null || _outlineContrast == null)
             return;
-        }
 
         if (TryGetTargetBlock(out Vector3I bp, out BlockId id))
         {
@@ -2336,25 +2278,31 @@ public partial class Player : CharacterBody3D, IDamageable
                 _outlinedState = state;
                 if (BlockShapes.IsShape(id) && !BlockShapes.IsFullCube(id, state))
                 {
-                    if (!ShapeOutlineCache.TryGetValue((id, state), out Mesh? shapeOutline))
+                    if (!ShapeOutlineCache.TryGetValue((id, state), out BlockSelectionOutline.MeshSet shape))
                     {
-                        shapeOutline = BuildShapeOutline(id, state);
-                        ShapeOutlineCache[(id, state)] = shapeOutline;
+                        shape = BlockSelectionOutline.BuildShape(id, state);
+                        ShapeOutlineCache[(id, state)] = shape;
                     }
-                    _outline.Mesh = shapeOutline;
+                    _outline.Mesh = shape.Silhouette;
+                    _outlineContrast.Mesh = shape.Contrast;
                 }
                 else
                 {
                     _outline.Mesh = _cubeOutlineMesh;
+                    _outlineContrast.Mesh = _cubeOutlineContrastMesh;
                 }
             }
 
-            _outline.GlobalPosition = new Vector3(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
+            Vector3 targetPosition = new(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
+            _outline.GlobalPosition = targetPosition;
+            _outlineContrast.GlobalPosition = targetPosition;
             _outline.Visible = true;
+            _outlineContrast.Visible = true;
         }
         else
         {
             _outline.Visible = false;
+            _outlineContrast.Visible = false;
             _outlinedBlock = new Vector3I(int.MinValue, 0, 0);
             _outlinedId = BlockId.Air;
             _outlinedState = byte.MaxValue;
@@ -2391,22 +2339,22 @@ public partial class Player : CharacterBody3D, IDamageable
             Position = new Vector3(0.12f, -0.53f, -0.10f),
             Rotation = new Vector3(0.0f, 0.0f, -0.12f),
             Billboard = BaseMaterial3D.BillboardModeEnum.Disabled,
-            TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
+            TextureFilter = BaseMaterial3D.TextureFilterEnum.NearestWithMipmaps,
             Shaded = true,
         };
         _arm.AddChild(_heldItemSprite);
         Camera.AddChild(_arm);
     }
 
-    private static StandardMaterial3D MakeHeldItemMaterial(ItemId id)
+    private static StandardMaterial3D MakeHeldItemMaterial(ItemId id, Texture2D icon)
     {
         SurfaceResponse response = MaterialResponse.Get(MaterialResponse.ForItem(id));
         return new StandardMaterial3D
         {
-            AlbedoTexture = ItemDb.Icon(id),
+            AlbedoTexture = icon,
             Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
             ShadingMode = BaseMaterial3D.ShadingModeEnum.PerPixel,
-            TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
+            TextureFilter = BaseMaterial3D.TextureFilterEnum.NearestWithMipmaps,
             Roughness = response.Roughness,
             Metallic = response.Metallic,
             MetallicSpecular = response.Specular,
@@ -2433,58 +2381,109 @@ public partial class Player : CharacterBody3D, IDamageable
         return st.Commit();
     }
 
-    private void StartPunch()
+    private void StartPunch(FirstPersonAction action = FirstPersonAction.Use)
     {
-        _punch = 1.0;
+        _firstPersonAnimation.Play(action);
     }
 
     private void UpdateArm(float delta)
     {
         if (_arm == null)
-        {
             return;
-        }
+
+        _firstPersonAnimation.Advance(delta);
 
         ItemStack held = Inventory.Hotbar[Selected];
         int heldId = held.IsEmpty ? 0 : (int)held.Id;
+        int wearStage = held.IsEmpty ? 0 : EquipmentDurabilityVisual.WearStage(held);
         if (heldId != _heldItemId)
         {
             _heldItemId = heldId;
-            _heldItemSprite.Texture = held.IsEmpty ? null : ItemDb.Icon(held.Id);
-            _heldItemSprite.MaterialOverride = held.IsEmpty ? null : MakeHeldItemMaterial(held.Id);
+            _bowDrawBlend = 0.0f;
+            _shieldGuardBlend = 0.0f;
+            _heldWearStage = wearStage;
+            Texture2D? icon = held.IsEmpty ? null : ItemDb.Icon(held);
+            _heldItemSprite.Texture = icon;
+            _heldItemMaterial = icon == null ? null : MakeHeldItemMaterial(held.Id, icon);
+            _heldItemSprite.MaterialOverride = _heldItemMaterial;
             _heldItemSprite.Visible = !held.IsEmpty;
         }
+        else if (wearStage != _heldWearStage)
+        {
+            _heldWearStage = wearStage;
+            Texture2D icon = ItemDb.Icon(held);
+            _heldItemSprite.Texture = icon;
+            if (_heldItemMaterial != null)
+            {
+                _heldItemMaterial.AlbedoTexture = icon;
+            }
+        }
+
+        bool active = !InputLocked && !Stats.Dead;
+        double now = Time.GetTicksMsec() / 1000.0;
+        float bowTarget = active && held.Id == ItemId.Bow
+                && Input.IsActionPressed("break_block") && now - _lastSwing > 0.16
+                ? 1.0f : 0.0f;
+        float shieldTarget = active && held.Id == ItemId.Shield
+                && Input.IsActionPressed("place_block") ? 1.0f : 0.0f;
+        _bowDrawBlend = Mathf.MoveToward(_bowDrawBlend, bowTarget, delta * 4.5f);
+        _shieldGuardBlend = Mathf.MoveToward(_shieldGuardBlend, shieldTarget, delta * 7.0f);
+
+        float horiz = Velocity.XZ().Length();
+        bool groundedMove = IsOnFloor() && horiz > 0.5f && !Stats.Dead;
+        if (groundedMove)
+            _bobPhase += delta * (7.0 + horiz);
+        else
+            _bobPhase = System.Math.Max(0.0, _bobPhase - delta * 4.0);
+
+        float bobAmount = Settings.HeadBob && groundedMove
+                ? Mathf.Clamp(horiz / WalkSpeed, 0.0f, 1.6f) * 0.026f
+                : 0.0f;
+        float bob = Mathf.Sin((float)_bobPhase) * bobAmount;
+        bool idle = horiz < 0.15f && IsOnFloor() && !Swimming && !Climbing && !Flying;
+        _idleArmPhase += delta * 1.7;
+        float idleSway = idle ? Mathf.Sin((float)_idleArmPhase) * 0.0035f : 0.0f;
+
+        float climb = 0.0f;
+        if (Climbing && Mathf.Abs(Velocity.Y) > 0.1f)
+        {
+            _climbArmPhase += delta * (4.0f + Mathf.Abs(Velocity.Y));
+            climb = Mathf.Sin((float)_climbArmPhase);
+        }
+
+        FirstPersonPose pose = FirstPersonAnimation.Evaluate(
+                _firstPersonAnimation.Action,
+                _firstPersonAnimation.Progress,
+                bob,
+                idleSway,
+                _bowDrawBlend,
+                _shieldGuardBlend,
+                climb);
 
         if (Swimming)
         {
             _swimCameraPhase += delta * (5.0f + Velocity.Length() * 0.35f);
             float stroke = Mathf.Sin(_swimCameraPhase);
-            _arm.Position = _armBase + new Vector3(stroke * 0.035f, Mathf.Abs(stroke) * 0.025f,
-                    -0.045f - Mathf.Abs(stroke) * 0.06f);
-            _arm.Rotation = new Vector3(-0.62f + stroke * 0.16f, 0.1f, -0.18f + stroke * 0.1f);
-            _heldItemSprite.Position = new Vector3(0.12f + stroke * 0.035f, -0.53f - Mathf.Abs(stroke) * 0.03f, -0.16f);
-            _heldItemSprite.Rotation = new Vector3(-0.35f + stroke * 0.18f, 0.0f, -0.12f + stroke * 0.2f);
+            _arm.Position = _armBase + new Vector3(
+                    stroke * 0.035f, Mathf.Abs(stroke) * 0.025f,
+                    -0.045f - Mathf.Abs(stroke) * 0.06f) + pose.ArmPosition * 0.45f;
+            _arm.Rotation = new Vector3(
+                    -0.62f + stroke * 0.16f, 0.1f, -0.18f + stroke * 0.1f)
+                    + pose.ArmRotation * 0.45f;
+            _heldItemSprite.Position = new Vector3(
+                    0.12f + stroke * 0.035f, -0.53f - Mathf.Abs(stroke) * 0.03f, -0.16f)
+                    + pose.ItemPosition * 0.45f;
+            _heldItemSprite.Rotation = new Vector3(
+                    -0.35f + stroke * 0.18f, 0.0f, -0.12f + stroke * 0.2f)
+                    + pose.ItemRotation * 0.45f;
+            _heldItemSprite.Scale = Vector3.One * pose.ItemScale;
             return;
         }
 
-        float horiz = Velocity.XZ().Length();
-        if (IsOnFloor() && horiz > 0.5f)
-        {
-            _bobPhase += delta * (7.0 + horiz);
-        }
-
-        float bob = (float)(System.Math.Sin(_bobPhase) * 0.03 * Mathf.Clamp(horiz / WalkSpeed, 0.0f, 1.6f));
-        double swing = 0.0;
-        if (_punch > 0.0)
-        {
-            _punch = System.Math.Max(_punch - delta / 0.22, 0.0);
-            swing = System.Math.Sin(_punch * System.Math.PI);
-        }
-
-        float swingF = (float)swing;
-        _arm.Position = _armBase + new Vector3(bob * 0.5f, bob - 0.06f * swingF, -0.20f * swingF);
-        _arm.Rotation = new Vector3(-0.25f - 0.85f * swingF, 0.1f, -0.18f);
-        _heldItemSprite.Position = new Vector3(0.12f, -0.53f - 0.04f * swingF, -0.10f - 0.12f * swingF);
-        _heldItemSprite.Rotation = new Vector3(-0.12f * swingF, 0.0f, -0.12f - 0.35f * swingF);
+        _arm.Position = _armBase + pose.ArmPosition;
+        _arm.Rotation = new Vector3(-0.25f, 0.1f, -0.18f) + pose.ArmRotation;
+        _heldItemSprite.Position = new Vector3(0.12f, -0.53f, -0.10f) + pose.ItemPosition;
+        _heldItemSprite.Rotation = new Vector3(0.0f, 0.0f, -0.12f) + pose.ItemRotation;
+        _heldItemSprite.Scale = Vector3.One * pose.ItemScale;
     }
 }

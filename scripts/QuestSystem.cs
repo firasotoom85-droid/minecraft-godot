@@ -74,6 +74,7 @@ public partial class QuestSystem : Node
     private double _exploreTimer;
 
     public event Action? ProgressChanged;
+    public event Action<QuestDefinition, QuestProgressSave>? StageCompleted;
 
     public void Setup(VoxelWorld world, Player player, Mobs mobs)
     {
@@ -164,6 +165,8 @@ public partial class QuestSystem : Node
             {
                 _world.Quests[definition.Id] = next;
                 changed = true;
+                if (next.Stage > state.Stage)
+                    StageCompleted?.Invoke(definition, next);
             }
         }
         if (changed)

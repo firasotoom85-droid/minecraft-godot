@@ -36,6 +36,14 @@ public static class MaterialResponse
 
     public static SurfaceResponse Get(SurfaceFamily family) => Responses[(int)family];
 
+    // COLOR.a is the compact material-family channel. The unused range 8..14
+    // flags damp faces without adding a vertex attribute.
+    public static float VertexTag(SurfaceFamily family, bool wet) =>
+            (byte)family + (wet ? 8.0f : 0.0f);
+
+    public static Color WetTint(Color color) =>
+            new(color.R * 0.80f, color.G * 0.86f, color.B * 0.88f, color.A);
+
     private static Vector3 ToVector3(SurfaceResponse response) =>
         new(response.Roughness, response.Metallic, response.Specular);
 
@@ -56,39 +64,60 @@ public static class MaterialResponse
     {
         0 or 1 or 2 or 4 or 16 or 17 or 18 or 36 or 37 => SurfaceFamily.Soil,
         5 or 6 or 9 or 21 or 22 or 26 or 27 or 33 or 34 or 42 or 43 or 46 or 49 or 50 or 51 => SurfaceFamily.Wood,
-        7 or 23 or 24 or 25 or 28 or 30 or 31 or 32 or 38 or 39 or 40 or 41
+        7 or 23 or 24 or 25 or 28 or 30 or 31 or 32 or 38 or 39 or 40 or 41 or 59
             => SurfaceFamily.Foliage,
         12 or 13 or 19 or 20 => SurfaceFamily.Ore,
         8 or 14 => SurfaceFamily.Glass,
-        3 or 10 or 11 or 15 or 35 or 44 or 45 or 47 or 48 => SurfaceFamily.Stone,
+        3 or 10 or 11 or 15 or 35 or 44 or 45 or 47 or 48 or 52 or 53 or 54 or 55
+            => SurfaceFamily.Stone,
+        56 or 57 or 58 => SurfaceFamily.Foliage,
         _ => SurfaceFamily.Stone,
     };
 
-    public static SurfaceFamily ForItem(ItemId id) => id switch
+    /// <summary>
+    /// Placeable items inherit the response of their registered block texture.
+    /// This keeps held sprites and world meshes in the same material family as
+    /// content is appended, without maintaining a second block-item catalogue.
+    /// </summary>
+    public static SurfaceFamily ForItem(ItemId id)
     {
-        ItemId.Log or ItemId.BirchLog or ItemId.Planks or ItemId.Stick or
-        ItemId.WoodPick or ItemId.WoodAxe or ItemId.WoodShovel or ItemId.WoodHoe or
-        ItemId.WoodSword or ItemId.Chest or ItemId.Bed or ItemId.WoodenBoat or
-        ItemId.Bow or ItemId.FishingRod or ItemId.Arrow => SurfaceFamily.Wood,
-        ItemId.CoalOre or ItemId.IronOre or ItemId.GoldOre or ItemId.DiamondOre or
-        ItemId.Coal or ItemId.RawIron or ItemId.RawGold or ItemId.Diamond or
-        ItemId.LapisLazuli or ItemId.EmberCore => SurfaceFamily.Ore,
-        ItemId.IronIngot or ItemId.GoldIngot or ItemId.IronHelmet or ItemId.IronChestplate or
-        ItemId.IronLegs or ItemId.IronBoots or ItemId.DiamondHelmet or ItemId.DiamondChestplate or
-        ItemId.DiamondLegs or ItemId.DiamondBoots or ItemId.EmptyBucket or ItemId.WaterBucket or
-        ItemId.LavaBucket or ItemId.IronPick or ItemId.IronAxe or ItemId.IronShovel or
-        ItemId.IronHoe or ItemId.IronSword or ItemId.DiamondPick or ItemId.DiamondAxe or
-        ItemId.DiamondShovel or ItemId.DiamondHoe or ItemId.DiamondSword or
-        ItemId.Shield or ItemId.EmberBlade => SurfaceFamily.Metal,
-        ItemId.Leaves or ItemId.BirchLeaves or ItemId.TallGrass or ItemId.FlowerRed or
-        ItemId.FlowerYellow or ItemId.Seeds or ItemId.Wheat or ItemId.Wool or
-        ItemId.Cactus or ItemId.Apple or ItemId.Bread or ItemId.Leather or ItemId.Feather or
-        ItemId.RawMutton or ItemId.CookedMutton or ItemId.RawBeef or ItemId.CookedBeef or
-        ItemId.RawPork or ItemId.CookedPork or ItemId.RawChicken or ItemId.CookedChicken or
-        ItemId.RawFish or ItemId.CookedFish => SurfaceFamily.Foliage,
-        ItemId.Dirt or ItemId.Grass or ItemId.Sand or ItemId.Gravel or ItemId.Snow or
-        ItemId.SnowGrass => SurfaceFamily.Soil,
-        ItemId.Glass => SurfaceFamily.Glass,
-        _ => SurfaceFamily.Stone,
-    };
+        if (ItemDb.BlockFor(id) is { } block)
+            return ForTile(BlockDb.IconTile(block));
+
+        return id switch
+        {
+            ItemId.Log or ItemId.BirchLog or ItemId.Planks or ItemId.Stick or
+            ItemId.WoodPick or ItemId.WoodAxe or ItemId.WoodShovel or ItemId.WoodHoe or
+            ItemId.WoodSword or ItemId.Chest or ItemId.Bed or ItemId.WoodenBoat or
+            ItemId.Bow or ItemId.FishingRod or ItemId.Arrow => SurfaceFamily.Wood,
+            ItemId.CoalOre or ItemId.IronOre or ItemId.GoldOre or ItemId.DiamondOre or
+            ItemId.Coal or ItemId.RawIron or ItemId.RawGold or ItemId.Diamond or
+            ItemId.LapisLazuli or ItemId.EmberCore => SurfaceFamily.Ore,
+            ItemId.IronIngot or ItemId.GoldIngot or ItemId.IronHelmet or ItemId.IronChestplate or
+            ItemId.IronLegs or ItemId.IronBoots or ItemId.DiamondHelmet or ItemId.DiamondChestplate or
+            ItemId.DiamondLegs or ItemId.DiamondBoots or ItemId.EmptyBucket or ItemId.WaterBucket or
+            ItemId.LavaBucket or ItemId.IronPick or ItemId.IronAxe or ItemId.IronShovel or
+            ItemId.IronHoe or ItemId.IronSword or ItemId.DiamondPick or ItemId.DiamondAxe or
+            ItemId.DiamondShovel or ItemId.DiamondHoe or ItemId.DiamondSword or
+            ItemId.Shield or ItemId.EmberBlade => SurfaceFamily.Metal,
+            ItemId.Leaves or ItemId.BirchLeaves or ItemId.TallGrass or ItemId.FlowerRed or
+            ItemId.FlowerYellow or ItemId.Seeds or ItemId.Wheat or ItemId.Wool or
+            ItemId.Cactus or ItemId.Apple or ItemId.Bread or ItemId.Leather or ItemId.Feather or
+            ItemId.RawMutton or ItemId.CookedMutton or ItemId.RawBeef or ItemId.CookedBeef or
+            ItemId.RawPork or ItemId.CookedPork or ItemId.RawChicken or ItemId.CookedChicken or
+            ItemId.RawFish or ItemId.CookedFish => SurfaceFamily.Foliage,
+            ItemId.Dirt or ItemId.Grass or ItemId.Sand or ItemId.Gravel or ItemId.Snow or
+            ItemId.SnowGrass => SurfaceFamily.Soil,
+            ItemId.Glass => SurfaceFamily.Glass,
+            _ => SurfaceFamily.Stone,
+        };
+    }
+
+    /// <summary>
+    /// Block light fills only the portion not already supplied by skylight.
+    /// This avoids double-counting independent sky and torch channels in sunlit
+    /// areas while preserving full warm contribution in genuinely dark caves.
+    /// </summary>
+    public static float ShadowedBlockLight(float sky, float block) =>
+        Mathf.Clamp(block, 0.0f, 1.0f) * (1.0f - Mathf.Clamp(sky, 0.0f, 1.0f));
 }

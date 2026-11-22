@@ -38,7 +38,7 @@ public partial class Hud : CanvasLayer
     public Mobs? Mobs;
     public Weather? Weather;
 
-    private readonly List<Panel> _slots = [];
+    private readonly List<DurabilitySlotPanel> _slots = [];
     private readonly TextureRect[] _slotIcons = new TextureRect[Inventory.HotbarSize];
     private readonly Label[] _slotCounts = new Label[Inventory.HotbarSize];
     private Label _heldLabel = null!;
@@ -225,7 +225,7 @@ public partial class Hud : CanvasLayer
         stack.AddChild(hotbar);
         foreach (int i in Enumerable.Range(0, Inventory.HotbarSize))
         {
-            Panel slot = new()
+            DurabilitySlotPanel slot = new()
             {
                 CustomMinimumSize = new Vector2(SlotSize, SlotSize),
                 PivotOffset = new Vector2(SlotSize, SlotSize) * 0.5f,
@@ -347,19 +347,24 @@ public partial class Hud : CanvasLayer
         for (int i = 0; i < Inventory.HotbarSize; i++)
         {
             ItemStack stack = PlayerRef.Inventory.Hotbar[i];
-            _slotIcons[i].Texture = stack.IsEmpty ? null : ItemDb.Icon(stack.Id);
+            _slotIcons[i].Texture = stack.IsEmpty ? null : ItemDb.Icon(stack);
             _slotIcons[i].Visible = !stack.IsEmpty;
-            if (stack.IsEmpty)
+            DurabilitySlotPanel slot = _slots[i];
+            slot.SetDurability(stack);
+
+            int maxDurability = stack.IsEmpty ? 0 : EquipmentProgression.MaxDurability(stack.Id);
+            if (maxDurability > 0)
             {
-                _slotCounts[i].Text = "";
-            }
-            else if (ItemDb.ToolOf(stack.Id) is { } tool)
-            {
-                _slotCounts[i].Text = stack.Durability < tool.Durability ? stack.Durability.ToString() : "";
+                _slotCounts[i].Text = stack.Durability < maxDurability ? stack.Durability.ToString() : "";
+                _slotCounts[i].SetAnchorsAndOffsetsPreset(
+                        stack.Durability < maxDurability ? Control.LayoutPreset.TopRight : Control.LayoutPreset.BottomRight,
+                        Control.LayoutPresetMode.Minsize, 3);
             }
             else
             {
                 _slotCounts[i].Text = stack.Count > 1 ? stack.Count.ToString() : "";
+                _slotCounts[i].SetAnchorsAndOffsetsPreset(
+                        Control.LayoutPreset.BottomRight, Control.LayoutPresetMode.Minsize, 3);
             }
         }
     }
@@ -780,6 +785,9 @@ public partial class Hud : CanvasLayer
         _hintPanel.Visible = true;
         _hintLabel.Text = text;
     }
+
+    public void SetHint(string text, int step, int total) =>
+            SetHint($"{step}/{total} · {text}");
 
     public void HideHint()
     {

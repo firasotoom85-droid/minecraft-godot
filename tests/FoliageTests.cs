@@ -105,8 +105,8 @@ public static class FoliageTests
                     "V9 world remains pinned to generator V9");
             TestAssert.Equal(WorldGenV10.Version, v10.WorldGenVersion,
                     "V10 world selects generator V10");
-            TestAssert.Equal(WorldGenV10.Version, WorldStore.CurrentGenVersion,
-                    "new worlds default to generator V10");
+            TestAssert.Equal(WorldGenV11.Version, WorldStore.CurrentGenVersion,
+                    "new worlds default to generator V11 while V10 foliage remains frozen");
 
             Vector2I? candidate = null;
             byte[]? candidateData = null;
