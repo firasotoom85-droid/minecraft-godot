@@ -733,7 +733,7 @@ public static class Mesher
     }
 
     /// <summary>Merge key of the visible opaque face at a padded cell, or 0.</summary>
-    private static long FaceKey(byte[] pad, byte[] statePad, byte[] lightPad, int i, int f)
+    internal static long FaceKey(byte[] pad, byte[] statePad, byte[] lightPad, int i, int f)
     {
         BlockId id = (BlockId)pad[i];
         if (id == BlockId.Air || BlockDb.IsCross(id)

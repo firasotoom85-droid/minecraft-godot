@@ -1343,12 +1343,6 @@ public partial class VoxelWorld : Node3D
 
     private void StampDecorators(byte[] data, int strideY, int ox, int oz)
     {
-        if (_genVersion >= WorldGenV11.Version)
-        {
-            StampDecoratorsV8(data, strideY, ox, oz);
-            return;
-        }
-
         if (_genVersion >= WorldGenV8.Version)
         {
             StampDecoratorsV8(data, strideY, ox, oz);
@@ -1419,16 +1413,25 @@ public partial class VoxelWorld : Node3D
     {
         BlockId ground = BlockAtV8(wx, height, wz, height, biome);
         if (!WorldGenV11.IsShorelineColumn(height, SeaLevel, biome, ground,
-                adjacentToShallowWater: true) || !IsShallowWaterNear(wx, wz))
+                adjacentToShallowWater: true))
             return;
 
+        // Reject the common non-reed rolls before the four neighbour-height
+        // samples; the hash is independent of those samples, so the generated
+        // output is identical while eligible banks pay the full shoreline cost.
         uint hash = GeneratorV8.CoordinateHash(wx, height, wz, 0x52564431u);
-        if (!WorldGenV11.ShouldPlaceReed(hash, biome)) return;
+        if (!WorldGenV11.ShouldPlaceReed(hash, biome) || !IsShallowWaterNear(wx, wz))
+            return;
 
         int lx = wx - ox;
         int lz = wz - oz;
         if ((uint)lx >= ChunkX || (uint)lz >= ChunkZ) return;
-        int above = lx + lz * ChunkX + (height + 1) * strideY;
+        int below = lx + lz * ChunkX + height * strideY;
+        // The terrain sample can disagree with the stamped chunk at village
+        // paths, cave mouths and structure foundations. Reeds belong on the
+        // actual grass/sand surface, not on a path or over a carved-out hole.
+        if ((BlockId)data[below] is not (BlockId.Grass or BlockId.Sand)) return;
+        int above = below + strideY;
         if ((BlockId)data[above] == BlockId.Air)
             data[above] = (byte)BlockId.RiverReeds;
     }

@@ -58,6 +58,7 @@ public partial class TestRunner : Node
         RunSuite("integration", () => IntegrationTests.Run(this));
         RunSuite("world-archives", WorldArchiveTests.Run);
         RunSuite("worldgen", () => WorldgenTests.Run(this));
+        RunSuite("integration-regressions", () => IntegrationRegressionTests.Run(this));
         await RunSuiteAsync("mob-perception", () => MobPerceptionTests.Run(this));
 
         // Tests queue-free their temporary worlds, mobs and physics bodies.
