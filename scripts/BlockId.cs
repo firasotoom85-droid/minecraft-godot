@@ -79,4 +79,7 @@ public enum BlockId : byte
     SpruceLeaves = 56,
     JungleLeaves = 57,
     SwampLeaves = 58,
+
+    // V11 shoreline vegetation (append-only persisted ID).
+    RiverReeds = 59,
 }

@@ -52,6 +52,7 @@ public static class ItemDb
         (ItemId.SpruceLeaves, BlockId.SpruceLeaves),
         (ItemId.JungleLeaves, BlockId.JungleLeaves),
         (ItemId.SwampLeaves, BlockId.SwampLeaves),
+        (ItemId.RiverReeds, BlockId.RiverReeds),
     ];
 
     private static readonly Dictionary<BlockId, ItemId> BlockToItem =

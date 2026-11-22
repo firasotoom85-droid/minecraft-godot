@@ -18,7 +18,8 @@ atlas tile IDs are classified without changing persisted block/item IDs or
 world-generation output. One C# response table configures all world shaders
 and first-person materials. The mesher carries its compact family tag in vertex
 colour alpha; greedy meshes retain their tile-array layer in UV2.x, so existing
-merging, atlas UVs, and chunk streaming remain intact.
+merging, atlas UVs, and chunk streaming remain intact. Water-contact wetness is
+encoded in the unused alpha-tag range without adding a vertex attribute.
 
 The greedy texture array builds mipmaps from each isolated 32px tile rather
 than the combined atlas. This avoids cross-tile colour bleed at distance.
@@ -27,16 +28,31 @@ mipmaps because generating mipmaps from the packed atlas would blend adjacent
 tiles. Held-item sprites use the same response values through a cached-on-slot-
 change StandardMaterial3D; no per-frame material creation is performed.
 
+## Water-adjacent materials and shoreline vegetation
+
+Faces that directly touch water keep their original material family and receive
+a compact wet tag. The atlas and greedy-array shaders apply the same cool,
+slightly darker response and softened roughness; dry faces retain their original
+values. Grass, dirt, sand, gravel and farmland can use the treatment. The far
+LOD applies the same tint when an existing coarse cell straddles the waterline,
+using its four terrain-corner samples rather than additional noise queries.
+
+New worlds use generator V11, which adds original procedural alpha-cutout river
+reeds to shallow sand and grass shorelines. `BlockId.RiverReeds` 59,
+`ItemId.RiverReeds` 108 and atlas tile 59 are appended; all prior IDs and atlas
+coordinates remain unchanged.
+V1–V10 generation remains frozen; this visual increment does not change save
+format, voxel mutation APIs, greedy meshing or chunk streaming.
+
 ## Highlights
 
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
   climate-shaped continents, smooth river valleys, mountain ranges, multi-form
   caves, aquifers, magma pockets, depth-aware ore veins, biome-specific trees,
-  surface ruins and underground chambers. New worlds use generator V10, which
-  preserves V9 terrain, structure placement and deterministic ruin weathering
-  while mapping the tree species V8 already selects to distinct spruce, jungle
-  and swamp canopies. Generator versions 1–9 retain their frozen generation
-  rules, golden chunk hashes and save compatibility.
+  surface ruins and underground chambers. New worlds use generator V11, which
+  preserves V10 terrain, structures, weathering and species canopies, then adds
+  deterministic shoreline reeds. Generator versions 1–10 retain their frozen
+  generation rules, golden chunk hashes and save compatibility.
 - **Greedy meshing** — merged coplanar full-cube quads cut triangle count
   roughly in half; per-face meshing remains available for comparison. Vertex-light
   and AO samples are part of the merge key, preserving lighting boundaries.
@@ -166,9 +182,10 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-The 2026-11-22 integration suite reports **186,327 checks, 0 failures** across
-38 suites, with 0 build warnings. It includes deterministic V9 weathering,
-the V10 foliage-only delta, V8-to-V9 chunk-diff and chunk-order regressions,
+The 2026-11-22 integration suite reports **186,412 checks, 0 failures** across
+39 suites, with 0 Debug build warnings or errors. It includes deterministic V9
+weathering, the V10 foliage-only delta, the V10-to-V11 shoreline-only delta,
+V8-to-V9 chunk-diff and chunk-order regressions,
 atmosphere/weather/water presentation, the performance runner, streaming memory
 accounting, the combined save round-trip (shapes + villagers + quests + boats),
 graphics-preset migration, render-only mesher collision checks, quest reward
@@ -288,11 +305,33 @@ Run a fixed real-scene Forward+ atmosphere capture with:
 godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 8 512 -372 0.50 Clear res://docs/visual/screenshots/atmosphere-river-valley-noon-clear.png
 ```
 
-Arguments are seed, generator version (1–9 on current main), world X/Z, time of day, weather
-(`Clear`, `Cloudy` or `Rain`) and output PNG path. The runner creates and
-removes a disposable world. Matching V8 and V9 MX230 samples and the remaining manual capture matrix are
-documented in
+Arguments are seed, generator version (1–11 on current main), world X/Z, time of day, weather
+(`Clear`, `Cloudy` or `Rain`) and output PNG path. The separate
+`WorldgenVisualCapture` also accepts optional camera scale (0.2–2.0) and far-LOD
+radius in metres after its output path. The runner creates and removes a
+disposable world. Matching V8 and V9 MX230 samples and the remaining manual
+capture matrix are documented in
 [`docs/VISUAL_MILESTONE_4_ENVIRONMENT.md`](docs/VISUAL_MILESTONE_4_ENVIRONMENT.md).
+
+### Water-adjacent visual validation
+
+The V11 shoreline was captured in the production main scene on the NVIDIA
+GeForce MX230 using Godot 4.7.2 .NET, Vulkan Forward+ and a 1600×900 viewport.
+Both captures use seed 1337 around world coordinate `(558, -478)`, where a
+reed grows on a sandy bank beside source water. The close frame uses camera
+scale 0.20; the distant frame uses scale 1.00 and a 256 m far-LOD ring.
+Both settled with 49 streamed chunks and saved successfully. The images are
+committed below for repeatable review:
+
+![V11 shoreline close view](docs/visual/screenshots/water-adjacent-v11-close.png)
+
+![V11 shoreline distant view with far LOD](docs/visual/screenshots/water-adjacent-v11-distant.png)
+
+The real-scene loader reports pre-existing invalid resource-UID fallbacks for
+several scene scripts and resolves them through their tracked `res://` paths;
+these did not prevent either capture. No shader compilation or rendering errors
+were reported. The captures validate this seed and camera setup, not every
+biome, weather and graphics-preset combination.
 
 ### Long-duration survival soak
 

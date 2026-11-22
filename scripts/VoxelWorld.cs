@@ -1343,6 +1343,12 @@ public partial class VoxelWorld : Node3D
 
     private void StampDecorators(byte[] data, int strideY, int ox, int oz)
     {
+        if (_genVersion >= WorldGenV11.Version)
+        {
+            StampDecoratorsV8(data, strideY, ox, oz);
+            return;
+        }
+
         if (_genVersion >= WorldGenV8.Version)
         {
             StampDecoratorsV8(data, strideY, ox, oz);
@@ -1405,6 +1411,36 @@ public partial class VoxelWorld : Node3D
                 }
             }
         }
+    }
+
+    /// <summary>V11-only reed stamp reuses the V8 decorator's surface sample.</summary>
+    private void TryStampShorelineReedV11(int wx, int wz, int height, Biome biome,
+            byte[] data, int strideY, int ox, int oz)
+    {
+        BlockId ground = BlockAtV8(wx, height, wz, height, biome);
+        if (!WorldGenV11.IsShorelineColumn(height, SeaLevel, biome, ground,
+                adjacentToShallowWater: true) || !IsShallowWaterNear(wx, wz))
+            return;
+
+        uint hash = GeneratorV8.CoordinateHash(wx, height, wz, 0x52564431u);
+        if (!WorldGenV11.ShouldPlaceReed(hash, biome)) return;
+
+        int lx = wx - ox;
+        int lz = wz - oz;
+        if ((uint)lx >= ChunkX || (uint)lz >= ChunkZ) return;
+        int above = lx + lz * ChunkX + (height + 1) * strideY;
+        if ((BlockId)data[above] == BlockId.Air)
+            data[above] = (byte)BlockId.RiverReeds;
+    }
+
+    private bool IsShallowWaterNear(int x, int z) =>
+            IsShallowWaterColumn(x + 1, z) || IsShallowWaterColumn(x - 1, z)
+            || IsShallowWaterColumn(x, z + 1) || IsShallowWaterColumn(x, z - 1);
+
+    private bool IsShallowWaterColumn(int x, int z)
+    {
+        int height = GeneratorV8.SurfaceHeight(x, z, SeaLevel);
+        return WorldGenV11.IsShallowWaterNeighbor(height, SeaLevel);
     }
 
     /// <summary>2x2x2 ragged cobble/stone pile, partially buried, clipped into this chunk.</summary>

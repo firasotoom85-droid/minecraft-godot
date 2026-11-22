@@ -248,8 +248,14 @@ public partial class FarLod : Node3D
                 bool isWater = hc <= sea;
                 float y = isWater ? sea + 1 : hc + 1;
                 Vector3 b = new(cx0, y, cz0);
+                bool wetShoreCell = IsWetShoreCell(isWater, hc, sea, h00, h10, h01, h11);
                 Color topColor = isWater ? _topColors[(int)BlockId.Water] : TopColor(surfaceBlock);
                 Color capSideColor = SideColor(surfaceBlock);
+                if (wetShoreCell)
+                {
+                    topColor = MaterialResponse.WetTint(topColor);
+                    capSideColor = MaterialResponse.WetTint(capSideColor);
+                }
                 Color lowerSideColor = SideColor(UnderBlock(surfaceBlock));
                 AddQuad(verts, normals, colors,
                         b, b + new Vector3(CellSize, 0, 0),
@@ -305,6 +311,12 @@ public partial class FarLod : Node3D
 
         return new LodPayload(verts.ToArray(), normals.ToArray(), colors.ToArray());
     }
+
+    internal static bool IsWetShoreCell(bool isWater, int height, int seaLevel,
+            int h00, int h10, int h01, int h11) =>
+            !isWater && height <= seaLevel + 2
+            && (h00 <= seaLevel || h10 <= seaLevel
+                    || h01 <= seaLevel || h11 <= seaLevel);
 
     private static BlockId LandBlock(Biome biome, int relief)
     {

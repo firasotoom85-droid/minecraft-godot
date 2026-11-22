@@ -203,8 +203,10 @@ public static class Mesher
                     // quads, no cube faces, no collision, no AO.
                     if (BlockDb.IsCross(id))
                     {
+                        bool wetPlant = BlockDb.IsShorelineVegetation(id)
+                                && HasHorizontalWaterNeighborAtOrBelow(pad, i);
                         AddCross(opaque, new Vector3(x - 1, y - 1, z - 1), BlockDb.IconTile(id),
-                                VoxelLighting.VertexColor(lightPad[i], 1.0f));
+                                VoxelLighting.VertexColor(lightPad[i], 1.0f), wetPlant);
                         continue;
                     }
 
@@ -319,7 +321,9 @@ public static class Mesher
                             surf.Normal.Add(normal);
                             Color litColor = VoxelLighting.VertexColor(cornerLight[t], kk[t]);
                             SurfaceFamily family = MaterialResponse.ForTile(tile);
-                            surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B, (float)family));
+                            bool wetFace = BlockDb.IsWettable(id) && BlockDb.IsWater(neighborId);
+                            surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B,
+                                    MaterialResponse.VertexTag(family, wetFace)));
                             surf.Uv.Add(BlockDb.UvLut[ui + t]);
                             if (Greedy && ReferenceEquals(surf, opaque))
                                 surf.Uv2.Add(new Vector2(tile, 0.0f));
@@ -391,8 +395,10 @@ public static class Mesher
                 p[vAxis] = (v + p[vAxis]) * 0.5f;
                 points[vertex] = blockOrigin + p;
             }
+            bool wetFace = BlockDb.IsWettable(blockId)
+                    && BlockDb.IsWater((BlockId)pad[neighborIndex]);
             EmitLitFace(pad, lightPad, neighborIndex, face, tile, blockId, blockState,
-                    blockOrigin, points, surf, collision, kk, cornerLight);
+                    blockOrigin, points, surf, collision, kk, cornerLight, wetFace);
         }
     }
 
@@ -430,8 +436,10 @@ public static class Mesher
                 int vi = face * 4;
                 for (int vertex = 0; vertex < 4; vertex++)
                     points[vertex] = cellOrigin + BlockDb.FaceVerts[vi + vertex] * 0.5f;
+                bool wetFace = externalFace && BlockDb.IsWettable(id)
+                        && BlockDb.IsWater(neighbor);
                 EmitLitFace(pad, lightPad, index + FaceOff[face], face, tile, id, state,
-                        blockOrigin, points, surf, collision, kk, cornerLight);
+                        blockOrigin, points, surf, collision, kk, cornerLight, wetFace);
             }
         }
     }
@@ -440,7 +448,7 @@ public static class Mesher
             byte[] pad, byte[] lightPad, int neighborIndex, int face, int textureTile,
             BlockId blockId, byte blockState, Vector3 blockOrigin,
             Span<Vector3> points, SurfaceData surf, List<Vector3>? collision,
-            Span<float> kk, Span<byte> cornerLight)
+            Span<float> kk, Span<byte> cornerLight, bool wet)
     {
         float shade = BlockDb.FaceColors[face].R;
         for (int vertex = 0; vertex < 4; vertex++)
@@ -463,7 +471,7 @@ public static class Mesher
             surf.Normal.Add(normal);
             Color litColor = VoxelLighting.VertexColor(cornerLight[tri], kk[tri]);
             surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B,
-                    (float)MaterialResponse.ForTile(textureTile)));
+                    MaterialResponse.VertexTag(MaterialResponse.ForTile(textureTile), wet)));
             Vector2 localUv = BlockDb.BlockFaceUvAt(blockId, blockState, face,
                     points[tri] - blockOrigin);
             surf.Uv.Add(Greedy
@@ -483,6 +491,16 @@ public static class Mesher
             collision.Add(points[3]);
         }
     }
+
+    private static bool HasHorizontalWaterNeighborAtOrBelow(byte[] pad, int index) =>
+            BlockDb.IsWater((BlockId)pad[index + 1])
+            || BlockDb.IsWater((BlockId)pad[index - 1])
+            || BlockDb.IsWater((BlockId)pad[index + PX])
+            || BlockDb.IsWater((BlockId)pad[index - PX])
+            || BlockDb.IsWater((BlockId)pad[index - PLANE + 1])
+            || BlockDb.IsWater((BlockId)pad[index - PLANE - 1])
+            || BlockDb.IsWater((BlockId)pad[index - PLANE + PX])
+            || BlockDb.IsWater((BlockId)pad[index - PLANE - PX]);
 
     private static float WaterSurfaceHeight(byte[] pad, int index)
     {
@@ -675,6 +693,8 @@ public static class Mesher
         }
 
         long key = (uint)id | ((long)tile << 8);
+        if (BlockDb.IsWettable(id) && BlockDb.IsWater(adjacentId))
+            key |= 1L << 56;
         int iNb = i + FaceOff[f];
         for (int v4 = 0; v4 < 4; v4++)
         {
@@ -721,8 +741,9 @@ public static class Mesher
             byte sky = (byte)((key >> (24 + c * 4)) & 0x0F);
             byte block = (byte)((key >> (40 + c * 4)) & 0x0F);
             Color litColor = VoxelLighting.VertexColor(VoxelLighting.Pack(sky, block), k);
+            bool wet = (key & (1L << 56)) != 0;
             surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B,
-                    (float)MaterialResponse.ForTile(tile)));
+                    MaterialResponse.VertexTag(MaterialResponse.ForTile(tile), wet)));
             Vector2 duv = BlockDb.FaceUvs[f * 4 + c];
             surf.Uv.Add(new Vector2(duv.X * su, duv.Y * sv));
             surf.Uv2.Add(new Vector2(tile, 0.0f));
@@ -736,7 +757,7 @@ public static class Mesher
     /// mode the UVs are quad-local 0..1 and the tile travels in UV2, matching
     /// the texture-array material.
     /// </summary>
-    private static void AddCross(SurfaceData surf, Vector3 b, int tile, Color lightColor)
+    private static void AddCross(SurfaceData surf, Vector3 b, int tile, Color lightColor, bool wet)
     {
         Vector2[] uv;
         if (Greedy)
@@ -760,15 +781,16 @@ public static class Mesher
         [
             b + new Vector3(1, 0, 0), b + new Vector3(0, 0, 1), b + new Vector3(0, 1, 1), b + new Vector3(1, 1, 0),
         ];
-        EmitDoubleSided(surf, planeA, uv, tile, lightColor);
-        EmitDoubleSided(surf, planeB, uv, tile, lightColor);
+        EmitDoubleSided(surf, planeA, uv, tile, lightColor, wet);
+        EmitDoubleSided(surf, planeB, uv, tile, lightColor, wet);
     }
 
-    private static void EmitDoubleSided(SurfaceData surf, Vector3[] p, Vector2[] uv, int tile, Color lightColor)
+    private static void EmitDoubleSided(SurfaceData surf, Vector3[] p, Vector2[] uv, int tile, Color lightColor, bool wet)
     {
         Vector3 n = (p[1] - p[0]).Cross(p[3] - p[0]).Normalized();
         SurfaceFamily family = MaterialResponse.ForTile(tile);
-        Color white = new(lightColor.R, lightColor.G, lightColor.B, (float)family);
+        Color white = new(lightColor.R, lightColor.G, lightColor.B,
+                MaterialResponse.VertexTag(family, wet));
         for (int pass = 0; pass < 2; pass++)
         {
             Vector3 normal = pass == 0 ? n : -n;

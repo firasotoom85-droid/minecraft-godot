@@ -13,14 +13,30 @@ remains pending.
 
 ---
 
-## Current follow-up implementation — 2026-11-22 (V10 biome foliage)
+## Current follow-up implementation — 2026-11-22 (V11 shoreline readability)
 
-Newly created worlds now use generator V10. V10 keeps V9 terrain, structure
-placement and deterministic weathering, and maps the spruce, jungle and swamp
-species that V8 already selects to their own canopy blocks. V1–V9 generation
-and saved worlds remain frozen, save format stays v4, and persisted IDs are
-appended at BlockId 56–58 / ItemId 105–107. Atlas tiles 56–58 follow the
-weathered materials, so every material keeps a unique atlas coordinate.
+Newly created worlds now use generator V11. V11 retains V10 terrain,
+structures, deterministic weathering and biome-specific canopies, and adds
+shallow-bank reeds on sandy and grassy shorelines without moving any existing
+terrain or structure stamp. V1–V10 generation and saved worlds remain frozen;
+save format stays v4. `BlockId.RiverReeds` 59 and `ItemId.RiverReeds` 108 are
+appended; their original procedural cutout art uses atlas tile 59.
+
+Wetness is a non-persisted vertex tag in the previously unused material-family
+range 8–14. Water-contact faces on grass, dirt, sand, gravel and farmland get a
+shared atlas/greedy-array shader response; shoreline cross plants use it when
+adjacent to water. The far LOD uses its four existing corner heights to tint
+mixed shoreline cells, so it adds no noise sampling. Greedy merging, UV2 tile
+layers, chunk streaming and the classic atlas mip policy are preserved.
+
+## Previous follow-up — V10 biome foliage
+
+Newly created worlds previously used generator V10. V10 keeps V9 terrain,
+structure placement and deterministic weathering, and maps the spruce, jungle
+and swamp species that V8 already selects to their own canopy blocks. V1–V9
+generation and saved worlds remain frozen, save format stays v4, and persisted
+IDs were appended at BlockId 56–58 / ItemId 105–107. Atlas tiles 56–58 follow
+the weathered materials, so every material keeps a unique atlas coordinate.
 
 This is the reconstructed form of the draft advanced-voxel branch: slabs,
 stairs, boats, buckets, glass sorting and shared surface responses were already
@@ -1547,3 +1563,39 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   preset views manually. One GPU reference frame is not a complete art review.
 - See `docs/VISUAL_MILESTONE_4_ENVIRONMENT.md` for scope, exact capture command,
   rendered sample, and validation detail.
+
+
+## 25. Water-adjacent material readability — 2026-11-22
+
+- Added a non-persisted wet material tag in the unused vertex-colour alpha range
+  (`family + 8`). Atlas and greedy texture-array shaders decode the same tag,
+  add restrained cool darkening and a slightly smoother surface response, and
+  retain the original dry response for all untagged geometry.
+- The mesher marks only soil/sand/gravel/farmland faces whose adjacent voxel is
+  water. Greedy face keys include the wet bit at bit 56 (above packed AO/light),
+  preventing a wet face from merging with a dry face. Existing UV2 tile layers,
+  geometry, collision output and payload ownership remain unchanged.
+- Added original procedural tile 59 and append-only `BlockId.RiverReeds` 59 /
+  `ItemId.RiverReeds` 108. V11 stamps them deterministically only into air above
+  sand or grass shoreline columns at the waterline and beside shallow water;
+  swamp banks receive a higher frequency. V1–V10 remain frozen.
+- Far LOD shoreline cells use the four corner heights already collected for
+  each 4m cell, applying the same damp tint to the surface cap. No additional
+  terrain sample, node, physics query or per-frame scan is introduced.
+- Focused regressions cover append-only IDs, the 512px/256-layer atlas layout,
+  cutout art, wet-tag decoding in both opaque shaders, shoreline selection,
+  far-LOD boundaries, and both greedy/per-face mesh tags.
+- Compatibility: save format remains v4; no existing IDs or atlas coordinates
+  move, no V1–V10 generator behavior changes, and all edits in the mesh fixture
+  go through `VoxelWorld.SetBlock`.
+- Performance expectations: four neighbour-height queries are performed only
+  for eligible low shoreline columns; far LOD adds no sampling. Wet shader tags
+  reuse `COLOR.a`, and the greedy merge key uses one previously unused bit.
+  Reeds reuse the existing cross-plant mesh path and add no collision.
+- **Rendered visual verification:** Godot 4.7.2 .NET / Vulkan Forward+ on the
+  GeForce MX230. Seed 1337 at `(558, -478)`, close camera scale 0.20 and distant
+  camera scale 1.00 with 256 m far LOD. Both 1600×900 captures succeeded with
+  49 streamed chunks; see `docs/visual/screenshots/water-adjacent-v11-*.png`.
+  The real-scene loader prints existing invalid resource-UID fallback warnings
+  but resolves tracked script paths; neither capture reported shader/render
+  failures. Other biome/weather/preset combinations remain to be reviewed.
