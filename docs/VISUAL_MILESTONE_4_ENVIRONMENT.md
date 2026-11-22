@@ -130,3 +130,68 @@ generator versions on current main (V1–V10); the committed reference remains
 V8 so it can be compared against the project's existing V8 visual baseline. The headless save suite also logs its
 expected failed-write and backup-recovery warnings while testing those error
 paths. Neither is reported as a clean, warning-free runtime launch.
+
+## Follow-up — shared distance haze (2026-11-22)
+
+The V8 environment's reduced exponential air density improved general clarity,
+but it did not provide independent control over near-field visibility and
+distant mountain attenuation. The follow-up keeps the existing environment and
+day/night ownership and switches V8+ outdoor views to Godot's built-in depth
+fog:
+
+- Begin: 96 m; end: 330 m; depth curve exponent: 2.2; clear density: 0.42.
+- The existing day/night cloud multiplier is retained and clamped to a maximum
+  density of 0.68, preventing overcast weather from creating a solid fog wall.
+- The shared scene environment applies the same camera-depth ramp to streamed
+  chunk meshes and far LOD. Fog is not restarted per chunk or baked into vertex
+  colour, so the transition has no chunk-size dependency.
+- V1–V7 keep their original exponential fog. DayNight switches caves back to
+  exponential darkness, and Player keeps underwater/lava camera overrides
+  exponential. MenuBackdrop explicitly retains its authored exponential
+  profile.
+- LOW and BALANCED still disable volumetric fog; ordinary depth haze remains
+  active without creating local lights, FogVolume nodes, or additional scene
+  nodes.
+
+### Repeatable mountain comparison
+
+Run both states with the same arguments and change only the environment code.
+The capture fixture waits for every chunk in the requested square; view distance
+5 produces 121 streamed chunks and avoids using the stream boundary as the
+inspection horizon.
+
+```bash
+godot --path . res://tests/AtmosphereVisualCapture.tscn -- \
+  777 11 -424 760 0.50 Clear \
+  res://docs/visual/screenshots/distance-haze-v11-mountain-after.png false 5
+```
+
+The before frame was captured from the unchanged main environment factory
+and DayNight implementation at baseline commit b7a4dd9; the after frame uses
+the depth-fog profile above. Both are Godot 4.7.2 .NET, Forward+ / Vulkan,
+NVIDIA GeForce MX230, 1600×900, seed 777, generator V11, centre (-424, 760),
+noon and clear weather. Both completed the 121-chunk stream; the capture
+settled in 471 frames before and 470 after. This frame count is not an FPS
+benchmark.
+
+| Original exponential fog | Shared distance haze |
+|---|---|
+| ![V11 mountain before haze](visual/screenshots/distance-haze-v11-mountain-before.png) | ![V11 mountain after haze](visual/screenshots/distance-haze-v11-mountain-after.png) |
+
+A pixel comparison shows the sky is effectively unchanged; most visible
+difference is concentrated in the terrain and distance/horizon regions.
+The close slopes retain texture contrast while the far ridge and tree line
+blend more softly into the background. This is one repeatable mountain view,
+not full visual sign-off for all biomes, weather, times of day or graphics
+presets.
+
+### Compatibility and verification
+
+This is rendering-only. No BlockId/ItemId values, world/save versions,
+generator source or output, mutation path, packed lighting, greedy meshing,
+chunk streaming or far-LOD generation changed. V1–V8 remain frozen.
+dotnet build -c Debug completed with 0 warnings / 0 errors, and
+scripts/verify.sh passed 189,988 checks / 0 failures across 46 suites.
+The real-scene comparison streamed 121 chunks on the MX230. The capture's
+fresh-worktree scene UID fallback warnings and the save tests' deliberate
+failure/recovery warnings are existing validation-harness behavior.

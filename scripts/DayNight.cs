@@ -105,7 +105,8 @@ public partial class DayNight : Node
     private StandardMaterial3D _starMaterial = null!;
 
     private ProceduralSkyMaterial _skyMat = null!;
-    private float _fogDensityAir = 0.0035f;
+    private float _fogDensityAir = WorldEnvironmentFactory.LegacyAirFogDensity;
+    private bool _usesDistanceHaze;
     private readonly float _fogDensityUnderwater = 0.07f;
     public double Cloudiness;      // 0..1 driven by Weather (clear -> storm)
     public double SkyFlash;        // 0..1 lightning flash driven by Weather
@@ -130,8 +131,10 @@ public partial class DayNight : Node
         PlayerRef = player;
         Sun = sun;
         WorldEnv = env;
-        _fogDensityAir = world.WorldGenVersion >= WorldGenV8.Version
-                ? 0.00065f : 0.0035f;
+        _usesDistanceHaze = world.WorldGenVersion >= WorldGenV8.Version;
+        _fogDensityAir = _usesDistanceHaze
+                ? WorldEnvironmentFactory.DistanceHazeDensity
+                : WorldEnvironmentFactory.LegacyAirFogDensity;
         _skyMat = (ProceduralSkyMaterial)WorldEnv.Environment.Sky.SkyMaterial;
         _moon.Name = "Moon";
         _moon.LightColor = new Color(0.55f, 0.65f, 1.0f);
@@ -228,7 +231,8 @@ public partial class DayNight : Node
             env.AmbientLightEnergy *= 0.20f;
         }
 
-        if (PlayerRef is { Underwater: true })
+        bool underwater = PlayerRef is { Underwater: true };
+        if (underwater)
         {
             fogColor = new Color(0.04f, 0.18f, 0.38f);
             fogDensity = _fogDensityUnderwater;
@@ -237,6 +241,22 @@ public partial class DayNight : Node
         if (flash > 0.001)
         {
             fogColor = fogColor.Lerp(new Color(1, 1, 1), (float)(flash * 0.7));
+        }
+
+        // Depth fog is a shared camera-space effect for all terrain geometry.
+        // Keep close-quarters cave and immersion fog exponential so those
+        // established high-density profiles still close in around the player.
+        Godot.Environment.FogModeEnum fogMode = WorldEnvironmentFactory.FogModeFor(
+                _usesDistanceHaze, underground, underwater);
+        if (env.FogMode != fogMode)
+        {
+            env.FogMode = fogMode;
+        }
+
+        if (_usesDistanceHaze && !underground && !underwater)
+        {
+            fogDensity = System.Math.Clamp(fogDensity,
+                    0.0, WorldEnvironmentFactory.MaxDistanceHazeDensity);
         }
 
         float blend = (float)System.Math.Clamp(delta * 5.0, 0.0, 1.0);

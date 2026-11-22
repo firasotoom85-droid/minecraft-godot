@@ -536,10 +536,14 @@ public static class WorldgenTests
 
         Godot.Environment legacyEnvironment = WorldEnvironmentFactory.Build(WorldGenV7.Version);
         Godot.Environment modernEnvironment = WorldEnvironmentFactory.Build(WorldGenV8.Version);
-        TestAssert.Equal(0.0035f, legacyEnvironment.FogDensity,
+        TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential, legacyEnvironment.FogMode,
+                "V7 retains its original exponential fog model");
+        TestAssert.Equal(WorldEnvironmentFactory.LegacyAirFogDensity, legacyEnvironment.FogDensity,
                 "V7 retains its original atmospheric fog density");
-        TestAssert.Equal(0.00065f, modernEnvironment.FogDensity,
-                "V8 uses the clearer atmospheric fog profile");
+        TestAssert.Equal(Godot.Environment.FogModeEnum.Depth, modernEnvironment.FogMode,
+                "V8 uses camera-depth haze without changing terrain generation");
+        TestAssert.Equal(WorldEnvironmentFactory.DistanceHazeDensity, modernEnvironment.FogDensity,
+                "V8 uses the shared distance-haze profile");
         TestAssert.Check(modernEnvironment.VolumetricFogDensity
                         < legacyEnvironment.VolumetricFogDensity,
                 "V8 reduces volumetric haze without changing legacy worlds");

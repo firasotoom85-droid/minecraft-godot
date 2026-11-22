@@ -9,7 +9,7 @@ namespace Minecraft;
 /// Captures one deterministic real-scene atmosphere frame for visual review.
 /// Usage:
 /// godot --path . res://tests/AtmosphereVisualCapture.tscn --
-///   <seed> <generator-version> <x> <z> <time-of-day> <Clear|Cloudy|Rain> <output.png> [include-torch:true|false]
+///   <seed> <generator-version> <x> <z> <time-of-day> <Clear|Cloudy|Rain> <output.png> [include-torch:true|false] [view-distance:3-5]
 /// </summary>
 public partial class AtmosphereVisualCapture : Node
 {
@@ -31,6 +31,9 @@ public partial class AtmosphereVisualCapture : Node
                     : $"res://docs/visual/screenshots/atmosphere-{weatherState.ToString().ToLowerInvariant()}.png";
             bool includeTorch = args.Length > 7
                     && bool.TryParse(args[7], out bool parsedTorch) && parsedTorch;
+            int captureViewDistance = Math.Clamp(ParseInt(args, 8, 3), 3, 5);
+            int expectedChunkCount = (captureViewDistance * 2 + 1)
+                    * (captureViewDistance * 2 + 1);
 
             if (version is < 1 or > WorldStore.CurrentGenVersion)
             {
@@ -88,7 +91,7 @@ public partial class AtmosphereVisualCapture : Node
             dayNight.Paused = true;
             weather.Current = weatherState;
             weather.Cloudiness = Weather.TargetCloudinessFor(weatherState);
-            world.SetViewDistance(3);
+            world.SetViewDistance(captureViewDistance);
             world.SetLodRadius(0.0f);
 
             int height = world.SurfaceHeight(centerX, centerZ);
@@ -106,7 +109,7 @@ public partial class AtmosphereVisualCapture : Node
             camera.GlobalPosition = target + new Vector3(62.0f, 72.0f, 78.0f);
             camera.LookAt(target + new Vector3(0.0f, 5.0f, 0.0f), Vector3.Up);
 
-            GD.Print($"ATMOSPHERE_CAPTURE_START seed={seed} version={version} center=({centerX},{centerZ}) time={world.TimeOfDay:F3} weather={weatherState} torch={includeTorch} output={output}");
+            GD.Print($"ATMOSPHERE_CAPTURE_START seed={seed} version={version} center=({centerX},{centerZ}) time={world.TimeOfDay:F3} weather={weatherState} torch={includeTorch} view_distance={captureViewDistance} expected_chunks={expectedChunkCount} output={output}");
             double started = Time.GetTicksMsec() / 1000.0;
             int frames = 0;
             while (frames < 1800)
@@ -114,15 +117,15 @@ public partial class AtmosphereVisualCapture : Node
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
                 frames++;
                 double elapsed = Time.GetTicksMsec() / 1000.0 - started;
-                if (elapsed >= 8.0 && world.ChunkCount >= 16)
+                if (elapsed >= 8.0 && world.ChunkCount >= expectedChunkCount)
                 {
                     break;
                 }
             }
 
-            if (world.ChunkCount < 16)
+            if (world.ChunkCount < expectedChunkCount)
             {
-                GD.PushError($"World did not stream enough chunks for a useful capture (count={world.ChunkCount}).");
+                GD.PushError($"World did not stream the requested inspection radius (count={world.ChunkCount}, expected={expectedChunkCount}).");
                 GetTree().Quit(6);
                 return;
             }
