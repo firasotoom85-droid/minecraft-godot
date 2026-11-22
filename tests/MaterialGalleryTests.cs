@@ -113,18 +113,26 @@ public static class MaterialGalleryTests
                         $"placeable gallery mapping round-trips for {item}");
                 int iconTile = BlockDb.IconTile(mapped);
                 Texture2D icon = ItemDb.Icon(item);
-                TestAssert.Check(icon is AtlasTexture,
-                        $"first-person icon for {item} uses the shared atlas path");
-                if (icon is AtlasTexture atlasIcon)
+                if (ItemDb.IsVoxelShapeIcon(item))
                 {
-                    TestAssert.Check(ReferenceEquals(atlasIcon.Atlas, BlockDb.AtlasTexture()),
-                            $"first-person icon for {item} references the production atlas");
-                    Rect2 expectedRegion = new(
-                            (iconTile % BlockDb.AtlasCols) * BlockDb.TilePx,
-                            (iconTile / BlockDb.AtlasCols) * BlockDb.TilePx,
-                            BlockDb.TilePx, BlockDb.TilePx);
-                    TestAssert.Check(atlasIcon.Region == expectedRegion,
-                            $"first-person icon for {item} uses the registered block tile");
+                    TestAssert.Check(icon is ImageTexture,
+                            $"first-person icon for {item} includes its registered block shape");
+                }
+                else
+                {
+                    TestAssert.Check(icon is AtlasTexture,
+                            $"first-person icon for {item} uses the shared atlas path");
+                    if (icon is AtlasTexture atlasIcon)
+                    {
+                        TestAssert.Check(ReferenceEquals(atlasIcon.Atlas, BlockDb.AtlasTexture()),
+                                $"first-person icon for {item} references the production atlas");
+                        Rect2 expectedRegion = new(
+                                (iconTile % BlockDb.AtlasCols) * BlockDb.TilePx,
+                                (iconTile / BlockDb.AtlasCols) * BlockDb.TilePx,
+                                BlockDb.TilePx, BlockDb.TilePx);
+                        TestAssert.Check(atlasIcon.Region == expectedRegion,
+                                $"first-person icon for {item} uses the registered block tile");
+                    }
                 }
 
                 SurfaceFamily heldFamily = MaterialResponse.ForItem(item);

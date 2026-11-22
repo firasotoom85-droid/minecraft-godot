@@ -29,15 +29,19 @@ The greedy texture array builds mipmaps from each isolated 32px tile rather
 than the combined atlas. This avoids cross-tile colour bleed at distance.
 The classic atlas path intentionally retains nearest sampling without atlas
 mipmaps because generating mipmaps from the packed atlas would blend adjacent
-tiles. Block-backed item icons remain AtlasTexture regions of this unchanged
-atlas. Standalone procedural item icons are normalized into a centered 22px
-silhouette frame inside their 32px image, with a one-pixel graphite contour,
-a subtle upper-left-to-lower-right fill-light gradient, and four transparent pixels
-of outer padding. Each standalone image owns its own five-level mip chain;
+tiles. Ordinary full-block item icons remain AtlasTexture regions of this
+unchanged atlas. The six slab and stair items instead use cached isometric
+silhouette previews rasterized from their existing registered face tiles, so
+shape items remain distinguishable without creating a second material palette
+or editing atlas coordinates. Standalone procedural item icons are normalized
+into a centered 22px silhouette frame inside their 32px image, with a one-pixel
+graphite contour, a subtle upper-left-to-lower-right fill-light gradient, and
+four transparent pixels of outer padding. Each standalone image owns its own
+five-level mip chain;
 the first-person Sprite3D and its cached material use nearest-with-mipmaps
 sampling to retain crisp pixels close up and reduce distant shimmer. The icon
-finish runs only when a standalone texture is first requested; there is no
-per-frame icon work or new scene-node system.
+finish runs only when a generated standalone or shape-preview texture is first
+requested; there is no per-frame icon work or new scene-node system.
 
 ## Transparency and cutout rendering
 
@@ -668,8 +672,13 @@ condition reaches or falls below 75%, 50% and 25%. Inventory, hotbar, armor and
 container slots also draw a crisp three-pixel meter (green / amber / red); worn
 values remain beside the icon, and the tooltip always shows current / maximum.
 The first-person held item uses the same wear variant while retaining its
-existing material response. Block-item icons continue sampling the unchanged
-atlas region. Icon painting occurs only when a new item/wear band is first used.
+existing material response. Ordinary full-block icons continue sampling their
+exact atlas regions; slab/stair previews sample the same face tiles through a
+cached isometric projection. Raw/cooked fish and chicken keep distinct fish and
+drumstick silhouettes respectively, changing palette rather than species when
+cooked. Generated icons are finished only when a new item/wear band is first
+used; the audit contact-sheet exporter duplicates cached images before
+resizing, so diagnostics cannot mutate runtime icon resources.
 
 Peaceful mode suppresses hostile spawns, cancels pending hostile attacks,
 removes hostile projectiles and keeps the Ember Warden dormant.
@@ -719,9 +728,12 @@ are never renumbered or reused; new content is appended and pinned by tests.
 | `ItemId` 108 | River reed item, matching BlockId 59 |
 
 `tests/EquipmentDurabilityVisualTests.cs` covers wear thresholds, malformed
-value clamping, pixel-distinct cached icon variants, block-atlas compatibility
-and the no-extra-slot-node draw path. Equipment wear visuals do not add persisted
-fields or require save migration.
+value clamping, pixel-distinct cached icon variants, block-atlas compatibility,
+image-size mismatch safety and the no-extra-slot-node draw path.
+`tests/ItemIconTests.cs` audits every persisted item against its icon path,
+including shape silhouettes, raw/cooked food identity, texture cache isolation
+and mip-chain preservation. Equipment wear visuals do not add persisted fields
+or require save migration.
 
 `tests/ContentTests.cs` pins every block and item value and asserts that the
 building, transportation, weathering, foliage and reed ranges remain
