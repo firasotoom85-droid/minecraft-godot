@@ -678,3 +678,34 @@ this shader-only change.
   or shader failure was reported; visual inspection retained the existing
   material differentiation. No FPS delta is claimed because production
   rendering code was not changed.
+
+
+## 13. Context-aware exposure transitions — 2026-11-22
+
+- Reused the camera attributes created by `Player` and the existing `DayNight`
+  owner. The exposure range now combines cached baked skylight, the existing
+  water-view blend, and smoothed weights from the cached biome column. Cave
+  shelter overrides water and biome modifiers; block-light emitters remain
+  local and cannot lift global exposure.
+- Bright snow reduces the sensitivity range, shaded forest raises only its
+  upper bound, and intermediate canopy biomes receive partial weights. The fog
+  tint and both exposure weights converge with a frame-rate-independent
+  exponential blend rather than snapping at integer biome boundaries.
+- Adaptation is asymmetric: entering darker contexts uses a slower auto-exposure
+  speed; emerging from water or moving into bright terrain uses a faster speed.
+  Directional speed is held for one second after a context crossing so the
+  renderer has time to adapt, then returns to its neutral steady value. The
+  context profile is bounded and sensitivity writes are change-throttled.
+- Added regression coverage for exposure bounds and precedence, water/snow/forest
+  response, biome profile weights, asymmetric speed, and 30/60 FPS convergence.
+  The production visual capture shares the actual gameplay camera attributes and
+  logs its active context values. MX230 / Godot 4.7.2 Forward+ captures at
+  1600×900 measured water blend 0.720 / ISO 37.4–117.0 while submerged, then
+  blend 0.000 / ISO 39.6–140.0 after surfacing. Snow measured ISO 32.3–124.3;
+  nearby Taiga measured 39.6–153.4. The sealed-torch capture retained zero-sky
+  cave max ISO 40.0 / ambient 0.079 while baked torch/adjacent levels stayed
+  14/13. Reference PNGs are under
+  `docs/visual/screenshots/exposure-*.png`.
+- No block/item IDs, save fields, generator rules, shader channels, light solver,
+  mesher, streaming or renderer preset settings changed. No scene nodes, light
+  emitters, per-frame scans, physics work or new gameplay allocations added.

@@ -304,6 +304,58 @@ generation or save data.
   trilinearly and blended through the entrance rather than switching at a fixed
   terrain-depth threshold. Cache misses use a smooth terrain-depth fallback;
   the frame path performs only eight cache reads and no chunk generation.
+  The same sky-only darkness weight also bounds first-person eye adaptation:
+  maximum camera sensitivity eases from 140 outdoors to 40 at zero skylight,
+  matching the camera minimum and locking global exposure in a sealed cave.
+  Environment ambient fill tapers to 8% at full cave darkness. Block-light
+  values are intentionally excluded from this adaptation signal, so a torch
+  still lights nearby geometry through the existing baked warm response but
+  cannot raise the exposure of the whole room. Torch/campfire propagation,
+  the 0.34 diffuse warm response and 0.025 emissive response are unchanged.
+  Repeatable cave comparison (same seed, generator, location and camera): run
+  res://tests/AtmosphereVisualCapture.tscn with arguments
+  1337 11 512 -372 0.5 Clear <output.png> false 3 sealed,
+  ... false 3 entrance, or ... false 3 sealed-torch. The modes produce a
+  zero-skylight unlit room, a connected entrance gradient, and a sealed room
+  with only a torch. Reference captures are committed as
+  docs/visual/screenshots/cave-adaptation-{sealed,entrance,sealed-torch}.png.
+  The same camera resource now keeps its minimum/maximum sensitivity in a
+  bounded context profile: entering water follows the player's existing smooth
+  immersion blend (including its short fade after surfacing), bright snow lowers
+  the ISO range to protect the white surface, and dense forest/taiga gently
+  raises the upper limit so shaded foliage remains readable. Dark adaptation
+  is deliberately slower than bright recovery, while biome fog tint and its
+  exposure weights ease with a frame-rate-independent blend. Only the existing
+  cached biome column is sampled; no additional terrain query or per-frame scan
+  is introduced. Dark/bright adaptation speeds are held for one second after a
+  lighting transition, then return to the neutral speed so a single crossing
+  signal is long enough for the renderer to adapt. The capture runner shares the
+  production camera attributes and logs biome, water blend, ISO limits and
+  adaptation speed for comparison. Capture water entry/emergence and a generated
+  snow/shaded-biome pair with the same fixed world and view profile:
+
+  ```bash
+  godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 11 512 -372 0.50 Clear res://docs/visual/screenshots/exposure-water-exit.png false 3 none water-exit
+  godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 11 512 -372 0.50 Clear res://docs/visual/screenshots/exposure-biome-pair.png false 3 none biome-pair
+  ```
+
+  The water run writes matched underwater/emerged frames. The biome run writes
+  matched snow and shaded-canopy frames and prints the selected biome IDs plus
+  the active ISO range. Captures use `VoxelWorld.SetBlock` for temporary fluid
+  fixtures and never save the disposable world. On the MX230 / Godot 4.7.2
+  Forward+ reference run (seed 1337, V11, clear noon, 1600×900), the underwater
+  camera reached blend 0.720 with ISO 37.4–117.0; after surfacing, blend returned
+  to 0.000 and the range recovered to 39.6–140.0. The paired biome capture used
+  Snow at `(512, -388)` (ISO 32.3–124.3) and Taiga at `(544, -380)` (ISO
+  39.6–153.4), streaming 70 chunks. The sealed-torch fixture also measured
+  skylight 15.00 outside / 0.00 in the chamber (darkness 1.000), camera max ISO
+  40.0, ambient scale 0.079 and baked torch/adjacent block levels 14/13 across
+  56 streamed chunks. Reference frames:
+  [sealed torch cave](docs/visual/screenshots/exposure-cave-sealed-torch.png),
+  [underwater](docs/visual/screenshots/exposure-water-exit-underwater.png),
+  [emerged](docs/visual/screenshots/exposure-water-exit-emerged.png),
+  [snow](docs/visual/screenshots/exposure-biome-pair-snow.png), and
+  [taiga](docs/visual/screenshots/exposure-biome-pair-forest.png).
   Repeatable GPU comparison (same seed/site/camera): run
   `res://tests/WarmLightingVisualCapture.tscn` with arguments `1337 11 0 0
   torch`, `1337 11 0 0 campfire`, or `1337 11 0 0 overlap`, followed by an

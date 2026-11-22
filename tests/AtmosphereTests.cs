@@ -10,6 +10,7 @@ public static class AtmosphereTests
     {
         TestDayNightPalette();
         TestCaveExposure();
+        TestWaterAndBiomeExposure();
         TestSunlightDirectionAndBakedChannels();
         TestDistanceHazeProfile();
         TestWeatherPrecipitationSelection();
@@ -82,6 +83,34 @@ public static class AtmosphereTests
         TestAssert.Equal(0.0f, DayNight.EvaluateCaveDarkness(20.0f),
                 "skylight above the nibble range clamps to outdoor exposure");
 
+        TestAssert.Equal(DayNight.OutdoorAutoExposureMaxSensitivity,
+                DayNight.EvaluateAutoExposureMaxSensitivity(openSky),
+                "open sky retains the existing outdoor auto-exposure range");
+        TestAssert.Equal(DayNight.CaveAutoExposureMaxSensitivity,
+                DayNight.EvaluateAutoExposureMaxSensitivity(enclosedCave),
+                "zero-skylight caves hold the camera at its minimum sensitivity");
+        TestAssert.Equal(DayNight.MinimumAutoExposureSensitivity,
+                DayNight.CaveAutoExposureMaxSensitivity,
+                "deep cave exposure has no upward camera-sensitivity headroom");
+        TestAssert.Check(DayNight.EvaluateAutoExposureMaxSensitivity(caveEntrance)
+                        < DayNight.OutdoorAutoExposureMaxSensitivity
+                        && DayNight.EvaluateAutoExposureMaxSensitivity(caveEntrance)
+                        > DayNight.CaveAutoExposureMaxSensitivity,
+                "camera sensitivity follows the partial skylight transition at cave entrances");
+        TestAssert.Equal(1.0f, DayNight.EvaluateCaveAmbientScale(openSky),
+                "open sky keeps the full environment ambient response");
+        TestAssert.Check(Math.Abs(DayNight.EvaluateCaveAmbientScale(enclosedCave)
+                        - DayNight.CaveAmbientScale) < 0.00001f,
+                "sealed caves retain only the deliberate low ambient floor");
+        TestAssert.Check(DayNight.EvaluateCaveAmbientScale(caveEntrance) < 1.0f
+                        && DayNight.EvaluateCaveAmbientScale(caveEntrance) > DayNight.CaveAmbientScale,
+                "environment ambient fill eases through the cave entrance");
+        TestAssert.Check(DayNight.EvaluateAutoExposureMaxSensitivity(0.5f)
+                        > DayNight.EvaluateAutoExposureMaxSensitivity(0.75f)
+                        && DayNight.EvaluateCaveAmbientScale(0.5f)
+                        > DayNight.EvaluateCaveAmbientScale(0.75f),
+                "deeper cave adaptation reduces both global exposure headroom and ambient fill");
+
         float previous = enclosedCave;
         for (int level = 1; level <= VoxelLighting.MaxLevel * 4; level++)
         {
@@ -91,6 +120,15 @@ public static class AtmosphereTests
                     $"cave exposure response remains finite and bounded at skylight {exposure:F2}");
             TestAssert.Check(darkness <= previous,
                     $"increasing skylight never increases cave darkness at {exposure:F2}");
+            float cameraSensitivity = DayNight.EvaluateAutoExposureMaxSensitivity(darkness);
+            float ambientScale = DayNight.EvaluateCaveAmbientScale(darkness);
+            TestAssert.Check(float.IsFinite(cameraSensitivity)
+                            && cameraSensitivity >= DayNight.CaveAutoExposureMaxSensitivity
+                            && cameraSensitivity <= DayNight.OutdoorAutoExposureMaxSensitivity
+                            && float.IsFinite(ambientScale)
+                            && ambientScale >= DayNight.CaveAmbientScale
+                            && ambientScale <= 1.0f,
+                    $"camera exposure and ambient fill remain finite and bounded at skylight {exposure:F2}");
             previous = darkness;
         }
 
@@ -98,6 +136,84 @@ public static class AtmosphereTests
         float after = DayNight.EvaluateCaveDarkness(8.5f);
         TestAssert.Check(System.Math.Abs(before - after) < 0.15f,
                 "fractional skylight interpolation changes cave exposure smoothly between adjacent cells");
+    }
+
+    private static void TestWaterAndBiomeExposure()
+    {
+        DayNight.ExposureLimits outdoor = DayNight.EvaluateExposureLimits(0.0f, 0.0f, 0.0f, 0.0f);
+        DayNight.ExposureLimits underwater = DayNight.EvaluateExposureLimits(0.0f, 1.0f, 0.0f, 0.0f);
+        DayNight.ExposureLimits snow = DayNight.EvaluateExposureLimits(0.0f, 0.0f, 1.0f, 0.0f);
+        DayNight.ExposureLimits forest = DayNight.EvaluateExposureLimits(0.0f, 0.0f, 0.0f, 1.0f);
+        DayNight.ExposureLimits cave = DayNight.EvaluateExposureLimits(1.0f, 1.0f, 1.0f, 1.0f);
+
+        TestAssert.Equal(DayNight.MinimumAutoExposureSensitivity, outdoor.MinimumSensitivity,
+                "outdoor minimum sensitivity retains the established camera baseline");
+        TestAssert.Equal(DayNight.OutdoorAutoExposureMaxSensitivity, outdoor.MaximumSensitivity,
+                "outdoor maximum sensitivity retains the established camera baseline");
+        TestAssert.Equal(DayNight.WaterAutoExposureMinSensitivity, underwater.MinimumSensitivity,
+                "full water immersion limits the bright-side sensitivity range");
+        TestAssert.Equal(DayNight.WaterAutoExposureMaxSensitivity, underwater.MaximumSensitivity,
+                "full water immersion prevents excessive dark-scene exposure lift");
+        TestAssert.Equal(DayNight.SnowAutoExposureMinSensitivity, snow.MinimumSensitivity,
+                "bright snow permits lower ISO so highlights can settle without washing out");
+        TestAssert.Equal(DayNight.SnowAutoExposureMaxSensitivity, snow.MaximumSensitivity,
+                "bright snow reduces the upper exposure ceiling");
+        TestAssert.Equal(DayNight.MinimumAutoExposureSensitivity, forest.MinimumSensitivity,
+                "shaded forest preserves the normal lower exposure boundary");
+        TestAssert.Equal(DayNight.ForestAutoExposureMaxSensitivity, forest.MaximumSensitivity,
+                "shaded forest permits a modestly higher upper exposure ceiling");
+        TestAssert.Equal(DayNight.MinimumAutoExposureSensitivity, cave.MinimumSensitivity,
+                "cave shelter overrides water and biome minimum-sensitivity modifiers");
+        TestAssert.Equal(DayNight.CaveAutoExposureMaxSensitivity, cave.MaximumSensitivity,
+                "cave shelter always wins over bright snow, water and forest exposure modifiers");
+
+        TestAssert.Check(DayNight.EvaluateExposureDarkness(0.0f, 1.0f, 0.0f, 0.0f) > 0.0f,
+                "water immersion contributes to the dark-adaptation context");
+        TestAssert.Check(DayNight.EvaluateExposureDarkness(0.0f, 0.0f, 0.0f, 1.0f)
+                        > DayNight.EvaluateExposureDarkness(0.0f, 0.0f, 0.0f, 0.0f),
+                "dense forest is treated as a darker exposure context than open terrain");
+        TestAssert.Equal(0.0f, DayNight.EvaluateExposureDarkness(0.0f, 0.0f, 1.0f, 0.0f),
+                "bright snow offsets the shaded-scene adaptation bias");
+        TestAssert.Check(DayNight.EvaluateAutoExposureSpeed(0.0f, 0.5f)
+                        < DayNight.EvaluateAutoExposureSpeed(0.5f, 0.0f),
+                "entering a darker scene adapts more slowly than emerging into brightness");
+        TestAssert.Equal(DayNight.SteadyAdaptationSpeed,
+                DayNight.EvaluateAutoExposureSpeed(0.25f, 0.25f),
+                "stable lighting uses the neutral camera adaptation speed");
+        TestAssert.Equal(DayNight.SteadyAdaptationSpeed,
+                DayNight.EvaluateAutoExposureSpeed(-1.0f, 1.0f),
+                "the first camera update starts from the neutral adaptation speed");
+
+        DayNight.BiomeLightingProfile snowProfile =
+                DayNight.EvaluateBiomeLightingProfile(Biome.Snow);
+        DayNight.BiomeLightingProfile forestProfile =
+                DayNight.EvaluateBiomeLightingProfile(Biome.DenseForest);
+        DayNight.BiomeLightingProfile taigaProfile =
+                DayNight.EvaluateBiomeLightingProfile(Biome.Taiga);
+        TestAssert.Equal(1.0f, snowProfile.SnowWeight,
+                "snow biome selects the bright-surface exposure profile");
+        TestAssert.Equal(0.0f, snowProfile.ForestWeight,
+                "snow biome does not inherit the canopy exposure modifier");
+        TestAssert.Equal(1.0f, forestProfile.ForestWeight,
+                "dense forest selects the shaded-canopy exposure profile");
+        TestAssert.Check(taigaProfile.ForestWeight > 0.0f
+                        && taigaProfile.ForestWeight < forestProfile.ForestWeight,
+                "taiga transitions through a milder forest exposure profile");
+
+        float blend60 = DayNight.EvaluateTransitionBlend(1.0 / 60.0, 2.8f);
+        float blend30 = DayNight.EvaluateTransitionBlend(1.0 / 30.0, 2.8f);
+        float value60 = 0.0f;
+        float value30 = 0.0f;
+        for (int frame = 0; frame < 60; frame++)
+            value60 = Mathf.Lerp(value60, 1.0f, blend60);
+        for (int frame = 0; frame < 30; frame++)
+            value30 = Mathf.Lerp(value30, 1.0f, blend30);
+        TestAssert.Check(Mathf.Abs(value60 - value30) < 0.0001f,
+                "biome presentation transitions are independent of 30/60 FPS frame rate");
+        TestAssert.Equal(0.0f, DayNight.EvaluateTransitionBlend(0.0, 2.8f),
+                "a paused frame does not advance the biome transition");
+        TestAssert.Equal(0.0f, DayNight.EvaluateTransitionBlend(0.1, 0.0f),
+                "a disabled transition rate remains stable");
     }
 
     private static void TestSunlightDirectionAndBakedChannels()

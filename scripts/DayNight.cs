@@ -19,6 +19,28 @@ public partial class DayNight : Node
     private const float SunAzimuthDegrees = -35.0f;
     private const int CausticFrames = 6;
 
+    // Keep eye adaptation responsive outdoors, but prevent a sealed cave from
+    // being lifted toward daylight by the camera's global luminance histogram.
+    // The minimum sensitivity remains owned by Player's camera configuration.
+    internal const float MinimumAutoExposureSensitivity = 40.0f;
+    internal const float OutdoorAutoExposureMaxSensitivity = 140.0f;
+    internal const float CaveAutoExposureMaxSensitivity = MinimumAutoExposureSensitivity;
+    internal const float CaveAmbientScale = 0.08f;
+    internal const float WaterAutoExposureMinSensitivity = 36.0f;
+    internal const float WaterAutoExposureMaxSensitivity = 108.0f;
+    internal const float SnowAutoExposureMinSensitivity = 32.0f;
+    internal const float SnowAutoExposureMaxSensitivity = 124.0f;
+    internal const float ForestAutoExposureMaxSensitivity = 156.0f;
+    internal const float DarkAdaptationSpeed = 0.70f;
+    internal const float BrightAdaptationSpeed = 1.40f;
+    internal const float SteadyAdaptationSpeed = 0.90f;
+    private const float BiomeTransitionRate = 2.8f;
+
+    internal readonly record struct ExposureLimits(
+            float MinimumSensitivity, float MaximumSensitivity);
+    internal readonly record struct BiomeLightingProfile(
+            Color FogTint, float SnowWeight, float ForestWeight);
+
     internal readonly record struct SkyPalette(
             double Daylight,
             double Night,
@@ -138,13 +160,109 @@ public partial class DayNight : Node
     /// <summary>
     /// Converts baked skylight (0..15) into a smooth cave-darkness weight.
     /// The soft transition preserves some ambient fill at cave mouths while
-    /// fully sheltered spaces still reach the established 20% ambient level.
+    /// fully sheltered spaces settle at the authored 8% ambient floor.
     /// </summary>
     internal static float EvaluateCaveDarkness(float skyLight)
     {
         float exposure = Mathf.Clamp(skyLight / VoxelLighting.MaxLevel, 0.0f, 1.0f);
         return 1.0f - (float)SmoothStep(0.12, 0.88, exposure);
     }
+
+    /// <summary>
+    /// Caps the camera's dark-scene exposure range using the same cached-sky
+    /// darkness signal as cave fog. A zero-skylight room reaches the camera's
+    /// minimum sensitivity, locking exposure so a torch cannot lift the room.
+    /// Block light deliberately does not affect this cap.
+    /// </summary>
+    internal static float EvaluateAutoExposureMaxSensitivity(float caveDarkness)
+    {
+        float darkness = Mathf.Clamp(caveDarkness, 0.0f, 1.0f);
+        return Mathf.Clamp(Mathf.Lerp(OutdoorAutoExposureMaxSensitivity,
+                CaveAutoExposureMaxSensitivity, darkness),
+                CaveAutoExposureMaxSensitivity, OutdoorAutoExposureMaxSensitivity);
+    }
+
+    /// <summary>Scale indirect environment fill down smoothly in enclosed caves.</summary>
+    internal static float EvaluateCaveAmbientScale(float caveDarkness)
+    {
+        float darkness = Mathf.Clamp(caveDarkness, 0.0f, 1.0f);
+        return Mathf.Clamp(Mathf.Lerp(1.0f, CaveAmbientScale, darkness),
+                CaveAmbientScale, 1.0f);
+    }
+
+    /// <summary>
+    /// Selects the bounded auto-exposure range for the current visual context.
+    /// Cave shelter has final priority; water and biome modifiers only shape the
+    /// outdoor range and never allow a cave to regain global exposure headroom.
+    /// </summary>
+    internal static ExposureLimits EvaluateExposureLimits(
+            float caveDarkness, float waterBlend, float snowWeight, float forestWeight)
+    {
+        float cave = Mathf.Clamp(caveDarkness, 0.0f, 1.0f);
+        float water = Mathf.Clamp(waterBlend, 0.0f, 1.0f);
+        float snow = Mathf.Clamp(snowWeight, 0.0f, 1.0f);
+        float forest = Mathf.Clamp(forestWeight, 0.0f, 1.0f);
+
+        float minimum = Mathf.Lerp(MinimumAutoExposureSensitivity,
+                SnowAutoExposureMinSensitivity, snow);
+        float maximum = Mathf.Lerp(OutdoorAutoExposureMaxSensitivity,
+                SnowAutoExposureMaxSensitivity, snow);
+        maximum = Mathf.Lerp(maximum, ForestAutoExposureMaxSensitivity, forest);
+        minimum = Mathf.Lerp(minimum, WaterAutoExposureMinSensitivity, water);
+        maximum = Mathf.Lerp(maximum, WaterAutoExposureMaxSensitivity, water);
+        minimum = Mathf.Lerp(minimum, MinimumAutoExposureSensitivity, cave);
+        maximum = Mathf.Lerp(maximum, CaveAutoExposureMaxSensitivity, cave);
+        maximum = Mathf.Max(minimum, maximum);
+        return new ExposureLimits(minimum, maximum);
+    }
+
+    /// <summary>
+    /// Darkness signal used only to choose adaptation speed. The environment
+    /// gets darker in caves, water and dense canopy; snow offsets a little of
+    /// that bias so the move into a bright snowfield is treated as brightening.
+    /// </summary>
+    internal static float EvaluateExposureDarkness(
+            float caveDarkness, float waterBlend, float snowWeight, float forestWeight)
+    {
+        float darkness = Mathf.Max(
+                Mathf.Clamp(caveDarkness, 0.0f, 1.0f),
+                Mathf.Max(Mathf.Clamp(waterBlend, 0.0f, 1.0f) * 0.45f,
+                        Mathf.Clamp(forestWeight, 0.0f, 1.0f) * 0.22f));
+        return Mathf.Clamp(darkness - Mathf.Clamp(snowWeight, 0.0f, 1.0f) * 0.12f,
+                0.0f, 1.0f);
+    }
+
+    /// <summary>Dark adaptation is deliberate; bright exits settle more quickly.</summary>
+    internal static float EvaluateAutoExposureSpeed(float previousDarkness, float currentDarkness)
+    {
+        if (!float.IsFinite(previousDarkness) || previousDarkness < 0.0f)
+            return SteadyAdaptationSpeed;
+        if (currentDarkness > previousDarkness + 0.002f)
+            return DarkAdaptationSpeed;
+        if (currentDarkness < previousDarkness - 0.002f)
+            return BrightAdaptationSpeed;
+        return SteadyAdaptationSpeed;
+    }
+
+    /// <summary>Frame-rate-independent interpolation amount for cached presentation targets.</summary>
+    internal static float EvaluateTransitionBlend(double delta, float rate)
+    {
+        if (!double.IsFinite(delta) || !float.IsFinite(rate) || delta <= 0.0 || rate <= 0.0f)
+            return 0.0f;
+        return Mathf.Clamp(1.0f - (float)System.Math.Exp(-delta * rate), 0.0f, 1.0f);
+    }
+
+    internal static BiomeLightingProfile EvaluateBiomeLightingProfile(Biome biome) => biome switch
+    {
+        Biome.Desert => new(new Color(1.06f, 0.98f, 0.82f), 0.0f, 0.0f),
+        Biome.Snow => new(new Color(0.88f, 0.95f, 1.06f), 1.0f, 0.0f),
+        Biome.Birch => new(new Color(0.94f, 1.05f, 0.92f), 0.0f, 0.65f),
+        Biome.DenseForest => new(new Color(0.94f, 1.02f, 0.92f), 0.0f, 1.0f),
+        Biome.Taiga => new(new Color(0.91f, 0.97f, 1.03f), 0.0f, 0.85f),
+        Biome.Jungle => new(new Color(0.94f, 1.03f, 0.90f), 0.0f, 0.75f),
+        Biome.Swamp => new(new Color(0.94f, 1.02f, 0.91f), 0.0f, 0.55f),
+        _ => new(new Color(1.02f, 1.02f, 0.98f), 0.0f, 0.0f),
+    };
 
     private const double CausticFrameTime = 0.1;
 
@@ -171,6 +289,18 @@ public partial class DayNight : Node
     private int _terrainSampleZ = int.MinValue;
     private int _terrainSurfaceHeight;
     private Color _terrainBiomeTint = new(1.02f, 1.02f, 0.98f);
+    private Color _targetTerrainBiomeTint = new(1.02f, 1.02f, 0.98f);
+    private float _snowExposureWeight;
+    private float _targetSnowExposureWeight;
+    private float _forestExposureWeight;
+    private float _targetForestExposureWeight;
+    private CameraAttributesPractical? _cameraAttributes;
+    private float _lastAutoExposureMinSensitivity = -1.0f;
+    private float _lastAutoExposureMaxSensitivity = -1.0f;
+    private float _lastAutoExposureSpeed = -1.0f;
+    private float _lastExposureDarkness = -1.0f;
+    private float _exposureSpeedHoldTimer;
+    private float _transitionExposureSpeed = SteadyAdaptationSpeed;
 
     /// <summary>Night spans the dark half of the cycle (sun below the horizon).</summary>
     public static bool IsNight(double t) => t < 0.25 || t >= 0.75;
@@ -181,6 +311,11 @@ public partial class DayNight : Node
         PlayerRef = player;
         Sun = sun;
         WorldEnv = env;
+        _cameraAttributes = player.Camera.Attributes as CameraAttributesPractical;
+        _lastAutoExposureMinSensitivity = -1.0f;
+        _lastAutoExposureMaxSensitivity = -1.0f;
+        _lastAutoExposureSpeed = -1.0f;
+        _lastExposureDarkness = -1.0f;
         _usesDistanceHaze = world.WorldGenVersion >= WorldGenV8.Version;
         _fogDensityAir = _usesDistanceHaze
                 ? WorldEnvironmentFactory.DistanceHazeDensity
@@ -264,6 +399,7 @@ public partial class DayNight : Node
         if (hasTerrainSample)
         {
             UpdateTerrainSample();
+            BlendTerrainPresentation(delta);
             fogColor = new Color(
                     Mathf.Clamp(fogColor.R * _terrainBiomeTint.R, 0.0f, 1.0f),
                     Mathf.Clamp(fogColor.G * _terrainBiomeTint.G, 0.0f, 1.0f),
@@ -290,13 +426,56 @@ public partial class DayNight : Node
             }
         }
 
+        if (_cameraAttributes != null && GodotObject.IsInstanceValid(_cameraAttributes))
+        {
+            float waterBlend = PlayerRef?.WaterViewBlend ?? 0.0f;
+            ExposureLimits limits = EvaluateExposureLimits(caveDarkness, waterBlend,
+                    _snowExposureWeight, _forestExposureWeight);
+            if (Mathf.Abs(limits.MinimumSensitivity - _lastAutoExposureMinSensitivity) >= 0.5f)
+            {
+                _cameraAttributes.AutoExposureMinSensitivity = limits.MinimumSensitivity;
+                _lastAutoExposureMinSensitivity = limits.MinimumSensitivity;
+            }
+
+            if (Mathf.Abs(limits.MaximumSensitivity - _lastAutoExposureMaxSensitivity) >= 0.5f)
+            {
+                _cameraAttributes.AutoExposureMaxSensitivity = limits.MaximumSensitivity;
+                _lastAutoExposureMaxSensitivity = limits.MaximumSensitivity;
+            }
+
+            float exposureDarkness = EvaluateExposureDarkness(caveDarkness, waterBlend,
+                    _snowExposureWeight, _forestExposureWeight);
+            float transitionSpeed = EvaluateAutoExposureSpeed(
+                    _lastExposureDarkness, exposureDarkness);
+            if (Mathf.Abs(transitionSpeed - SteadyAdaptationSpeed) >= 0.05f)
+            {
+                _transitionExposureSpeed = transitionSpeed;
+                _exposureSpeedHoldTimer = 1.0f;
+            }
+            else
+            {
+                _exposureSpeedHoldTimer = Mathf.Max(
+                        _exposureSpeedHoldTimer - (float)delta, 0.0f);
+                if (_exposureSpeedHoldTimer <= 0.0f)
+                    _transitionExposureSpeed = SteadyAdaptationSpeed;
+            }
+
+            float adaptationSpeed = _transitionExposureSpeed;
+            if (Mathf.Abs(adaptationSpeed - _lastAutoExposureSpeed) >= 0.05f)
+            {
+                _cameraAttributes.AutoExposureSpeed = adaptationSpeed;
+                _lastAutoExposureSpeed = adaptationSpeed;
+            }
+            _lastExposureDarkness = exposureDarkness;
+        }
+
         if (caveDarkness > 0.001f)
         {
             Color caveFog = new Color(0.015f, 0.02f, 0.03f)
                     .Lerp(fogColor, (float)(day * 0.25));
             fogColor = fogColor.Lerp(caveFog, caveDarkness);
             fogDensity = Mathf.Lerp((float)fogDensity, 0.035f, caveDarkness);
-            env.AmbientLightEnergy *= Mathf.Lerp(1.0f, 0.20f, caveDarkness);
+            env.AmbientLightEnergy *= EvaluateCaveAmbientScale(caveDarkness);
         }
 
         bool underwater = PlayerRef is { Underwater: true };
@@ -374,13 +553,18 @@ public partial class DayNight : Node
         _terrainSampleZ = sampleZ;
         _terrainSurfaceHeight = World!.SurfaceHeight(sampleX, sampleZ);
         Biome biome = World.BiomeAt(sampleX, sampleZ, _terrainSurfaceHeight);
-        _terrainBiomeTint = biome switch
-        {
-            Biome.Desert => new Color(1.06f, 0.98f, 0.82f),
-            Biome.Snow => new Color(0.88f, 0.95f, 1.06f),
-            Biome.Birch => new Color(0.94f, 1.05f, 0.92f),
-            _ => new Color(1.02f, 1.02f, 0.98f),
-        };
+        BiomeLightingProfile profile = EvaluateBiomeLightingProfile(biome);
+        _targetTerrainBiomeTint = profile.FogTint;
+        _targetSnowExposureWeight = profile.SnowWeight;
+        _targetForestExposureWeight = profile.ForestWeight;
+    }
+
+    private void BlendTerrainPresentation(double delta)
+    {
+        float blend = EvaluateTransitionBlend(delta, BiomeTransitionRate);
+        _terrainBiomeTint = _terrainBiomeTint.Lerp(_targetTerrainBiomeTint, blend);
+        _snowExposureWeight = Mathf.Lerp(_snowExposureWeight, _targetSnowExposureWeight, blend);
+        _forestExposureWeight = Mathf.Lerp(_forestExposureWeight, _targetForestExposureWeight, blend);
     }
 
     private static void UpdateCloudLayer(
