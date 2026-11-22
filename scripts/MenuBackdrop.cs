@@ -61,6 +61,9 @@ public partial class MenuBackdrop : Node3D
             Environment = WorldEnvironmentFactory.Build(),
         };
         Godot.Environment menuEnv = environment.Environment;
+        // The backdrop keeps its authored exponential atmosphere values;
+        // gameplay's camera-depth haze is reserved for streamed world views.
+        menuEnv.FogMode = Godot.Environment.FogModeEnum.Exponential;
         menuEnv.FogDensity = 0.0022f;
         menuEnv.FogHeightDensity = 0.006f;
         menuEnv.VolumetricFogEnabled = false;

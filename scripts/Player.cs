@@ -119,7 +119,7 @@ public partial class Player : CharacterBody3D, IDamageable
     private Sprite3D _heldItemSprite = null!;
     private StandardMaterial3D? _heldItemMaterial;
     private int _heldItemId = -1;
-    private int _heldWearStage = -1;
+    private int _heldItemIconState = -1;
     private Vector3 _armBase = Vector3.Zero;
     private double _bobPhase;
     private double _idleArmPhase;
@@ -165,12 +165,17 @@ public partial class Player : CharacterBody3D, IDamageable
     public void SetWaterEnvironment(Godot.Environment environment)
     {
         _underwaterEnvironment = (Godot.Environment)environment.Duplicate();
-        _airFogDensity = environment.FogDensity;
+        // Immersion uses its existing close-range exponential fog even when
+        // the outdoor world uses camera-depth haze.
+        _airFogDensity = environment.FogMode == Godot.Environment.FogModeEnum.Depth
+                ? WorldEnvironmentFactory.ImmersionAirFogDensity : environment.FogDensity;
         _airFogColor = environment.FogLightColor;
         _underwaterEnvironment.FogEnabled = true;
+        _underwaterEnvironment.FogMode = Godot.Environment.FogModeEnum.Exponential;
         _underwaterEnvironment.VolumetricFogEnabled = false;
         _lavaEnvironment = (Godot.Environment)environment.Duplicate();
         _lavaEnvironment.FogEnabled = true;
+        _lavaEnvironment.FogMode = Godot.Environment.FogModeEnum.Exponential;
         _lavaEnvironment.VolumetricFogEnabled = false;
     }
 
@@ -2395,28 +2400,31 @@ public partial class Player : CharacterBody3D, IDamageable
 
         ItemStack held = Inventory.Hotbar[Selected];
         int heldId = held.IsEmpty ? 0 : (int)held.Id;
-        int wearStage = held.IsEmpty ? 0 : EquipmentDurabilityVisual.WearStage(held);
-        if (heldId != _heldItemId)
+        int iconState = held.IsEmpty ? 0 : ItemDb.IconVisualState(held);
+        bool itemChanged = heldId != _heldItemId;
+        if (itemChanged || iconState != _heldItemIconState)
         {
             _heldItemId = heldId;
-            _bowDrawBlend = 0.0f;
-            _shieldGuardBlend = 0.0f;
-            _heldWearStage = wearStage;
+            _heldItemIconState = iconState;
+            if (itemChanged)
+            {
+                _bowDrawBlend = 0.0f;
+                _shieldGuardBlend = 0.0f;
+            }
+
             Texture2D? icon = held.IsEmpty ? null : ItemDb.Icon(held);
             _heldItemSprite.Texture = icon;
-            _heldItemMaterial = icon == null ? null : MakeHeldItemMaterial(held.Id, icon);
-            _heldItemSprite.MaterialOverride = _heldItemMaterial;
-            _heldItemSprite.Visible = !held.IsEmpty;
-        }
-        else if (wearStage != _heldWearStage)
-        {
-            _heldWearStage = wearStage;
-            Texture2D icon = ItemDb.Icon(held);
-            _heldItemSprite.Texture = icon;
-            if (_heldItemMaterial != null)
+            if (itemChanged)
+            {
+                _heldItemMaterial = icon == null ? null : MakeHeldItemMaterial(held.Id, icon);
+                _heldItemSprite.MaterialOverride = _heldItemMaterial;
+            }
+            else if (_heldItemMaterial != null)
             {
                 _heldItemMaterial.AlbedoTexture = icon;
             }
+
+            _heldItemSprite.Visible = !held.IsEmpty;
         }
 
         bool active = !InputLocked && !Stats.Dead;

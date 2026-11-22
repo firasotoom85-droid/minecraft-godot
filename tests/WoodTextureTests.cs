@@ -37,8 +37,8 @@ public static class WoodTextureTests
                 "stair icon and held-item viewmodel use readable side grain");
 
         CheckBlockItemIcon(BlockId.Planks, planks.Tiles[4]);
-        CheckBlockItemIcon(BlockId.PlanksSlab, slab.Tiles[4]);
-        CheckBlockItemIcon(BlockId.PlanksStairs, stairs.Tiles[4]);
+        CheckVoxelShapeItemIcon(BlockId.PlanksSlab);
+        CheckVoxelShapeItemIcon(BlockId.PlanksStairs);
 
         int[] distinctNewTiles = [planks.Tiles[0], planks.Tiles[4], planks.Tiles[2]];
         TestAssert.Check(distinctNewTiles[0] >= 49 && distinctNewTiles[0] <= 51,
@@ -135,6 +135,22 @@ public static class WoodTextureTests
                 && Mathf.IsEqualApprox(region.Size.X, BlockDb.TilePx)
                 && Mathf.IsEqualApprox(region.Size.Y, BlockDb.TilePx),
                 $"{blockId} held-item icon selects the long-grain atlas tile");
+    }
+
+    private static void CheckVoxelShapeItemIcon(BlockId blockId)
+    {
+        ItemId itemId = ItemDb.BlockItem(blockId);
+        Texture2D icon = ItemDb.Icon(itemId);
+        TestAssert.Check(ItemDb.IsVoxelShapeIcon(itemId) && icon is ImageTexture,
+                $"{blockId} first-person/inventory icon includes its registered voxel shape");
+        if (icon is ImageTexture shapeIcon)
+        {
+            Image image = shapeIcon.GetImage();
+            TestAssert.Equal(new Vector2I(32, 32), image.GetSize(),
+                    $"{blockId} shape preview keeps the shared icon dimensions");
+            TestAssert.Check(image.HasMipmaps(),
+                    $"{blockId} shape preview retains the standalone icon mip chain");
+        }
     }
 
     private static void CheckTileHasVariation(Image atlas, int tile, string label)

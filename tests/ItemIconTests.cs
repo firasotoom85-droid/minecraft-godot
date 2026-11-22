@@ -21,6 +21,8 @@ public static class ItemIconTests
         CheckTallSilhouetteLighting();
         CheckNoneSentinel();
         CheckEveryItemIcon();
+        CheckShapeItemIcons();
+        CheckAnimalFoodIconSemantics();
         CaptureContactSheetIfRequested();
     }
 
@@ -106,7 +108,8 @@ public static class ItemIconTests
 
     private static void CheckEveryItemIcon()
     {
-        int blockBacked = 0;
+        int atlasBacked = 0;
+        int shapeBacked = 0;
         int standalone = 0;
 
         foreach (ItemId id in Enum.GetValues<ItemId>())
@@ -120,9 +123,9 @@ public static class ItemIconTests
             TestAssert.Check(GodotObject.IsInstanceValid(texture),
                     $"{id} returns a valid icon texture");
 
-            if (ItemDb.BlockFor(id) is { } block)
+            if (ItemDb.BlockFor(id) is { } block && !ItemDb.IsVoxelShapeIcon(id))
             {
-                blockBacked++;
+                atlasBacked++;
                 TestAssert.Check(texture is AtlasTexture,
                         $"{id} remains backed by the shared atlas");
                 if (texture is AtlasTexture atlasIcon)
@@ -141,9 +144,17 @@ public static class ItemIconTests
                 continue;
             }
 
-            standalone++;
+            if (ItemDb.IsVoxelShapeIcon(id))
+            {
+                shapeBacked++;
+            }
+            else
+            {
+                standalone++;
+            }
+
             TestAssert.Check(texture is ImageTexture,
-                    $"{id} uses the cached generated-icon texture");
+                    $"{id} uses a cached generated-icon texture");
             if (texture is not ImageTexture)
             {
                 continue;
@@ -212,14 +223,118 @@ public static class ItemIconTests
                     $"{id} has a consistent one-pixel silhouette contour");
         }
 
-        TestAssert.Check(blockBacked > 0,
-                "block-backed items continue to use their atlas");
+        TestAssert.Check(atlasBacked > 0,
+                "ordinary block-backed items continue to use their atlas");
+        TestAssert.Equal(6, shapeBacked,
+                "all slab and stair items use their shape-aware previews");
         TestAssert.Check(standalone > 0,
-                "standalone items use the shared generated-icon style");
-        GD.Print($"ITEM_ICON_POPULATION atlasBacked={blockBacked} standalone={standalone}");
+                "non-block standalone items use the shared generated-icon style");
+        GD.Print($"ITEM_ICON_POPULATION atlasBacked={atlasBacked} shapeBacked={shapeBacked} standalone={standalone}");
         TestAssert.Equal(Enum.GetValues<ItemId>().Length - 1,
-                blockBacked + standalone,
+                atlasBacked + shapeBacked + standalone,
                 "every persisted item except the None sentinel resolves to one icon path");
+    }
+
+    private static void CheckShapeItemIcons()
+    {
+        foreach (ItemId item in new[]
+        {
+            ItemId.PlanksSlab, ItemId.CobblestoneSlab, ItemId.BrickSlab,
+            ItemId.PlanksStairs, ItemId.CobblestoneStairs, ItemId.BrickStairs,
+        })
+        {
+            Texture2D icon = ItemDb.Icon(item);
+            TestAssert.Check(icon is ImageTexture,
+                    $"{item} uses a shape-aware preview instead of the unshaped material tile");
+            TestAssert.Check(ReferenceEquals(icon, ItemDb.Icon(item)),
+                    $"{item} shape preview is cached");
+            if (icon is ImageTexture imageTexture)
+            {
+                Image image = imageTexture.GetImage();
+                TestAssert.Equal(new Vector2I(IconPx, IconPx), image.GetSize(),
+                        $"{item} preview keeps the shared 32px icon canvas");
+                TestAssert.Check(image.HasMipmaps(),
+                        $"{item} preview has an isolated mip chain");
+            }
+        }
+
+        TestAssert.Check(SilhouetteDifference(
+                        ItemDb.Icon(ItemId.PlanksSlab).GetImage(),
+                        ItemDb.Icon(ItemId.PlanksStairs).GetImage()) > 20,
+                "slab and stair icons have distinct silhouettes for the same wood material");
+        TestAssert.Check(SilhouetteDifference(
+                        ItemDb.Icon(ItemId.CobblestoneSlab).GetImage(),
+                        ItemDb.Icon(ItemId.CobblestoneStairs).GetImage()) > 20,
+                "cobblestone slab and stair icons do not collapse to one material icon");
+        TestAssert.Check(SilhouetteDifference(
+                        ItemDb.Icon(ItemId.BrickSlab).GetImage(),
+                        ItemDb.Icon(ItemId.BrickStairs).GetImage()) > 20,
+                "brick slab and stair icons do not collapse to one material icon");
+        TestAssert.Check(ItemDb.Icon(ItemId.Planks) is AtlasTexture,
+                "ordinary full-block items retain the exact atlas-backed icon path");
+    }
+
+    private static void CheckAnimalFoodIconSemantics()
+    {
+        Image rawFish = ItemDb.Icon(ItemId.RawFish).GetImage();
+        Image cookedFish = ItemDb.Icon(ItemId.CookedFish).GetImage();
+        Image rawChicken = ItemDb.Icon(ItemId.RawChicken).GetImage();
+        Image cookedChicken = ItemDb.Icon(ItemId.CookedChicken).GetImage();
+        Image rawMutton = ItemDb.Icon(ItemId.RawMutton).GetImage();
+
+        TestAssert.Equal(0, SilhouetteDifference(rawFish, cookedFish),
+                "raw and cooked fish retain the same recognizable fish silhouette");
+        TestAssert.Equal(0, SilhouetteDifference(rawChicken, cookedChicken),
+                "raw and cooked chicken retain the same drumstick silhouette");
+        TestAssert.Check(SilhouetteDifference(rawFish, rawMutton) > 20,
+                "fish is not rendered with the generic bone-in meat icon");
+        TestAssert.Check(SilhouetteDifference(rawChicken, rawMutton) > 20,
+                "chicken is not rendered with the generic chop icon");
+        TestAssert.Check(ColorDifference(rawFish, cookedFish) > 20,
+                "cooking changes fish palette without changing its silhouette");
+        TestAssert.Check(ColorDifference(rawChicken, cookedChicken) > 20,
+                "cooking changes chicken palette without changing its silhouette");
+    }
+
+    private static int SilhouetteDifference(Image left, Image right)
+    {
+        int differences = 0;
+        for (int y = 0; y < IconPx; y++)
+        {
+            for (int x = 0; x < IconPx; x++)
+            {
+                bool leftVisible = left.GetPixel(x, y).A > 0.5f;
+                bool rightVisible = right.GetPixel(x, y).A > 0.5f;
+                if (leftVisible != rightVisible)
+                {
+                    differences++;
+                }
+            }
+        }
+
+        return differences;
+    }
+
+    private static int ColorDifference(Image left, Image right)
+    {
+        int differences = 0;
+        for (int y = 0; y < IconPx; y++)
+        {
+            for (int x = 0; x < IconPx; x++)
+            {
+                Color a = left.GetPixel(x, y);
+                Color b = right.GetPixel(x, y);
+                if (a.A > 0.5f && b.A > 0.5f
+                        && (Math.Abs(a.R - b.R) > 0.04f
+                            || Math.Abs(a.G - b.G) > 0.04f
+                            || Math.Abs(a.B - b.B) > 0.04f))
+                {
+                    differences++;
+                }
+            }
+        }
+
+        return differences;
     }
 
     private static float ColorBrightness(Color color) =>
@@ -256,7 +371,9 @@ public static class ItemIconTests
 
             int column = visibleIndex % Columns;
             int row = visibleIndex / Columns;
-            Image icon = ItemDb.Icon(id).GetImage();
+            // GetImage may expose the cached ImageTexture's backing image.
+            // Keep the preview transform isolated from the runtime icon cache.
+            Image icon = (Image)ItemDb.Icon(id).GetImage().Duplicate();
             icon.ClearMipmaps();
             icon.Resize(PreviewPx, PreviewPx, Image.Interpolation.Nearest);
             int targetX = column * CellPx + 4;
@@ -289,5 +406,19 @@ public static class ItemIconTests
         Error error = sheet.SavePng(outputPath);
         TestAssert.Equal(Error.Ok, error,
                 $"item icon audit contact sheet saves to {outputPath}");
+
+        foreach (ItemId id in items)
+        {
+            if (id == ItemId.None || ItemDb.Icon(id) is not ImageTexture texture)
+            {
+                continue;
+            }
+
+            Image cachedIcon = texture.GetImage();
+            TestAssert.Equal(new Vector2I(IconPx, IconPx), cachedIcon.GetSize(),
+                    $"contact sheet capture leaves {id} at its runtime icon size");
+            TestAssert.Check(cachedIcon.HasMipmaps(),
+                    $"contact sheet capture preserves {id} runtime mipmaps");
+        }
     }
 }

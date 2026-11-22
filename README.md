@@ -9,35 +9,63 @@ event-driven first-hour survival guide.
 The project is a long-running solo build with an extensive design log in
 [`PLAN.md`](PLAN.md) and a forward roadmap in [`ROADMAP.md`](ROADMAP.md).
 
-PRs #49–#57 are integrated on `integration/pr49-57`; the contribution map,
-conflict resolutions, compatibility checks and measured validation are in
-[`docs/INTEGRATION_PR49_57.md`](docs/INTEGRATION_PR49_57.md).
+**Integration history.** PRs #49–#57 were integrated on `integration/pr49-57`
+and merged into `main` through PR #58. PRs #59–#68 are integrated on
+`integration/pr59-68`; their contribution map, conflict resolutions,
+compatibility checks and measured validation are in
+[`docs/INTEGRATION_PR59_68.md`](docs/INTEGRATION_PR59_68.md). The earlier record
+remains in [`docs/INTEGRATION_PR49_57.md`](docs/INTEGRATION_PR49_57.md).
 
 ## Unified voxel material response
 
 World surfaces and first-person held items share the response palette in
 `scripts/MaterialResponse.cs`: stone, wood, soil, ore, foliage, glass, and
 metal each have explicit roughness, metallic, and specular values. Procedural
-atlas tile IDs are classified without changing persisted block/item IDs or
-world-generation output. One C# response table configures all world shaders
-and first-person materials. The mesher carries its compact family tag in vertex
+atlas tile IDs are classified without changing existing persisted block/item
+IDs or world-generation output. One C# response table configures all world
+shaders and first-person materials. The mesher carries its compact family tag in vertex
 colour alpha; greedy meshes retain their tile-array layer in UV2.x, so existing
 merging, atlas UVs, and chunk streaming remain intact. Water-contact wetness is
 encoded in the unused alpha-tag range without adding a vertex attribute.
+
+Snow, sand and ash use deterministic multi-scale periodic value noise instead
+of isolated random speckles. Broad tonal fields remain restrained, the finest
+variation follows the existing 2×2 texel detail unit, and sampling wraps in
+both axes so tile edges stay calm at close range and after isolated mipmapping.
+The snowy-grass side keeps a periodic snow-cap edge over a subtly varied soil
+body. Ash is an opaque, shovel-minable surface appended as `BlockId.Ash` 60 /
+`ItemId.Ash` 109 on atlas tile 60; it shares the diffuse soil response and the
+existing sand-like dig/place audio family. Its first-person icon remains a
+region of the production block atlas.
 
 The greedy texture array builds mipmaps from each isolated 32px tile rather
 than the combined atlas. This avoids cross-tile colour bleed at distance.
 The classic atlas path intentionally retains nearest sampling without atlas
 mipmaps because generating mipmaps from the packed atlas would blend adjacent
-tiles. Block-backed item icons remain AtlasTexture regions of this unchanged
-atlas. Standalone procedural item icons are normalized into a centered 22px
-silhouette frame inside their 32px image, with a one-pixel graphite contour,
-a subtle upper-left-to-lower-right fill-light gradient, and four transparent pixels
-of outer padding. Each standalone image owns its own five-level mip chain;
+tiles. Ordinary full-block item icons remain AtlasTexture regions of this
+unchanged atlas. The six slab and stair items instead use cached isometric
+silhouette previews rasterized from their existing registered face tiles, so
+shape items remain distinguishable without creating a second material palette
+or editing atlas coordinates. Standalone procedural item icons are normalized
+into a centered 22px silhouette frame inside their 32px image, with a one-pixel
+graphite contour, a subtle upper-left-to-lower-right fill-light gradient, and
+four transparent pixels of outer padding. Each standalone image owns its own
+five-level mip chain;
 the first-person Sprite3D and its cached material use nearest-with-mipmaps
 sampling to retain crisp pixels close up and reduce distant shimmer. The icon
-finish runs only when a standalone texture is first requested; there is no
-per-frame icon work or new scene-node system.
+finish runs only when a generated standalone or shape-preview texture is first
+requested; there is no per-frame icon work or new scene-node system.
+
+Rare and enchanted equipment extends this same 32px stack-icon pipeline. Common,
+uncommon, rare and legendary bands are derived from the existing tool/armor/
+weapon tiers and material identity; Sharpness, Protection and Unbreaking add
+small, colour-coded pixel glints to the existing silhouette. Wear and quality
+accents are composed before mipmaps are rebuilt, then cached by item, wear band
+and enchantment family. Exact enchantment levels stay in the existing tooltip
+and save fields. ItemDb.Icon(ItemStack) supplies the same cached result to
+inventory, hotbar, cursor and first-person presentation. Block-backed items
+still return the original AtlasTexture; their rarity is shown by a compact
+marker drawn by the slot panel that already owns durability feedback.
 
 ## Transparency and cutout rendering
 
@@ -91,6 +119,13 @@ close and distant inspection:
 godot --path . res://tests/WoodArtVisualCapture.tscn -- 1337 /tmp/edge-distant.png /tmp/edge-close.png
 ```
 
+The BlockShapeTests suite also checks the seam condition directly: it groups
+emitted vertices by half-voxel position and face normal, verifies that separate
+coplanar quads carry identical baked skylight, block-light and AO channels at
+shared corners, and compares every common corner between per-face and greedy
+outputs. The material-family tag in vertex alpha is intentionally excluded
+from this RGB lighting comparison.
+
 ## Water-adjacent materials and shoreline vegetation
 
 Faces that directly touch water keep their original material family and receive
@@ -110,10 +145,18 @@ format, voxel mutation APIs, greedy meshing or chunk streaming.
 ## Material test gallery
 
 `res://tests/MaterialGallery.tscn` is a standalone Forward+ inspection scene for
-every registered block ID. It lays the current 60 definitions into an 8×8
-pedestal gallery, adds an ID/name legend, and captures the complete set at close
-and distant camera scales. The scene uses a neutral display stage and fixed key /
+every registered block ID. It lays all 61 definitions into an 8×8 pedestal
+gallery, identifies each sample in the ID/name legend, and captures close and
+distant views. The stage is limited to the sample footprint rather than filling
+the entire viewport, and the shorter legend leaves more of the material set
+visible in both views. The scene uses a neutral display stage and fixed key /
 ambient lighting so material families can be compared under one repeatable setup.
+The current Godot 4.7.2 / Forward+ / MX230 review includes both renderer paths
+at 1280×720:
+[atlas close](docs/visual/screenshots/surface-variation-atlas-close.png),
+[atlas distant](docs/visual/screenshots/surface-variation-atlas-distant.png),
+[greedy close](docs/visual/screenshots/surface-variation-greedy-close.png), and
+[greedy distant](docs/visual/screenshots/surface-variation-greedy-distant.png).
 
 The fixture streams nine production `VoxelWorld` chunks with collision disabled
 and a two-worker meshing limit. All sample voxel changes go through
@@ -125,28 +168,82 @@ using its registered face tiles and material response because `SetBlock`
 intentionally rejects Bedrock placement. Neither exception changes world data
 or weakens the gameplay mutation rules.
 
-Run both renderer paths on a desktop with Godot 4.7.2 .NET:
+### Matched atlas / greedy comparison
+
+The before/after pair compares the two existing render paths rather than
+claiming a change to the authored block textures: **before** is the classic
+packed-atlas renderer (`atlas`), and **after** is the greedy renderer backed by
+the texture array with independently generated per-tile mipmaps (`greedy`).
+Both passes run the same scene, seed, world-generator version, gallery samples,
+camera profile and lighting. Only the renderer override changes. This isolates
+the sampling/LOD path while keeping atlas coordinates, tile IDs, block
+definitions and material responses identical.
+
+The capture profile is fixed at 1280×720 and a 55° camera field of view. The
+close and distant camera offsets relative to the gallery target are respectively
+`(12, 8, 16)` and `(22, 15, 28)`. The key light uses rotation
+`(-48°, -35°, 0°)`, color `(1.0, 0.97, 0.91)`, energy 1.15 and an 80 m
+shadow distance; ambient energy is 1.0. Fog, volumetric fog, SSR and glow are
+disabled, while SSAO remains enabled. The runner prints the exact world-space
+target and the full capture profile so a capture can be reproduced and audited.
+The test suite locks the resolution, camera offsets, FOV, stage size, legend
+height and lighting constants.
+
+Run the two matched passes on a desktop with Godot 4.7.2 .NET:
 
 ```bash
 GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64
-PATH=/path/to/dotnet:$PATH DOTNET_ROOT=/path/to/dotnet DISPLAY=:0 \
-  "$GODOT" --path . res://tests/MaterialGallery.tscn -- 1337 \
-  res://docs/visual/screenshots/material-gallery-close.png \
-  res://docs/visual/screenshots/material-gallery-distant.png greedy
+export PATH=/path/to/dotnet:$PATH DOTNET_ROOT=/path/to/dotnet DISPLAY=:0
 
-# Replace the final renderer argument with "atlas" to exercise the classic atlas path.
+# BEFORE: classic atlas renderer.
+"$GODOT" --path . res://tests/MaterialGallery.tscn -- 1337 \
+  res://docs/visual/screenshots/material-gallery-before-atlas-close.png \
+  res://docs/visual/screenshots/material-gallery-before-atlas-distant.png atlas
+
+# AFTER: greedy texture-array renderer.
+"$GODOT" --path . res://tests/MaterialGallery.tscn -- 1337 \
+  res://docs/visual/screenshots/material-gallery-after-greedy-close.png \
+  res://docs/visual/screenshots/material-gallery-after-greedy-distant.png greedy
 ```
 
-The runner accepts a seed, close output path, distant output path, and optional
-`greedy` / `atlas` renderer override. It creates a disposable `user://tests/`
-world, restores the previously selected world and meshing setting, and removes
-the temporary directory on exit. The committed MX230 Forward+ reference frames
-are [`material-gallery-close.png`](docs/visual/screenshots/material-gallery-close.png)
-and [`material-gallery-distant.png`](docs/visual/screenshots/material-gallery-distant.png).
-`MaterialGalleryTests` also checks complete ID coverage, unique sample positions,
+The runner creates a disposable `user://tests/` world, restores the previously
+selected world and meshing setting, and removes the temporary directory on exit.
+The four matched reference frames and visual-quality notes are indexed in
+[`docs/visual/MATERIAL_GALLERY_VISUAL_QUALITY_REPORT_2026-11-22.md`](docs/visual/MATERIAL_GALLERY_VISUAL_QUALITY_REPORT_2026-11-22.md).
+`MaterialGalleryTests` checks complete ID coverage, unique sample positions,
 face-to-atlas UV bounds, all 256 isolated mipmapped array layers, material
-response ranges, block/item mapping, and the first-person block-icon atlas /
-response mapping.
+response ranges, block/item mapping, first-person block-icon atlas/response
+routing, and the fixed capture profile.
+
+## Procedural atlas validation report
+
+The existing material gallery is a rendered review fixture; the separate
+res://tests/TextureAtlasValidation.tscn command produces a machine-checked
+Markdown report from the live procedural block and item registries. It checks
+atlas dimensions, every block face reference and its non-transparent pixel
+coverage, duplicate tile pixels, unexpected duplicate six-face block mappings,
+directional face pairs, placeable item-to-block/icon regions, and the greedy
+texture-array layer/mipmap contract. The intentional shared mappings for
+flowing water, plank slabs/stairs, and cobblestone/brick slabs/stairs are
+explicitly allowlisted. Tile 46 is reported as retained legacy plank-building
+art; it is not silently moved or reused.
+
+Generate the committed report with Godot 4.7.2 .NET:
+
+```bash
+GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64
+PATH=/path/to/dotnet:$PATH DOTNET_ROOT=/path/to/dotnet \
+  "$GODOT" --headless --path . res://tests/TextureAtlasValidation.tscn -- \
+  res://docs/visual/PROCEDURAL_TEXTURE_VALIDATION.md
+```
+
+The same analyzer runs in the automated texture-atlas-validation suite,
+including synthetic regressions for blank referenced tiles, out-of-range
+indices, missing faces, accidental duplicate pixel content/mappings,
+intentional aliases, and collapsed directional log textures. The report is
+opt-in and does not change atlas coordinates, packed-atlas nearest sampling,
+isolated texture-array mipmaps, item icons, material shaders, meshing, world
+generation or save data.
 
 ## Highlights
 
@@ -193,6 +290,25 @@ response mapping.
   add/remove block light in cached 3×3 regions; opacity edits invalidate the
   affected light maps so direct sun and cave spill are recalculated. Lighting is
   baked into mesh vertex channels; no per-torch light-node pool is required.
+  Torches and live generated campfires share one 14-level warm source channel;
+  campfires keep their GPU fire and smoke particles but use the baked map
+  instead of one OmniLight3D per site. All terrain, greedy-array and glass
+  shaders share a compressed warm response with restrained emission, so
+  overlapping sources use the brightest propagated voxel level rather than
+  summing into washed-out textures. Campfire sources sit in the flame air cell
+  above the opaque log; changing the base log moves/removes that virtual source
+  through SetBlock. The source registry feeds the halo solve directly, while
+  emitter edits update or invalidate existing caches. The sky environment stays
+  neutral and Filmic; LOW/BALANCED keep expensive post effects disabled.
+  Cave fog and ambient fill follow the camera's cached baked skylight, sampled
+  trilinearly and blended through the entrance rather than switching at a fixed
+  terrain-depth threshold. Cache misses use a smooth terrain-depth fallback;
+  the frame path performs only eight cache reads and no chunk generation.
+  Repeatable GPU comparison (same seed/site/camera): run
+  `res://tests/WarmLightingVisualCapture.tscn` with arguments `1337 11 0 0
+  torch`, `1337 11 0 0 campfire`, or `1337 11 0 0 overlap`, followed by an
+  output PNG path. The capture uses the real main scene and prints baked flame
+  and adjacent light levels for parity checks.
 - **World presets** — normal, flat, amplified, and floating sky islands, with
   share codes and per-world seeds.
 - **Survival** — health, hunger, breath, drowning, fall damage, softcore
@@ -292,13 +408,24 @@ GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
 check/failure count. If `GODOT` is unset, the script looks on `PATH` and in
 common install locations.
 
-For a rendered icon review, launch `res://tests/EquipmentDurabilityVisualCapture.tscn`
+For a rendered item-quality review, launch `res://tests/EquipmentDurabilityVisualCapture.tscn`
 with the Godot 4.7.2 .NET editor or executable. It uses the production `InvSlot`
-control and renders tools, weapons and armor at full, 74%, 49% and 24% durability;
-the PNG is written to `user://equipment-durability-visual-validation.png`.
+control and shows common through legendary gear, plain and enchanted examples,
+and full / 74% / 49% / 24% durability states. The PNG is written to
+`user://equipment-durability-visual-validation.png`.
 
-The integrated PR #49–#57 suite reports **189,838 checks, 0 failures** across
-46 suites, with 0 build warnings. Loop-based worldgen scans can vary by a few
+The current headless suite reports **198,718 checks, 0 failures across 48
+suites**, with 0 Debug build warnings or errors. The added
+`item-visual-quality` suite pins rarity bands, cached enchantment variants,
+wear/enchantment composition, first-person visual-state signatures and block
+atlas-region compatibility. `texture-atlas-validation` audits the live atlas,
+block face mappings and placeable icon paths, and treats the six slab/stair
+isometric previews as an explicit contract while every other placeable item
+must stay on its exact `AtlasTexture` region. `lighting` covers cached skylight
+interpolation, torch/campfire source parity and the shared warm-emitter shader
+response; `surface-variation` inspects generated snow, sand and ash pixels for
+tileable seams; `block-shapes` pins baked AO continuity at greedy seams.
+Loop-based worldgen scans can vary by a few
 checks between runs, but zero failures is required. The selection-outline suite
 adds 275 checks for two-pass contrast materials and cube/slab/stair geometry,
 including every partial-block state. `integration-regressions` pins V9, V10 and
@@ -448,23 +575,94 @@ saving the 1600×900 viewport image.
 
 The environment polish pass adds a deterministic dawn/day/dusk/night palette,
 biome-aware rain/snow transitions, and world-space water depth with restrained
-shoreline foam. It extends the existing day/night, weather and water shader
-systems without changing save formats, persisted IDs, world generation, voxel
-lighting propagation, greedy meshing or chunk streaming.
+shoreline foam. V8+ outdoor worlds also use a shared camera-depth haze profile:
+near terrain stays clear, while distant mountain slopes and tree lines gently
+blend toward the current sky/horizon colour. The fog is evaluated by the
+existing scene environment, not independently by each chunk, so streamed
+chunk edges and far-LOD surfaces share the same distance field. V1–V7 retain
+their original exponential fog; caves and underwater/lava views return to their
+close-range exponential profiles. LOW and BALANCED keep depth haze while the
+existing graphics presets disable volumetric fog. No fog volumes or per-emitter
+light nodes are created.
 
-Run a fixed real-scene Forward+ atmosphere capture with:
+Run a fixed real-scene Forward+ mountain capture with:
 
 ```bash
-godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 8 512 -372 0.50 Clear res://docs/visual/screenshots/atmosphere-river-valley-noon-clear.png
+godot --path . res://tests/AtmosphereVisualCapture.tscn -- 777 11 -424 760 0.50 Clear res://docs/visual/screenshots/distance-haze-v11-mountain-after.png false 5
 ```
 
-Arguments are seed, generator version (1–11 on current main), world X/Z, time of day, weather
-(`Clear`, `Cloudy` or `Rain`) and output PNG path. The separate
-`WorldgenVisualCapture` also accepts optional camera scale (0.2–2.0) and far-LOD
-radius in metres after its output path. The runner creates and removes a
-disposable world. Matching V8 and V9 MX230 samples and the remaining manual
-capture matrix are documented in
+Arguments are seed, generator version (1–11 on current main), world X/Z, time of
+day, weather (`Clear`, `Cloudy` or `Rain`), output PNG path, optional torch
+(`true`/`false`), and optional capture view distance (3–5 chunks). The
+capture waits for the full requested square of chunks before saving, making
+wide inspection views comparable without a streamed-square cutoff. The runner
+creates and removes a disposable world. The V11 MX230 before/after comparison
+uses the same seed, mountain coordinate, noon weather, camera, and view
+distance:
+
+| Original exponential air fog | Shared camera-depth distance haze |
+|---|---|
+| ![V11 mountain before distance haze](docs/visual/screenshots/distance-haze-v11-mountain-before.png) | ![V11 mountain after distance haze](docs/visual/screenshots/distance-haze-v11-mountain-after.png) |
+
+Capture conditions: Godot 4.7.2 .NET, Vulkan Forward+, GeForce MX230,
+1600×900, seed 777, V11, centre (-424, 760), time 0.50, clear weather,
+view distance 5 (121 chunks). Matching V8 and V9 environment references and
+the remaining manual capture matrix are documented in
 [`docs/VISUAL_MILESTONE_4_ENVIRONMENT.md`](docs/VISUAL_MILESTONE_4_ENVIRONMENT.md).
+
+For a repeatable cave-mouth exposure check, pass `true` as the final argument.
+The fixture opens a temporary shaft and short passage into a torch-lit chamber
+through `VoxelWorld.SetBlock`, then logs cached skylight at the entrance,
+passage and player camera:
+
+```bash
+godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 11 512 -372 0.50 Clear /tmp/cave-exposure.png true
+```
+
+### Directional sunlight and baked skylight
+
+The existing 600-second day/night clock and single rotating directional sun
+remain the owners of solar time and real-time shadows. DayNight now evaluates
+a normalized world-space sun vector from that same rotation and a phase-based
+sun colour: neutral daylight, warmer dawn/sunset and a cool blue night fill.
+The colour, direction and sky-fill tint update the existing shared chunk
+materials; atlas, greedy texture-array, glass, lava and water shaders use the
+world-space face normal to give the baked sky channel a restrained
+sun-facing response. The ordinary directional light remains responsible for
+dynamic shadowing, so this is not a second shadow or emitter-light system.
+
+The packed 4-bit skylight/block-light channels, propagation caches, mesh
+vertex layout and greedy face keys are unchanged. No light node is created per
+torch or block emitter, and no chunk is remeshed as the sun moves. LOW and
+BALANCED presets are unchanged; LOW retains its 0.80 render scale, 45 m /
+1024 px shadow budget and disabled SSAO/SSR/glow/volumetric fog. The new
+response adds no screen-space pass.
+
+For a repeatable phase comparison, use the same V8 world and camera position
+and change only the clock value:
+
+~~~bash
+GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64
+export DISPLAY=:0
+export DOTNET_ROOT=/path/to/dotnet
+export PATH="$DOTNET_ROOT:$PATH"
+
+"$GODOT" --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 8 512 -372 0.25 Clear res://docs/visual/screenshots/sunlight-dawn-clear.png
+"$GODOT" --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 8 512 -372 0.50 Clear res://docs/visual/screenshots/sunlight-noon-clear.png
+"$GODOT" --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 8 512 -372 0.75 Clear res://docs/visual/screenshots/sunlight-sunset-clear.png
+"$GODOT" --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 8 512 -372 0.00 Clear res://docs/visual/screenshots/sunlight-night-clear.png
+~~~
+
+All four frames use seed 1337, generator V8, centre (512, -372), clear
+weather and a 1600×900 production viewport. Each capture streamed 49 chunks
+and completed successfully on a GeForce MX230 using Godot 4.7.2 .NET / Vulkan
+Forward+. Only `World.TimeOfDay` changes between frames; world geometry,
+camera and weather remain matched. The mean frame luminance was 0.389 at dawn,
+0.524 at noon, 0.353 at sunset and 0.260 at night. View the committed frames:
+[dawn](docs/visual/screenshots/sunlight-dawn-clear.png) ·
+[noon](docs/visual/screenshots/sunlight-noon-clear.png) ·
+[sunset](docs/visual/screenshots/sunlight-sunset-clear.png) ·
+[night](docs/visual/screenshots/sunlight-night-clear.png).
 
 ### Water-adjacent visual validation
 
@@ -668,8 +866,25 @@ condition reaches or falls below 75%, 50% and 25%. Inventory, hotbar, armor and
 container slots also draw a crisp three-pixel meter (green / amber / red); worn
 values remain beside the icon, and the tooltip always shows current / maximum.
 The first-person held item uses the same wear variant while retaining its
-existing material response. Block-item icons continue sampling the unchanged
-atlas region. Icon painting occurs only when a new item/wear band is first used.
+existing material response. Ordinary full-block icons continue sampling their
+exact atlas regions; slab/stair previews sample the same face tiles through a
+cached isometric projection. Raw/cooked fish and chicken keep distinct fish and
+drumstick silhouettes respectively, changing palette rather than species when
+cooked. Generated icons are finished only when a new item/wear band is first
+used; the audit contact-sheet exporter duplicates cached images before
+resizing, so diagnostics cannot mutate runtime icon resources.
+
+A shared quality language distinguishes common gear, uncommon iron/gold/lapis,
+rare diamond equipment and legendary Warden rewards. Rare and legendary icons
+receive restrained cyan or ember pixel facets; enchanted stacks add icy
+Sharpness, violet Protection or warm-gold Unbreaking glints without changing
+the icon silhouette. The same accent palette appears as a four-pixel rarity
+pin in the existing slot draw pass, including for rare block-backed materials.
+The first-person held item uses the identical cached quality/wear texture and
+refreshes when enchantments change even if its item ID stays the same, while
+retaining its registered material response. Block-item icons continue sampling
+their unchanged atlas region. Icon variants are painted and mipmapped only
+when a new item / wear / enchantment combination is first used.
 
 Peaceful mode suppresses hostile spawns, cancels pending hostile attacks,
 removes hostile projectiles and keeps the Ember Warden dormant.
@@ -711,17 +926,22 @@ are never renumbered or reused; new content is appended and pinned by tests.
 | `BlockId` 52–55 | Mossy cobblestone, weathered cobblestone, cracked brick, mossy brick |
 | `BlockId` 56–58 | Spruce, jungle and swamp canopy foliage (V10+ generation) |
 | `BlockId` 59 | River reeds (V11 shoreline generation) |
+| `BlockId` 60 | Ash (shovel-minable soil-family surface) |
 | `ItemId` 0–90 | Original items, armor, tools, food, boss trophy and enchanting table, unchanged |
 | `ItemId` 91–96 | Slab and stair items, matching the block order above |
 | `ItemId` 97–100 | Empty bucket, water bucket, lava bucket, wooden boat |
 | `ItemId` 101–104 | Weathered material blocks, matching the block order above |
 | `ItemId` 105–107 | Spruce, jungle and swamp leaf blocks, matching BlockId 56–58 |
 | `ItemId` 108 | River reed item, matching BlockId 59 |
+| `ItemId` 109 | Ash block item, matching BlockId 60 |
 
 `tests/EquipmentDurabilityVisualTests.cs` covers wear thresholds, malformed
-value clamping, pixel-distinct cached icon variants, block-atlas compatibility
-and the no-extra-slot-node draw path. Equipment wear visuals do not add persisted
-fields or require save migration.
+value clamping, pixel-distinct cached icon variants, block-atlas compatibility,
+image-size mismatch safety and the no-extra-slot-node draw path.
+`tests/ItemIconTests.cs` audits every persisted item against its icon path,
+including shape silhouettes, raw/cooked food identity, texture cache isolation
+and mip-chain preservation. Equipment wear visuals do not add persisted fields
+or require save migration.
 
 `tests/ContentTests.cs` pins every block and item value and asserts that the
 building, transportation, weathering, foliage and reed ranges remain

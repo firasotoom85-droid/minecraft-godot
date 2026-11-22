@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using Godot;
 
 namespace Minecraft;
 
@@ -9,6 +11,8 @@ public static class LightingTests
     {
         BlockDb.EnsureTables();
         TestCornerAverageChannels();
+        TestSkyLightInterpolation();
+        TestWarmEmitterResponse();
         TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Torch] >= 13, "torch has a strong nibble emission");
         TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Lava] > 0
                 && BlockDb.LightEmission[(int)BlockId.Lava] < BlockDb.LightEmission[(int)BlockId.Torch],
@@ -19,6 +23,7 @@ public static class LightingTests
                 && BlockDb.LightOpacity[(int)BlockId.Water] < 15, "water attenuates voxel light");
 
         TestBlockAttenuation();
+        TestOverlappingWarmEmitters();
         TestOpaqueBlocking();
         TestTransparentTransmission();
         TestChunkBoundary();
@@ -42,6 +47,66 @@ public static class LightingTests
                 "array-offset and explicit-sample corner averaging stay equivalent");
     }
 
+    private static void TestSkyLightInterpolation()
+    {
+        float midpoint = VoxelLighting.InterpolateSkyLight(
+                0, 15, 0, 15, 0, 15, 0, 15, 0.5f, 0.25f, 0.75f);
+        TestAssert.Equal(7.5f, midpoint,
+                "camera sky exposure interpolates continuously between adjacent voxel centres");
+
+        float verticalMidpoint = VoxelLighting.InterpolateSkyLight(
+                0, 0, 15, 15, 0, 0, 15, 15, 0.2f, 0.5f, 0.8f);
+        TestAssert.Equal(7.5f, verticalMidpoint,
+                "trilinear skylight interpolation respects vertical gradients");
+
+        float clamped = VoxelLighting.InterpolateSkyLight(
+                15, 15, 15, 15, 15, 15, 15, 15, -2.0f, 3.0f, 0.5f);
+        TestAssert.Equal(15.0f, clamped,
+                "skylight interpolation clamps out-of-cell weights to a valid light level");
+
+        VoxelWorld emptyWorld = new() { BuildCollision = false };
+        Godot.Vector3 cameraPosition = new(0.5f, 4.5f, 0.5f);
+        int initialChunks = emptyWorld.ChunkCount;
+        bool hasCachedLight = emptyWorld.TrySampleCachedSkyLight(cameraPosition, out _);
+        TestAssert.Check(!hasCachedLight,
+                "camera exposure lookup reports a cache miss instead of generating world data");
+        TestAssert.Equal(initialChunks, emptyWorld.ChunkCount,
+                "camera exposure cache miss does not create or stream chunks");
+        TestAssert.FreeAll(emptyWorld);
+    }
+
+    private static void TestWarmEmitterResponse()
+    {
+        TestAssert.Equal(BlockDb.LightEmission[(int)BlockId.Torch], VoxelLighting.CampfireEmission,
+                "campfires share the exact baked source strength used by torches");
+
+        foreach (string shader in BlockDb.WarmLightingShaderSources)
+        {
+            TestAssert.Check(shader.Contains(
+                    "uniform vec3 warm_block_light_color = vec3(1.0, 0.68, 0.42);",
+                    StringComparison.Ordinal),
+                    "opaque, array and glass materials use the same warm emitter hue");
+            TestAssert.Check(shader.Contains("warm_block_response(sky, block)",
+                    StringComparison.Ordinal)
+                    && shader.Contains("warm_block_illumination(warm_response)", StringComparison.Ordinal)
+                    && shader.Contains("warm_block_emission(warm_response)", StringComparison.Ordinal),
+                    "all voxel material paths share one warm response for diffuse and emission");
+            TestAssert.Check(shader.Split("exp(-block * 1.25)", StringSplitOptions.None).Length == 2
+                    && shader.Contains("response * 0.34;", StringComparison.Ordinal)
+                    && shader.Contains("response * 0.025;", StringComparison.Ordinal)
+                    && !shader.Contains("shadowed_block", StringComparison.Ordinal),
+                    "warm illumination and emission remain bounded with only one exponential evaluation per fragment");
+        }
+
+        Godot.Environment environment = WorldEnvironmentFactory.Build();
+        TestAssert.Equal(Godot.Environment.ToneMapper.Filmic, environment.TonemapMode,
+                "local warm emitter tuning retains the shared Filmic environment response");
+        TestAssert.Equal(1.05f, environment.GlowHdrThreshold,
+                "high-quality bloom is reserved for highlights instead of broadly lifting warm surfaces");
+        TestAssert.Equal(1.0f, environment.AmbientLightEnergy,
+                "warm block sources do not globally tint or dim neutral sky ambient");
+    }
+
     private static void TestBlockAttenuation()
     {
         const int width = 8;
@@ -56,6 +121,28 @@ public static class LightingTests
         TestAssert.Equal((byte)14, At(light, width, height, depth, 1, 2, 2), "torch source cell retains emission");
         TestAssert.Equal((byte)13, At(light, width, height, depth, 2, 2, 2), "block light attenuates one level per air voxel");
         TestAssert.Equal((byte)12, At(light, width, height, depth, 3, 2, 2), "block light continues attenuating with distance");
+    }
+
+    private static void TestOverlappingWarmEmitters()
+    {
+        const int width = 11;
+        const int height = 3;
+        const int depth = 3;
+        byte[] blocks = new byte[width * height * depth];
+        VoxelLightSource[] first = [new(new Vector3I(2, 1, 1), VoxelLighting.CampfireEmission)];
+        VoxelLightSource[] second = [new(new Vector3I(8, 1, 1), BlockDb.LightEmission[(int)BlockId.Torch])];
+        byte[] firstLight = VoxelLighting.PropagateBlockLight(blocks, width, height, depth, first);
+        byte[] secondLight = VoxelLighting.PropagateBlockLight(blocks, width, height, depth, second);
+        byte[] combined = VoxelLighting.PropagateBlockLight(blocks, width, height, depth,
+                [.. first, .. second]);
+        byte firstContribution = At(firstLight, width, height, depth, 5, 1, 1);
+        byte secondContribution = At(secondLight, width, height, depth, 5, 1, 1);
+        TestAssert.Equal((byte)Math.Max(firstContribution, secondContribution),
+                At(combined, width, height, depth, 5, 1, 1),
+                "overlapping torch and campfire sources take the brighter propagated level instead of adding together");
+        TestAssert.Equal(VoxelLighting.CampfireEmission,
+                At(combined, width, height, depth, 2, 1, 1),
+                "overlapping emitters preserve the shared peak source level");
     }
 
     private static void TestOpaqueBlocking()

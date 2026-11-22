@@ -23,6 +23,44 @@ public static class MaterialGalleryTests
         TestAssert.Equal((registered.Length + MaterialGallery.Columns - 1) / MaterialGallery.Columns,
                 MaterialGallery.Rows, "gallery row count covers the registry exactly");
 
+        TestAssert.Equal(1280, MaterialGallery.CaptureWidth,
+                "gallery comparison captures use a fixed 1280-pixel width");
+        TestAssert.Equal(720, MaterialGallery.CaptureHeight,
+                "gallery comparison captures use a fixed 720-pixel height");
+        TestAssert.Equal(55.0f, MaterialGallery.CameraFovDegrees,
+                "gallery comparison captures share a fixed camera field of view");
+        TestAssert.Equal(new Vector3(12.0f, 8.0f, 16.0f), MaterialGallery.CloseCameraOffset,
+                "gallery close capture uses its fixed camera offset");
+        TestAssert.Equal(new Vector3(22.0f, 15.0f, 28.0f), MaterialGallery.DistantCameraOffset,
+                "gallery distant capture uses its fixed camera offset");
+        TestAssert.Equal(180.0f, MaterialGallery.CameraFarDistance,
+                "gallery camera keeps a fixed far clip plane");
+        TestAssert.Equal(20.0f, MaterialGallery.GalleryStageSize,
+                "gallery stage is constrained to its sample footprint");
+        TestAssert.Equal(112.0f, MaterialGallery.LegendPanelHeight,
+                "gallery legend does not reserve excessive vertical space");
+        TestAssert.Equal(new Vector3(-48.0f, -35.0f, 0.0f), MaterialGallery.KeyLightRotationDegrees,
+                "gallery key light keeps a fixed direction");
+        TestAssert.Equal(new Color(1.0f, 0.97f, 0.91f), MaterialGallery.KeyLightColor,
+                "gallery key light keeps a fixed warm-neutral color");
+        TestAssert.Equal(1.15f, MaterialGallery.KeyLightEnergy,
+                "gallery key light keeps a fixed energy");
+        TestAssert.Equal(1.0f, MaterialGallery.AmbientLightEnergy,
+                "gallery ambient light keeps a fixed energy");
+        TestAssert.Equal(80.0f, MaterialGallery.KeyLightShadowDistance,
+                "gallery key light keeps a fixed shadow distance");
+        TestAssert.Equal(0.04f, MaterialGallery.KeyLightShadowBias,
+                "gallery key light keeps a fixed shadow bias");
+        TestAssert.Equal(1.0f, MaterialGallery.KeyLightShadowNormalBias,
+                "gallery key light keeps a fixed normal shadow bias");
+        TestAssert.Check(MaterialGallery.KeyLightShadowsEnabled,
+                "gallery key light keeps shadows enabled");
+        TestAssert.Check(MaterialGallery.AmbientOcclusionEnabled,
+                "gallery environment keeps ambient occlusion enabled");
+        TestAssert.Check(!MaterialGallery.FogEnabled && !MaterialGallery.VolumetricFogEnabled
+                && !MaterialGallery.ScreenSpaceReflectionsEnabled && !MaterialGallery.GlowEnabled,
+                "gallery environment keeps fog, volumetric fog, SSR and glow disabled");
+
         HashSet<Vector2I> occupiedSlots = [];
         HashSet<Vector3I> occupiedOffsets = [];
         for (int index = 0; index < registered.Length; index++)
@@ -113,18 +151,26 @@ public static class MaterialGalleryTests
                         $"placeable gallery mapping round-trips for {item}");
                 int iconTile = BlockDb.IconTile(mapped);
                 Texture2D icon = ItemDb.Icon(item);
-                TestAssert.Check(icon is AtlasTexture,
-                        $"first-person icon for {item} uses the shared atlas path");
-                if (icon is AtlasTexture atlasIcon)
+                if (ItemDb.IsVoxelShapeIcon(item))
                 {
-                    TestAssert.Check(ReferenceEquals(atlasIcon.Atlas, BlockDb.AtlasTexture()),
-                            $"first-person icon for {item} references the production atlas");
-                    Rect2 expectedRegion = new(
-                            (iconTile % BlockDb.AtlasCols) * BlockDb.TilePx,
-                            (iconTile / BlockDb.AtlasCols) * BlockDb.TilePx,
-                            BlockDb.TilePx, BlockDb.TilePx);
-                    TestAssert.Check(atlasIcon.Region == expectedRegion,
-                            $"first-person icon for {item} uses the registered block tile");
+                    TestAssert.Check(icon is ImageTexture,
+                            $"first-person icon for {item} includes its registered block shape");
+                }
+                else
+                {
+                    TestAssert.Check(icon is AtlasTexture,
+                            $"first-person icon for {item} uses the shared atlas path");
+                    if (icon is AtlasTexture atlasIcon)
+                    {
+                        TestAssert.Check(ReferenceEquals(atlasIcon.Atlas, BlockDb.AtlasTexture()),
+                                $"first-person icon for {item} references the production atlas");
+                        Rect2 expectedRegion = new(
+                                (iconTile % BlockDb.AtlasCols) * BlockDb.TilePx,
+                                (iconTile / BlockDb.AtlasCols) * BlockDb.TilePx,
+                                BlockDb.TilePx, BlockDb.TilePx);
+                        TestAssert.Check(atlasIcon.Region == expectedRegion,
+                                $"first-person icon for {item} uses the registered block tile");
+                    }
                 }
 
                 SurfaceFamily heldFamily = MaterialResponse.ForItem(item);

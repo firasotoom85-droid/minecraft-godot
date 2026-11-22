@@ -58,18 +58,19 @@ public static class IntegrationRegressionTests
         CheckV11ShorelineDelta(host);
         CheckNewContentSaveRoundTrip();
         CheckWetGreedyMergeKey();
+        CheckCampfireBakedEmitterLifecycle(host);
     }
 
     private static void CheckAppendOnlyIds()
     {
         TestAssert.Equal(59, (int)BlockId.RiverReeds,
                 "RiverReeds is appended at the end of the V10 block range");
-        TestAssert.Equal(60, Enum.GetValues<BlockId>().Length,
-                "the block registry grew by exactly the appended reed entry");
+        TestAssert.Equal(61, Enum.GetValues<BlockId>().Length,
+                "the block registry includes the appended ash entry after RiverReeds");
         TestAssert.Equal(108, (int)ItemId.RiverReeds,
                 "RiverReeds is appended at the end of the V10 item range");
-        TestAssert.Equal(109, Enum.GetValues<ItemId>().Length,
-                "the item registry grew by exactly the appended reed entry");
+        TestAssert.Equal(110, Enum.GetValues<ItemId>().Length,
+                "the item registry includes the appended ash item after RiverReeds");
         TestAssert.Check(BlockDb.IsCross(BlockId.RiverReeds)
                 && !BlockDb.IsSolid(BlockId.RiverReeds),
                 "the appended block is the intended non-solid cross plant");
@@ -322,6 +323,99 @@ public static class IntegrationRegressionTests
         long wetStoneKey = Mesher.FaceKey(pad, statePad, lightPad, center, 0);
         TestAssert.Equal(dryStoneKey, wetStoneKey,
                 "water never changes the merge key of a non-wettable material");
+    }
+
+    private static void CheckCampfireBakedEmitterLifecycle(Node host)
+    {
+        string dir = NewWorld(WorldGenV11.Version);
+        VoxelWorld? world = null;
+        try
+        {
+            GameSession.Instance.SelectWorld(dir);
+            world = new VoxelWorld { Name = "Campfire lighting regression", BuildCollision = false };
+            host.AddChild(world);
+
+            Vector3I? site = null;
+            for (int cz = -8; cz <= 8 && site == null; cz++)
+            for (int cx = -8; cx <= 8 && site == null; cx++)
+                site = world.GetCampfireSite(cx, cz);
+
+            TestAssert.Check(site.HasValue,
+                    "deterministic V11 test world contains a campfire lighting fixture");
+            if (site is not { } fire) return;
+
+            Vector2I chunk = new(
+                    Mathf.FloorToInt(fire.X / (float)VoxelWorld.ChunkX),
+                    Mathf.FloorToInt(fire.Z / (float)VoxelWorld.ChunkZ));
+            world.BuildPreview(new Vector3(fire.X + 0.5f, fire.Y + 1.0f, fire.Z + 0.5f), 1);
+            VoxelLightData baked = world.LightData(chunk);
+            int localX = fire.X - chunk.X * VoxelWorld.ChunkX;
+            int localZ = fire.Z - chunk.Y * VoxelWorld.ChunkZ;
+            TestAssert.Equal(VoxelLighting.CampfireEmission,
+                    baked.BlockAt(localX, fire.Y + 1, localZ, world.Height),
+                    "a live generated campfire contributes its source in the air cell above the opaque log");
+            TestAssert.Equal((byte)(VoxelLighting.CampfireEmission - 1),
+                    baked.BlockAt(localX + 1, fire.Y + 1, localZ, world.Height),
+                    "campfire light escapes the opaque base and illuminates adjacent air");
+
+            Vector3I flame = new(fire.X, fire.Y + 1, fire.Z);
+            bool registered = world.NearbyLightSources(flame.X, flame.X, flame.Z, flame.Z)
+                    .Exists(source => source.Position == flame
+                            && source.Level == VoxelLighting.CampfireEmission);
+            TestAssert.Check(registered,
+                    "generated campfire emitters participate in the existing world source registry");
+
+            TestAssert.Check(world.SetBlock(fire.X, fire.Y, fire.Z, BlockId.Stone),
+                    "replacing a campfire log with another opaque block succeeds through SetBlock");
+            TestAssert.Check(!world.NearbyLightSources(flame.X, flame.X, flame.Z, flame.Z)
+                            .Exists(source => source.Position == flame),
+                    "opaque replacement removes the virtual campfire source from the registry");
+            TestAssert.Equal((byte)0,
+                    world.LightData(chunk).BlockAt(localX, fire.Y + 1, localZ, world.Height),
+                    "incremental replacement clears the cached flame-cell light, not the opaque base voxel");
+
+            TestAssert.Check(world.SetBlock(fire.X, fire.Y, fire.Z, BlockId.Log),
+                    "restoring the generated campfire log succeeds through SetBlock");
+            TestAssert.Check(world.NearbyLightSources(flame.X, flame.X, flame.Z, flame.Z)
+                            .Exists(source => source.Position == flame
+                                    && source.Level == VoxelLighting.CampfireEmission),
+                    "restoring the site log restores its baked source without persisted ID changes");
+            TestAssert.Equal(VoxelLighting.CampfireEmission,
+                    world.LightData(chunk).BlockAt(localX, fire.Y + 1, localZ, world.Height),
+                    "incremental restoration lights the air cell above the campfire base");
+
+            TestAssert.Check(world.SetBlock(fire.X, fire.Y, fire.Z, BlockId.Torch),
+                    "replacing a campfire base with a torch succeeds through SetBlock");
+            TestAssert.Check(world.NearbyLightSources(fire.X, fire.X, fire.Z, fire.Z)
+                            .Exists(source => source.Position == fire
+                                    && source.Level == BlockDb.LightEmission[(int)BlockId.Torch]),
+                    "a torch placed at the campfire base emits from its own block cell");
+            TestAssert.Check(!world.NearbyLightSources(flame.X, flame.X, flame.Z, flame.Z)
+                            .Exists(source => source.Position == flame),
+                    "converting a campfire log into a torch removes the shifted flame-cell source");
+            TestAssert.Equal(BlockDb.LightEmission[(int)BlockId.Torch],
+                    world.LightData(chunk).BlockAt(localX, fire.Y, localZ, world.Height),
+                    "equal-strength campfire-to-torch conversion rebuilds light at the new source cell");
+
+            TestAssert.Check(world.SetBlock(fire.X, fire.Y, fire.Z, BlockId.Log),
+                    "restoring a campfire log after a torch succeeds through SetBlock");
+            TestAssert.Check(world.NearbyLightSources(flame.X, flame.X, flame.Z, flame.Z)
+                            .Exists(source => source.Position == flame),
+                    "torch-to-campfire conversion restores the raised flame-cell source");
+
+            TestAssert.Check(world.SetBlock(fire.X, fire.Y, fire.Z, BlockId.Air),
+                    "removing a campfire log succeeds through SetBlock");
+            TestAssert.Check(!world.NearbyLightSources(flame.X, flame.X, flame.Z, flame.Z)
+                            .Exists(source => source.Position == flame),
+                    "removing a campfire log clears its virtual emitter and prevents stale relighting");
+            TestAssert.Equal((byte)0,
+                    world.LightData(chunk).BlockAt(localX, fire.Y + 1, localZ, world.Height),
+                    "incremental removal leaves no stale campfire light in cached chunk maps");
+        }
+        finally
+        {
+            RemoveWorld(host, world, dir);
+        }
     }
 
     private static string NewWorld(int version)

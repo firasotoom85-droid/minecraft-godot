@@ -9,7 +9,7 @@ namespace Minecraft;
 /// Captures one deterministic real-scene atmosphere frame for visual review.
 /// Usage:
 /// godot --path . res://tests/AtmosphereVisualCapture.tscn --
-///   <seed> <generator-version> <x> <z> <time-of-day> <Clear|Cloudy|Rain> <output.png> [include-torch:true|false]
+///   <seed> <generator-version> <x> <z> <time-of-day> <Clear|Cloudy|Rain> <output.png> [include-torch:true|false] [view-distance:3-5]
 /// </summary>
 public partial class AtmosphereVisualCapture : Node
 {
@@ -31,6 +31,9 @@ public partial class AtmosphereVisualCapture : Node
                     : $"res://docs/visual/screenshots/atmosphere-{weatherState.ToString().ToLowerInvariant()}.png";
             bool includeTorch = args.Length > 7
                     && bool.TryParse(args[7], out bool parsedTorch) && parsedTorch;
+            int captureViewDistance = Math.Clamp(ParseInt(args, 8, 3), 3, 5);
+            int expectedChunkCount = (captureViewDistance * 2 + 1)
+                    * (captureViewDistance * 2 + 1);
 
             if (version is < 1 or > WorldStore.CurrentGenVersion)
             {
@@ -88,7 +91,7 @@ public partial class AtmosphereVisualCapture : Node
             dayNight.Paused = true;
             weather.Current = weatherState;
             weather.Cloudiness = Weather.TargetCloudinessFor(weatherState);
-            world.SetViewDistance(3);
+            world.SetViewDistance(captureViewDistance);
             world.SetLodRadius(0.0f);
 
             int height = world.SurfaceHeight(centerX, centerZ);
@@ -106,7 +109,7 @@ public partial class AtmosphereVisualCapture : Node
             camera.GlobalPosition = target + new Vector3(62.0f, 72.0f, 78.0f);
             camera.LookAt(target + new Vector3(0.0f, 5.0f, 0.0f), Vector3.Up);
 
-            GD.Print($"ATMOSPHERE_CAPTURE_START seed={seed} version={version} center=({centerX},{centerZ}) time={world.TimeOfDay:F3} weather={weatherState} torch={includeTorch} output={output}");
+            GD.Print($"ATMOSPHERE_CAPTURE_START seed={seed} version={version} center=({centerX},{centerZ}) time={world.TimeOfDay:F3} weather={weatherState} torch={includeTorch} view_distance={captureViewDistance} expected_chunks={expectedChunkCount} output={output}");
             double started = Time.GetTicksMsec() / 1000.0;
             int frames = 0;
             while (frames < 1800)
@@ -114,15 +117,15 @@ public partial class AtmosphereVisualCapture : Node
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
                 frames++;
                 double elapsed = Time.GetTicksMsec() / 1000.0 - started;
-                if (elapsed >= 8.0 && world.ChunkCount >= 16)
+                if (elapsed >= 8.0 && world.ChunkCount >= expectedChunkCount)
                 {
                     break;
                 }
             }
 
-            if (world.ChunkCount < 16)
+            if (world.ChunkCount < expectedChunkCount)
             {
-                GD.PushError($"World did not stream enough chunks for a useful capture (count={world.ChunkCount}).");
+                GD.PushError($"World did not stream the requested inspection radius (count={world.ChunkCount}, expected={expectedChunkCount}).");
                 GetTree().Quit(6);
                 return;
             }
@@ -182,7 +185,7 @@ public partial class AtmosphereVisualCapture : Node
 
                 // Carve a small enclosed chamber below the surface. Every edit
                 // uses SetBlock; this world is disposable and never saved.
-                int floorY = Math.Max(2, height - 6);
+                int floorY = Math.Max(2, height - 12);
                 for (int y = floorY + 1; y <= floorY + 4; y++)
                 for (int dz = -2; dz <= 2; dz++)
                 for (int dx = -2; dx <= 2; dx++)
@@ -198,6 +201,35 @@ public partial class AtmosphereVisualCapture : Node
                     }
                 }
 
+                // Connect the chamber to daylight with a narrow horizontal
+                // passage and a vertical surface shaft. The baked skylight
+                // naturally attenuates along this path for entrance captures.
+                int entranceX = centerX + 10;
+                int entranceSurface = world.SurfaceHeight(entranceX, centerZ);
+                for (int y = floorY + 1; y <= entranceSurface + 1; y++)
+                {
+                    if (world.GetBlock(entranceX, y, centerZ) != BlockId.Air
+                            && !world.SetBlock(entranceX, y, centerZ, BlockId.Air))
+                    {
+                        GD.PushError("Could not open the temporary skylight shaft through VoxelWorld.SetBlock.");
+                        GetTree().Quit(9);
+                        return;
+                    }
+                }
+
+                for (int dx = 3; dx < 10; dx++)
+                for (int y = floorY + 2; y <= floorY + 3; y++)
+                {
+                    int x = centerX + dx;
+                    if (world.GetBlock(x, y, centerZ) != BlockId.Air
+                            && !world.SetBlock(x, y, centerZ, BlockId.Air))
+                    {
+                        GD.PushError("Could not open the temporary cave passage through VoxelWorld.SetBlock.");
+                        GetTree().Quit(9);
+                        return;
+                    }
+                }
+
                 int torchY = floorY + 1;
                 if (!world.SetBlock(centerX, torchY, centerZ, BlockId.Torch))
                 {
@@ -207,11 +239,31 @@ public partial class AtmosphereVisualCapture : Node
                 }
 
                 target = new Vector3(centerX + 0.5f, torchY + 0.5f, centerZ + 0.5f);
+                // DayNight samples the production first-person camera for
+                // cave exposure even though this fixture renders from its
+                // separate composition camera. Keep that camera inside the
+                // same disposable chamber so the screenshot exercises the
+                // actual baked-light-driven ambient/fog transition.
+                player.GlobalPosition = new Vector3(
+                        centerX + 0.5f, floorY + 0.15f, centerZ + 0.5f);
                 camera.Fov = 64.0f;
                 camera.GlobalPosition = target + new Vector3(2.0f, 1.2f, 2.0f);
                 camera.LookAt(target, Vector3.Up);
                 for (int frame = 0; frame < 60; frame++)
                     await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+                bool hasEntranceExposure = world.TrySampleCachedSkyLight(
+                        new Vector3(entranceX + 0.5f, entranceSurface + 1.5f, centerZ + 0.5f),
+                        out float entranceSkyLight);
+                bool hasPassageExposure = world.TrySampleCachedSkyLight(
+                        new Vector3(centerX + 8.5f, floorY + 2.5f, centerZ + 0.5f),
+                        out float passageSkyLight);
+                bool hasRoomExposure = world.TrySampleCachedSkyLight(
+                        player.Camera.GlobalPosition, out float roomSkyLight);
+                GD.Print($"CAVE_EXPOSURE_GRADIENT outside={hasEntranceExposure}:{entranceSkyLight:F2} " +
+                        $"passage={hasPassageExposure}:{passageSkyLight:F2} " +
+                        $"room={hasRoomExposure}:{roomSkyLight:F2} " +
+                        $"darkness={DayNight.EvaluateCaveDarkness(roomSkyLight):F3}");
             }
             else
             {

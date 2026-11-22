@@ -16,6 +16,7 @@ public partial class TestRunner : Node
         GD.Print("minecraft tests: start");
         RunSuite("content", ContentTests.Run);
         RunSuite("item-icons", ItemIconTests.Run);
+        RunSuite("item-visual-quality", ItemVisualQualityTests.Run);
         RunSuite("performance-benchmark", PerformanceBenchmarkTests.Run);
         RunSuite("voxel-streaming", VoxelStreamingTests.Run);
         RunSuite("graphics", GraphicsTests.Run);
@@ -26,6 +27,7 @@ public partial class TestRunner : Node
         RunSuite("water-adjacent-materials", () => WaterAdjacentTests.Run(this));
         RunSuite("texture-scale", TextureScaleTests.Run);
         RunSuite("material-gallery", MaterialGalleryTests.Run);
+        RunSuite("texture-atlas-validation", TextureAtlasValidationTests.Run);
         RunSuite("block-shapes", () => BlockShapeTests.Run(this));
         RunSuite("selection-outline", SelectionOutlineTests.Run);
         RunSuite("lighting", LightingTests.Run);

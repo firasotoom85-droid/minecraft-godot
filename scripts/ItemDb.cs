@@ -5,6 +5,15 @@ using Godot;
 
 namespace Minecraft;
 
+/// <summary>Stable visual quality bands; these are presentation metadata, not persisted item IDs.</summary>
+public enum ItemRarity : byte
+{
+    Common,
+    Uncommon,
+    Rare,
+    Legendary,
+}
+
 /// <summary>Tool behaviour: kind, tier (1 wood .. 4 diamond), mining speed, durability.</summary>
 public readonly record struct ToolInfo(ToolKind Kind, int Tier, float Speed, int Durability);
 
@@ -53,6 +62,7 @@ public static class ItemDb
         (ItemId.JungleLeaves, BlockId.JungleLeaves),
         (ItemId.SwampLeaves, BlockId.SwampLeaves),
         (ItemId.RiverReeds, BlockId.RiverReeds),
+        (ItemId.Ash, BlockId.Ash),
     ];
 
     private static readonly Dictionary<BlockId, ItemId> BlockToItem =
@@ -62,7 +72,8 @@ public static class ItemDb
         BlockItemPairs.ToDictionary(p => p.Item, p => p.Block);
 
     private static readonly Dictionary<ItemId, ImageTexture> IconCache = [];
-    private static readonly Dictionary<(ItemId Item, byte Stage), ImageTexture> WornIconCache = [];
+    private static readonly Dictionary<(ItemId Item, byte WearStage, byte EnchantmentMask), ImageTexture>
+            QualityIconCache = [];
 
     public static BlockId? BlockFor(ItemId id) =>
         ItemToBlock.TryGetValue(id, out BlockId block) ? block : null;
@@ -239,6 +250,43 @@ public static class ItemDb
         ItemId.EmberBlade => new(8, 0.52f, 1200, 5, 4.5f), ItemId.Bow => new(5, 0.8f, 384, 2, 0),
         ItemId.Shield => new(0, 0, 420, 2, 0), _ => null,
     };
+
+    /// <summary>Presentation tier derived from existing item metadata and material identity.</summary>
+    public static ItemRarity RarityOf(ItemId id)
+    {
+        if (id is ItemId.EmberCore or ItemId.EmberBlade)
+        {
+            return ItemRarity.Legendary;
+        }
+
+        int tier = ToolOf(id)?.Tier ?? ArmorOf(id)?.Tier ?? WeaponOf(id)?.Tier ?? 0;
+        if (tier >= 5)
+        {
+            return ItemRarity.Legendary;
+        }
+
+        if (tier >= 4 || id is ItemId.Diamond or ItemId.DiamondOre)
+        {
+            return ItemRarity.Rare;
+        }
+
+        if (tier >= 3 || id is ItemId.RawIron or ItemId.IronIngot or ItemId.IronOre
+                or ItemId.RawGold or ItemId.GoldIngot or ItemId.GoldOre or ItemId.LapisLazuli)
+        {
+            return ItemRarity.Uncommon;
+        }
+
+        return ItemRarity.Common;
+    }
+
+    /// <summary>Shared accent palette used by icon pixels and the existing inventory-slot draw pass.</summary>
+    public static Color RarityColor(ItemRarity rarity) => rarity switch
+    {
+        ItemRarity.Uncommon => new Color(0.42f, 0.84f, 0.54f),
+        ItemRarity.Rare => new Color(0.28f, 0.76f, 0.96f),
+        ItemRarity.Legendary => new Color(1.0f, 0.58f, 0.22f),
+        _ => new Color(0.68f, 0.70f, 0.72f),
+    };
     public static string DescriptionOf(ItemId id) => id switch
     {
         ItemId.WoodSword => "Fast starter weapon; limited durability.", ItemId.StoneSword => "Reliable cave weapon with improved stopping force.",
@@ -302,7 +350,8 @@ public static class ItemDb
 
     public static Texture2D Icon(ItemId id)
     {
-        if (BlockFor(id) is { } block)
+        BlockId? mappedBlock = BlockFor(id);
+        if (mappedBlock is { } block && !IsVoxelShapeIcon(id))
         {
             int tile = BlockDb.IconTile(block);
             return new AtlasTexture
@@ -317,43 +366,249 @@ public static class ItemDb
 
         if (!IconCache.TryGetValue(id, out ImageTexture? texture))
         {
-            texture = ImageTexture.CreateFromImage(BuildIconImage(id));
+            Image icon = mappedBlock is { } shapeBlock
+                    ? BuildVoxelShapeIcon(id, shapeBlock)
+                    : BuildIconImage(id);
+            texture = ImageTexture.CreateFromImage(icon);
             IconCache[id] = texture;
         }
 
         return texture;
     }
 
-    /// <summary>Equipment icon with a cached visual wear state; block icons stay on the atlas path.</summary>
-    public static Texture2D Icon(ItemStack stack) => Icon(stack.Id, stack.Durability);
+    /// <summary>
+    /// <summary>
+    /// Shape-specific placeable blocks need a silhouette as well as a material
+    /// texture. Their cached previews are projected from the existing atlas;
+    /// ordinary block items continue to use their exact AtlasTexture region.
+    /// </summary>
+    internal static bool IsVoxelShapeIcon(ItemId id) => id is
+            ItemId.PlanksSlab or ItemId.CobblestoneSlab or ItemId.BrickSlab
+            or ItemId.PlanksStairs or ItemId.CobblestoneStairs or ItemId.BrickStairs;
 
-    public static Texture2D Icon(ItemId id, int durability)
+    /// <summary>
+    /// Equipment stack icon with cached wear, rarity and enchantment accents.
+    /// Block-backed items intentionally retain their exact atlas texture/region.
+    /// </summary>
+    public static Texture2D Icon(ItemStack stack) =>
+        Icon(stack.Id, stack.Durability, EnchantmentVisualMask(stack));
+
+    /// <summary>
+    /// Compact allocation-free state used by the first-person viewmodel to
+    /// refresh only when a held item's visible wear/enchantment treatment changes.
+    /// The item ID and therefore its rarity are tracked separately by Player.
+    /// </summary>
+    public static byte IconVisualState(ItemStack stack)
     {
-        int stage = EquipmentDurabilityVisual.WearStage(
-                durability, EquipmentProgression.MaxDurability(id));
-        if (stage == 0 || BlockFor(id) is not null)
+        if (stack.IsEmpty)
+        {
+            return 0;
+        }
+
+        int wearStage = EquipmentDurabilityVisual.WearStage(stack);
+        return (byte)(wearStage | (EnchantmentVisualMask(stack) << 2));
+    }
+
+    private static byte EnchantmentVisualMask(ItemStack stack)
+    {
+        byte mask = 0;
+        if (stack.Sharpness > 0
+                && EquipmentProgression.CanEnchant(stack.Id, Enchantment.Sharpness))
+        {
+            mask |= 1;
+        }
+
+        if (stack.Protection > 0
+                && EquipmentProgression.CanEnchant(stack.Id, Enchantment.Protection))
+        {
+            mask |= 2;
+        }
+
+        if (stack.Unbreaking > 0
+                && EquipmentProgression.CanEnchant(stack.Id, Enchantment.Unbreaking))
+        {
+            mask |= 4;
+        }
+
+        return mask;
+    }
+
+    public static Texture2D Icon(ItemId id, int durability) => Icon(id, durability, 0);
+
+    private static Texture2D Icon(ItemId id, int durability, byte enchantmentMask)
+    {
+        // Placeable items must continue using their original tile coordinates.
+        if (BlockFor(id) is not null)
         {
             return Icon(id);
         }
 
-        var key = (id, (byte)stage);
-        if (!WornIconCache.TryGetValue(key, out ImageTexture? texture))
+        int stage = EquipmentDurabilityVisual.WearStage(
+                durability, EquipmentProgression.MaxDurability(id));
+        ItemRarity rarity = RarityOf(id);
+        if (stage == 0 && rarity == ItemRarity.Common && enchantmentMask == 0)
+        {
+            return Icon(id);
+        }
+
+        var key = (id, (byte)stage, enchantmentMask);
+        if (!QualityIconCache.TryGetValue(key, out ImageTexture? texture))
         {
             Image image = BuildIconImage(id);
-            // The shared finish already generated a mip chain for the pristine
-            // pixels. Wear marks alter the base level, so rebuild the chain
-            // instead of sampling a stale 16/8/4/2/1 set.
+            // Wear and quality marks modify the finished base pixels, so rebuild
+            // the mip chain from the final icon instead of sampling stale levels.
             image.ClearMipmaps();
-            PaintWear(image, id, stage);
-            image.GenerateMipmaps();
+            if (stage > 0)
+            {
+                PaintWear(image, id, stage);
+            }
+
+            if (rarity != ItemRarity.Common)
+            {
+                PaintRarityAccent(image, rarity);
+            }
+
+            if (enchantmentMask != 0)
+            {
+                PaintEnchantmentAccents(image, enchantmentMask);
+            }
+
+            Error mipmapError = image.GenerateMipmaps();
+            if (mipmapError != Error.Ok)
+            {
+                GD.PushWarning($"Could not generate item quality icon mipmaps: {mipmapError}");
+            }
+
             texture = ImageTexture.CreateFromImage(image);
-            WornIconCache[key] = texture;
+            QualityIconCache[key] = texture;
         }
 
         return texture;
     }
 
     private const int IconPx = 32;
+    private static readonly Lazy<Image> ShapeIconAtlasLazy =
+            new(() => BlockDb.AtlasTexture().GetImage());
+
+    private static Image BuildVoxelShapeIcon(ItemId item, BlockId block)
+    {
+        Image icon = Image.CreateEmpty(IconPx, IconPx, false, Image.Format.Rgba8);
+        icon.Fill(new Color(0, 0, 0, 0));
+
+        Image atlas = ShapeIconAtlasLazy.Value;
+        int topTile = ValidFaceTile(block, 0);
+        int sideTile = ValidFaceTile(block, 2);
+        int frontTile = ValidFaceTile(block, 4);
+
+        if (item is ItemId.PlanksSlab or ItemId.CobblestoneSlab or ItemId.BrickSlab)
+        {
+            Vector2 a = ProjectShapeIcon(0.0f, 0.0f, 0.5f);
+            Vector2 b = ProjectShapeIcon(1.0f, 0.0f, 0.5f);
+            Vector2 c = ProjectShapeIcon(1.0f, 1.0f, 0.5f);
+            Vector2 d = ProjectShapeIcon(0.0f, 1.0f, 0.5f);
+            Vector2 frontLeft = ProjectShapeIcon(0.0f, 1.0f, 0.0f);
+            Vector2 frontRight = ProjectShapeIcon(1.0f, 1.0f, 0.0f);
+            Vector2 sideBack = ProjectShapeIcon(1.0f, 0.0f, 0.0f);
+
+            PaintAtlasQuad(icon, atlas, frontTile, d, c, frontRight, frontLeft, 0.78f);
+            PaintAtlasQuad(icon, atlas, sideTile, c, b, sideBack, frontRight, 0.62f);
+            PaintAtlasQuad(icon, atlas, topTile, a, b, c, d, 1.08f);
+        }
+        else
+        {
+            // The stair block is a lower half-height step plus a raised rear
+            // half. The two tread surfaces and exposed riser share the real
+            // material tiles used by the world mesh.
+            Vector2 highA = ProjectShapeIcon(0.0f, 0.0f, 1.0f);
+            Vector2 highB = ProjectShapeIcon(1.0f, 0.0f, 1.0f);
+            Vector2 highC = ProjectShapeIcon(1.0f, 0.5f, 1.0f);
+            Vector2 highD = ProjectShapeIcon(0.0f, 0.5f, 1.0f);
+            Vector2 lowA = ProjectShapeIcon(0.0f, 0.5f, 0.5f);
+            Vector2 lowB = ProjectShapeIcon(1.0f, 0.5f, 0.5f);
+            Vector2 lowC = ProjectShapeIcon(1.0f, 1.0f, 0.5f);
+            Vector2 lowD = ProjectShapeIcon(0.0f, 1.0f, 0.5f);
+            Vector2 rightBackBottom = ProjectShapeIcon(1.0f, 0.0f, 0.0f);
+            Vector2 rightMiddleBottom = ProjectShapeIcon(1.0f, 0.5f, 0.0f);
+            Vector2 frontBottomLeft = ProjectShapeIcon(0.0f, 1.0f, 0.0f);
+            Vector2 frontBottomRight = ProjectShapeIcon(1.0f, 1.0f, 0.0f);
+
+            PaintAtlasQuad(icon, atlas, frontTile,
+                    lowD, lowC, frontBottomRight, frontBottomLeft, 0.78f);
+            PaintAtlasQuad(icon, atlas, sideTile,
+                    highB, highC, rightMiddleBottom, rightBackBottom, 0.62f);
+            PaintAtlasQuad(icon, atlas, sideTile,
+                    lowB, lowC, frontBottomRight, rightMiddleBottom, 0.70f);
+            PaintAtlasQuad(icon, atlas, frontTile,
+                    highD, highC, lowB, lowA, 0.86f);
+            PaintAtlasQuad(icon, atlas, topTile, lowA, lowB, lowC, lowD, 1.02f);
+            PaintAtlasQuad(icon, atlas, topTile, highA, highB, highC, highD, 1.10f);
+        }
+
+        return StyleGeneratedIcon(icon);
+    }
+
+    private static int ValidFaceTile(BlockId block, int face)
+    {
+        int tile = BlockDb.FaceTile(block, face);
+        return tile >= 0 ? tile : BlockDb.IconTile(block);
+    }
+
+    private static Vector2 ProjectShapeIcon(float x, float y, float z) =>
+            new(16.0f + 12.0f * (x - y), 8.0f + 6.0f * (x + y) + 10.0f * (1.0f - z));
+
+    /// <summary>Rasterizes one atlas-textured parallelogram into a cached item image.</summary>
+    private static void PaintAtlasQuad(
+            Image destination, Image atlas, int tile,
+            Vector2 a, Vector2 b, Vector2 c, Vector2 d, float brightness)
+    {
+        if ((uint)tile >= BlockDb.TileCount)
+        {
+            return;
+        }
+
+        Vector2 axisU = b - a;
+        Vector2 axisV = d - a;
+        float determinant = axisU.X * axisV.Y - axisU.Y * axisV.X;
+        if (Math.Abs(determinant) < 0.0001f)
+        {
+            return;
+        }
+
+        float minX = Math.Min(Math.Min(a.X, b.X), Math.Min(c.X, d.X));
+        float maxX = Math.Max(Math.Max(a.X, b.X), Math.Max(c.X, d.X));
+        float minY = Math.Min(Math.Min(a.Y, b.Y), Math.Min(c.Y, d.Y));
+        float maxY = Math.Max(Math.Max(a.Y, b.Y), Math.Max(c.Y, d.Y));
+        int startX = Math.Clamp((int)Math.Floor(minX), 0, IconPx - 1);
+        int endX = Math.Clamp((int)Math.Ceiling(maxX), 0, IconPx - 1);
+        int startY = Math.Clamp((int)Math.Floor(minY), 0, IconPx - 1);
+        int endY = Math.Clamp((int)Math.Ceiling(maxY), 0, IconPx - 1);
+        int tileX = (tile % BlockDb.AtlasCols) * BlockDb.TilePx;
+        int tileY = (tile / BlockDb.AtlasCols) * BlockDb.TilePx;
+
+        for (int y = startY; y <= endY; y++)
+        {
+            for (int x = startX; x <= endX; x++)
+            {
+                Vector2 delta = new(x + 0.5f - a.X, y + 0.5f - a.Y);
+                float u = (delta.X * axisV.Y - delta.Y * axisV.X) / determinant;
+                float v = (axisU.X * delta.Y - axisU.Y * delta.X) / determinant;
+                if (u < 0.0f || u > 1.0f || v < 0.0f || v > 1.0f)
+                {
+                    continue;
+                }
+
+                int sourceX = tileX + Math.Clamp(
+                        (int)Math.Round(u * (BlockDb.TilePx - 1)), 0, BlockDb.TilePx - 1);
+                int sourceY = tileY + Math.Clamp(
+                        (int)Math.Round(v * (BlockDb.TilePx - 1)), 0, BlockDb.TilePx - 1);
+                Color color = atlas.GetPixel(sourceX, sourceY);
+                color = brightness < 1.0f
+                        ? color.Darkened(1.0f - brightness)
+                        : color.Lightened(brightness - 1.0f);
+                destination.SetPixel(x, y, color);
+            }
+        }
+    }
 
     private static Image BuildIconImage(ItemId id)
     {
@@ -412,10 +667,10 @@ public static class ItemDb
                     PaintMutton(img, new Color(0.50f, 0.24f, 0.12f), new Color(0.75f, 0.46f, 0.22f));
                     break;
                 case ItemId.RawChicken:
-                    PaintMutton(img, new Color(0.92f, 0.62f, 0.52f), new Color(0.98f, 0.82f, 0.72f));
+                    PaintDrumstick(img, new Color(0.80f, 0.43f, 0.42f), new Color(0.98f, 0.74f, 0.67f));
                     break;
                 case ItemId.CookedChicken:
-                    PaintMutton(img, new Color(0.70f, 0.46f, 0.18f), new Color(0.90f, 0.68f, 0.34f));
+                    PaintDrumstick(img, new Color(0.64f, 0.32f, 0.13f), new Color(0.92f, 0.66f, 0.32f));
                     break;
                 case ItemId.Leather:
                     Rect(img, 7, 10, 18, 13, new Color(0.48f, 0.28f, 0.13f));
@@ -438,10 +693,10 @@ public static class ItemDb
                     PaintFishingRod(img);
                     break;
                 case ItemId.RawFish:
-                    PaintMutton(img, new Color(0.52f, 0.72f, 0.78f), new Color(0.78f, 0.90f, 0.92f));
+                    PaintFish(img, false);
                     break;
                 case ItemId.CookedFish:
-                    PaintMutton(img, new Color(0.70f, 0.52f, 0.26f), new Color(0.92f, 0.78f, 0.46f));
+                    PaintFish(img, true);
                     break;
                 case ItemId.Arrow:
                     Rect(img, 6, 15, 20, 2, new Color(0.72f, 0.72f, 0.74f)); Rect(img, 24, 12, 5, 8, new Color(0.78f, 0.78f, 0.80f)); break;
@@ -639,6 +894,102 @@ public static class ItemDb
         return finished;
     }
 
+    private static void PaintRarityAccent(Image image, ItemRarity rarity)
+    {
+        Color accent = RarityColor(rarity);
+        PaintIconSparkle(image, new Vector2I(23, 8), accent,
+                rarity == ItemRarity.Legendary);
+    }
+
+    private static void PaintEnchantmentAccents(Image image, byte mask)
+    {
+        if ((mask & 1) != 0)
+        {
+            PaintIconSparkle(image, new Vector2I(8, 8),
+                    new Color(0.58f, 0.88f, 1.0f));
+        }
+
+        if ((mask & 2) != 0)
+        {
+            PaintIconSparkle(image, new Vector2I(8, 23),
+                    new Color(0.74f, 0.62f, 1.0f));
+        }
+
+        if ((mask & 4) != 0)
+        {
+            PaintIconSparkle(image, new Vector2I(23, 23),
+                    new Color(1.0f, 0.82f, 0.42f));
+        }
+    }
+
+    /// <summary>
+    /// Paints a small, nearest-neighbour glint only over existing item pixels.
+    /// The silhouette, outline, transparent frame and atlas-backed icons remain
+    /// untouched; final mipmaps are generated after all accents are applied.
+    /// </summary>
+    private static void PaintIconSparkle(Image image, Vector2I target, Color accent,
+            bool large = false)
+    {
+        Vector2I center = FindIconFillPixel(image, target);
+        if (center.X < 0)
+        {
+            return;
+        }
+
+        PaintAccentPixel(image, center.X, center.Y, accent.Lightened(0.12f));
+        PaintAccentPixel(image, center.X - 1, center.Y, accent);
+        PaintAccentPixel(image, center.X + 1, center.Y, accent.Darkened(0.12f));
+        PaintAccentPixel(image, center.X, center.Y - 1, accent);
+        PaintAccentPixel(image, center.X, center.Y + 1, accent.Darkened(0.12f));
+        if (large)
+        {
+            PaintAccentPixel(image, center.X - 1, center.Y - 1, accent);
+            PaintAccentPixel(image, center.X + 1, center.Y - 1, accent.Lightened(0.12f));
+            PaintAccentPixel(image, center.X - 1, center.Y + 1, accent.Darkened(0.12f));
+            PaintAccentPixel(image, center.X + 1, center.Y + 1, accent);
+        }
+    }
+
+    private static Vector2I FindIconFillPixel(Image image, Vector2I target)
+    {
+        for (int radius = 0; radius <= 10; radius++)
+        {
+            for (int y = target.Y - radius; y <= target.Y + radius; y++)
+            {
+                for (int x = target.X - radius; x <= target.X + radius; x++)
+                {
+                    if (Mathf.Max(Mathf.Abs(x - target.X), Mathf.Abs(y - target.Y)) != radius
+                            || x < 0 || y < 0 || x >= image.GetWidth() || y >= image.GetHeight())
+                    {
+                        continue;
+                    }
+
+                    Color pixel = image.GetPixel(x, y);
+                    if (pixel.A > 0.05f && pixel != GeneratedIconOutlineColor)
+                    {
+                        return new Vector2I(x, y);
+                    }
+                }
+            }
+        }
+
+        return new Vector2I(-1, -1);
+    }
+
+    private static void PaintAccentPixel(Image image, int x, int y, Color accent)
+    {
+        if (x < 0 || y < 0 || x >= image.GetWidth() || y >= image.GetHeight())
+        {
+            return;
+        }
+
+        Color pixel = image.GetPixel(x, y);
+        if (pixel.A > 0.05f && pixel != GeneratedIconOutlineColor)
+        {
+            image.SetPixel(x, y, accent);
+        }
+    }
+
     private static Color TierColor(int tier) => tier switch
     {
         1 => new Color(0.64f, 0.47f, 0.28f),
@@ -796,6 +1147,107 @@ public static class ItemDb
         Rect(img, 8, 11, 3, 5, wood);
         Rect(img, 21, 11, 3, 5, wood);
         Rect(img, 13, 11, 7, 3, wood.Lightened(0.1f));
+    }
+
+    private static void PaintDrumstick(Image img, Color meat, Color highlight)
+    {
+        Color shadow = meat.Darkened(0.24f);
+        Color bone = new(0.91f, 0.87f, 0.76f);
+        Color boneShade = new(0.66f, 0.62f, 0.54f);
+
+        // Rounded meat head with a tapered handle, rather than the broad
+        // bone-in chop silhouette shared by beef, pork and mutton.
+        for (int y = 6; y <= 21; y++)
+        {
+            for (int x = 5; x <= 21; x++)
+            {
+                float dx = (x - 12.5f) / 8.5f;
+                float dy = (y - 13.0f) / 8.5f;
+                if (dx * dx + dy * dy > 1.0f)
+                {
+                    continue;
+                }
+
+                Color pixel = y < 12 ? highlight : y > 17 ? shadow : meat;
+                img.SetPixel(x, y, pixel);
+            }
+        }
+
+        Rect(img, 9, 9, 5, 2, highlight.Lightened(0.12f));
+        for (int i = 0; i < 7; i++)
+        {
+            Rect(img, 15 + i, 16 + i, 2, 2, boneShade);
+            Rect(img, 15 + i, 15 + i, 2, 2, bone);
+        }
+
+        Rect(img, 22, 21, 4, 3, bone);
+        Rect(img, 24, 22, 4, 3, bone.Lightened(0.06f));
+        Rect(img, 22, 24, 3, 3, boneShade);
+        Rect(img, 24, 25, 3, 2, bone);
+    }
+
+    private static void PaintFish(Image img, bool cooked)
+    {
+        Color body = cooked
+                ? new Color(0.70f, 0.40f, 0.17f)
+                : new Color(0.39f, 0.62f, 0.70f);
+        Color highlight = cooked
+                ? new Color(0.95f, 0.70f, 0.34f)
+                : new Color(0.76f, 0.87f, 0.87f);
+        Color belly = cooked
+                ? new Color(0.91f, 0.69f, 0.39f)
+                : new Color(0.83f, 0.88f, 0.83f);
+        Color fin = cooked
+                ? new Color(0.48f, 0.27f, 0.12f)
+                : new Color(0.25f, 0.43f, 0.51f);
+        Color gill = body.Darkened(0.30f);
+
+        // Fan tail and the dorsal / lower fins make the silhouette read as a
+        // whole fish even when the Sprite3D is viewed at its smallest mip.
+        for (int y = 8; y <= 24; y++)
+        {
+            int reach = y <= 16 ? y - 8 : 24 - y;
+            Rect(img, 4, y, reach + 1, 1, fin);
+        }
+
+        for (int y = 4; y <= 10; y++)
+        {
+            int halfWidth = y - 4;
+            Rect(img, 17 - halfWidth, y, halfWidth * 2 + 1, 1, fin);
+        }
+
+        for (int y = 22; y <= 27; y++)
+        {
+            int halfWidth = 27 - y;
+            Rect(img, 18 - halfWidth, y, halfWidth * 2 + 1, 1, fin);
+        }
+
+        for (int y = 9; y <= 23; y++)
+        {
+            for (int x = 9; x <= 27; x++)
+            {
+                float dx = (x - 18.0f) / 9.0f;
+                float dy = (y - 16.0f) / 7.0f;
+                if (dx * dx + dy * dy > 1.0f)
+                {
+                    continue;
+                }
+
+                Color pixel = y < 13 ? highlight : y >= 19 ? belly : body;
+                if (y >= 21)
+                {
+                    pixel = pixel.Darkened(0.10f);
+                }
+
+                img.SetPixel(x, y, pixel);
+            }
+        }
+
+        Rect(img, 15, 13, 2, 2, highlight.Lightened(0.08f));
+        Rect(img, 18, 18, 2, 1, belly.Lightened(0.04f));
+        Rect(img, 21, 15, 1, 4, gill);
+        Rect(img, 23, 12, 2, 2, new Color(0.94f, 0.94f, 0.88f));
+        Rect(img, 24, 13, 1, 1, new Color(0.08f, 0.08f, 0.09f));
     }
 
     private static void PaintFishingRod(Image img)

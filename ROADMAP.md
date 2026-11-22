@@ -21,27 +21,69 @@ This audit is based on the implemented code, not on the original schedule.
 
 | Milestone | Status | Evidence | Remaining |
 |---|---|---|---|
-| **M5** Foundation & guardrails | Complete | `BlockCount` 128, `TileCount` 256, append-only content validator, 46-suite headless runner, `WorldSave` V4 with atomic backups, performance runner with JSON/CSV output | RTX 4060 comparison and a new controlled Release baseline |
+| **M5** Foundation & guardrails | Complete | `BlockCount` 128, `TileCount` 256, append-only content validator, procedural atlas audit/report, 48-suite headless runner, `WorldSave` V4 with atomic backups, performance runner with JSON/CSV output | RTX 4060 comparison and a new controlled Release baseline |
 | **M6** Base & progression | Complete | Torch/light propagation, chest, furnace and ingots, armor, farming, bed, ladder, swimming, fluid buckets | Broader survival balance and human playtesting |
 | **M7** Living world & goals | Complete | Species herds, hostile roster, dungeon and Ember Warden, trader, fishing, achievements, villages/quests | Human combat and quest readability review |
 | **M8** UX, platform & 1.0 | Partially complete | Rebinding, gamepad actions, contextual onboarding, world management/portability, photo mode/quality governor, export presets | Arabic/RTL localization and authored music tracks are not implemented; final 1.0 sign-off remains |
 | **M9** Scale & online | Not started | No multiplayer, dimensions, or height-256 world support in the codebase | Deliberately post-1.0 |
 | **M10** Post-1.0 | Not started | No data-driven content/mod API or additional non-cube families beyond slabs and stairs | Deliberately post-1.0 |
 
-**PRs #49–#57 integration:** the nine open branches are merged on
-`integration/pr49-57` with their unique changes preserved. `BlockId` 59 and
-`ItemId` 108 are appended, save format remains V4, and V1–V10 generation stays
-byte-identical. V11 is deterministic across positive/negative coordinates and
-reversed chunk order, and its only delta from V10 is air cells becoming
-shoreline reeds. The full contribution map and validation are in
+**PRs #49–#57 integration:** the nine branches were merged on
+`integration/pr49-57` with their unique changes preserved, and that branch was
+merged into `main` through **PR #58**. `BlockId` 59 and `ItemId` 108 are
+appended, save format remains V4, and V1–V10 generation stays byte-identical.
+V11 is deterministic across positive/negative coordinates and reversed chunk
+order, and its only delta from V10 is air cells becoming shoreline reeds. The
+full contribution map and validation are in
 [`docs/INTEGRATION_PR49_57.md`](docs/INTEGRATION_PR49_57.md).
 
+**PRs #59–#68 integration:** the ten branches in this batch are merged on
+`integration/pr59-68` from `main` at `b7a4dd9`. Item icon mapping (#59), the
+material-gallery quality report (#60), smooth cave exposure (#61), rare and
+enchanted item presentation (#62), phase-aware directional sunlight (#63), AO
+seam coverage (#64), the procedural atlas report (#65), camera-depth distance
+haze (#66), snow/sand/ash surface variation (#67) and unified warm emitter
+lighting (#68) now coexist in one implementation. `BlockId` 60 / `ItemId` 109
+(Ash) are appended after every existing value; save format stays V4; V1–V11
+generation is byte-identical. The contribution map, conflict resolutions and
+measured validation are in
+[`docs/INTEGRATION_PR59_68.md`](docs/INTEGRATION_PR59_68.md).
+
 **Validation:** Debug and Release builds report 0 warnings and 0 errors; the
-headless suite reports **189,838 checks, 0 failures across 46 suites**. V9 and
-V10 golden hashes match the pre-integration baseline. Matched headless
-measurements put greedy meshing at about 7.9 ms/chunk versus 6.9 ms on main
-(roughly 15% more CPU for shared partial-block AO); V11 chunk generation is at
-parity with V10. These are mesh/generation CPU timings, not rendered FPS claims.
+headless suite reports **198,718 checks, 0 failures across 48 suites**. V9, V10
+and V11 golden hashes match the pre-integration baseline, and the V1–V8 legacy
+anchors are unchanged. Matched headless measurements from the #49–#57 batch put
+greedy meshing at about 7.9 ms/chunk versus 6.9 ms on main (roughly 15% more CPU
+for shared partial-block AO), and V11 chunk generation remains at parity with
+V10: this batch measured 9.24 ms/chunk for V8 against 8.91 ms/chunk for V7
+(1.04×) and V9 weathering within ±1% of V8. These are mesh/generation CPU
+timings, not rendered FPS claims. The #59–#68 batch adds no per-frame world
+scan or light node: cave exposure reads eight cached light samples per frame,
+and generated campfires no longer own an `OmniLight3D` each. No rendered FPS
+delta is claimed because no controlled frame-time benchmark was run for this
+batch.
+
+## Current follow-up implementation — 2026-11-22 (rare and enchanted item language)
+
+The existing 32px generated-icon pipeline now expresses item quality without
+adding persisted content. ItemDb.RarityOf derives Common / Uncommon / Rare /
+Legendary from existing equipment tiers and material identity: iron and
+gold/lapis sit in the middle band, diamond equipment is rare, and Ember Core /
+Ember Blade are legendary. Sharpness, Protection and Unbreaking add distinct
+icy-blue, violet and warm-gold pixel glints. Rare / legendary items get a
+cohesive cyan / ember facet; the marks are painted over existing silhouette
+pixels, preserving the graphite contour and transparent frame.
+
+ItemDb.Icon(ItemStack) caches the combined item / wear-band / enchantment-
+family variant and regenerates mipmaps only on first use. Inventory, hotbar,
+cursor and first-person held-item presentation share this path. The first-person
+viewmodel now notices an enchantment-state change when the held item ID stays
+the same, without recreating its material. Existing slot panels draw a small
+rarity pin through their current _Draw pass, so atlas-backed rare materials
+remain on their original AtlasTexture region. No atlas tile, block/item ID,
+save field, generator version, world mutation, meshing or chunk-streaming
+behavior changes. The expanded Forward+ equipment capture covers rarity,
+enchantment combinations and the existing four wear bands.
 
 ## Current follow-up implementation — 2026-11-22 (V11 shoreline readability)
 
@@ -850,7 +892,7 @@ content is stable.
 
 | Risk | Mitigation |
 |---|---|
-| Content capacity/atlas overflow | Satisfied: 128 block slots, 256 atlas tiles, append-only validator and 60 registered blocks |
+| Content capacity/atlas overflow | Satisfied: 128 block slots, 256 atlas tiles, append-only validator and 61 registered blocks |
 | Torch lighting looks flat or costs FPS | Ship pooled-light v1; only build voxel propagation with measured justification |
 | Chest/furnace save bloat | Save only non-empty containers; cap; versioned migration |
 | Localization touches every code-built UI string | Central `Tr()` first, extract incrementally; prototype Arabic/RTL early |
@@ -1192,8 +1234,56 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 - **CI verification:** commit `734f758` passed GitHub Actions with a clean
   .NET build (0 warnings, 0 errors) and the Godot headless suite (828 checks,
   0 failures).
-- **Hardware validation pending:** no MX230 visual/performance soak was run in
-  CI; verify chunk-streaming frame times and torch-heavy caves on that GPU.
+- **MX230 validation:** the fixed-seed cave visual capture now runs on the
+  GeForce MX230 in Forward+; a sustained frame-time soak is still outstanding.
+
+### Cave exposure transition — 2026-11-22
+
+- Reused the packed skylight channel already baked by the voxel solver to drive
+  cave ambient/fog response from the player's camera position. Eight cached
+  voxel-centre samples are trilinearly interpolated, so exposure rolls off
+  across cave mouths and corners instead of changing at a fixed three-block
+  terrain-depth threshold.
+- The cache lookup never generates chunks; until nearby light data is ready,
+  a smooth terrain-depth fallback avoids an initial brightness pop. The update
+  uses stack storage and a bounded set of dictionary reads, with no added nodes,
+  emitters, per-frame world scans or physics queries.
+- **MX230 visual check:** Godot 4.7.2 .NET Forward+, seed 1337 / V11 at
+  `(512, -372)`, clear noon, 1600×900. The cached samples read skylight 15.00
+  above the shaft, 14.00 in the passage and 5.27 at the chamber camera
+  (cave-darkness blend 0.778); the 56-chunk capture completed successfully.
+- Added interpolation, cache-miss, monotonic exposure, range and transition
+  regression tests. Save format, persisted IDs, V1–V11 generation, greedy
+  meshing, chunk streaming and all graphics-preset costs remain unchanged.
+
+### Warm emitter consistency — 2026-11-22
+
+- Generated campfires now register
+  a virtual source in the air cell directly above the live centre log, using
+  the same 14-level channel as torches. Keeping the source outside the opaque
+  log lets light escape into surrounding air. Registration respects saved edits;
+  replacing/restoring/removing the base log updates the source through the
+  existing VoxelWorld.SetBlock mutation seam. Equal-strength conversion between
+  a campfire log and a torch moves the source and invalidates the block-light
+  cache instead of retaining stale light at the old cell. Fire/smoke remain GPU
+  particles, but the per-site OmniLight3D and per-frame flicker updates are gone.
+- The atlas, greedy texture-array and glass shaders now share one non-linear,
+  bounded amber response (and lower emissive contribution), while sky and AO
+  channels remain independent. The response is evaluated once per fragment
+  and reused for diffuse/emissive output. Overlapping sources use max-propagated
+  nibble levels, not additive light nodes. The world environment keeps neutral
+  sky ambient and Filmic tonemapping with a higher glow threshold; LOW/BALANCED
+  continue to disable glow, SSAO, SSR and volumetric fog.
+- Added regression coverage for shader hue/response parity, overlap
+  non-summation, campfire air-cell propagation, base-log and source-position
+  migration, incremental cache clearing/restoration, and save-compatible
+  persisted edits. Source solving consumes the existing emitter registry
+  instead of scanning every voxel in the halo volume.
+- **MX230 Forward+ comparison — 2026-11-22:** the repeatable Godot 4.7.2
+  main-scene captures (seed 1337, generator V11, fixed site/camera) reported
+  baked flame/adjacent levels of 14/13 in torch-only, campfire-only and overlap
+  modes. This confirms source parity and max-propagated overlap on the MX230.
+  A longer cave/texture-readability and frame-time soak remains pending.
 
 
 ## Mining interaction follow-up audit — 2026-11-20
@@ -1742,9 +1832,10 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
 ## 28. Generated standalone item icon cohesion — 2026-11-22
 
 - Audited the full persisted item-icon set using a generated contact sheet.
-  Block-backed items continue to return their existing 32px AtlasTexture
-  regions; the packed atlas, tile coordinates, atlas mip policy and material
-  response matrix are unchanged.
+  Ordinary full-block items continue to return their existing 32px
+  AtlasTexture regions; the six slab/stair items now use cached 32px isometric
+  previews sampled from their registered atlas face tiles. The packed atlas,
+  tile coordinates, atlas mip policy and material response matrix are unchanged.
 - Unified standalone procedural icons at the existing 32px source size:
   silhouettes are centered and scaled to a 22px maximum content frame, receive
   a one-pixel graphite outline and a consistent upper-left key-light gradient
@@ -1786,6 +1877,16 @@ When a decision is made, record it in the project’s decision log (`PLAN.md`
   corner values in greedy and per-face mesh modes. Existing save and generator
   behavior is unaffected: no IDs, save fields, or worldgen rules changed;
   V1–V8 remain frozen and mutations remain owned by SetBlock/ApplyEdit.
+- Hardened seam validation by grouping emitted vertices by half-voxel
+  position and face normal. The tests now require identical baked sky,
+  block-light and AO channels wherever distinct coplanar quads meet, in both
+  render paths, and compare all common corners between per-face and greedy
+  output. Vertex alpha remains excluded because it carries the independent
+  material-family tag.
+- Re-ran the existing deterministic production shape capture (seed 1337) on
+  Godot 4.7.2 Forward+ / GeForce MX230 at 1280×720; both close and distant
+  frames completed successfully. No visible AO seam was observed in the
+  slab/stair comparison row. This is validation only, not a new lighting pass.
 - **Performance:** occupancy checks and diagonal border reads are mesh-build
   work only; no extra vertices, draw calls or per-frame CPU/GPU work are added.
   The production capture was run on Godot 4.7.2 Forward+ / GeForce MX230 and
@@ -1914,3 +2015,305 @@ the existing per-shape cache.
 - No production per-frame work, collider generation, or persistent resource
   allocations were added. The additional plane, labels and preview geometry are
   confined to this opt-in test scene.
+
+## 35. Procedural atlas integrity report — 2026-11-22
+
+Added an opt-in, headless TextureAtlasValidator and Markdown report runner.
+The report reads the existing generated atlas, the registered block/item
+mappings and the existing greedy texture array. It checks atlas dimensions,
+missing/transparent referenced tiles, invalid face indices, repeated pixel
+content across distinct tile slots, accidental duplicate six-face block
+signatures, directional face pair regressions, placeable item icon regions and
+texture-array layer/mipmap compatibility.
+
+Expected duplicate block signatures are explicitly constrained to the common
+still/flowing-water texture, directional plank full-cube/slab/stair family, and
+cobblestone/brick slab-stair pairs. The legacy painted plank-building tile 46
+is documented as intentionally unreferenced; it is not shifted, removed or
+reused. Any other painted but unreferenced tile remains a warning.
+
+The suite adds synthetic invalid-reference, missing-pixel, duplicate-image,
+duplicate-definition, alias and directional-log regressions. Validation reads
+existing resources once per run and is never attached to gameplay processing.
+It changes no persisted IDs, save data, generator versions, atlas coordinates,
+UVs, shaders, material response, first-person icon mapping, greedy meshing or
+chunk streaming. The classic packed atlas keeps nearest sampling without
+mipmaps; the greedy path retains isolated per-tile mipmaps for distant views.
+- **Verification:** Godot 4.7.2 .NET Debug and Release builds complete with
+  0 warnings / 0 errors; scripts/verify.sh reports 189,859 checks and 0
+  failures across 47 suites. The standalone runner produces a report with
+  0 errors / 0 warnings (60 registered blocks, 59 referenced tiles, 60
+  painted tiles, 46 placeable item mappings and 256 mipmapped array layers).
+- **MX230 rendered check:** the existing production MaterialGallery rendered
+  all 60 block definitions in both greedy texture-array and classic atlas
+  modes at 1280×720, close and distant. Each run loaded nine chunks with zero
+  pending payloads and exited cleanly. No rendering or shader failures were
+  reported. No FPS delta is claimed because the change adds no production
+  rendering or per-frame work.
+
+## 36. Matched material gallery visual-quality report — 2026-11-22
+
+- Reused the integrated atlas/material pipeline and the existing material
+  gallery; no production material, texture, meshing, lighting or first-person
+  asset-routing implementation needed to be rebuilt.
+- Locked the opt-in capture profile in `MaterialGallery`: 1280×720,
+  55° FOV, fixed close/distant camera offsets, 20 m stage, 112 px legend,
+  fixed key/ambient lighting and an explicit viewport-size assertion. The
+  runner prints the complete profile and exact world-space target.
+- Reduced the old 120×120 m gallery stage to 20×20 m and the legend panel from
+  198 px to 112 px. All 60 registered blocks and the full six-row legend remain
+  represented, with the display occupying more of each frame.
+- Added a matched renderer comparison: classic packed atlas (`atlas`) is the
+  before path; greedy texture array (`greedy`) is the after path. Both use seed
+  1337, identical sample placement, camera positions and lighting. The report
+  distinguishes renderer/sampling comparison from source texture-art changes.
+- Committed four real-scene MX230 / Godot 4.7.2 Forward+ captures:
+  `material-gallery-before-atlas-{close,distant}.png` and
+  `material-gallery-after-greedy-{close,distant}.png`. The paired runs
+  each settled at 9 loaded chunks with zero pending payloads.
+- Added `MaterialGalleryTests` assertions for capture resolution, FOV,
+  near/far camera offsets, far clip, stage/legend dimensions and the fixed
+  key/ambient lighting values.
+- The visual report at
+  `docs/visual/MATERIAL_GALLERY_VISUAL_QUALITY_REPORT_2026-11-22.md`
+  records the capture profile, visual observations, comparison limits,
+  compatibility notes and all image references.
+- Compatibility: no IDs, saves, generator versions, atlas coordinates,
+  material responses or voxel mutation paths changed. V1–V8 remain frozen;
+  `SetBlock`, greedy meshing and chunk streaming retain their existing
+  ownership and behavior. No game-runtime per-frame work or new production
+  allocations were introduced.
+- **Verification:** Godot 4.7.2 .NET `dotnet build` and
+  `scripts/verify.sh` passed; **189,856 checks / 0 failures**, 0 build
+  warnings and 0 errors. Both interactive capture runs exited successfully on
+  the MX230. No dedicated FPS/GPU-time benchmark was added because the change
+  is confined to the opt-in test gallery and documentation.
+
+## 37. Block/item icon semantic mapping audit — 2026-11-22
+
+- Audited all 60 registered block definitions, the full append-only item-name
+  registry (108 concrete items plus the None sentinel), every placeable
+  block/item mapping, and the generated standalone icon contact sheet.
+- Corrected misleading food art: raw/cooked fish now share an unmistakable
+  whole-fish silhouette, while raw/cooked chicken use a drumstick silhouette.
+  Cooking changes the palette without changing the food identity.
+- Slabs and stairs no longer reuse the same flat side-tile icon as their full
+  block. All six shape items use lazily generated isometric previews sampled
+  from the existing top/side atlas tiles, with the same 32px canvas, graphite
+  contour, directional shading and isolated mip chain as other standalone
+  icons. Full cubes keep their exact shared AtlasTexture regions.
+- Tests now pin shape-vs-material silhouette distinctions, raw/cooked identity,
+  food-family differences, atlas routing for ordinary blocks, cache reuse,
+  mip-chain completeness and contact-sheet isolation. The contact-sheet
+  exporter duplicates a cached image before scaling and verifies that export
+  leaves runtime icon dimensions and mipmaps unchanged.
+- Compatibility: no BlockId or ItemId values, block definitions, atlas
+  tile coordinates/dimensions, save fields, generator versions or worldgen
+  output changed. No voxel edits, meshing, lighting, chunk streaming or
+  first-person scene hierarchy changed. All added art is original procedural
+  pixel art sampled from the game's own original atlas; no third-party or
+  proprietary Minecraft assets were introduced.
+- Performance: six small shape textures are generated only when first
+  requested and kept in the existing item icon cache. A shared atlas image is
+  materialized lazily for shape rasterization. No per-frame scans or
+  allocations, extra scene nodes or physics work were added.
+- Verification: Godot 4.7.2 .NET Debug build completed with 0 warnings and 0
+  errors; scripts/verify.sh passed 190,043 checks with 0 failures. The generated
+  item contact sheet was manually reviewed; the registered-block close/distant
+  material-gallery captures were also checked. Tests confirm all 108 item icons
+  remain cached at 32×32 with complete mipmaps after contact-sheet capture.
+
+## 38. Directional sunlight and baked skylight response — 2026-11-22
+
+- Kept the existing 600-second day/night clock, rotating directional sun,
+  moon, PSSM shadow configuration and atmosphere evaluator. Added a normalized
+  world-space sun direction that mirrors the existing -35-degree azimuth and
+  the same time-of-day elevation, plus smooth phase-based sun and sky-fill
+  colours. Dawn and sunset warm the existing directional light; night retains
+  a cool skylight tint.
+- Routed the direction and colour palette through ChunkMaterials, updating
+  only the existing shared atlas, greedy-array, glass, lava and water
+  materials. Their shaders use world-space face normals to bias the existing
+  baked sky channel toward the sun-facing side. The directional light
+  continues to provide the actual dynamic shadows.
+- Design boundary: packed sky/block nibbles remain mesh-time lighting data;
+  this is a presentation response, not a new per-frame voxel-light solve.
+  No per-emitter light nodes, mesh rebuilds, vertex channels, texture assets,
+  scene nodes or screen-space effects were added. Existing LOW/BALANCED
+  renderer settings remain unchanged.
+- Automated regressions cover dawn/noon/sunset/night directions, wraparound,
+  normalization and continuity, warm low-angle colour, cool night fill, all
+  five shader variants and propagation of palette uniforms into shared
+  materials. The real-scene capture runner compares four clock phases at one
+  fixed V8 seed/coordinate, clear-weather state, camera and viewport on the
+  MX230 using Godot 4.7.2 .NET / Vulkan Forward+. All four captures completed
+  at 1600×900 with 49 streamed chunks; per-frame mean luminance was 0.389
+  (dawn), 0.524 (noon), 0.353 (sunset) and 0.260 (night). The captured PNGs
+  are in `docs/visual/screenshots/sunlight-*-clear.png`.
+- Compatibility: no save fields, persisted IDs, generator rules or versions,
+  atlas tiles, packed-light propagation, SetBlock / ApplyEdit mutation paths,
+  greedy meshing or chunk streaming changed.
+
+## 39. Shared camera-depth distance haze — 2026-11-22
+
+- V8+ outdoor environments now use Godot's built-in depth-fog mode. The
+  shared environment starts haze at 96 m and eases it toward the sky through
+  330 m with a 2.2 power curve and 0.42 density; the runtime cloud multiplier
+  is clamped to 0.68. The ramp preserves nearby block contrast and avoids
+  turning the visible horizon into an opaque fog wall.
+- The effect is scene-level camera-depth fog, so opaque terrain, glass,
+  water-compatible surfaces, and far-LOD geometry use the same distance
+  calculation. It does not encode fog in voxel-light vertex channels or
+  chunk-local shaders; a chunk boundary cannot restart the haze ramp. No
+  additional fog volume, scene node, emitter light, mesh attribute, or per-frame
+  terrain scan was introduced.
+- The existing `DayNight` owner selects depth fog only for outdoor V8+ views.
+  Cave darkness, underwater and lava immersion, the menu backdrop, and V1–V7
+  worlds keep exponential fog. The existing LOW/BALANCED presets retain the
+  inexpensive depth fog while continuing to disable volumetric fog.
+- Added deterministic atmosphere regression checks for the depth interval,
+  exponent, monotonic bounded falloff, maximum cloud-density clamp, legacy
+  compatibility, cave/immersion mode transitions, and LOW/BALANCED settings.
+  The real-scene capture runner accepts an optional view distance (3–5) and
+  waits for the full requested chunk square before capturing.
+- Repeatable Forward+ comparison: Godot 4.7.2 .NET, GeForce MX230, 1600×900,
+  seed 777, V11, centre `(-424, 760)`, noon, clear weather, view distance 5
+  (121 streamed chunks). Before/after images are
+  `docs/visual/screenshots/distance-haze-v11-mountain-{before,after}.png`.
+  The sky remains effectively unchanged; most pixel change is confined to
+  terrain and the distance/horizon region, consistent with a restrained
+  depth haze rather than a full-screen colour grade.
+- Compatibility: rendering-only. No block/item IDs, save fields, world
+  generation, voxel edit paths, baked-light propagation, greedy meshing,
+  chunk streaming, or far-LOD generation rules changed. V1–V8 remain frozen.
+- Verification on this branch: Debug build 0 warnings / 0 errors;
+  `scripts/verify.sh` passed **189,988 checks / 0 failures** across all 46
+  suites. The real-scene mountain comparison completed on MX230 at 121 chunks;
+  the before/after captures settled in 471 / 470 frames respectively (capture
+  settling is not a frame-time benchmark). The save suite's two intentional
+  write/recovery warnings remain expected.
+- Performance: no per-frame terrain sampling, voxel-light solve, chunk
+  mutation, mesh rebuild, or additional draw node is added. Depth haze uses
+  Godot's existing environment fog path; no stand-alone FPS delta was claimed
+  because a controlled before/after frame-time benchmark was not run.
+- Remaining manual review: compare sunrise, sunset, overcast and rain across
+  plains, snow, forest and distant mountain ridges; recheck cave entrances,
+  villages, and underwater transitions on LOW and HIGH presets.
+
+## 40. Snow, sand and ash surface variation — 2026-11-22
+
+The texture audit found that snow and sand were authored with independent
+random speckles, which did not guarantee a seamless tile edge, and the block
+registry had no ash material. The existing surface-variation suite now inspects
+the generated atlas pixels directly, in addition to its shader-family checks.
+
+- Replaced the final snow and sand paint with deterministic multi-scale
+  periodic value noise. Broad, drift, grain and fine octaves use smooth
+  interpolation and wrap in both axes. All samples share the existing 2×2
+  texel detail footprint, keeping the texture quiet under distant mipmapping
+  without adding a shader sample or runtime noise lookup.
+- Applied the same calm periodic field to the exposed soil body of the
+  snowy-grass side tile. Its snow cap follows a low-frequency periodic edge
+  quantized to the same two-pixel detail unit, so the white/soil boundary meets
+  cleanly across horizontal tile repeats without splitting a detail cluster.
+- Added original procedural ash art at atlas tile 60, with append-only
+  `BlockId.Ash` 60 and `ItemId.Ash` 109. Ash is a solid opaque shovel block
+  that drops itself, appears in the normal item palette and material gallery,
+  and uses the diffuse soil/wet-contact response plus the existing sand-like
+  dig/place sounds. The held icon uses the shared atlas region.
+- Design decision: retain the existing 32px atlas, isolated texture-array
+  mipmaps, classic atlas sampling policy, material-family tag, greedy meshing
+  and chunk streaming. The pre-existing random paint calls still consume their
+  original seeded RNG draws before the new periodic pass, so later unrelated
+  procedural tiles keep their deterministic appearance.
+- Compatibility: existing `BlockId` 0–59, `ItemId` 0–108, atlas tiles 0–59,
+  save format V4, and generator V1–V11 are unchanged. Ash does not alter terrain
+  stamps or world generation. Placement/mining continue through the standard
+  `VoxelWorld.SetBlock` / `ApplyEdit` architecture.
+- Automated checks cover opaque pixels, tonal range, horizontal/vertical seam
+  energy against interior detail for uniform surfaces, snowy-grass side
+  continuity, append-only IDs, block/item round-trips, all six atlas faces,
+  first-person atlas mapping and soil material classification. Existing
+  mipmap and texture-detail regression tests remain active.
+- Performance: the periodic field is painted once during atlas initialization;
+  no per-frame scans, additional scene nodes, shader samples, physics work or
+  persistent runtime allocations are introduced. The additional art occupies
+  one 32×32 tile within the existing 256-tile atlas.
+- **Real-scene verification:** Godot 4.7.2 .NET / Vulkan Forward+ on the
+  GeForce MX230 rendered the 61-block production gallery in both classic atlas
+  and greedy texture-array modes at 1280×720. Each mode reached 9 streamed
+  chunks with zero pending payloads; close and distant PNG captures all
+  reported successful writes. The four frames are committed under
+  `docs/visual/screenshots/surface-variation-{atlas,greedy}-{close,distant}.png`.
+- **Automated verification:** `dotnet build -c Release` and
+  `scripts/verify.sh` passed on Godot 4.7.2 .NET with 0 compiler
+  warnings/errors and **198,108 checks / 0 failures**. The atlas seam, 2×2
+  cluster, opacity and tonal checks cover sand, snow and ash; the snowy-grass
+  side also passes its horizontal seam and 2×2-cluster checks. The integration
+  suite retains the existing V9–V11 generation anchors.
+- **Performance review:** the additional periodic painting runs once during
+  atlas construction. No per-frame cost, shader instruction, geometry, mesh
+  rebuild, collider, streaming or physics changes were introduced. No
+  controlled FPS delta is claimed; the manual captures confirm the MX230 path
+  remains functional at the gallery's existing 1280×720 profile.
+
+## 41. Consolidated integration of PRs #59–#68 — 2026-11-22
+
+The ten open branches in this batch were merged into `integration/pr59-68` from
+`main` at `b7a4dd9`, in dependency order: #65 → #64 → #60 → #59 → #62 → #61 →
+#63 → #66 → #67 → #68. Every branch shared that merge base, so no branch needed
+rebasing, and all ten landed as real merge commits that keep their original
+commit ancestry traceable.
+
+- **Dependency correction.** The suggested order placed #66 before #67, but #68
+  patches `tests/SurfaceVariationTests.cs`, which #67 creates. #67 therefore
+  lands before #68. The three atmosphere PRs (#61 → #63 → #66) also land
+  consecutively so their overlapping `DayNight` fog path resolves once, in one
+  coherent shape, rather than three times.
+- **Lighting/atmosphere reconciliation.** Smooth cave exposure (#61),
+  phase-aware directional sunlight (#63), camera-depth distance haze (#66) and
+  unified torch/campfire emission (#68) now share one presentation path.
+  `DayNight` derives a continuous cave weight from trilinear cached skylight and
+  reuses it as the shelter predicate that selects exponential fog, so a cave
+  mouth no longer flips fog mode at a fixed terrain depth. The three lit shaders
+  (`LitAtlasShader`, `LitGlassShader`, `OpaqueArrayShader`) each combine
+  `directional_sky_light(...)` with the single `warm_block_response` /
+  `warm_block_illumination` / `warm_block_emission` helper; the lava shader keeps
+  its own emissive path. No per-torch light node, per-frame scan or extra shader
+  pass was added — campfires in fact lose one `OmniLight3D` each.
+- **Item presentation reconciliation.** #59 and #62 both rewrote the `ItemDb`
+  icon entry points. The merged form keeps shape-specific isometric previews for
+  the six slab/stair items and the exact `AtlasTexture` region for every other
+  block item, layered with the cached rarity facets, enchantment glints and wear
+  bands. `Player` keeps the single icon-state refresh that reacts to wear,
+  enchantment and item-ID changes without recreating its material.
+- **Atlas validator contract.** #65's validator originally required every
+  placeable item to expose an `AtlasTexture` region, which #59's shape previews
+  intentionally do not. `TextureAtlasValidator` now records an explicit
+  `UsesShapeIcon` contract: shape items must not also claim the atlas path, all
+  other placeable items must still match their exact region, and both paths
+  still require valid, painted face tiles. This is a documented contract update,
+  not a relaxed assertion, and it is pinned by
+  `TextureAtlasValidationTests.TestShapePreviewIconContract`.
+- **Content.** #67 appends `BlockId` 60 (Ash) and `ItemId` 109 (Ash) after every
+  existing value, on atlas tile 60, with soil material response, shovel mining,
+  block-item drop, sand-family dig/place audio and wet-surface participation.
+  No existing ID or atlas coordinate moved.
+- **Documentation.** `README.md` and `ROADMAP.md` collided on three separate
+  "section 35" headings; each PR record is preserved and renumbered 35–40, with
+  this section added. `PLAN.md` keeps its historical role and was not rewritten.
+- **Verification (this integration):** Debug and Release builds both completed
+  with 0 warnings and 0 errors; `scripts/verify.sh` passed **198,718 checks, 0
+  failures across 48 suites**. The standalone atlas report passes with 61
+  registered blocks, 60 referenced and 61 painted tiles, 47 placeable mappings,
+  256 mipmapped array layers and 0 errors / 0 warnings. Real-scene MX230
+  Forward+ captures reproduced matched references for warm lighting
+  (flame 14 / adjacent 13 in torch, campfire and overlap), the cave gradient
+  (15.00 / 14.00 / 5.27, darkness 0.778), four sun phases (mean luminance 0.366
+  / 0.518 / 0.335 / 0.260), distance haze at 121 chunks, and both gallery
+  renderer paths with 61 blocks.
+- **Compatibility:** save format V4, every persisted `BlockId`/`ItemId` value,
+  generator V1–V11 output and golden hashes, the greedy mesher, chunk streaming,
+  the packed atlas and texture-array contracts, and the `SetBlock`/`ApplyEdit`
+  mutation seam are unchanged. No world generation version was introduced by
+  this batch because no generator rule changed.

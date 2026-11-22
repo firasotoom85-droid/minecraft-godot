@@ -99,6 +99,7 @@ public static class BlockDb
     private const int TJungleLeaves = 57;
     private const int TSwampLeaves = 58;
     private const int TRiverReeds = 59;
+    private const int TAsh = 60;
 
     /// <summary>
     /// One block's definition; the tiles array is indexed by face (FACE order).
@@ -238,6 +239,8 @@ public static class BlockDb
                 0.2f, ToolKind.Hoe, Drops: false),
         new("River Reeds", false, true, [TRiverReeds, TRiverReeds, TRiverReeds, TRiverReeds, TRiverReeds, TRiverReeds],
                 0.05f),
+        new("Ash", true, false, [TAsh, TAsh, TAsh, TAsh, TAsh, TAsh],
+                0.35f, ToolKind.Shovel, Drop: ItemId.Ash),
     ];
 
     // Cube face geometry shared by the mesher. Order: +Y, -Y, +X, -X, +Z, -Z.
@@ -520,7 +523,7 @@ public static class BlockDb
 
     /// <summary>Soil and loose mineral surfaces receive a damp response against water.</summary>
     public static bool IsWettable(BlockId id) => id is BlockId.Grass or BlockId.Dirt
-            or BlockId.Sand or BlockId.Gravel or BlockId.Farmland;
+            or BlockId.Sand or BlockId.Gravel or BlockId.Ash or BlockId.Farmland;
 
     /// <summary>Fine shoreline plants use the wet foliage response beside water.</summary>
     public static bool IsShorelineVegetation(BlockId id) =>
@@ -685,6 +688,22 @@ public static class BlockDb
         return uv;
     }
 
+    private const string WarmBlockLightingShader = @"
+uniform vec3 warm_block_light_color = vec3(1.0, 0.68, 0.42);
+
+float warm_block_response(float sky, float block) {
+    return (1.0 - exp(-block * 1.25)) * (1.0 - sky);
+}
+
+vec3 warm_block_illumination(float response) {
+    return warm_block_light_color * response * 0.34;
+}
+
+vec3 warm_block_emission(float response) {
+    return warm_block_light_color * response * 0.025;
+}
+";
+
     private const string LitAtlasShader = @"
 shader_type spatial;
 render_mode cull_back, depth_draw_opaque, alpha_to_coverage;
@@ -692,6 +711,18 @@ render_mode cull_back, depth_draw_opaque, alpha_to_coverage;
 uniform sampler2D atlas : source_color, filter_nearest, repeat_disable;
 uniform vec4 tint = vec4(1.0);
 uniform float sky_light_energy = 1.0;
+uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
+uniform vec3 sun_color = vec3(1.0, 0.96, 0.89);
+uniform vec3 sky_light_color = vec3(0.88, 0.94, 1.0);
+uniform float sunlight_energy = 1.0;
+
+vec3 directional_sky_light(vec3 world_normal, float sky) {
+    float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
+    float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
+    float directional_gain = 0.88 + direct_sun * 0.12;
+    vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
+    return sky * sky_tint * directional_gain;
+}
 
 uniform vec3 response_stone = vec3(0.8, 0.0, 0.2);
 uniform vec3 response_wood = vec3(0.8, 0.0, 0.2);
@@ -727,6 +758,7 @@ void vertex() {
     surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
 }
 
+" + WarmBlockLightingShader + @"
 void fragment() {
     vec4 tex = texture(atlas, UV);
     if (COLOR.a < 0.5) {
@@ -736,12 +768,12 @@ void fragment() {
     }
     float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
     float block = clamp(COLOR.g, 0.0, 1.0);
-    float shadowed_block = block * (1.0 - sky);
+    float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
-    vec3 warm = vec3(1.0, 0.68, 0.38);
-    vec3 illumination = vec3(0.035) + vec3(1.0, 0.98, 0.92) * sky + warm * shadowed_block * 0.42;
+    vec3 illumination = vec3(0.035) + directional_sky_light(surface_world_normal, sky)
+            + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
-    EMISSION = tex.rgb * warm * shadowed_block * 0.08;
+    EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
     float encoded_family = floor(COLOR.a + 0.5);
@@ -761,6 +793,18 @@ render_mode blend_mix, cull_back, depth_draw_opaque;
 
 uniform sampler2D atlas : source_color, filter_nearest, repeat_disable;
 uniform float sky_light_energy = 1.0;
+uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
+uniform vec3 sun_color = vec3(1.0, 0.96, 0.89);
+uniform vec3 sky_light_color = vec3(0.88, 0.94, 1.0);
+uniform float sunlight_energy = 1.0;
+
+vec3 directional_sky_light(vec3 world_normal, float sky) {
+    float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
+    float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
+    float directional_gain = 0.88 + direct_sun * 0.12;
+    vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
+    return sky * sky_tint * directional_gain;
+}
 
 uniform vec3 response_stone = vec3(0.8, 0.0, 0.2);
 uniform vec3 response_wood = vec3(0.8, 0.0, 0.2);
@@ -780,16 +824,23 @@ vec3 surface_response(float family) {
     return response_stone;
 }
 
+varying vec3 surface_world_normal;
+
+void vertex() {
+    surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+}
+
+" + WarmBlockLightingShader + @"
 void fragment() {
     vec4 tex = texture(atlas, UV);
     float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
     float block = clamp(COLOR.g, 0.0, 1.0);
-    float shadowed_block = block * (1.0 - sky);
+    float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
-    vec3 warm = vec3(1.0, 0.72, 0.46);
-    vec3 illumination = vec3(0.05) + vec3(1.0, 0.98, 0.92) * sky + warm * shadowed_block * 0.4;
+    vec3 illumination = vec3(0.05) + directional_sky_light(surface_world_normal, sky)
+            + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade;
-    EMISSION = tex.rgb * warm * shadowed_block * 0.08;
+    EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a * 0.58;
     vec3 response = surface_response(COLOR.a);
     ROUGHNESS = response.x;
@@ -833,6 +884,18 @@ render_mode cull_back, depth_draw_opaque, alpha_to_coverage;
 uniform sampler2DArray tiles : source_color, filter_nearest_mipmap;
 uniform vec4 tint = vec4(1.0);   // wet-ground darkening (Weather)
 uniform float sky_light_energy = 1.0;
+uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
+uniform vec3 sun_color = vec3(1.0, 0.96, 0.89);
+uniform vec3 sky_light_color = vec3(0.88, 0.94, 1.0);
+uniform float sunlight_energy = 1.0;
+
+vec3 directional_sky_light(vec3 world_normal, float sky) {
+    float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
+    float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
+    float directional_gain = 0.88 + direct_sun * 0.12;
+    vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
+    return sky * sky_tint * directional_gain;
+}
 
 uniform vec3 response_stone = vec3(0.8, 0.0, 0.2);
 uniform vec3 response_wood = vec3(0.8, 0.0, 0.2);
@@ -872,6 +935,7 @@ void vertex() {
     surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
 }
 
+" + WarmBlockLightingShader + @"
 void fragment() {
     vec4 tex = texture(tiles, vec3(fract(tile_uv), tile_layer));
     if (COLOR.a < 0.5) {
@@ -881,12 +945,12 @@ void fragment() {
     }
     float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
     float block = clamp(COLOR.g, 0.0, 1.0);
-    float shadowed_block = block * (1.0 - sky);
+    float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
-    vec3 warm = vec3(1.0, 0.68, 0.38);
-    vec3 illumination = vec3(0.035) + vec3(1.0, 0.98, 0.92) * sky + warm * shadowed_block * 0.42;
+    vec3 illumination = vec3(0.035) + directional_sky_light(surface_world_normal, sky)
+            + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
-    EMISSION = tex.rgb * warm * shadowed_block * 0.08;
+    EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
     float encoded_family = floor(COLOR.a + 0.5);
@@ -899,6 +963,13 @@ void fragment() {
     SPECULAR = mix(response.z, 0.34, wet * 0.70);
 }
 ";
+
+    internal static readonly string[] WarmLightingShaderSources =
+    [
+        LitAtlasShader,
+        LitGlassShader,
+        OpaqueArrayShader,
+    ];
 
     public static ShaderMaterial MakeArrayOpaqueMaterial()
     {
@@ -954,6 +1025,24 @@ render_mode cull_back, depth_draw_opaque, specular_disabled;
 
 uniform sampler2D atlas : source_color, filter_nearest, repeat_disable;
 uniform float sky_light_energy = 1.0;
+uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
+uniform vec3 sun_color = vec3(1.0, 0.96, 0.89);
+uniform vec3 sky_light_color = vec3(0.88, 0.94, 1.0);
+uniform float sunlight_energy = 1.0;
+
+vec3 directional_sky_light(vec3 world_normal, float sky) {
+    float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
+    float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
+    float directional_gain = 0.88 + direct_sun * 0.12;
+    vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
+    return sky * sky_tint * directional_gain;
+}
+
+varying vec3 surface_world_normal;
+
+void vertex() {
+    surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+}
 
 void fragment() {
     vec4 tex = texture(atlas, UV);
@@ -961,7 +1050,7 @@ void fragment() {
     float block = COLOR.g;
     float shade = COLOR.b;
     vec3 warm = vec3(1.0, 0.48, 0.12);
-    vec3 illumination = vec3(0.03) + vec3(1.0, 0.94, 0.82) * sky + warm * block * 0.35;
+    vec3 illumination = vec3(0.03) + directional_sky_light(surface_world_normal, sky) + warm * block * 0.35;
     ALBEDO = tex.rgb * illumination * shade;
     EMISSION = tex.rgb * (warm * 0.9 + warm * block * 0.7);
     ALPHA = tex.a;
@@ -1041,6 +1130,7 @@ void fragment() {
         PaintLeaves(img, TSwampLeaves, new Color(0.34f, 0.43f, 0.19f), new Color(0.26f, 0.34f, 0.14f),
                 new Color(0.42f, 0.50f, 0.25f), rng);
         PaintRiverReeds(img, TRiverReeds, rng);
+        PaintAsh(img, TAsh);
         PaintCactusSide(img, rng);
         PaintCactusTop(img, rng);
         PaintCraftingTop(img, rng);
@@ -1324,15 +1414,23 @@ void fragment() {
 
     private static void PaintSand(Image img, RandomNumberGenerator rng)
     {
+        // Keep the legacy random-stream consumption so unrelated atlas tiles
+        // retain their exact deterministic appearance after this art-only edit.
         FillNoise(img, TSand, new Color(0.86f, 0.81f, 0.61f), 0.03f, 1.0f, rng);
         Speckle(img, TSand, new Color(0.79f, 0.73f, 0.53f), 104, 0.02f, rng);
+        PaintCalmSurface(img, TSand, new Color(0.86f, 0.81f, 0.61f), 0x53414E44u, 1.0f,
+                new Vector3(1.08f, 1.0f, 0.78f));
     }
 
     private static void PaintSnow(Image img, RandomNumberGenerator rng)
     {
+        // Preserve the shared atlas RNG sequence; the periodic pass below
+        // replaces only this tile's pixels with smooth, repeatable variation.
         FillNoise(img, TSnow, new Color(0.91f, 0.93f, 0.97f), 0.02f, 1.0f, rng);
         Speckle(img, TSnow, new Color(0.84f, 0.88f, 0.94f), 90, 0.015f, rng);
         Speckle(img, TSnow, new Color(0.97f, 0.98f, 1.0f), 60, 0.01f, rng);
+        PaintCalmSurface(img, TSnow, new Color(0.91f, 0.93f, 0.97f), 0x534E4F57u, 0.82f,
+                new Vector3(0.82f, 0.96f, 1.16f));
     }
 
     private static void PaintSnowSide(Image img, RandomNumberGenerator rng)
@@ -1340,12 +1438,117 @@ void fragment() {
         PaintDirt(img, TSnowSide, rng);
         for (int x = 0; x < TilePx; x++)
         {
+            // Retain the old RNG draws to avoid changing later atlas materials.
             int depth = 6 + rng.RandiRange(0, 5);
             for (int y = 0; y < depth; y++)
             {
                 Px(img, TSnowSide, x, y, Jitter(rng, new Color(0.91f, 0.93f, 0.97f), 0.02f));
             }
         }
+
+        // Repaint the exposed soil body with the same calm periodic field,
+        // then lay the snow cap over it. Keep the earlier paint calls above to
+        // preserve the shared RNG sequence for all later atlas textures.
+        PaintCalmSurface(img, TSnowSide, new Color(0.45f, 0.34f, 0.24f),
+                0x534E4F44u, 1.0f, new Vector3(1.0f, 0.95f, 0.82f));
+
+        // A periodic drift edge prevents a visible vertical seam where the
+        // snow cap wraps across adjacent faces of a Snowy Grass block.
+        for (int x = 0; x < TilePx; x++)
+        {
+            float sampleX = Mathf.Floor(x / (float)TextureDetailPx) * TextureDetailPx
+                    + TextureDetailPx * 0.5f;
+            float drift = PeriodicValueNoise2D(sampleX, 0.5f, 4, 0x534E4F45u);
+            int depth = 6 + 2 * Mathf.RoundToInt(drift * 2.0f);
+            for (int y = 0; y < depth; y++)
+            {
+                Color snow = CalmSurfaceColor(x + 0.5f, y + 0.5f,
+                        new Color(0.91f, 0.93f, 0.97f), 0x534E4F57u, 0.82f,
+                        new Vector3(0.82f, 0.96f, 1.16f));
+                Px(img, TSnowSide, x, y, snow);
+            }
+        }
+    }
+
+    private static void PaintAsh(Image img, int tile)
+    {
+        PaintCalmSurface(img, tile, new Color(0.36f, 0.36f, 0.34f), 0x41534859u, 1.08f,
+                new Vector3(1.0f, 1.02f, 1.05f));
+    }
+
+    /// <summary>
+    /// Paints quiet multi-scale material colour fields. Each octave is periodic
+    /// in both axes, so opposite tile edges meet with the same sampling slope.
+    /// The finest octave is sampled once per existing 2px detail unit.
+    /// </summary>
+    private static void PaintCalmSurface(Image img, int tile, Color baseColor,
+            uint salt, float strength, Vector3 channelWeights)
+    {
+        for (int y = 0; y < TilePx; y++)
+        for (int x = 0; x < TilePx; x++)
+        {
+            Color color = CalmSurfaceColor(x + 0.5f, y + 0.5f,
+                    baseColor, salt, strength, channelWeights);
+            Px(img, tile, x, y, color);
+        }
+    }
+
+    private static Color CalmSurfaceColor(float x, float y, Color baseColor,
+            uint salt, float strength, Vector3 channelWeights)
+    {
+        // Every octave shares the authored 2x2 texel footprint so distant
+        // mip levels blend broad fields instead of aliasing isolated pixels.
+        float detailX = Mathf.Floor(x / TextureDetailPx) * TextureDetailPx
+                + TextureDetailPx * 0.5f;
+        float detailY = Mathf.Floor(y / TextureDetailPx) * TextureDetailPx
+                + TextureDetailPx * 0.5f;
+        float broad = PeriodicValueNoise2D(detailX, detailY, 2, unchecked(salt + 0x9E3779B9u));
+        float drift = PeriodicValueNoise2D(detailX, detailY, 4, unchecked(salt + 0x85EBCA6Bu));
+        float grain = PeriodicValueNoise2D(detailX, detailY, 8, unchecked(salt + 0xC2B2AE35u));
+        float fine = PeriodicValueNoise2D(detailX, detailY, 16, unchecked(salt + 0x27D4EB2Fu));
+        float tone = ((broad - 0.5f) * 0.032f
+                + (drift - 0.5f) * 0.020f
+                + (grain - 0.5f) * 0.012f
+                + (fine - 0.5f) * 0.008f) * strength;
+
+        return new Color(
+                Mathf.Clamp(baseColor.R + tone * channelWeights.X, 0.0f, 1.0f),
+                Mathf.Clamp(baseColor.G + tone * channelWeights.Y, 0.0f, 1.0f),
+                Mathf.Clamp(baseColor.B + tone * channelWeights.Z, 0.0f, 1.0f),
+                1.0f);
+    }
+
+    private static float PeriodicValueNoise2D(float x, float y, int frequency, uint salt)
+    {
+        float gridX = x * frequency / TilePx;
+        float gridY = y * frequency / TilePx;
+        int x0 = (int)Mathf.Floor(gridX);
+        int y0 = (int)Mathf.Floor(gridY);
+        int x1 = (x0 + 1) % frequency;
+        int y1 = (y0 + 1) % frequency;
+        float tx = gridX - x0;
+        float ty = gridY - y0;
+        tx = tx * tx * (3.0f - 2.0f * tx);
+        ty = ty * ty * (3.0f - 2.0f * ty);
+
+        float topLeft = SurfaceNoiseValue(x0, y0, salt);
+        float topRight = SurfaceNoiseValue(x1, y0, salt);
+        float bottomLeft = SurfaceNoiseValue(x0, y1, salt);
+        float bottomRight = SurfaceNoiseValue(x1, y1, salt);
+        float top = topLeft + (topRight - topLeft) * tx;
+        float bottom = bottomLeft + (bottomRight - bottomLeft) * tx;
+        return top + (bottom - top) * ty;
+    }
+
+    private static float SurfaceNoiseValue(int x, int y, uint salt)
+    {
+        uint hash = salt;
+        hash ^= unchecked((uint)x * 374761393u);
+        hash = unchecked((hash ^ (hash >> 13)) * 1274126177u);
+        hash ^= unchecked((uint)y * 668265263u);
+        hash = unchecked((hash ^ (hash >> 16)) * 2246822519u);
+        hash ^= hash >> 15;
+        return (hash & 0x00FFFFFFu) / 16777215.0f;
     }
 
     private static void PaintGravel(Image img, RandomNumberGenerator rng)
