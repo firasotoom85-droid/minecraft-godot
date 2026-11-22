@@ -148,6 +148,36 @@ face-to-atlas UV bounds, all 256 isolated mipmapped array layers, material
 response ranges, block/item mapping, and the first-person block-icon atlas /
 response mapping.
 
+## Procedural atlas validation report
+
+The existing material gallery is a rendered review fixture; the separate
+res://tests/TextureAtlasValidation.tscn command produces a machine-checked
+Markdown report from the live procedural block and item registries. It checks
+atlas dimensions, every block face reference and its non-transparent pixel
+coverage, duplicate tile pixels, unexpected duplicate six-face block mappings,
+directional face pairs, placeable item-to-block/icon regions, and the greedy
+texture-array layer/mipmap contract. The intentional shared mappings for
+flowing water, plank slabs/stairs, and cobblestone/brick slabs/stairs are
+explicitly allowlisted. Tile 46 is reported as retained legacy plank-building
+art; it is not silently moved or reused.
+
+Generate the committed report with Godot 4.7.2 .NET:
+
+```bash
+GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64
+PATH=/path/to/dotnet:$PATH DOTNET_ROOT=/path/to/dotnet \
+  "$GODOT" --headless --path . res://tests/TextureAtlasValidation.tscn -- \
+  res://docs/visual/PROCEDURAL_TEXTURE_VALIDATION.md
+```
+
+The same analyzer runs in the automated texture-atlas-validation suite,
+including synthetic regressions for blank referenced tiles, out-of-range
+indices, missing faces, accidental duplicate pixel content/mappings,
+intentional aliases, and collapsed directional log textures. The report is
+opt-in and does not change atlas coordinates, packed-atlas nearest sampling,
+isolated texture-array mipmaps, item icons, material shaders, meshing, world
+generation or save data.
+
 ## Highlights
 
 - **Infinite streaming voxel world** — 16×128×16 chunks, 13 terrain biomes,
