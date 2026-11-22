@@ -80,23 +80,47 @@ public static class LightingTests
         TestAssert.Equal(BlockDb.LightEmission[(int)BlockId.Torch], VoxelLighting.CampfireEmission,
                 "campfires share the exact baked source strength used by torches");
 
+        string waterShader = (ChunkMaterials.Water as ShaderMaterial)?.Shader?.Code ?? string.Empty;
+        TestAssert.Check(!string.IsNullOrEmpty(waterShader),
+                "water retains its dedicated production shader");
         foreach (string shader in BlockDb.WarmLightingShaderSources)
-        {
-            TestAssert.Check(shader.Contains(
-                    "uniform vec3 warm_block_light_color = vec3(1.0, 0.68, 0.42);",
-                    StringComparison.Ordinal),
-                    "opaque, array and glass materials use the same warm emitter hue");
-            TestAssert.Check(shader.Contains("warm_block_response(sky, block)",
-                    StringComparison.Ordinal)
-                    && shader.Contains("warm_block_illumination(warm_response)", StringComparison.Ordinal)
-                    && shader.Contains("warm_block_emission(warm_response)", StringComparison.Ordinal),
-                    "all voxel material paths share one warm response for diffuse and emission");
-            TestAssert.Check(shader.Split("exp(-block * 1.25)", StringSplitOptions.None).Length == 2
-                    && shader.Contains("response * 0.34;", StringComparison.Ordinal)
-                    && shader.Contains("response * 0.025;", StringComparison.Ordinal)
-                    && !shader.Contains("shadowed_block", StringComparison.Ordinal),
-                    "warm illumination and emission remain bounded with only one exponential evaluation per fragment");
-        }
+            CheckSharedWarmShader(shader, "opaque, array and glass");
+        CheckSharedWarmShader(waterShader, "water");
+
+        TestAssert.Check(!waterShader.Contains("shadowed_block", StringComparison.Ordinal)
+                        && !waterShader.Contains("vec3(1.0, 0.68, 0.38)", StringComparison.Ordinal),
+                "water no longer carries a separate, brighter block-light formula");
+
+        TestAssert.Equal((byte)12, BlockDb.LightEmission[(int)BlockId.Lava],
+                "lava's registered source remains twelve packed block-light levels");
+        Color lavaSourceChannels = VoxelLighting.VertexColor(
+                VoxelLighting.Pack(0, BlockDb.LightEmission[(int)BlockId.Lava]), 1.0f);
+        float lavaSourceLevel = BlockDb.LightEmission[(int)BlockId.Lava]
+                / (float)VoxelLighting.MaxLevel;
+        TestAssert.Equal(lavaSourceLevel, lavaSourceChannels.G,
+                "lava's packed low nibble is encoded unchanged in the shader block-light channel");
+        float safeSourceLevel = Mathf.Max(lavaSourceLevel, 1.0f / VoxelLighting.MaxLevel);
+        TestAssert.Equal(0.0f, Mathf.Clamp(0.0f / safeSourceLevel, 0.0f, 1.0f),
+                "a zero packed block-light channel produces no lava emission");
+        TestAssert.Equal(0.5f,
+                Mathf.Clamp((lavaSourceLevel * 0.5f) / safeSourceLevel, 0.0f, 1.0f),
+                "half of lava's source nibble produces half of its emissive output");
+        TestAssert.Equal(1.0f,
+                Mathf.Clamp(lavaSourceLevel / safeSourceLevel, 0.0f, 1.0f),
+                "the registered lava source nibble reaches the preserved molten-core emission");
+
+        ShaderMaterial lavaMaterial = ChunkMaterials.Lava;
+        string lavaShader = lavaMaterial.Shader?.Code ?? string.Empty;
+        TestAssert.Equal(lavaSourceLevel,
+                lavaMaterial.GetShaderParameter("lava_source_level").AsSingle(),
+                "lava shader normalization is derived from the registered block emission level");
+        TestAssert.Check(lavaShader.Contains("float block = clamp(COLOR.g, 0.0, 1.0);",
+                        StringComparison.Ordinal)
+                        && lavaShader.Contains("block / max(lava_source_level", StringComparison.Ordinal)
+                        && lavaShader.Contains("EMISSION = tex.rgb * warm * lava_emission * 0.9;",
+                                StringComparison.Ordinal)
+                        && !lavaShader.Contains("warm * 0.9 +", StringComparison.Ordinal),
+                "lava keeps its orange core but cannot emit independently of packed block light");
 
         Godot.Environment environment = WorldEnvironmentFactory.Build();
         TestAssert.Equal(Godot.Environment.ToneMapper.Filmic, environment.TonemapMode,
@@ -105,6 +129,24 @@ public static class LightingTests
                 "high-quality bloom is reserved for highlights instead of broadly lifting warm surfaces");
         TestAssert.Equal(1.0f, environment.AmbientLightEnergy,
                 "warm block sources do not globally tint or dim neutral sky ambient");
+    }
+
+    private static void CheckSharedWarmShader(string shader, string label)
+    {
+        TestAssert.Check(shader.Contains(
+                "uniform vec3 warm_block_light_color = vec3(1.0, 0.68, 0.42);",
+                StringComparison.Ordinal),
+                $"{label} uses the shared warm emitter hue");
+        TestAssert.Check(shader.Contains("warm_block_response(sky, block)",
+                StringComparison.Ordinal)
+                && shader.Contains("warm_block_illumination(warm_response)", StringComparison.Ordinal)
+                && shader.Contains("warm_block_emission(warm_response)", StringComparison.Ordinal),
+                $"{label} shares one response for diffuse fill and residual emission");
+        TestAssert.Check(shader.Split("exp(-block * 1.25)", StringSplitOptions.None).Length == 2
+                && shader.Contains("response * 0.34;", StringComparison.Ordinal)
+                && shader.Contains("response * 0.025;", StringComparison.Ordinal)
+                && !shader.Contains("shadowed_block", StringComparison.Ordinal),
+                $"{label} evaluates one bounded warm response per fragment");
     }
 
     private static void TestBlockAttenuation()

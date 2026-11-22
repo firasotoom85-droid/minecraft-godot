@@ -82,13 +82,17 @@ than entering transparent sorting. The first-person held-item `Sprite3D`
 retains texture alpha and nearest sampling so its icon edges stay consistent
 with the procedural atlas.
 
-The atlas/greedy-array/glass/water lighting shaders share a bounded sky/block blend:
-torch light fills only the remaining skylight headroom, with a small shadow-gated
-emission contribution. This prevents full daylight and torch channels from
-being stacked into washed-out surfaces while retaining warm contrast at night
-and in caves. New canopy tiles 56–58 are explicitly foliage, and every
-placeable held item derives its first-person response from its registered block
-atlas tile, preventing drift between the held sprite and placed geometry.
+The atlas/greedy-array/glass/water lighting shaders share one bounded sky/block
+response: torch and campfire light fill only the remaining skylight headroom,
+with the same warm hue and restrained shadow-gated emission. This prevents
+full daylight and block-light channels from stacking into washed-out surfaces
+while retaining warm contrast at night and in caves. The dedicated lava shader
+preserves its orange core, but scales that emission from the packed block-light
+channel normalized to lava's registered 12/15 source level; a zero block-light
+channel cannot leave a glowing lava surface. New canopy tiles 56–58 are
+explicitly foliage, and every placeable held item derives its first-person
+response from its registered block atlas tile, preventing drift between the
+held sprite and placed geometry.
 
 ## Consistent block-edge shading
 
@@ -292,10 +296,12 @@ generation or save data.
   baked into mesh vertex channels; no per-torch light-node pool is required.
   Torches and live generated campfires share one 14-level warm source channel;
   campfires keep their GPU fire and smoke particles but use the baked map
-  instead of one OmniLight3D per site. All terrain, greedy-array and glass
-  shaders share a compressed warm response with restrained emission, so
+  instead of one OmniLight3D per site. Terrain, greedy-array, glass and water
+  shaders share one compressed warm response with restrained emission, so
   overlapping sources use the brightest propagated voxel level rather than
-  summing into washed-out textures. Campfire sources sit in the flame air cell
+  summing into washed-out textures. Lava keeps its orange core but drives the
+  emissive strength from the packed block-light channel and its registered
+  12/15 source level. Campfire sources sit in the flame air cell
   above the opaque log; changing the base log moves/removes that virtual source
   through SetBlock. The source registry feeds the halo solve directly, while
   emitter edits update or invalidate existing caches. The sky environment stays
@@ -306,9 +312,10 @@ generation or save data.
   the frame path performs only eight cache reads and no chunk generation.
   Repeatable GPU comparison (same seed/site/camera): run
   `res://tests/WarmLightingVisualCapture.tscn` with arguments `1337 11 0 0
-  torch`, `1337 11 0 0 campfire`, or `1337 11 0 0 overlap`, followed by an
-  output PNG path. The capture uses the real main scene and prints baked flame
-  and adjacent light levels for parity checks.
+  torch`, `1337 11 0 0 campfire`, `1337 11 0 0 overlap`, or
+  `1337 11 0 0 lava`, followed by an output PNG path. The capture uses the real
+  main scene and prints the packed source and adjacent light levels; the lava
+  pass samples the lava cell, while torch/campfire passes sample the flame cell.
 - **World presets** — normal, flat, amplified, and floating sky islands, with
   share codes and per-world seeds.
 - **Survival** — health, hunger, breath, drowning, fall damage, softcore

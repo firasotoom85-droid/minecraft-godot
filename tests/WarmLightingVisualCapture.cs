@@ -6,11 +6,11 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>
-/// Repeatable real-main-scene comparison of torch-only, campfire-only and
-/// overlapping warm emitters. Usage:
+/// Repeatable real-main-scene comparison of torch, campfire, overlap and lava
+/// emission. Usage:
 /// godot --path . res://tests/WarmLightingVisualCapture.tscn --
 ///   <seed> <generator-version> <campfire-cell-x> <campfire-cell-z>
-///   <torch|campfire|overlap> <output.png>
+///   <torch|campfire|overlap|lava> <output.png>
 /// </summary>
 public partial class WarmLightingVisualCapture : Node
 {
@@ -31,7 +31,7 @@ public partial class WarmLightingVisualCapture : Node
                     : $"user://tests/warm-lighting-{mode}.png";
 
             if (version is < 1 or > WorldStore.CurrentGenVersion
-                    || mode is not ("torch" or "campfire" or "overlap"))
+                    || mode is not ("torch" or "campfire" or "overlap" or "lava"))
             {
                 GD.PushError($"Invalid capture arguments: version={version}, mode={mode}.");
                 GetTree().Quit(2);
@@ -114,6 +114,11 @@ public partial class WarmLightingVisualCapture : Node
                 if (placed == 0)
                     throw new InvalidOperationException("Could not place comparison torches near the campfire.");
             }
+            else if (mode == "lava")
+            {
+                if (!world.SetBlock(fire.X, fire.Y, fire.Z, BlockId.Lava))
+                    throw new InvalidOperationException("Could not place the isolated lava source through SetBlock.");
+            }
 
             Camera3D camera = new()
             {
@@ -144,10 +149,11 @@ public partial class WarmLightingVisualCapture : Node
             VoxelLightData light = world.LightData(lightChunk);
             int localX = fire.X - lightChunk.X * VoxelWorld.ChunkX;
             int localZ = fire.Z - lightChunk.Y * VoxelWorld.ChunkZ;
-            byte flameLevel = light.BlockAt(localX, fire.Y + 1, localZ, world.Height);
+            int sampleY = mode == "lava" ? fire.Y : fire.Y + 1;
+            byte packedSourceLevel = light.BlockAt(localX, sampleY, localZ, world.Height);
             byte adjacentLevel = light.BlockAt(Mathf.Min(localX + 1, VoxelWorld.ChunkX - 1),
-                    fire.Y + 1, localZ, world.Height);
-            GD.Print($"WARM_LIGHT_CAPTURE_RESULT success={(saveResult == Error.Ok)} mode={mode} chunks={world.ChunkCount} sources={sourceCount} flame_level={flameLevel} adjacent_level={adjacentLevel} elapsed={Time.GetTicksMsec() / 1000.0 - started:F2}s size={image.GetWidth()}x{image.GetHeight()} path={absoluteOutput}");
+                    sampleY, localZ, world.Height);
+            GD.Print($"WARM_LIGHT_CAPTURE_RESULT success={(saveResult == Error.Ok)} mode={mode} chunks={world.ChunkCount} sources={sourceCount} packed_source_level={packedSourceLevel} adjacent_level={adjacentLevel} elapsed={Time.GetTicksMsec() / 1000.0 - started:F2}s size={image.GetWidth()}x{image.GetHeight()} path={absoluteOutput}");
             if (saveResult != Error.Ok)
                 throw new IOException($"Screenshot save failed: {saveResult}.");
         }
