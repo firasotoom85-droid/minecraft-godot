@@ -209,8 +209,8 @@ public static class GlassTests
                     string mode = greedy ? "greedy" : "per-face";
                     TestAssert.Equal(8, CountTrianglesInCell(payload.Opaque.Vertex, 2, 100, 2),
                             $"{mode} meshing routes double-sided cross-plants to the opaque cutout surface");
-                    TestAssert.Equal(12, CountTrianglesInCell(payload.Opaque.Vertex, 4, 100, 2),
-                            $"{mode} meshing routes leaf cubes to the opaque cutout surface");
+                    TestAssert.Equal(10, CountTrianglesInCell(payload.Opaque.Vertex, 4, 100, 2),
+                            $"{mode} meshing keeps the leaf cutout surface but removes its coincident face against stone");
                     TestAssert.Equal(12, CountTrianglesInCell(payload.Opaque.Vertex, 5, 100, 2),
                             $"{mode} meshing retains the full opaque backing block behind foliage holes");
                     TestAssert.Equal(2, CountTrianglesOnPlane(payload.Opaque.Vertex,
