@@ -74,25 +74,20 @@ luminance-weighted intensity drift, and the number of samples beyond a
 one-nibble normalized tolerance. Missing reference samples and captured
 samples without a reference are reported separately.
 
-### Reference coverage and limitations
+### Spatial reference coverage and validation
 
-`lighting-probe-reference-v1.json` is sourced only from the five exact
-centre-probe values in this report's original seed-1337 LOW capture table. It
-does **not** claim to contain measured values for the surrounding 26 points.
-Consequently, the initial comparison covers 1 of 27 samples (3.7%) per scene;
-the other positions are emitted as spatial diagnostics but excluded from
-drift statistics. This is an explicit partial baseline, not a completed
-spatial reference grid. Populate the additional reference ids only from
-reviewed captures made with the documented real-renderer setup.
+`lighting-probe-reference-v1.json` contains all **27 measured samples for each
+of the five scenes** (135 samples total). The values were captured by the
+GitHub Actions Godot 4.7.2 .NET `--headless --probe-only` job using seed 1337,
+generator V11, LOW preset and clear weather. The five centre samples match the
+exact sky/block values in the original capture table above. The remaining 130
+values are taken directly from the production `VoxelWorld.LightData` cache,
+not interpolated or inferred.
 
-The grid sampler and comparator are covered by headless regression tests,
-including duplicate ids, missing and unreferenced points, exact channel drift,
-color/intensity aggregates and tolerance handling. These tests validate the
-comparison math; they do not replace a fresh GPU capture. The capture runner supports `--probe-only`, which skips window/pixel capture
-while preserving main-scene setup, the fixed warm-up and cached voxel-light
-sampling. CI is configured to execute all five seed-1337 LOW probe-only scenes
-and upload their JSON files as the `lighting-probe-grids` workflow artifact.
-That headless output can supply the CPU-side spatial reference values without
-requiring the unavailable desktop Linux session; it does not verify rendered
-pixels or substitute for the existing Forward+ screenshots. No new MX230
-frame-time/VRAM measurement is claimed.
+The CI artifact `lighting-probe-grids` stores the raw companion JSON reports
+for all five scenarios. Automated tests cover stable ids, 27-point coverage,
+missing/unreferenced samples, duplicate ids, per-channel drift,
+color/intensity aggregates and tolerance handling. Headless probe-only
+captures validate baked CPU light data; they do not verify rendered pixels or
+replace the existing Forward+ screenshots. No new MX230 frame-time/VRAM
+measurement is claimed.
