@@ -72,7 +72,7 @@ public static class GamepadBindings
 
     public static Error SetButton(string action, JoyButton button)
     {
-        if (!IsBindable(action) || button < 0 || button >= JoyButton.Max
+        if (!IsBindable(action) || (int)button < 0 || button >= JoyButton.Max
                 || !System.Enum.IsDefined(typeof(JoyButton), button))
             return Error.InvalidParameter;
         ApplyButton(action, button);

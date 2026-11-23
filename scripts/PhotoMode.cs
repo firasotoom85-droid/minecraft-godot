@@ -42,14 +42,12 @@ public partial class PhotoMode : Node
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (GetTree().Paused || PlayerRef is not { } player || player.Stats.Dead)
-        {
+        if (PlayerRef is not { } player)
             return;
-        }
 
         if (@event is InputEventKey key && key.Pressed && !key.Echo && key.IsActionPressed("photo_mode"))
         {
-            if (Active || !player.InputLocked)
+            if (Active || (!GetTree().Paused && !player.InputLocked && !player.Stats.Dead))
             {
                 Toggle();
                 GetViewport().SetInputAsHandled();
@@ -57,7 +55,7 @@ public partial class PhotoMode : Node
             return;
         }
 
-        if (player.InputLocked)
+        if (GetTree().Paused || player.Stats.Dead || (player.InputLocked && !Active))
             return;
 
         if (Active && @event is InputEventMouseMotion motion
@@ -123,7 +121,6 @@ public partial class PhotoMode : Node
     public override void _ExitTree()
     {
         ExitPhotoMode(restoreCamera: false, showToast: false);
-    }
     }
 
     public override void _Process(double delta)

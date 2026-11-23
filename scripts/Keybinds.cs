@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Godot;
 
@@ -48,6 +49,7 @@ public static class Keybinds
         ConfigFile cfg = new();
         if (cfg.Load(Path) != Error.Ok)
         {
+            _loaded = true;
             return;
         }
 
