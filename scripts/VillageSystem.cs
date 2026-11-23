@@ -58,6 +58,7 @@ public partial class VillageSystem : Node
                 _removeScratch.Add(id);
                 continue;
             }
+            villager.RefreshTerrainSimulation();
             if (villager.GlobalPosition.DistanceSquaredTo(playerPosition) > DespawnRadius * DespawnRadius)
             {
                 SaveResident(villager);

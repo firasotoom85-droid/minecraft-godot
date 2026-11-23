@@ -149,17 +149,19 @@ public static class MobContentTests
         MobProjectile projectile = new();
         projectile.Setup(projectileManager, Vector3.Zero, Vector3.Forward,
                 2.0f, Colors.Cyan, 8.5f, "mobcrystal");
-        PhysicsRayQueryParameters3D rayQuery = projectile.TerrainQueryForTests!;
-        projectile.ConfigureTerrainQueryForTests(Vector3.Zero, Vector3.Right);
-        projectile.ConfigureTerrainQueryForTests(Vector3.One, Vector3.Up);
-        TestAssert.Check(ReferenceEquals(rayQuery, projectile.TerrainQueryForTests),
-                "mob projectile reuses one ray-query object across segment updates");
-        TestAssert.Equal(Vector3.One, rayQuery.From, "reused projectile ray query updates its start");
-        TestAssert.Equal(Vector3.Up, rayQuery.To, "reused projectile ray query updates its end");
-        TestAssert.Equal((uint)PhysicsLayer.Terrain, rayQuery.CollisionMask,
-                "reused projectile query preserves the terrain collision mask");
-        TestAssert.Check(!rayQuery.CollideWithAreas,
-                "reused projectile query continues to ignore physics areas");
+        RayCast3D terrainRay = projectile.TerrainRayForTests!;
+        projectile.ConfigureTerrainRayForTests(Vector3.Zero, Vector3.Right);
+        projectile.ConfigureTerrainRayForTests(Vector3.One, Vector3.Up);
+        TestAssert.Check(ReferenceEquals(terrainRay, projectile.TerrainRayForTests),
+                "mob projectile reuses one RayCast3D node across physics ticks");
+        TestAssert.Equal(Vector3.One, terrainRay.GlobalPosition,
+                "reused projectile ray updates its world-space start");
+        TestAssert.Equal(Vector3.Up - Vector3.One, terrainRay.TargetPosition,
+                "reused projectile ray updates its segment endpoint");
+        TestAssert.Equal((uint)PhysicsLayer.Terrain, terrainRay.CollisionMask,
+                "reused projectile ray preserves the terrain collision mask");
+        TestAssert.Check(!terrainRay.CollideWithAreas,
+                "reused projectile ray continues to ignore physics areas");
         TestAssert.FreeAll(projectile, projectileManager);
 
         // Wildlife uses the existing food inventory and persisted item ids.

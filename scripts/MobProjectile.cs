@@ -16,26 +16,31 @@ public partial class MobProjectile : Area3D
     private Vector3 _source;
     private float _life = 4.0f;
     private Mobs? _manager;
-    private PhysicsRayQueryParameters3D? _terrainQuery;
+    private RayCast3D? _terrainRay;
     private string _sound = "mobcrystal";
     private Color _color = Colors.White;
 
-    internal PhysicsRayQueryParameters3D? TerrainQueryForTests => _terrainQuery;
+    internal RayCast3D? TerrainRayForTests => _terrainRay;
 
-    internal void ConfigureTerrainQueryForTests(Vector3 from, Vector3 to)
+    internal void ConfigureTerrainRayForTests(Vector3 from, Vector3 to)
     {
-        if (_terrainQuery == null) return;
-        _terrainQuery.From = from;
-        _terrainQuery.To = to;
+        if (_terrainRay == null) return;
+        _terrainRay.GlobalPosition = from;
+        _terrainRay.TargetPosition = to - from;
+        _terrainRay.ForceRaycastUpdate();
     }
 
     public void Setup(Mobs manager, Vector3 origin, Vector3 target, float damage,
             Color color, float speed, string sound)
     {
         _manager = manager;
-        _terrainQuery = PhysicsRayQueryParameters3D.Create(
-                origin, origin, (uint)PhysicsLayer.Terrain);
-        _terrainQuery.CollideWithAreas = false;
+        _terrainRay = new RayCast3D
+        {
+            CollisionMask = (uint)PhysicsLayer.Terrain,
+            CollideWithAreas = false,
+            TargetPosition = Vector3.Zero,
+        };
+        AddChild(_terrainRay);
         _damage = damage;
         _source = origin;
         _sound = sound;
@@ -87,14 +92,15 @@ public partial class MobProjectile : Area3D
         }
 
         Vector3 nextPosition = GlobalPosition + _velocity * (float)delta;
-        if (_terrainQuery == null)
+        if (_terrainRay == null)
         {
             QueueFree();
             return;
         }
-        _terrainQuery.From = GlobalPosition;
-        _terrainQuery.To = nextPosition;
-        bool terrainHit = GetWorld3D().DirectSpaceState.IntersectRay(_terrainQuery).Count > 0;
+        _terrainRay.GlobalPosition = GlobalPosition;
+        _terrainRay.TargetPosition = nextPosition - GlobalPosition;
+        _terrainRay.ForceRaycastUpdate();
+        bool terrainHit = _terrainRay.IsColliding();
         if (MobProjectileRules.ShouldStopOnTerrain(terrainHit))
         {
             _manager?.Puff(nextPosition, _color);
