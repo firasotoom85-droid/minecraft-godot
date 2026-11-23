@@ -22,6 +22,7 @@ public static class VoxelStreamingTests
         TestChunkWorkTracking();
         TestChunkGenerationReservation();
         TestMutationBlockIds();
+        TestWorldCompatibilityPolicies();
         TestStreamingPolicies();
 
         long expectedLow = 11L * 11L * 16 * 128 * 16 * StreamingMemoryBudget.BytesPerVoxelUpperBound;
@@ -142,6 +143,50 @@ public static class VoxelStreamingTests
                 "the largest byte-backed block ID is rejected");
         TestAssert.Check(VoxelWorld.IsMutationBlockIdDefined(BlockId.Stone),
                 "registered block IDs remain valid for world mutation");
+    }
+
+
+    private static void TestWorldCompatibilityPolicies()
+    {
+        TestAssert.Check(WorldCompatibilityPolicy.IsSupportedGeneratorVersion(1, 11),
+                "the minimum supported world generator remains loadable");
+        TestAssert.Check(WorldCompatibilityPolicy.IsSupportedGeneratorVersion(11, 11),
+                "the current generator version remains loadable");
+        TestAssert.Check(!WorldCompatibilityPolicy.IsSupportedGeneratorVersion(12, 11),
+                "a future generator version is rejected");
+        TestAssert.Check(!WorldCompatibilityPolicy.IsSupportedGeneratorVersion(0, 11),
+                "an invalid zero generator version is rejected");
+
+        TestAssert.Check(WorldCompatibilityPolicy.HasValidNoiseSeeds(
+                        new[] { 1, 2, 3, 4, 5 }),
+                "five persisted noise seeds satisfy legacy generator metadata");
+        TestAssert.Check(!WorldCompatibilityPolicy.HasValidNoiseSeeds(
+                        new[] { 1, 2, 3, 4 }),
+                "incomplete noise seed metadata is rejected");
+        TestAssert.Check(!WorldCompatibilityPolicy.HasValidNoiseSeeds(null),
+                "missing noise seed metadata is rejected");
+
+        TestAssert.Check(WorldCompatibilityPolicy.IsSupportedSaveVersion(1, 4),
+                "world save format V1 compatibility is retained");
+        TestAssert.Check(WorldCompatibilityPolicy.IsSupportedSaveVersion(4, 4),
+                "current world save format V4 remains supported");
+        TestAssert.Check(!WorldCompatibilityPolicy.IsSupportedSaveVersion(5, 4),
+                "future world save formats are rejected");
+        TestAssert.Check(!WorldCompatibilityPolicy.IsSupportedSaveVersion(0, 4),
+                "invalid zero world save versions are rejected");
+
+        TestAssert.Check(!WorldCompatibilityPolicy.MustRejectMissingManifest(
+                        false, false, false),
+                "a genuinely empty world folder may receive a default manifest");
+        TestAssert.Check(WorldCompatibilityPolicy.MustRejectMissingManifest(
+                        true, false, false),
+                "corrupt manifest candidates must not be replaced");
+        TestAssert.Check(WorldCompatibilityPolicy.MustRejectMissingManifest(
+                        false, true, false),
+                "a manifest-less folder with world data is not assumed to be V1");
+        TestAssert.Check(WorldCompatibilityPolicy.MustRejectMissingManifest(
+                        false, false, true),
+                "a manifest-less folder with player data is not assumed to be V1");
     }
 
     private static void TestStreamingPolicies()
