@@ -3291,6 +3291,7 @@ public partial class VoxelWorld : Node3D
             SavedHealth = player.Health;
             SavedHunger = player.Hunger ?? -1.0f;
             SavedExperience = player.Experience;
+            SavedPlayerDead = player.Dead;
             if (player.Respawn is { Length: 3 } r)
             {
                 SavedRespawn = new Vector3(r[0], r[1], r[2]);
