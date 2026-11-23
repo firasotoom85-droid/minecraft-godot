@@ -432,7 +432,7 @@ public partial class LightingComparisonCapture : Node
             for (int y = floorY; y <= floorY + 2; y++)
                 WriteBlock(world, x, y, z, BlockId.Air);
 
-            BlockId sample = dx <= -4 ? BlockId.SnowBlock
+            BlockId sample = dx <= -4 ? BlockId.Snow
                     : dx >= 4 ? BlockId.Stone
                     : dx is >= -1 and <= 1 ? BlockId.Sand
                     : BlockId.Air;
