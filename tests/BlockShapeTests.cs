@@ -336,6 +336,12 @@ public static class BlockShapeTests
                     PayloadPool.Release(connectedPayload);
                 }
 
+                TestAssert.Check(world.SetBlock(31, solidY, 9, BlockId.Stone),
+                        "partial-neighbor frontier source block is placed through SetBlock");
+                TestAssert.Check(world.SetBlock(32, solidY, 9, BlockId.PlanksSlab,
+                                BlockShapes.SlabBottom),
+                        "partial generated neighbor slab is placed through SetBlock");
+
                 // Move the streaming center so the tested chunk remains at the
                 // unload margin while its +X neighbor falls outside it.
                 world.ViewDistance = 0;
@@ -355,6 +361,12 @@ public static class BlockShapeTests
                     TestAssert.Equal(0, CountTrianglesOnPlane(
                                     unloadedPayload.Opaque.Vertex, 0, 16.0f, solidY - 1, 8),
                             "unloading a neighbor restores collision without duplicating render geometry");
+                    TestAssert.Equal(2, CountTrianglesOnPlane(
+                                    unloadedPayload.Collision, 0, 16.0f, solidY - 1, 9),
+                            "unbuilt partial-shape neighbor does not leave a half-height collision opening");
+                    TestAssert.Check(CountTrianglesOnPlane(
+                                    unloadedPayload.Opaque.Vertex, 0, 16.0f, solidY - 1, 9) > 0,
+                            "render geometry still clips to the exposed half beside an unbuilt slab");
                 }
                 finally
                 {
