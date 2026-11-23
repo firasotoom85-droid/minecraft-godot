@@ -2088,6 +2088,8 @@ public partial class VoxelWorld : Node3D
     public byte GetBlockState(int x, int y, int z)
     {
         if (y < 0 || y >= Height) return 0;
+        if (_genVersion >= WorldGenV12.Version
+                && !WorldGenV12.ContainsWorldPosition(x, z)) return 0;
         Vector2I cp = new(Mathf.FloorToInt(x / (float)ChunkX), Mathf.FloorToInt(z / (float)ChunkZ));
         int lx = x - cp.X * ChunkX;
         int lz = z - cp.Y * ChunkZ;
