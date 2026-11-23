@@ -198,8 +198,11 @@ public static class BlockShapeTests
                 }
             };
 
+            // Preview radius 1 has already populated centers through (1,1);
+            // center (3,3) guarantees a cache miss while retaining chunk (1,1)
+            // inside the solve's 5x5 snapshot region.
             System.Threading.Tasks.Task<VoxelLightData[]> solve = System.Threading.Tasks.Task.Run(
-                    () => world.LightDataNeighborhood(new Vector2I(1, 1)));
+                    () => world.LightDataNeighborhood(new Vector2I(3, 3)));
             bool reachedSolve = snapshotCaptured.Wait(System.TimeSpan.FromSeconds(10));
 
             System.Threading.Tasks.Task<bool>? lockProbe = null;
@@ -216,9 +219,9 @@ public static class BlockShapeTests
                 acquiredDuringSolve = lockProbe.Wait(System.TimeSpan.FromSeconds(2));
             }
 
-            BlockId oldBlock = world.GetBlock(8, 120, 8);
+            BlockId oldBlock = world.GetBlock(24, 120, 24);
             BlockId replacement = oldBlock == BlockId.Air ? BlockId.Stone : BlockId.Air;
-            bool mutationSucceeded = reachedSolve && world.SetBlock(8, 120, 8, replacement);
+            bool mutationSucceeded = reachedSolve && world.SetBlock(24, 120, 24, replacement);
 
             resumeSolve.Set();
             bool solveCompleted = solve.Wait(System.TimeSpan.FromSeconds(30));
