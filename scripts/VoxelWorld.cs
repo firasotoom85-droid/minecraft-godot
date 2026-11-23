@@ -3050,7 +3050,8 @@ public partial class VoxelWorld : Node3D
                                 respawn,
                                 Player?.Stats.Experience ?? 0,
                                 Player?.Rotation.Y,
-                                Player?.Camera?.Rotation.X),
+                                Player?.Camera?.Rotation.X,
+                                Player?.Stats.Dead ?? false),
                         WorldStore.Json));
 
         long elapsedPlaytime = (long)_unsavedPlaytimeSeconds;
