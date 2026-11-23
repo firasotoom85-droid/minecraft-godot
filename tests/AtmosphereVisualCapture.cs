@@ -9,7 +9,8 @@ namespace Minecraft;
 /// Captures one deterministic real-scene atmosphere frame for visual review.
 /// Usage:
 /// godot --path . res://tests/AtmosphereVisualCapture.tscn --
-///   <seed> <generator-version> <x> <z> <time-of-day> <Clear|Cloudy|Rain> <output.png> [include-torch:true|false] [view-distance:3-5] [include-hostiles:true|false]
+///   <seed> <generator-version> <x> <z> <time-of-day> <Clear|Cloudy|Rain|Storm> <output.png> [preset-index|include-torch] [view-distance:3-5] [cave-mode|include-hostiles] [exposure-mode] [include-hostiles]
+///   Legacy form: [include-torch:true|false] [view-distance] [none|sealed|sealed-torch|entrance|entrance-torch|include-hostiles] [exposure-mode] [include-hostiles]
 /// </summary>
 public partial class AtmosphereVisualCapture : Node
 {
@@ -25,15 +26,98 @@ public partial class AtmosphereVisualCapture : Node
             int centerX = ParseInt(args, 2, 512);
             int centerZ = ParseInt(args, 3, -372);
             double timeOfDay = ParseDouble(args, 4, 0.5);
-            Weather.State weatherState = ParseWeather(args, 5);
+            Weather.State weatherState = Weather.State.Clear;
+            if (args.Length > 5 && !TryParseWeather(args[5], out weatherState))
+            {
+                GD.PushError($"Unknown weather state '{args[5]}'. Expected Clear, Cloudy, Rain or Storm.");
+                GetTree().Quit(2);
+                return;
+            }
             string output = args.Length > 6
                     ? args[6]
                     : $"res://docs/visual/screenshots/atmosphere-{weatherState.ToString().ToLowerInvariant()}.png";
-            bool includeTorch = args.Length > 7
-                    && bool.TryParse(args[7], out bool parsedTorch) && parsedTorch;
-            int captureViewDistance = Math.Clamp(ParseInt(args, 8, 3), 3, 5);
-            bool includeHostiles = args.Length > 9
-                    && bool.TryParse(args[9], out bool parsedHostiles) && parsedHostiles;
+            // One parser serves the historical include-torch/view-distance order
+            // and the preset-first form. The third optional token is either a
+            // cave mode (#74) or the hostile-silhouette flag (#71); the two are
+            // mutually exclusive so a capture always has one deterministic setup.
+            int presetIndex = Settings.GfxPreset;
+            bool includeTorch = false;
+            int captureViewDistance = 3;
+            string caveMode = "none";
+            string exposureMode = "none";
+            bool includeHostiles = false;
+            if (args.Length > 7)
+            {
+                if (bool.TryParse(args[7], out bool legacyIncludeTorch))
+                {
+                    includeTorch = legacyIncludeTorch;
+                    captureViewDistance = Math.Clamp(ParseInt(args, 8, 3), 3, 5);
+                    if (args.Length > 9)
+                    {
+                        string legacyToken = args[9].Trim().ToLowerInvariant();
+                        if (bool.TryParse(legacyToken, out bool parsedHostiles))
+                            includeHostiles = parsedHostiles;
+                        else
+                            caveMode = legacyToken;
+                    }
+
+                    exposureMode = args.Length > 10
+                            ? args[10].Trim().ToLowerInvariant() : "none";
+                    if (args.Length > 11 && bool.TryParse(args[11], out bool laterHostiles))
+                        includeHostiles = laterHostiles;
+                }
+                else
+                {
+                    presetIndex = ParseInt(args, 7, Settings.GfxPreset);
+                    captureViewDistance = Math.Clamp(ParseInt(args, 8, 3), 3, 5);
+                    if (args.Length > 9 && !bool.TryParse(args[9], out includeTorch))
+                    {
+                        GD.PushError($"Invalid include-torch value '{args[9]}'. Expected true or false.");
+                        GetTree().Quit(2);
+                        return;
+                    }
+
+                    caveMode = args.Length > 10 ? args[10].Trim().ToLowerInvariant() : "none";
+                    exposureMode = args.Length > 11
+                            ? args[11].Trim().ToLowerInvariant() : "none";
+                    if (args.Length > 12 && bool.TryParse(args[12], out bool parsedHostiles))
+                        includeHostiles = parsedHostiles;
+                }
+            }
+
+            if (presetIndex < 0 || presetIndex >= Gfx.Presets.Count)
+            {
+                GD.PushError($"Invalid graphics preset index {presetIndex}. Expected 0–{Gfx.Presets.Count - 1}.");
+                GetTree().Quit(2);
+                return;
+            }
+
+            bool includeCave = caveMode is "sealed" or "sealed-torch"
+                    or "entrance" or "entrance-torch";
+            bool connectEntrance = caveMode is "entrance" or "entrance-torch";
+            bool placeTorch = caveMode is "sealed-torch" or "entrance-torch";
+            if (exposureMode is not ("none" or "water-exit" or "biome-pair")
+                    || (exposureMode != "none" && includeCave))
+            {
+                GD.PushError($"Unsupported or conflicting exposure capture mode '{exposureMode}'.");
+                GetTree().Quit(2);
+                return;
+            }
+
+            if (caveMode != "none" && !includeCave)
+            {
+                GD.PushError($"Unsupported cave capture mode '{caveMode}'.");
+                GetTree().Quit(2);
+                return;
+            }
+
+            if (includeHostiles && (includeCave || exposureMode != "none"))
+            {
+                GD.PushError("Hostile silhouette capture cannot be combined with cave or exposure modes.");
+                GetTree().Quit(2);
+                return;
+            }
+
             int expectedChunkCount = (captureViewDistance * 2 + 1)
                     * (captureViewDistance * 2 + 1);
 
@@ -74,12 +158,17 @@ public partial class AtmosphereVisualCapture : Node
             Player player = game.GetNode<Player>("Player");
             DayNight? dayNight = FindNode<DayNight>(game);
             Weather? weather = FindNode<Weather>(game);
-            if (dayNight == null || weather == null)
+            Gfx? gfx = FindNode<Gfx>(game);
+            WorldEnvironment? worldEnvironment = FindNode<WorldEnvironment>(game);
+            if (dayNight == null || weather == null || gfx == null || worldEnvironment == null)
             {
-                GD.PushError("Main scene did not initialize its existing day/night and weather systems.");
+                GD.PushError("Main scene did not initialize its existing day/night, weather, graphics and environment systems.");
                 GetTree().Quit(5);
                 return;
             }
+
+            gfx.ApplyPreset(presetIndex, persist: false);
+            double captureSettleSeconds = SettleSecondsForPreset(gfx.CurrentPreset);
 
             player.SetPhysicsProcess(false);
             player.Camera.Current = false;
@@ -106,12 +195,13 @@ public partial class AtmosphereVisualCapture : Node
                 Fov = 76.0f,
                 Far = 500.0f,
                 Current = true,
+                Attributes = player.Camera.Attributes,
             };
             game.AddChild(camera);
             camera.GlobalPosition = target + new Vector3(62.0f, 72.0f, 78.0f);
             camera.LookAt(target + new Vector3(0.0f, 5.0f, 0.0f), Vector3.Up);
 
-            GD.Print($"ATMOSPHERE_CAPTURE_START seed={seed} version={version} center=({centerX},{centerZ}) time={world.TimeOfDay:F3} weather={weatherState} torch={includeTorch} hostiles={includeHostiles} view_distance={captureViewDistance} expected_chunks={expectedChunkCount} output={output}");
+            GD.Print($"ATMOSPHERE_CAPTURE_START seed={seed} version={version} center=({centerX},{centerZ}) time={world.TimeOfDay:F3} weather={weatherState} preset={Gfx.Presets[presetIndex].Name} torch={includeTorch} hostiles={includeHostiles} cave_mode={caveMode} exposure_mode={exposureMode} view_distance={captureViewDistance} settle_seconds={captureSettleSeconds:F1} expected_chunks={expectedChunkCount} output={output}");
             double started = Time.GetTicksMsec() / 1000.0;
             int frames = 0;
             while (frames < 1800)
@@ -119,7 +209,7 @@ public partial class AtmosphereVisualCapture : Node
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
                 frames++;
                 double elapsed = Time.GetTicksMsec() / 1000.0 - started;
-                if (elapsed >= 8.0 && world.ChunkCount >= expectedChunkCount)
+                if (elapsed >= captureSettleSeconds && world.ChunkCount >= expectedChunkCount)
                 {
                     break;
                 }
@@ -132,9 +222,10 @@ public partial class AtmosphereVisualCapture : Node
                 return;
             }
 
-            if (includeTorch)
+            if (includeCave)
             {
-                // Pick a nearby, flat, dry column so the small torch sprite and
+                // Pick a nearby, flat, dry column so every mode starts from
+                // the same deterministic terrain fixture and camera placement.
                 // the surfaces it lights are not hidden by a river bank.
                 int bestX = centerX;
                 int bestZ = centerZ;
@@ -203,37 +294,40 @@ public partial class AtmosphereVisualCapture : Node
                     }
                 }
 
-                // Connect the chamber to daylight with a narrow horizontal
-                // passage and a vertical surface shaft. The baked skylight
-                // naturally attenuates along this path for entrance captures.
+                // Entrance modes cut the same narrow passage and vertical
+                // shaft. Sealed modes leave the roof intact so the camera sees
+                // a true zero-skylight room rather than a dim outdoor pocket.
                 int entranceX = centerX + 10;
                 int entranceSurface = world.SurfaceHeight(entranceX, centerZ);
-                for (int y = floorY + 1; y <= entranceSurface + 1; y++)
+                if (connectEntrance)
                 {
-                    if (world.GetBlock(entranceX, y, centerZ) != BlockId.Air
-                            && !world.SetBlock(entranceX, y, centerZ, BlockId.Air))
+                    for (int y = floorY + 1; y <= entranceSurface + 1; y++)
                     {
-                        GD.PushError("Could not open the temporary skylight shaft through VoxelWorld.SetBlock.");
-                        GetTree().Quit(9);
-                        return;
+                        if (world.GetBlock(entranceX, y, centerZ) != BlockId.Air
+                                && !world.SetBlock(entranceX, y, centerZ, BlockId.Air))
+                        {
+                            GD.PushError("Could not open the temporary skylight shaft through VoxelWorld.SetBlock.");
+                            GetTree().Quit(9);
+                            return;
+                        }
                     }
-                }
 
-                for (int dx = 3; dx < 10; dx++)
-                for (int y = floorY + 2; y <= floorY + 3; y++)
-                {
-                    int x = centerX + dx;
-                    if (world.GetBlock(x, y, centerZ) != BlockId.Air
-                            && !world.SetBlock(x, y, centerZ, BlockId.Air))
+                    for (int dx = 3; dx < 10; dx++)
+                    for (int y = floorY + 2; y <= floorY + 3; y++)
                     {
-                        GD.PushError("Could not open the temporary cave passage through VoxelWorld.SetBlock.");
-                        GetTree().Quit(9);
-                        return;
+                        int x = centerX + dx;
+                        if (world.GetBlock(x, y, centerZ) != BlockId.Air
+                                && !world.SetBlock(x, y, centerZ, BlockId.Air))
+                        {
+                            GD.PushError("Could not open the temporary cave passage through VoxelWorld.SetBlock.");
+                            GetTree().Quit(9);
+                            return;
+                        }
                     }
                 }
 
                 int torchY = floorY + 1;
-                if (!world.SetBlock(centerX, torchY, centerZ, BlockId.Torch))
+                if (placeTorch && !world.SetBlock(centerX, torchY, centerZ, BlockId.Torch))
                 {
                     GD.PushError("Could not place the temporary visual-test torch through VoxelWorld.SetBlock.");
                     GetTree().Quit(9);
@@ -257,19 +351,148 @@ public partial class AtmosphereVisualCapture : Node
                 bool hasEntranceExposure = world.TrySampleCachedSkyLight(
                         new Vector3(entranceX + 0.5f, entranceSurface + 1.5f, centerZ + 0.5f),
                         out float entranceSkyLight);
-                bool hasPassageExposure = world.TrySampleCachedSkyLight(
+                float passageSkyLight = 0.0f;
+                bool hasPassageExposure = connectEntrance && world.TrySampleCachedSkyLight(
                         new Vector3(centerX + 8.5f, floorY + 2.5f, centerZ + 0.5f),
-                        out float passageSkyLight);
+                        out passageSkyLight);
                 bool hasRoomExposure = world.TrySampleCachedSkyLight(
                         player.Camera.GlobalPosition, out float roomSkyLight);
-                GD.Print($"CAVE_EXPOSURE_GRADIENT outside={hasEntranceExposure}:{entranceSkyLight:F2} " +
-                        $"passage={hasPassageExposure}:{passageSkyLight:F2} " +
+                float cameraMaxSensitivity = player.Camera.Attributes
+                        is CameraAttributesPractical cameraAttributes
+                        ? cameraAttributes.AutoExposureMaxSensitivity : -1.0f;
+                byte torchBlockLevel = 0;
+                byte adjacentBlockLevel = 0;
+                if (placeTorch)
+                {
+                    Vector2I lightChunk = new(
+                            Mathf.FloorToInt(centerX / (float)VoxelWorld.ChunkX),
+                            Mathf.FloorToInt(centerZ / (float)VoxelWorld.ChunkZ));
+                    VoxelLightData light = world.LightData(lightChunk);
+                    int localX = centerX - lightChunk.X * VoxelWorld.ChunkX;
+                    int localZ = centerZ - lightChunk.Y * VoxelWorld.ChunkZ;
+                    torchBlockLevel = light.BlockAt(localX, torchY, localZ, world.Height);
+                    adjacentBlockLevel = light.BlockAt(
+                            Mathf.Min(localX + 1, VoxelWorld.ChunkX - 1),
+                            torchY, localZ, world.Height);
+                }
+
+                GD.Print($"CAVE_EXPOSURE_GRADIENT mode={caveMode} " +
+                        $"outside={hasEntranceExposure}:{entranceSkyLight:F2} " +
+                        $"passage={(connectEntrance ? hasPassageExposure.ToString() + ":" + passageSkyLight.ToString("F2") : "sealed")} " +
                         $"room={hasRoomExposure}:{roomSkyLight:F2} " +
-                        $"darkness={DayNight.EvaluateCaveDarkness(roomSkyLight):F3}");
+                        $"darkness={DayNight.EvaluateCaveDarkness(roomSkyLight):F3} " +
+                        $"camera_iso_max={cameraMaxSensitivity:F1} " +
+                        $"ambient={dayNight.WorldEnv!.Environment.AmbientLightEnergy:F3} " +
+                        $"torch_block={torchBlockLevel} adjacent_block={adjacentBlockLevel}");
             }
             else
             {
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            }
+
+            if (exposureMode == "water-exit")
+            {
+                int floorY = Math.Max(2, height - 12);
+                int waterY = floorY + 1;
+                for (int dz = -3; dz <= 3; dz++)
+                for (int dx = -3; dx <= 3; dx++)
+                {
+                    int x = centerX + dx;
+                    int z = centerZ + dz;
+                    if (world.GetBlock(x, waterY, z) != BlockId.Air
+                            && !world.SetBlock(x, waterY, z, BlockId.Air))
+                    {
+                        GD.PushError("Could not clear the temporary immersion chamber through VoxelWorld.SetBlock.");
+                        GetTree().Quit(9);
+                        return;
+                    }
+                }
+
+                // Connect a narrow dry shaft to the surface. The water pool is
+                // kept in its own chamber so its volume is deterministic.
+                int shaftX = centerX + 10;
+                for (int y = waterY; y <= height + 1; y++)
+                {
+                    if (world.GetBlock(shaftX, y, centerZ) != BlockId.Air
+                            && !world.SetBlock(shaftX, y, centerZ, BlockId.Air))
+                    {
+                        GD.PushError("Could not open the temporary water-exit shaft through VoxelWorld.SetBlock.");
+                        GetTree().Quit(9);
+                        return;
+                    }
+                }
+
+                for (int dz = -3; dz <= 3; dz++)
+                for (int dx = -3; dx <= 3; dx++)
+                {
+                    int x = centerX + dx;
+                    int z = centerZ + dz;
+                    if (world.GetBlock(x, waterY, z) != BlockId.Water
+                            && !world.SetBlock(x, waterY, z, BlockId.Water))
+                    {
+                        GD.PushError("Could not fill the temporary immersion pool through VoxelWorld.SetBlock.");
+                        GetTree().Quit(9);
+                        return;
+                    }
+                }
+
+                Vector3 waterTarget = new(centerX + 0.5f, waterY + 0.5f, centerZ + 0.5f);
+                player.GlobalPosition = new Vector3(centerX + 0.5f, floorY + 0.05f, centerZ + 0.5f);
+                camera.Fov = 68.0f;
+                camera.GlobalPosition = waterTarget + new Vector3(2.0f, 0.8f, 2.0f);
+                camera.LookAt(waterTarget, Vector3.Up);
+                for (int frame = 0; frame < 90; frame++)
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                camera.Environment = player.Camera.Environment;
+                GD.Print($"WATER_EXPOSURE_SUBMERGED blend={player.WaterViewBlend:F3} " +
+                        $"underwater={player.Underwater} " +
+                        $"iso_min={(player.Camera.Attributes as CameraAttributesPractical)?.AutoExposureMinSensitivity ?? -1.0f:F1} " +
+                        $"iso_max={(player.Camera.Attributes as CameraAttributesPractical)?.AutoExposureMaxSensitivity ?? -1.0f:F1}");
+                SaveViewportCapture(AddOutputSuffix(output, "-underwater"));
+
+                player.GlobalPosition = new Vector3(centerX + 10.5f, height + 1.0f, centerZ + 0.5f);
+                camera.GlobalPosition = waterTarget + new Vector3(12.0f, 9.0f, 12.0f);
+                camera.LookAt(waterTarget, Vector3.Up);
+                for (int frame = 0; frame < 60; frame++)
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                camera.Environment = player.Camera.Environment;
+                output = AddOutputSuffix(output, "-emerged");
+                GD.Print($"WATER_EXPOSURE_EMERGED blend={player.WaterViewBlend:F3} " +
+                        $"underwater={player.Underwater} " +
+                        $"iso_min={(player.Camera.Attributes as CameraAttributesPractical)?.AutoExposureMinSensitivity ?? -1.0f:F1} " +
+                        $"iso_max={(player.Camera.Attributes as CameraAttributesPractical)?.AutoExposureMaxSensitivity ?? -1.0f:F1}");
+            }
+            else if (exposureMode == "biome-pair")
+            {
+                if (!FindNearestBiome(world, centerX, centerZ, Biome.Snow, 768, 8, out Vector2I snowPosition)
+                        || !FindNearestBiome(world, centerX, centerZ, Biome.DenseForest, 768, 8, out Vector2I forestPosition))
+                {
+                    GD.PushError("Could not find both snow and shaded-forest columns within 768 blocks of the capture origin.");
+                    GetTree().Quit(10);
+                    return;
+                }
+
+                int snowHeight = world.SurfaceHeight(snowPosition.X, snowPosition.Y);
+                player.GlobalPosition = new Vector3(snowPosition.X + 0.5f, snowHeight + 1.0f, snowPosition.Y + 0.5f);
+                camera.GlobalPosition = player.GlobalPosition + new Vector3(18.0f, 12.0f, 22.0f);
+                camera.LookAt(player.GlobalPosition + new Vector3(0.0f, 3.0f, 0.0f), Vector3.Up);
+                await WaitForExposureCapture(world, expectedChunkCount);
+                camera.Environment = player.Camera.Environment;
+                GD.Print($"BIOME_EXPOSURE_SNOW biome={world.BiomeAt(snowPosition.X, snowPosition.Y, snowHeight)} position={snowPosition} height={snowHeight} " +
+                        $"iso_min={(player.Camera.Attributes as CameraAttributesPractical)?.AutoExposureMinSensitivity ?? -1.0f:F1} " +
+                        $"iso_max={(player.Camera.Attributes as CameraAttributesPractical)?.AutoExposureMaxSensitivity ?? -1.0f:F1}");
+                SaveViewportCapture(AddOutputSuffix(output, "-snow"));
+
+                int forestHeight = world.SurfaceHeight(forestPosition.X, forestPosition.Y);
+                player.GlobalPosition = new Vector3(forestPosition.X + 0.5f, forestHeight + 1.0f, forestPosition.Y + 0.5f);
+                camera.GlobalPosition = player.GlobalPosition + new Vector3(18.0f, 12.0f, 22.0f);
+                camera.LookAt(player.GlobalPosition + new Vector3(0.0f, 3.0f, 0.0f), Vector3.Up);
+                await WaitForExposureCapture(world, expectedChunkCount);
+                camera.Environment = player.Camera.Environment;
+                output = AddOutputSuffix(output, "-forest");
+                GD.Print($"BIOME_EXPOSURE_FOREST biome={world.BiomeAt(forestPosition.X, forestPosition.Y, forestHeight)} position={forestPosition} height={forestHeight} " +
+                        $"iso_min={(player.Camera.Attributes as CameraAttributesPractical)?.AutoExposureMinSensitivity ?? -1.0f:F1} " +
+                        $"iso_max={(player.Camera.Attributes as CameraAttributesPractical)?.AutoExposureMaxSensitivity ?? -1.0f:F1}");
             }
 
             if (includeHostiles)
@@ -286,6 +509,19 @@ public partial class AtmosphereVisualCapture : Node
                         centerX, centerZ);
                 for (int frame = 0; frame < 12; frame++)
                     await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            }
+
+            if (player.Camera.Attributes is CameraAttributesPractical exposureAttributes)
+            {
+                GD.Print($"ATMOSPHERE_EXPOSURE_CONTEXT biome={world.BiomeAt(
+                        Mathf.FloorToInt(player.GlobalPosition.X),
+                        Mathf.FloorToInt(player.GlobalPosition.Z),
+                        world.SurfaceHeight(Mathf.FloorToInt(player.GlobalPosition.X),
+                                Mathf.FloorToInt(player.GlobalPosition.Z)))} " +
+                        $"underwater={player.Underwater} water_blend={player.WaterViewBlend:F3} " +
+                        $"iso_min={exposureAttributes.AutoExposureMinSensitivity:F1} " +
+                        $"iso_max={exposureAttributes.AutoExposureMaxSensitivity:F1} " +
+                        $"adapt_speed={exposureAttributes.AutoExposureSpeed:F2}");
             }
 
             string absoluteOutput = ProjectSettings.GlobalizePath(output);
@@ -386,6 +622,80 @@ public partial class AtmosphereVisualCapture : Node
                 platformY + 2.0f, centerZ + 0.5f), Vector3.Up);
     }
 
+    private void SaveViewportCapture(string output)
+    {
+        string absoluteOutput = ProjectSettings.GlobalizePath(output);
+        string? directory = Path.GetDirectoryName(absoluteOutput);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+        Error result = GetViewport().GetTexture().GetImage().SavePng(absoluteOutput);
+        if (result != Error.Ok)
+            throw new IOException($"Could not save exposure comparison capture {absoluteOutput}: {result}");
+        GD.Print($"EXPOSURE_COMPARISON_CAPTURE success=true path={absoluteOutput}");
+    }
+
+    private static string AddOutputSuffix(string output, string suffix)
+    {
+        // Preserve res:// exactly. System.IO.Path normalizes the double slash
+        // after the colon into res:/, which Godot then treats as a filesystem
+        // directory rather than a project resource path.
+        int separator = output.LastIndexOf('/');
+        string prefix = separator >= 0 ? output[..(separator + 1)] : string.Empty;
+        string filename = separator >= 0 ? output[(separator + 1)..] : output;
+        string extension = Path.GetExtension(filename);
+        string stem = Path.GetFileNameWithoutExtension(filename);
+        return prefix + stem + suffix + extension;
+    }
+
+    private async System.Threading.Tasks.Task WaitForExposureCapture(
+            VoxelWorld world, int expectedChunkCount)
+    {
+        double started = Time.GetTicksMsec() / 1000.0;
+        int frames = 0;
+        while (frames < 1800)
+        {
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            frames++;
+            if (Time.GetTicksMsec() / 1000.0 - started >= 8.0
+                    && world.ChunkCount >= expectedChunkCount)
+                return;
+        }
+
+        if (world.ChunkCount < expectedChunkCount)
+            throw new InvalidOperationException($"Biome capture streamed {world.ChunkCount} chunks; expected at least {expectedChunkCount}.");
+    }
+
+    private static bool FindNearestBiome(
+            VoxelWorld world, int originX, int originZ, Biome target, int radius,
+            int stride, out Vector2I position)
+    {
+        position = default;
+        int bestDistance = int.MaxValue;
+        bool found = false;
+        for (int z = -radius; z <= radius; z += stride)
+        for (int x = -radius; x <= radius; x += stride)
+        {
+            int distance = x * x + z * z;
+            if (distance >= bestDistance)
+                continue;
+            int sampleX = originX + x;
+            int sampleZ = originZ + z;
+            int surface = world.SurfaceHeight(sampleX, sampleZ);
+            Biome biome = world.BiomeAt(sampleX, sampleZ, surface);
+            bool matches = target == Biome.DenseForest
+                    ? biome is Biome.DenseForest or Biome.Taiga or Biome.Birch
+                            or Biome.Jungle or Biome.Swamp
+                    : biome == target;
+            if (!matches)
+                continue;
+            bestDistance = distance;
+            position = new Vector2I(sampleX, sampleZ);
+            found = true;
+        }
+
+        return found;
+    }
+
     private static T? FindNode<T>(Node root) where T : Node
     {
         if (root is T match)
@@ -414,8 +724,10 @@ public partial class AtmosphereVisualCapture : Node
                     CultureInfo.InvariantCulture, out double value) && double.IsFinite(value)
                     ? value : fallback;
 
-    private static Weather.State ParseWeather(string[] args, int index) =>
-            index < args.Length && Enum.TryParse(args[index], true, out Weather.State state)
-                    && state != Weather.State.Storm
-                    ? state : Weather.State.Clear;
+    internal static double SettleSecondsForPreset(Gfx.Preset preset) =>
+            preset.Fsr2 ? 16.0 : 8.0;
+
+    internal static bool TryParseWeather(string value, out Weather.State state) =>
+            Enum.TryParse(value, true, out state)
+                    && Enum.IsDefined(typeof(Weather.State), state);
 }

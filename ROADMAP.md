@@ -2534,3 +2534,96 @@ commit ancestry traceable.
   A matched real-scene MX230 visual capture was attempted but did not complete
   in this environment; pixel-level review and a sustained FPS soak remain
   outstanding before marking this change fully visually verified.
+
+## 48. Bounded cave eye adaptation — 2026-11-22
+
+Cave shelter already used the camera's trilinearly sampled baked skylight to
+blend ambient fill and fog. The remaining mismatch was the independent global
+camera auto-exposure: it could continue raising a sealed room, and a bright
+torch in that room could influence the camera histogram even though the
+voxel-light shader correctly confined the warm source to nearby surfaces.
+
+- **Shared sky signal.** DayNight now uses the existing caveDarkness weight
+  to update CameraAttributesPractical.AutoExposureMaxSensitivity. The range
+  eases from 140 outdoors to 40 in a zero-skylight cave. The cave cap equals
+  Player's 40 minimum sensitivity, so global exposure has no upward headroom
+  in a fully sealed cave. It is based on sky light only; block light does not
+  participate.
+- **Ambient fill.** The environment ambient scale eases from 1.0 outdoors to
+  0.08 at full cave darkness. The existing shader base fill remains unchanged,
+  retaining the deliberately small material floor without lifting the whole
+  cave. The camera attribute resource is cached at setup and only written when
+  its target changes by at least 0.5 sensitivity units.
+- **Torch behaviour.** No baked propagation, source strengths, warm shader
+  coefficients, light nodes, or rendering passes changed. Torches and
+  campfires still use their 14-level baked source channel, with the existing
+  shared 0.34 diffuse and 0.025 emissive warm response. A torch in a zero-sky
+  room therefore adds local block illumination without restoring global
+  exposure headroom.
+- **Validation.** Atmosphere tests pin the open-sky, entrance and sealed-cave
+  sensitivity/ambient bounds, monotonicity and interpolation. The production
+  AtmosphereVisualCapture now supports sealed, entrance and sealed-torch
+  fixtures, all edited through VoxelWorld.SetBlock and rendered with the
+  production camera attributes. Repeatable captures use seed 1337, generator
+  V11, location (512, -372), clear noon, 1600×900 and view radius 3; results are
+  stored under docs/visual/screenshots/cave-adaptation-*.png.
+- **Compatibility and performance.** No persisted IDs, save fields, generator
+  versions or generation rules changed. V1–V11 output remains frozen; greedy
+  meshing, chunk streaming, cached light propagation and mutation ownership are
+  untouched. The runtime adds one cached camera-resource reference, constant
+  time interpolation and throttled property writes; it adds no scene nodes,
+  per-emitter lights, per-frame scans, shader work or memory allocations.
+  LOW/BALANCED settings remain unchanged.
+
+
+## 49. Context-aware exposure transitions — 2026-11-22
+
+The cave-only exposure cap is now part of one context-aware camera profile
+that also covers water emergence and the snow-to-forest brightness range. The
+existing `Player` immersion blend and `DayNight` cached biome column remain the
+owners of their respective signals; no new global lighting system was added.
+
+- **Caves:** retain the baked skylight-only shelter weight. It has final
+  priority over every other profile and holds min/max sensitivity at ISO 40
+  when skylight reaches zero. Block light remains excluded, preserving local
+  torch/campfire readability without globally lifting the cave.
+- **Water:** the profile follows `Player.WaterViewBlend`, not only the binary
+  `Underwater` flag. The underwater exposure cap therefore remains active while
+  the existing fog environment fades out after the camera breaks the surface.
+  No new water probes or physics queries were added.
+- **Snow and forest:** the existing integer-column biome sample selects bright
+  snow and shaded-canopy weights. Snow eases the sensitivity range down
+  (ISO 32–124); dense forest raises only its upper bound (to ISO 156), with
+  intermediate taiga/birch/jungle/swamp weights. Fog tint, exposure weights and
+  limits ease toward the new column over the same frame-rate-independent
+  exponential blend (2.8 s⁻¹), so boundaries do not snap.
+- **Adaptation:** `AutoExposureSpeed` is set to 0.70 while the context gets
+  darker and 1.40 when it brightens, with a 0.90 steady value. The directional
+  speed is held for one second after the transition signal, then returns to the
+  steady value; this gives Godot's luminance adaptation time to respond instead
+  of changing speed for only one frame. Sensitivity and speed properties are
+  only written when their target changes enough to be visible.
+- **Tests and captures:** added bounded-profile tests for cave/water/snow/forest
+  priority, biome-profile selection, directional speed and 30/60 FPS blend
+  parity. `AtmosphereVisualCapture` now shares the gameplay camera attributes
+  for every capture and reports biome, immersion blend, ISO min/max and speed.
+  The MX230 / Godot 4.7.2 Forward+ water-exit capture (seed 1337, V11, clear
+  noon, 1600×900, 49 chunks) measured underwater blend 0.720 / ISO 37.4–117.0,
+  then surfaced blend 0.000 / ISO 39.6–140.0. The paired biome capture streamed
+  70 chunks and measured Snow at `(512, -388)` / ISO 32.3–124.3 and Taiga at
+  `(544, -380)` / ISO 39.6–153.4. A sealed-torch cave capture streamed 56 chunks
+  and measured 15.00 skylight outside / 0.00 in the room, darkness 1.000, max
+  ISO 40.0, ambient scale 0.079 and baked torch/adjacent levels 14/13. PNG
+  references are committed as
+  `docs/visual/screenshots/exposure-{cave-sealed-torch,water-exit-underwater,water-exit-emerged,biome-pair-snow,biome-pair-forest}.png`.
+- **Compatibility/performance:** only camera attributes and the current biome
+  fog tint are adjusted. Packed sky/block channels, emitter strengths, shaders,
+  renderer presets, saves, persisted IDs, V1–V11 generation, greedy meshing,
+  chunk streaming and SetBlock/ApplyEdit ownership are unchanged. Work remains
+  bounded to the existing cached light sample, one cached biome sample when
+  the player enters a new column, and a few scalar/color interpolations.
+  Auto-exposure itself remains the pre-existing camera feature; no new
+  renderer pass or cost was added to LOW/BALANCED post-processing settings.
+  This was not a controlled FPS benchmark, so no frame-time delta is claimed;
+  structural review and the real MX230 captures confirm the path functions,
+  while a sustained low-preset frame-time soak remains a separate validation.
