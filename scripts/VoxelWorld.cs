@@ -1598,6 +1598,7 @@ public partial class VoxelWorld : Node3D
             {
                 RegisterLightSourcesLocked(cp, existing);
                 RegisterCropSourcesLocked(cp, existing);
+                _generationInFlight.Complete(cp, generation);
                 return existing;
             }
 
@@ -3277,8 +3278,8 @@ public partial class VoxelWorld : Node3D
 
     /// <summary>
     /// Evict generated data and deterministic spatial lookup caches outside
-    /// the retained region. Safe to call after a worker completes because the
-    /// data arrays are immutable once generated; active snapshots own references.
+    /// the retained region. Active snapshots/chunks retain their own array
+    /// references, so removing a cache entry does not invalidate in-flight work.
     /// </summary>
     private void PruneWorldCaches(Vector2I center, int limit)
     {
