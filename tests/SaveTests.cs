@@ -1,4 +1,8 @@
+using System;
 using System.Collections.Generic;
+using Directory = System.IO.Directory;
+using File = System.IO.File;
+using Path = System.IO.Path;
 using System.Text.Json;
 using Godot;
 
@@ -85,6 +89,190 @@ public static class SaveTests
         TestAssert.Equal("three", FileAccess.GetFileAsString(backupPath), "newest save is current");
         TestAssert.Equal("two", FileAccess.GetFileAsString(backupPath + ".bak"), "first backup is previous save");
         TestAssert.Equal("one", FileAccess.GetFileAsString(backupPath + ".bak2"), "second backup is oldest save");
+
+        string rotationRoot = Path.Combine(Path.GetTempPath(),
+                $"minecraft-save-rotation-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(rotationRoot);
+        try
+        {
+            string rotationPath = Path.Combine(rotationRoot, "rotation.json");
+            TestAssert.Check(WorldSaveWorker.WriteAtomic(rotationPath, "generation-1", out _),
+                    "backup-rotation fixture writes its first generation");
+            TestAssert.Check(WorldSaveWorker.WriteAtomic(rotationPath, "generation-2", out _),
+                    "backup-rotation fixture writes its second generation");
+            TestAssert.Check(WorldSaveWorker.WriteAtomic(rotationPath, "generation-3", out _),
+                    "backup-rotation fixture establishes primary and two backups");
+
+            string primaryBeforeFailure = Convert.ToHexString(File.ReadAllBytes(rotationPath));
+            string backupBeforeFailure = Convert.ToHexString(File.ReadAllBytes(rotationPath + ".bak"));
+            string oldestBeforeFailure = Convert.ToHexString(File.ReadAllBytes(rotationPath + ".bak2"));
+            bool failedRotation = WorldSaveWorker.WriteAtomic(
+                    rotationPath,
+                    "generation-4",
+                    out string? rotationError,
+                    beforeCurrentToBackup: () => throw new System.IO.IOException(
+                            "injected current-primary-to-backup rotation failure"));
+            TestAssert.Check(!failedRotation && !string.IsNullOrEmpty(rotationError),
+                    "atomic writer reports an injected failure before moving the current primary to .bak");
+            TestAssert.Equal(primaryBeforeFailure,
+                    Convert.ToHexString(File.ReadAllBytes(rotationPath)),
+                    "rotation failure preserves the previous primary byte-for-byte");
+            TestAssert.Equal(backupBeforeFailure,
+                    Convert.ToHexString(File.ReadAllBytes(rotationPath + ".bak")),
+                    "rotation failure preserves the previous backup byte-for-byte");
+            TestAssert.Equal(oldestBeforeFailure,
+                    Convert.ToHexString(File.ReadAllBytes(rotationPath + ".bak2")),
+                    "rotation failure preserves the oldest backup byte-for-byte");
+            TestAssert.Check(!File.Exists(rotationPath + ".tmp"),
+                    "failed rotation removes its temporary file");
+            TestAssert.Equal(0,
+                    Directory.GetFiles(rotationRoot, "rotation.json.bak2.stage-*").Length,
+                    "failed rotation restores and removes the staged oldest backup");
+
+            bool failedPublish = WorldSaveWorker.WriteAtomic(
+                    rotationPath,
+                    "generation-4",
+                    out string? publishError,
+                    beforePublish: () => throw new System.IO.IOException(
+                            "injected final temp-to-primary publish failure"));
+
+            TestAssert.Check(!failedPublish && !string.IsNullOrEmpty(publishError),
+                    "atomic writer reports an injected failure at the final publish boundary");
+            TestAssert.Equal(primaryBeforeFailure,
+                    Convert.ToHexString(File.ReadAllBytes(rotationPath)),
+                    "final publish failure restores the previous primary byte-for-byte");
+            TestAssert.Equal(backupBeforeFailure,
+                    Convert.ToHexString(File.ReadAllBytes(rotationPath + ".bak")),
+                    "final publish failure restores the previous backup byte-for-byte");
+            TestAssert.Equal(oldestBeforeFailure,
+                    Convert.ToHexString(File.ReadAllBytes(rotationPath + ".bak2")),
+                    "final publish failure restores the oldest backup byte-for-byte");
+            TestAssert.Check(!File.Exists(rotationPath + ".tmp"),
+                    "failed final publish removes its temporary file");
+            TestAssert.Equal(0,
+                    Directory.GetFiles(rotationRoot, "rotation.json.bak2.stage-*").Length,
+                    "successful rollback leaves no staged oldest-backup file");
+
+            TestAssert.Check(WorldSaveWorker.WriteAtomic(rotationPath, "generation-4", out _),
+                    "backup rotation succeeds after the injected publish failure");
+            TestAssert.Equal("generation-4", File.ReadAllText(rotationPath),
+                    "successful rotation publishes the new primary");
+            TestAssert.Equal("generation-3", File.ReadAllText(rotationPath + ".bak"),
+                    "successful rotation moves the previous primary to .bak");
+            TestAssert.Equal("generation-2", File.ReadAllText(rotationPath + ".bak2"),
+                    "successful rotation advances the previous .bak to .bak2");
+            TestAssert.Equal(0,
+                    Directory.GetFiles(rotationRoot, "rotation.json.bak2.stage-*").Length,
+                    "successful commit removes the staged oldest-backup file");
+        }
+        finally
+        {
+            Directory.Delete(rotationRoot, recursive: true);
+        }
+
+        string workerRoot = Path.Combine(Path.GetTempPath(),
+                $"minecraft-save-worker-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workerRoot);
+        try
+        {
+            string workerWorldPath = Path.Combine(workerRoot, "world.json");
+            string workerPlayerPath = Path.Combine(workerRoot, "player.json");
+            string workerManifestPath = Path.Combine(workerRoot, "manifest.json");
+            WorldManifest workerManifest = new(
+                    "Background Save Test", 24680, WorldStore.CurrentGenVersion,
+                    WorldStore.DeriveNoiseSeeds(24680), 1, 1, HasSavedData: true);
+            WorldSaveSnapshot workerSnapshot = new(
+                    new WorldSave(WorldStore.WorldFormatVersion, [], 0.25),
+                    new PlayerSave([1.0f, 2.0f, 3.0f], Health: 16.0f),
+                    workerManifest,
+                    workerWorldPath,
+                    workerPlayerPath,
+                    workerManifestPath,
+                    DirtyRevision: 1,
+                    ElapsedPlaytimeSeconds: 5.0);
+            WorldSaveWorkerResult firstWorkerSave =
+                    WorldSaveWorker.WriteAsync(workerSnapshot).GetAwaiter().GetResult();
+            TestAssert.Check(firstWorkerSave.Success,
+                    "background worker writes world, player and manifest snapshots");
+            WorldSave? firstWorkerWorld =
+                    JsonSerializer.Deserialize<WorldSave>(File.ReadAllText(workerWorldPath), WorldStore.Json);
+            TestAssert.Equal(0.25, firstWorkerWorld?.Time ?? -1.0,
+                    "background worker serializes world data before the atomic write");
+            WorldManifest? firstWorkerManifest = JsonSerializer.Deserialize<WorldManifest>(
+                    File.ReadAllText(workerManifestPath), WorldStore.ManifestJson);
+            TestAssert.Check(firstWorkerManifest is { HasSavedData: true },
+                    "background worker persists the save-history marker with its completed pair");
+
+            WorldSaveSnapshot nextWorkerSnapshot = workerSnapshot with
+            {
+                World = workerSnapshot.World with { Time = 0.75 },
+                Player = workerSnapshot.Player with { Health = 11.0f },
+                Manifest = workerSnapshot.Manifest with { PlaytimeSeconds = 10 },
+                DirtyRevision = 2,
+                ElapsedPlaytimeSeconds = 5.0,
+            };
+            WorldSaveWorkerResult secondWorkerSave =
+                    WorldSaveWorker.WriteAsync(nextWorkerSnapshot).GetAwaiter().GetResult();
+            TestAssert.Check(secondWorkerSave.Success,
+                    "ordered background worker accepts the next world snapshot");
+            WorldSave? currentWorkerWorld =
+                    JsonSerializer.Deserialize<WorldSave>(File.ReadAllText(workerWorldPath), WorldStore.Json);
+            WorldSave? backupWorkerWorld =
+                    JsonSerializer.Deserialize<WorldSave>(File.ReadAllText(workerWorldPath + ".bak"), WorldStore.Json);
+            TestAssert.Equal(0.75, currentWorkerWorld?.Time ?? -1.0,
+                    "newest background snapshot is committed as current");
+            TestAssert.Equal(0.25, backupWorkerWorld?.Time ?? -1.0,
+                    "background atomic writes retain the previous valid world snapshot");
+            PlayerSave? currentWorkerPlayer =
+                    JsonSerializer.Deserialize<PlayerSave>(File.ReadAllText(workerPlayerPath), WorldStore.Json);
+            TestAssert.Equal(11.0f, currentWorkerPlayer?.Health ?? -1.0f,
+                    "background worker commits the matching player snapshot");
+
+            string protectedPath = Path.Combine(workerRoot, "protected.json");
+            File.WriteAllText(protectedPath, "preserve-current");
+            Directory.CreateDirectory(protectedPath + ".bak");
+            bool protectedWrite = WorldSaveWorker.WriteAtomic(protectedPath, "must-not-replace", out string? protectedError);
+            TestAssert.Check(!protectedWrite && !string.IsNullOrEmpty(protectedError),
+                    "background atomic writer reports an occupied backup directory");
+            TestAssert.Equal("preserve-current", File.ReadAllText(protectedPath),
+                    "failed background atomic write preserves the current save");
+            TestAssert.Check(!File.Exists(protectedPath + ".tmp"),
+                    "failed background atomic write removes its temporary file");
+
+            string incompleteWorldPath = Path.Combine(workerRoot, "incomplete-world.json");
+            string incompletePlayerPath = Path.Combine(workerRoot, "incomplete-player.json");
+            string incompleteManifestPath = Path.Combine(workerRoot, "incomplete-manifest.json");
+            Directory.CreateDirectory(incompleteWorldPath);
+            WorldManifest previousManifest = workerManifest with
+            {
+                HasSavedData = false,
+                PlaytimeSeconds = 1,
+            };
+            File.WriteAllText(incompleteManifestPath,
+                    JsonSerializer.Serialize(previousManifest, WorldStore.ManifestJson));
+            WorldSaveSnapshot incompletePair = workerSnapshot with
+            {
+                WorldPath = incompleteWorldPath,
+                PlayerPath = incompletePlayerPath,
+                ManifestPath = incompleteManifestPath,
+                Manifest = workerManifest with { HasSavedData = true },
+            };
+            WorldSaveWorkerResult incompleteResult =
+                    WorldSaveWorker.WriteSynchronously(incompletePair);
+            TestAssert.Check(!incompleteResult.Success,
+                    "background worker reports a failed world/player save pair");
+            WorldManifest? unchangedManifest = JsonSerializer.Deserialize<WorldManifest>(
+                    File.ReadAllText(incompleteManifestPath), WorldStore.ManifestJson);
+            TestAssert.Check(unchangedManifest is { HasSavedData: false, PlaytimeSeconds: 1 },
+                    "failed save pair does not advance save-history metadata");
+            TestAssert.Check(File.Exists(incompletePlayerPath),
+                    "background worker still attempts the player half after world-write failure");
+
+        }
+        finally
+        {
+            Directory.Delete(workerRoot, recursive: true);
+        }
 
         string corruptPath = root + "/corrupt.json";
         WorldStore.WriteAtomic(corruptPath, JsonSerializer.Serialize(save, WorldStore.Json));

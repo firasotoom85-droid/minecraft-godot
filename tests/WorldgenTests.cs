@@ -61,10 +61,94 @@ public static class WorldgenTests
             }
         }
 
+        Vector3 normalSpawn = v5.FindSpawn();
+        TestAssert.Check(v5.IsSafeSpawnPosition(normalSpawn),
+                "normal-world spawn has support and a clear dry player capsule");
+
+        bool noSafeSpawnReported = false;
+        int rejectedSpawnCandidates = 0;
+        try
+        {
+            _ = v5.FindSpawn(_ =>
+            {
+                rejectedSpawnCandidates++;
+                return false;
+            });
+        }
+        catch (InvalidOperationException error)
+        {
+            noSafeSpawnReported = error.Message.Contains(
+                    "within 512 blocks", StringComparison.Ordinal);
+        }
+        TestAssert.Check(rejectedSpawnCandidates > 0,
+                "the no-safe-spawn fixture evaluates actual generated candidates");
+        TestAssert.Check(noSafeSpawnReported,
+                "rejecting every candidate reports a controlled no-safe-spawn failure instead of returning a fallback");
+        int normalSpawnX = Mathf.FloorToInt(normalSpawn.X);
+        int normalSpawnZ = Mathf.FloorToInt(normalSpawn.Z);
+        int normalFloorY = Mathf.FloorToInt(normalSpawn.Y - 1.5f);
+        TestAssert.Check(BlockDb.IsSolid(v5.GetBlock(normalSpawnX, normalFloorY, normalSpawnZ)),
+                "normal-world spawn stands above a solid support block");
+        TestAssert.Check(VoxelWorld.CapsuleIntersectsVoxelAabb(
+                        new Vector3(0.5f, 0.0f, 0.5f), 0.35f, 1.8f,
+                        new Vector3(0.8f, 0.8f, 0.0f), new Vector3(1.3f, 1.8f, 1.0f)),
+                "spawn capsule detects a nearby occupied collision volume");
+        TestAssert.Check(!VoxelWorld.CapsuleIntersectsVoxelAabb(
+                        new Vector3(0.5f, 0.0f, 0.5f), 0.35f, 1.8f,
+                        new Vector3(0.86f, 0.8f, 0.0f), new Vector3(1.3f, 1.8f, 1.0f)),
+                "spawn capsule rejects non-overlapping adjacent collision volume");
+        TestAssert.Check(v5.SaveNow(),
+                "explicit world save reports a successful synchronous write");
+        TestAssert.Check(WorldStore.ReadManifest(v5Dir)?.HasSavedData == true,
+                "explicit world save persists the first-complete-save marker");
+
         host.RemoveChild(v5);
         v5.QueueFree();
-        DirAccess.RemoveAbsolute(v5Dir + "/manifest.json");
+        foreach (string savePath in new[]
+                {
+                    WorldStore.ManifestPath(v5Dir),
+                    WorldStore.WorldSavePath(v5Dir),
+                    WorldStore.PlayerSavePath(v5Dir),
+                })
+        {
+            DirAccess.RemoveAbsolute(savePath);
+        }
         DirAccess.RemoveAbsolute(v5Dir);
+
+        foreach (string preset in new[] { "flat", "amplified" })
+        {
+            string presetDir = $"user://tests/world-{preset}-spawn-{Time.GetTicksUsec()}";
+            DirAccess.MakeDirRecursiveAbsolute(presetDir);
+            WorldStore.WriteManifest(presetDir, new WorldManifest(
+                    $"{preset} Spawn", 31415926, WorldGenV8.Version,
+                    WorldStore.DeriveNoiseSeeds(31415926), 0, 0, "survival", preset));
+            GameSession.Instance.SelectWorld(presetDir);
+            VoxelWorld presetWorld = new();
+            host.AddChild(presetWorld);
+            Vector3 presetSpawn = presetWorld.FindSpawn();
+            TestAssert.Check(presetWorld.IsSafeSpawnPosition(presetSpawn),
+                    $"{preset}-world spawn has solid support and a clear dry player capsule");
+            host.RemoveChild(presetWorld);
+            presetWorld.QueueFree();
+            DirAccess.RemoveAbsolute(presetDir + "/manifest.json");
+            DirAccess.RemoveAbsolute(presetDir);
+        }
+
+        string skySpawnDir = $"user://tests/world-sky-spawn-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(skySpawnDir);
+        WorldStore.WriteManifest(skySpawnDir, new WorldManifest(
+                "Sky Spawn", 24681357, WorldGenV8.Version,
+                WorldStore.DeriveNoiseSeeds(24681357), 0, 0, "survival", "sky"));
+        GameSession.Instance.SelectWorld(skySpawnDir);
+        VoxelWorld skySpawnWorld = new();
+        host.AddChild(skySpawnWorld);
+        Vector3 skySpawn = skySpawnWorld.FindSpawn();
+        TestAssert.Check(skySpawnWorld.IsSafeSpawnPosition(skySpawn),
+                "sky-world spawn is on an island with a clear player capsule");
+        host.RemoveChild(skySpawnWorld);
+        skySpawnWorld.QueueFree();
+        DirAccess.RemoveAbsolute(skySpawnDir + "/manifest.json");
+        DirAccess.RemoveAbsolute(skySpawnDir);
 
         CheckLegacyGoldenHashes(host);
         CheckV7GoldenHashes(host);
@@ -751,14 +835,14 @@ public static class WorldgenTests
         int minStructureZ = Mathf.FloorToInt((village.Z - 52) / (float)structureCell);
         int maxStructureZ = Mathf.FloorToInt((village.Z + 52) / (float)structureCell);
         for (int cz = minStructureZ; cz <= maxStructureZ; cz++)
-        for (int cx = minStructureX; cx <= maxStructureX; cx++)
-        {
-            if (first.GetStructureSite(cx, cz) is not { } structure) continue;
-            int dx = structure.X - village.X;
-            int dz = structure.Z - village.Z;
-            TestAssert.Check(dx * dx + dz * dz >= 52 * 52,
-                    "village site does not overlap a surface structure");
-        }
+            for (int cx = minStructureX; cx <= maxStructureX; cx++)
+            {
+                if (first.GetStructureSite(cx, cz) is not { } structure) continue;
+                int dx = structure.X - village.X;
+                int dz = structure.Z - village.Z;
+                TestAssert.Check(dx * dx + dz * dz >= 52 * 52,
+                        "village site does not overlap a surface structure");
+            }
 
         // Generate every chunk that the settlement touches in order, then the
         // same chunks in reverse order in an independent world.
@@ -768,37 +852,37 @@ public static class WorldgenTests
         int maxChunkZ = Mathf.FloorToInt((village.Z + VillageStructures.Radius) / (float)VoxelWorld.ChunkZ);
         Dictionary<Vector2I, string> orderedHashes = [];
         for (int cz = minChunkZ; cz <= maxChunkZ; cz++)
-        for (int cx = minChunkX; cx <= maxChunkX; cx++)
-        {
-            Vector2I chunk = new(cx, cz);
-            orderedHashes[chunk] = Convert.ToHexString(SHA256.HashData(first.ChunkData(chunk)));
-        }
+            for (int cx = minChunkX; cx <= maxChunkX; cx++)
+            {
+                Vector2I chunk = new(cx, cz);
+                orderedHashes[chunk] = Convert.ToHexString(SHA256.HashData(first.ChunkData(chunk)));
+            }
 
         int chunksWithVillageBlocks = 0;
         int bedCount = 0, chestCount = 0, furnaceCount = 0, tableCount = 0, farmCount = 0, torchCount = 0;
         for (int cz = minChunkZ; cz <= maxChunkZ; cz++)
-        for (int cx = minChunkX; cx <= maxChunkX; cx++)
-        {
-            int chunkVillageBlocks = 0;
-            int ox = cx * VoxelWorld.ChunkX;
-            int oz = cz * VoxelWorld.ChunkZ;
-            for (int z = oz; z < oz + VoxelWorld.ChunkZ; z++)
-            for (int x = ox; x < ox + VoxelWorld.ChunkX; x++)
-            for (int y = Math.Max(1, village.Y - 2); y <= Math.Min(first.Height - 1, village.Y + 8); y++)
+            for (int cx = minChunkX; cx <= maxChunkX; cx++)
             {
-                BlockId id = first.GetBlock(x, y, z);
-                switch (id)
-                {
-                    case BlockId.Bed: bedCount++; chunkVillageBlocks++; break;
-                    case BlockId.Chest: chestCount++; chunkVillageBlocks++; break;
-                    case BlockId.Furnace: furnaceCount++; chunkVillageBlocks++; break;
-                    case BlockId.CraftingTable: tableCount++; chunkVillageBlocks++; break;
-                    case BlockId.Farmland: farmCount++; chunkVillageBlocks++; break;
-                    case BlockId.Torch: torchCount++; chunkVillageBlocks++; break;
-                }
+                int chunkVillageBlocks = 0;
+                int ox = cx * VoxelWorld.ChunkX;
+                int oz = cz * VoxelWorld.ChunkZ;
+                for (int z = oz; z < oz + VoxelWorld.ChunkZ; z++)
+                    for (int x = ox; x < ox + VoxelWorld.ChunkX; x++)
+                        for (int y = Math.Max(1, village.Y - 2); y <= Math.Min(first.Height - 1, village.Y + 8); y++)
+                        {
+                            BlockId id = first.GetBlock(x, y, z);
+                            switch (id)
+                            {
+                                case BlockId.Bed: bedCount++; chunkVillageBlocks++; break;
+                                case BlockId.Chest: chestCount++; chunkVillageBlocks++; break;
+                                case BlockId.Furnace: furnaceCount++; chunkVillageBlocks++; break;
+                                case BlockId.CraftingTable: tableCount++; chunkVillageBlocks++; break;
+                                case BlockId.Farmland: farmCount++; chunkVillageBlocks++; break;
+                                case BlockId.Torch: torchCount++; chunkVillageBlocks++; break;
+                            }
+                        }
+                if (chunkVillageBlocks > 0) chunksWithVillageBlocks++;
             }
-            if (chunkVillageBlocks > 0) chunksWithVillageBlocks++;
-        }
 
         TestAssert.Check(bedCount >= 4, "generated village contains resident beds");
         TestAssert.Check(chestCount >= 2, "generated village contains storage");
@@ -830,8 +914,8 @@ public static class WorldgenTests
 
         List<Vector2I> reversed = [];
         for (int cz = maxChunkZ; cz >= minChunkZ; cz--)
-        for (int cx = maxChunkX; cx >= minChunkX; cx--)
-            reversed.Add(new Vector2I(cx, cz));
+            for (int cx = maxChunkX; cx >= minChunkX; cx--)
+                reversed.Add(new Vector2I(cx, cz));
         foreach (Vector2I chunk in reversed)
         {
             string hash = Convert.ToHexString(SHA256.HashData(second.ChunkData(chunk)));
