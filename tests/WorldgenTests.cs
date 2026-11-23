@@ -1290,6 +1290,8 @@ public static class WorldgenTests
 
     private static void CheckV12FeatureRules()
     {
+        TestAssert.Equal(WorldGenV12.Version, WorldStore.CurrentGenVersion,
+                "new worlds default to generator V12");
         WorldGenV8 seedA = new(1337, "normal");
         WorldGenV8 seedB = new(7331, "normal");
         bool seedChangesCactusHash = false;
