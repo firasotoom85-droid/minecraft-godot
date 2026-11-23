@@ -86,14 +86,25 @@ than entering transparent sorting. The first-person held-item `Sprite3D`
 retains texture alpha and nearest sampling so its icon edges stay consistent
 with the procedural atlas.
 
-The atlas/greedy-array/glass/water lighting shaders share one bounded sky/block
-response: torch and campfire light fill only the remaining skylight headroom,
-with the same warm hue and restrained shadow-gated emission. This prevents
-full daylight and block-light channels from stacking into washed-out surfaces
-while retaining warm contrast at night and in caves. The dedicated lava shader
-preserves its orange core, but scales that emission from the packed block-light
-channel normalized to lava's registered 12/15 source level; a zero block-light
-channel cannot leave a glowing lava surface. New canopy tiles 56–58 are
+The atlas/greedy-array/glass/water/lava shaders distinguish three baked
+sources without adding a vertex attribute. The red vertex channel carries only
+the pre-flood vertical direct-sun value; the existing packed high nibble still
+retains the max-combined sky value for gameplay, mob perception and cave
+exposure. A compact four-bit direct-sky side map lets the mesher derive the
+lateral cave-spill delta from that combined value. It is rendered as restrained
+cool diffuse fill (0.22 response), not as a directional sun or moon key.
+This is an approximation of sky entering a cave from an exposed opening, not
+ray-traced or material-reflected global illumination.
+
+The fractional 1/16 range of the existing vertex-alpha material tag carries
+that four-bit cave-spill value, leaving its integer material-family and wet
+flags intact. The greedy merge key includes all four cave-spill corner values,
+so merged and per-face geometry keep the same shading. The warm
+torch/campfire response still uses total sky exposure to fill only the
+remaining headroom; its warm hue and restrained shadow-gated emission remain
+separate from cool cave fill. Lava retains its orange core, normalized to its
+registered 12/15 source level, and no longer treats cave spill as directional
+sunlight. New canopy tiles 56–58 are
 explicitly foliage, and every placeable held item derives its first-person
 response from its registered block atlas tile, preventing drift between the
 held sprite and placed geometry.
@@ -129,10 +140,10 @@ godot --path . res://tests/WoodArtVisualCapture.tscn -- 1337 /tmp/edge-distant.p
 
 The BlockShapeTests suite also checks the seam condition directly: it groups
 emitted vertices by half-voxel position and face normal, verifies that separate
-coplanar quads carry identical baked skylight, block-light and AO channels at
+coplanar quads carry identical direct-sky, block-light and AO channels at
 shared corners, and compares every common corner between per-face and greedy
-outputs. The material-family tag in vertex alpha is intentionally excluded
-from this RGB lighting comparison.
+outputs. The integer material-family/wet tag and its fractional cave-spill
+payload in vertex alpha remain outside this RGB lighting comparison.
 
 ## Baked light through transparent and partial blocks
 
@@ -162,9 +173,11 @@ cache neighbourhood used by opacity and emitter edits. Incremental emitter
 updates also receive the local shape-state snapshot, so they cannot propagate
 through a closed half-face.
 
-The four-bit vertex channels, shared atlas/greedy-array/glass/water shader
+The four-bit red/green vertex light channels, blue AO, and mesh vertex layout
+remain unchanged; direct sky and the cave-spill delta are separated through
+the existing alpha tag. The shared atlas/greedy-array/glass/water shader
 response, greedy mesher, chunk streaming, and absence of per-emitter light
-nodes are unchanged. No shader pass or per-frame work is added; aperture masks
+nodes are retained. No shader pass or per-frame work is added; aperture masks
 are cached once for the finite shape-state domain, and occupancy/state checks
 run only during baked lighting solves. No persisted IDs, save fields or
 generator rules change.
@@ -300,13 +313,14 @@ repeatable world contexts:
 
 All five scenes use the same capture runner and load `scenes/main.tscn`.
 They reuse its real `WorldEnvironmentFactory`, directional sun/moon, DayNight
-palette, baked `VoxelLightData`, shared atlas/array/glass/water shaders, greedy
-mesher and chunk streaming. The seed defaults to 1337, generator version is
+palette, combined/direct `VoxelLightData`, shared atlas/array/glass/water/lava
+shaders, greedy mesher and chunk streaming. The seed defaults to 1337, generator version is
 the project's current V11, weather is fixed to clear, output is 1280×720, and
 LOW is the default renderer preset. Each profile pins its camera composition
 and time of day; choose the same seed and preset for a matched five-scene set.
-The runner logs the sampled sky/block-light nibbles, nearby emitter count,
-render settings and output path, and rejects any `OmniLight3D` in the scene.
+The runner logs the combined-sky, direct-sky, cave-spill and block-light
+nibbles, nearby emitter count, render settings and output path, and rejects
+any `OmniLight3D` in the scene.
 
 The cave scene constructs its chamber and open shaft in a disposable world.
 Every changed voxel is written through `VoxelWorld.SetBlock`; the other scenes
@@ -347,9 +361,10 @@ existing 0.80 render scale and disables SSAO, SSR, glow and volumetric fog for
 MX230-class GPUs. The runner creates and removes a temporary world and does
 not modify existing saves, generation rules, persisted IDs or settings.
 `LightingComparisonTests` verifies all five scene/profile bindings, fixed
-capture dimensions and streaming bounds, the shared environment and the
-sky/block/AO vertex-channel contract. The real-scene captures remain the
-visual check; headless tests do not claim to judge image quality or FPS.
+capture dimensions and streaming bounds, the shared environment, the
+direct-sky/block/AO RGB channels, and the fractional cave-spill material tag.
+The real-scene captures remain the visual check; headless tests do not claim
+to judge image quality or FPS.
 
 ## Procedural atlas validation report
 
@@ -420,11 +435,12 @@ generation or save data.
   glass and animated water use separate alpha-blended chunk surfaces with
   opaque-only depth writes and mesh-bounds-center sorting. Glass culls back faces;
   water is two-sided. Both retain the existing atlas and voxel-light pipeline.
-- **Voxel lighting** — packed 4-bit sky/block light, sunlight through transparent
-  voxels, warm multi-source propagation with opaque occlusion, cave darkness and
-  live place/break updates across chunk boundaries. Emitter edits incrementally
-  add/remove block light in cached 3×3 regions; opacity edits invalidate the
-  affected light maps so direct sun and cave spill are recalculated. Lighting is
+- **Voxel lighting** — packed 4-bit combined sky/block light plus a compact
+  direct-sky map that lets the mesh distinguish directional sunlight from
+  lateral cave spill. Warm multi-source propagation retains opaque occlusion,
+  transparent transmission, cave darkness and live place/break updates across
+  chunk boundaries. Emitter edits incrementally add/remove block light in
+  cached 3×3 regions; opacity edits invalidate the affected maps. Lighting is
   baked into mesh vertex channels; no per-torch light-node pool is required.
   Torches and live generated campfires share one 14-level warm source channel;
   campfires keep their GPU fire and smoke particles but use the baked map
@@ -514,7 +530,7 @@ generation or save data.
   Chunk meshing requests share one snapshot-locked 3×3 packed-light solve
   built from a 5×5 block region with a 14-voxel attenuation halo. Its nine
   results are cached for adjacent chunk jobs, so worker completion order does
-  not change the baked sky/block channels for a given chunk. A newly applied
+  not change the combined sky/block or compact direct-sky channels for a chunk. A newly applied
   chunk fades its existing opaque, glass, water and lava surfaces from
   transparent to opaque over 0.4 seconds; the light is already baked before
   the fade starts. This is a mesh-arrival transition, not a second lighting
@@ -643,7 +659,8 @@ V11 golden chunk hashes, runs V11 forward and reversed chunk order across
 positive and negative coordinates, proves the V11 delta is only air-to-reed
 cells, round-trips appended reed content through V4 saves, and checks the wet
 merge bit directly. It also solves adjacent 3×3 light neighbourhoods in both
-orders, compares all six overlapping chunks' packed sky/block bytes, and checks
+orders, compares all six overlapping chunks' packed sky/block bytes and
+compact direct-sky nibbles, and checks
 camera skylight continuity across a negative-to-zero chunk boundary. Coverage
 also includes deterministic V9 weathering,
 the V10 foliage-only delta, the V10-to-V11 shoreline-only delta,
@@ -865,9 +882,10 @@ world-space face normal to give the baked sky channel a restrained
 sun-facing response. The ordinary directional light remains responsible for
 dynamic shadowing, so this is not a second shadow or emitter-light system.
 
-The packed 4-bit skylight/block-light channels, propagation caches, mesh
-vertex layout and greedy face keys are unchanged. No light node is created per
-torch or block emitter, and no chunk is remeshed as the sun moves. LOW and
+The packed 4-bit combined-sky/block-light channels and mesh vertex layout
+remain unchanged. The greedy face key now also compares the separate
+cave-spill corner values. No light node is created per torch or block emitter,
+and no chunk is remeshed as the sun moves. LOW and
 BALANCED presets are unchanged; LOW retains its 0.80 render scale, 45 m /
 1024 px shadow budget and disabled SSAO/SSR/glow/volumetric fog. The new
 response adds no screen-space pass.
