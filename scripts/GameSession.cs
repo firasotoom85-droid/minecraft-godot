@@ -40,7 +40,7 @@ public partial class GameSession : Node
         if (WorldDir.Length > 0)
         {
             WorldReadResult<WorldManifest> manifestRead = WorldStore.ReadManifestResult(WorldDir);
-            if (manifestRead.Value is null)
+            if (manifestRead.Value is not { } manifest)
             {
                 Manifest = null;
                 throw new System.IO.InvalidDataException(
@@ -49,7 +49,6 @@ public partial class GameSession : Node
                         + manifestRead.Error);
             }
 
-            WorldManifest manifest = manifestRead.Value;
             Manifest = manifest;
             WorldReadResult<WorldSave> worldRead = WorldStore.ReadJsonResult<WorldSave>(
                     WorldStore.WorldSavePath(WorldDir), WorldStore.Json);
@@ -74,7 +73,7 @@ public partial class GameSession : Node
 
             if (worldRead.Status == WorldReadStatus.Missing && playerRead.Status == WorldReadStatus.Missing
                     && (manifest.HasSavedData || manifest.PlaytimeSeconds > 0
-                    || manifest.PlayedUtc > manifest.CreatedUtc))
+                    ))
             {
                 WorldStore.RequireRecovery(WorldDir);
                 throw new System.IO.InvalidDataException(
