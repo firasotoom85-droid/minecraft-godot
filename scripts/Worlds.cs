@@ -148,6 +148,9 @@ public static class WorldStore
     internal static void ClearRecoveryRequired(string dir) =>
         RecoveryRequiredDirectories.Remove(dir.TrimEnd('/'));
 
+    public static void RequireRecovery(string dir) =>
+        RecoveryRequiredDirectories.Add(dir.TrimEnd('/'));
+
     private static void MarkRecoveryRequired(string path)
     {
         string prefix = WorldsRoot + "/";
