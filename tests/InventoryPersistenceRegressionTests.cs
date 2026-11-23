@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json;
 
 namespace Minecraft;
 
@@ -107,61 +108,102 @@ public static class InventoryPersistenceRegressionTests
 
     private static void KeepCraftingResultsAtomic()
     {
-        Inventory full = FilledInventory();
-        full.Set(0, ItemDb.New(ItemId.Planks, 63));
-        ItemStack cursor = ItemDb.New(ItemId.Stone, 1);
-        ItemStack result = ItemDb.New(ItemId.Planks, 4);
+        Inventory partialCapacity = FilledInventory();
+        partialCapacity.Set(0, ItemDb.New(ItemId.Planks, 63));
+        ItemStack[] partialGrid = new ItemStack[4];
+        partialGrid[0] = ItemDb.New(ItemId.Log, 1);
+        ItemStack incompatibleCursor = ItemDb.New(ItemId.Stone, 1);
+        (Recipe Recipe, int Row, int Col)? partialMatch = Recipes.Match(partialGrid, 2);
+        TestAssert.Check(partialMatch is not null, "Log matches the four-planks crafting result");
 
-        bool collected = InventoryStackTransfer.TryCollectCraftingResult(
-                result, cursor, full, out ItemStack cursorAfter);
-        TestAssert.Check(!collected,
-                "craft result refuses partial inventory capacity when cursor is incompatible");
-        TestAssert.Equal(63, full.Get(0).Count,
-                "failed craft collection leaves matching inventory stack unchanged");
-        TestAssert.Equal(63, full.CountOf(ItemId.Planks),
-                "failed craft collection inserts no partial output");
-        TestAssert.Equal(ItemId.Stone, cursorAfter.Id,
-                "failed craft collection leaves the incompatible cursor unchanged");
-        TestAssert.Equal(1, cursorAfter.Count,
-                "failed craft collection preserves the complete cursor quantity");
+        if (partialMatch is { } partial)
+        {
+            bool collected = InventoryStackTransfer.TryTakeCraftingResult(
+                    partialGrid, 2, partial, incompatibleCursor, partialCapacity,
+                    out ItemStack cursorAfter);
+            TestAssert.Check(!collected,
+                    "craft result refuses partial inventory capacity when cursor is incompatible");
+            TestAssert.Equal(63, partialCapacity.CountOf(ItemId.Planks),
+                    "failed craft does not insert the partial output");
+            TestAssert.Equal(ItemId.Log, partialGrid[0].Id,
+                    "failed craft leaves the source ingredient in the grid");
+            TestAssert.Equal(1, partialGrid[0].Count,
+                    "failed craft leaves the full ingredient count unchanged");
+            TestAssert.Equal(ItemId.Stone, cursorAfter.Id,
+                    "failed craft preserves the incompatible cursor item");
+            TestAssert.Equal(1, cursorAfter.Count,
+                    "failed craft preserves the complete cursor quantity");
 
-        ItemStack fullMatchingCursor = ItemDb.New(ItemId.Planks, 63);
-        collected = InventoryStackTransfer.TryCollectCraftingResult(
-                result, fullMatchingCursor, full, out cursorAfter);
-        TestAssert.Check(!collected,
-                "matching cursor that cannot accept the whole result falls back atomically");
-        TestAssert.Equal(63, cursorAfter.Count,
-                "failed matching-cursor collection does not partially increase the cursor");
-        TestAssert.Equal(63, full.CountOf(ItemId.Planks),
-                "failed matching-cursor collection does not partially insert into inventory");
+            ItemStack fullMatchingCursor = ItemDb.New(ItemId.Planks, 63);
+            collected = InventoryStackTransfer.TryTakeCraftingResult(
+                    partialGrid, 2, partial, fullMatchingCursor, partialCapacity,
+                    out cursorAfter);
+            TestAssert.Check(!collected,
+                    "matching cursor overflow falls back atomically when inventory lacks room");
+            TestAssert.Equal(63, cursorAfter.Count,
+                    "failed matching-cursor collection does not partially increase the cursor");
+            TestAssert.Equal(63, partialCapacity.CountOf(ItemId.Planks),
+                    "failed matching-cursor collection does not partially insert into inventory");
+            TestAssert.Equal(ItemId.Log, partialGrid[0].Id,
+                    "failed matching-cursor collection retains the ingredients");
+        }
 
-        Inventory cursorOnly = FilledInventory();
-        collected = InventoryStackTransfer.TryCollectCraftingResult(
-                result, ItemStack.Empty, cursorOnly, out cursorAfter);
-        TestAssert.Check(collected, "empty cursor accepts the complete crafting result");
-        TestAssert.Equal(4, cursorAfter.Count,
-                "empty cursor receives the full result count");
-        TestAssert.Equal(0, cursorOnly.CountOf(ItemId.Planks),
-                "empty cursor collection does not also insert inventory items");
+        Inventory cursorInventory = FilledInventory();
+        ItemStack[] emptyCursorGrid = new ItemStack[4];
+        emptyCursorGrid[0] = ItemDb.New(ItemId.Log, 1);
+        (Recipe Recipe, int Row, int Col)? emptyCursorMatch = Recipes.Match(emptyCursorGrid, 2);
+        if (emptyCursorMatch is { } emptyMatch)
+        {
+            bool collected = InventoryStackTransfer.TryTakeCraftingResult(
+                    emptyCursorGrid, 2, emptyMatch, ItemStack.Empty, cursorInventory,
+                    out ItemStack cursorAfter);
+            TestAssert.Check(collected, "empty cursor accepts the complete crafting result");
+            TestAssert.Equal(ItemId.Planks, cursorAfter.Id,
+                    "empty cursor receives the recipe output");
+            TestAssert.Equal(4, cursorAfter.Count,
+                    "empty cursor receives all four planks");
+            TestAssert.Check(emptyCursorGrid[0].IsEmpty,
+                    "successful collection consumes the matched log ingredient");
+            TestAssert.Check(Recipes.Match(emptyCursorGrid, 2) is null,
+                    "consumed ingredients cannot produce the same result a second time");
+            TestAssert.Equal(0, cursorInventory.CountOf(ItemId.Planks),
+                    "cursor delivery does not also insert result items into inventory");
+        }
 
-        ItemStack matchingCursor = ItemDb.New(ItemId.Planks, 60);
-        collected = InventoryStackTransfer.TryCollectCraftingResult(
-                result, matchingCursor, cursorOnly, out cursorAfter);
-        TestAssert.Check(collected, "matching cursor accepts a result that fits");
-        TestAssert.Equal(64, cursorAfter.Count,
-                "matching cursor receives the complete result without overstacking");
+        ItemStack[] matchingCursorGrid = new ItemStack[4];
+        matchingCursorGrid[0] = ItemDb.New(ItemId.Log, 1);
+        (Recipe Recipe, int Row, int Col)? matchingCursorMatch = Recipes.Match(matchingCursorGrid, 2);
+        if (matchingCursorMatch is { } match)
+        {
+            bool collected = InventoryStackTransfer.TryTakeCraftingResult(
+                    matchingCursorGrid, 2, match, ItemDb.New(ItemId.Planks, 60),
+                    cursorInventory, out ItemStack cursorAfter);
+            TestAssert.Check(collected, "matching cursor accepts an output that fits");
+            TestAssert.Equal(64, cursorAfter.Count,
+                    "matching cursor receives the complete result without overstacking");
+            TestAssert.Check(matchingCursorGrid[0].IsEmpty,
+                    "matching-cursor collection consumes ingredients exactly once");
+        }
 
         Inventory oneFreeSlot = FilledInventory();
         oneFreeSlot.Set(Inventory.SlotCount - 1, ItemStack.Empty);
-        ItemStack incompatibleCursor = ItemDb.New(ItemId.Stone, 1);
-        collected = InventoryStackTransfer.TryCollectCraftingResult(
-                result, incompatibleCursor, oneFreeSlot, out cursorAfter);
-        TestAssert.Check(collected,
-                "incompatible cursor falls back to inventory when the full result fits");
-        TestAssert.Equal(ItemId.Stone, cursorAfter.Id,
-                "inventory fallback preserves the incompatible cursor stack");
-        TestAssert.Equal(4, oneFreeSlot.CountOf(ItemId.Planks),
-                "inventory fallback receives the entire crafting result");
+        ItemStack[] fallbackGrid = new ItemStack[4];
+        fallbackGrid[0] = ItemDb.New(ItemId.Log, 1);
+        (Recipe Recipe, int Row, int Col)? fallbackMatch = Recipes.Match(fallbackGrid, 2);
+        if (fallbackMatch is { } matched)
+        {
+            bool collected = InventoryStackTransfer.TryTakeCraftingResult(
+                    fallbackGrid, 2, matched, incompatibleCursor, oneFreeSlot,
+                    out ItemStack cursorAfter);
+            TestAssert.Check(collected,
+                    "incompatible cursor falls back to inventory when the entire result fits");
+            TestAssert.Equal(ItemId.Stone, cursorAfter.Id,
+                    "inventory fallback preserves the incompatible cursor stack");
+            TestAssert.Equal(4, oneFreeSlot.CountOf(ItemId.Planks),
+                    "inventory fallback receives the entire crafting result");
+            TestAssert.Check(fallbackGrid[0].IsEmpty,
+                    "successful inventory fallback consumes the matched ingredient");
+        }
     }
 
     private static void PersistCursorAndCraftingGridItems()
@@ -171,8 +213,14 @@ public static class InventoryPersistenceRegressionTests
         inventory.CraftingGrid[4] = ItemDb.New(ItemId.Stone, 5);
         inventory.CursorStack = ItemDb.New(ItemId.Planks, 7);
 
+        PlayerSave savedPlayer = new([0.0f, 0.0f, 0.0f], Items: inventory.ToSave());
+        string json = JsonSerializer.Serialize(savedPlayer, WorldStore.Json);
+        PlayerSave? loadedPlayer = JsonSerializer.Deserialize<PlayerSave>(json, WorldStore.Json);
+        TestAssert.Check(loadedPlayer?.Items is not null,
+                "player save JSON contains the inventory's held and crafting stacks");
+
         Inventory loaded = new();
-        loaded.LoadFrom(inventory.ToSave());
+        loaded.LoadFrom(loadedPlayer?.Items);
         TestAssert.Equal(ItemId.Log, loaded.CraftingGrid[0].Id,
                 "crafting-grid item survives player save/load");
         TestAssert.Equal(2, loaded.CraftingGrid[0].Count,

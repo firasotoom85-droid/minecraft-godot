@@ -61,6 +61,24 @@ public static class InventoryStackTransfer
         return inventory.TryAddAtomic(result);
     }
 
+    /// <summary>
+    /// Commit one complete result to the cursor or inventory, then consume the
+    /// matched ingredients. A failed delivery leaves both sources untouched.
+    /// </summary>
+    public static bool TryTakeCraftingResult(ItemStack[] grid, int size,
+            (Recipe Recipe, int Row, int Col) match, ItemStack cursor,
+            Inventory inventory, out ItemStack updatedCursor)
+    {
+        ItemStack result = ItemDb.New(match.Recipe.Result, match.Recipe.ResultCount);
+        if (!TryCollectCraftingResult(result, cursor, inventory, out updatedCursor))
+        {
+            return false;
+        }
+
+        Recipes.ConsumeFromGrid(grid, size, match.Recipe, match.Row, match.Col);
+        return true;
+    }
+
     public static bool TryTransfer(ref ItemStack source, ref ItemStack target,
             int sourceArmorSlot = -1, int targetArmorSlot = -1)
     {

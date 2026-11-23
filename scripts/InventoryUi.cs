@@ -920,16 +920,15 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             return;
         }
 
-        ItemStack result = ItemDb.New(match.Recipe.Result, match.Recipe.ResultCount);
-        if (!InventoryStackTransfer.TryCollectCraftingResult(
-                    result, _cursor, _player.Inventory, out ItemStack updatedCursor))
+        if (!InventoryStackTransfer.TryTakeCraftingResult(
+                    _craft, _craftSize, match, _cursor, _player.Inventory,
+                    out ItemStack updatedCursor))
         {
             _hud.ShowToast("Inventory full");
             return;
         }
 
         _cursor = updatedCursor;
-        Recipes.ConsumeFromGrid(_craft, _craftSize, match.Recipe, match.Row, match.Col);
         _player.RecordCrafted(match.Recipe.Result, match.Recipe.ResultCount);
         _player.Inventory.RaiseChanged();
     }
