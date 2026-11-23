@@ -343,18 +343,18 @@ public partial class LightingComparisonCapture : Node
                 int nearestDistance = int.MaxValue;
                 VoxelWorld.TreeInfo nearestTree = default;
                 for (int dz = -24; dz <= 24; dz += 3)
-                for (int dx = -24; dx <= 24; dx += 3)
-                {
-                    if (world.GetTreeAt(x + dx, z + dz) is not { } tree)
-                        continue;
-                    count++;
-                    int distance = dx * dx + dz * dz;
-                    if (distance < nearestDistance)
+                    for (int dx = -24; dx <= 24; dx += 3)
                     {
-                        nearestDistance = distance;
-                        nearestTree = tree;
+                        if (world.GetTreeAt(x + dx, z + dz) is not { } tree)
+                            continue;
+                        count++;
+                        int distance = dx * dx + dz * dz;
+                        if (distance < nearestDistance)
+                        {
+                            nearestDistance = distance;
+                            nearestTree = tree;
+                        }
                     }
-                }
 
                 int score = count * 10 + (biome == Biome.DenseForest ? 12 : 0);
                 if (score > bestCount)
@@ -581,20 +581,20 @@ public partial class LightingComparisonCapture : Node
         for (int y = Math.Max(1, centre.Y - verticalRadius);
                 y <= Math.Min(world.Height - 1, centre.Y + verticalRadius); y++)
             for (int z = centre.Z - horizontalRadius; z <= centre.Z + horizontalRadius; z++)
-            for (int x = centre.X - horizontalRadius; x <= centre.X + horizontalRadius; x++)
-            {
-                if (world.GetBlock(x, y, z) != block)
-                    continue;
-                int dx = x - centre.X;
-                int dy = y - centre.Y;
-                int dz = z - centre.Z;
-                int distance = dx * dx + dy * dy + dz * dz;
-                if (distance < nearestDistance)
+                for (int x = centre.X - horizontalRadius; x <= centre.X + horizontalRadius; x++)
                 {
-                    nearest = new Vector3I(x, y, z);
-                    nearestDistance = distance;
+                    if (world.GetBlock(x, y, z) != block)
+                        continue;
+                    int dx = x - centre.X;
+                    int dy = y - centre.Y;
+                    int dz = z - centre.Z;
+                    int distance = dx * dx + dy * dy + dz * dz;
+                    if (distance < nearestDistance)
+                    {
+                        nearest = new Vector3I(x, y, z);
+                        nearestDistance = distance;
+                    }
                 }
-            }
         return nearest;
     }
 
