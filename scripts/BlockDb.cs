@@ -1129,6 +1129,7 @@ void fragment() {
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
     EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a;
+    ALPHA_ANTIALIASING_EDGE = 0.4;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
     vec3 response = surface_response(family);
     ALBEDO *= wet_tint;
