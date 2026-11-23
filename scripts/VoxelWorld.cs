@@ -2698,13 +2698,23 @@ public partial class VoxelWorld : Node3D
 
                 lock (_queueLock)
                 {
-                    _workerFailureAttempts.Remove(cp);
-                }
+                    // Publish under the same lock used to change the streaming
+                    // center. A completed worker must not slip an obsolete
+                    // rebuild payload into the apply queue after pruning ran.
+                    if (!_alive || !ChunkStreamingPolicy.IsWithinRetention(
+                            cp, _streamCenter, _streamRetentionLimit))
+                    {
+                        PayloadPool.Release(payload);
+                        payload = null;
+                        return;
+                    }
 
-                Profiler.RecordPayloadEnqueued(payload.EstimatedBufferBytes);
-                (rebuild ? _applyRebuild : _applyFresh).Enqueue((cp, payload));
-                payload = null;
-                published = true;
+                    _workerFailureAttempts.Remove(cp);
+                    Profiler.RecordPayloadEnqueued(payload.EstimatedBufferBytes);
+                    (rebuild ? _applyRebuild : _applyFresh).Enqueue((cp, payload));
+                    payload = null;
+                    published = true;
+                }
             }
             catch (OperationCanceledException)
             {
