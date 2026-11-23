@@ -77,7 +77,8 @@ internal static class WorldSaveWorker
     /// called here: the caller globalizes user:// paths before dispatching.
     /// </summary>
     internal static bool WriteAtomic(
-            string path, string text, out string? error, Action? beforePublish = null)
+            string path, string text, out string? error,
+            Action? beforeCurrentToBackup = null, Action? beforePublish = null)
     {
         string temporary = path + ".tmp";
         string backup = path + ".bak";
@@ -125,12 +126,13 @@ internal static class WorldSaveWorker
                     movedBackup = true;
                 }
 
+                beforeCurrentToBackup?.Invoke();
                 File.Move(path, backup);
                 movedCurrent = true;
             }
 
             // Failure injection is internal and used only by the regression
-            // suite to exercise rollback at the final publish boundary.
+            // suite to exercise the rotation and final publish rollback boundaries.
             beforePublish?.Invoke();
             File.Move(temporary, path);
             committed = true;
