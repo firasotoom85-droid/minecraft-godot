@@ -2103,12 +2103,14 @@ public partial class VoxelWorld : Node3D
 
     public bool SetBlock(int x, int y, int z, BlockId id) => SetBlock(x, y, z, id, 0);
 
+    internal static bool IsMutationBlockIdDefined(BlockId id) => BlockDb.IsDefined(id);
+
     /// <summary>All block and shape-state edits pass through this mutation seam.</summary>
     public bool SetBlock(int x, int y, int z, BlockId id, byte state)
     {
         // BlockId values are persisted and index several definition tables.
         // Reject unknown values before normalization or any mutation side effect.
-        if (!BlockDb.IsDefined(id))
+        if (!IsMutationBlockIdDefined(id))
         {
             return false;
         }
@@ -3224,10 +3226,9 @@ public partial class VoxelWorld : Node3D
             while (true)
             {
                 Vector2I cp;
-                bool rebuild;
                 lock (_queueLock)
                 {
-                    if (!TryDequeueWorkLocked(out cp, out rebuild))
+                    if (!TryDequeueWorkLocked(out cp, out _))
                     {
                         break;
                     }
