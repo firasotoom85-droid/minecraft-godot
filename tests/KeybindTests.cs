@@ -139,8 +139,12 @@ public static class KeybindTests
                 "appended river reeds use foliage placement sounds");
         TestAssert.Equal("dig_stone", Sound.FamilyFor(BlockId.WeatheredCobblestone),
                 "weathered masonry uses stone break sounds");
+        TestAssert.Equal("dig_stone", Sound.FamilyFor(BlockId.EnchantingTable),
+                "enchanting tables use stone break sounds");
         TestAssert.Equal("place_stone", Sound.PlaceFamilyFor(BlockId.CobblestoneStairs),
                 "masonry stairs use stone placement sounds");
+        TestAssert.Equal("place_stone", Sound.PlaceFamilyFor(BlockId.EnchantingTable),
+                "enchanting tables use stone placement sounds");
         TestAssert.Equal("dig_wood", Sound.FamilyFor(BlockId.PlanksSlab),
                 "wooden slabs use wood break sounds");
         TestAssert.Equal("place_wood", Sound.PlaceFamilyFor(BlockId.PlanksStairs),
@@ -161,19 +165,33 @@ public static class KeybindTests
 
         Sound.EnsureBuses();
         int sfxBus = AudioServer.GetBusIndex("Sfx");
-        int initialEffects = AudioServer.GetBusEffectCount(sfxBus);
-        AudioEffectReverb unrelatedEffect = new();
-        AudioEffectLowPassFilter ownedEffect = new();
-        AudioServer.AddBusEffect(sfxBus, unrelatedEffect, initialEffects);
-        AudioServer.AddBusEffect(sfxBus, ownedEffect, initialEffects + 1);
-        TestAssert.Equal(initialEffects + 1, Sound.FindOwnedBusEffect(sfxBus, ownedEffect),
-                "scene-owned underwater filter is found by identity, not fixed slot");
-        Sound.RemoveOwnedBusEffect(sfxBus, ownedEffect);
-        TestAssert.Equal(initialEffects, Sound.FindOwnedBusEffect(sfxBus, unrelatedEffect),
-                "removing the underwater filter preserves and reindexes other bus effects");
-        Sound.RemoveOwnedBusEffect(sfxBus, unrelatedEffect);
-        TestAssert.Equal(initialEffects, AudioServer.GetBusEffectCount(sfxBus),
-                "audio filter cleanup restores the original bus effect count");
+        int ambientBus = AudioServer.GetBusIndex("Ambient");
+        int initialSfxEffects = AudioServer.GetBusEffectCount(sfxBus);
+        int initialAmbientEffects = AudioServer.GetBusEffectCount(ambientBus);
+        AudioEffectReverb unrelatedSfxEffect = new();
+        AudioEffectReverb unrelatedAmbientEffect = new();
+        AudioEffectLowPassFilter ownedSfxEffect = new();
+        AudioEffectLowPassFilter ownedAmbientEffect = new();
+        AudioServer.AddBusEffect(sfxBus, unrelatedSfxEffect, initialSfxEffects);
+        AudioServer.AddBusEffect(sfxBus, ownedSfxEffect, initialSfxEffects + 1);
+        AudioServer.AddBusEffect(ambientBus, unrelatedAmbientEffect, initialAmbientEffects);
+        AudioServer.AddBusEffect(ambientBus, ownedAmbientEffect, initialAmbientEffects + 1);
+        TestAssert.Equal(initialSfxEffects + 1, Sound.FindOwnedBusEffect(sfxBus, ownedSfxEffect),
+                "SFX underwater filter is found by identity, not fixed slot");
+        TestAssert.Equal(initialAmbientEffects + 1, Sound.FindOwnedBusEffect(ambientBus, ownedAmbientEffect),
+                "ambient underwater filter is found by identity, not fixed slot");
+        Sound.RemoveOwnedBusEffect(sfxBus, ownedSfxEffect);
+        Sound.RemoveOwnedBusEffect(ambientBus, ownedAmbientEffect);
+        TestAssert.Equal(initialSfxEffects, Sound.FindOwnedBusEffect(sfxBus, unrelatedSfxEffect),
+                "SFX cleanup preserves and reindexes unrelated bus effects");
+        TestAssert.Equal(initialAmbientEffects, Sound.FindOwnedBusEffect(ambientBus, unrelatedAmbientEffect),
+                "ambient cleanup preserves and reindexes unrelated bus effects");
+        Sound.RemoveOwnedBusEffect(sfxBus, unrelatedSfxEffect);
+        Sound.RemoveOwnedBusEffect(ambientBus, unrelatedAmbientEffect);
+        TestAssert.Equal(initialSfxEffects, AudioServer.GetBusEffectCount(sfxBus),
+                "SFX cleanup restores the original bus effect count");
+        TestAssert.Equal(initialAmbientEffects, AudioServer.GetBusEffectCount(ambientBus),
+                "ambient cleanup restores the original bus effect count");
 
         SceneTree testTree = (SceneTree)Engine.GetMainLoop();
         SceneTreeTimer pendingTimer = testTree.CreateTimer(60.0);

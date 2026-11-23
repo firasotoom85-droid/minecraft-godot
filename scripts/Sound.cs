@@ -232,7 +232,7 @@ public partial class Sound : Node
                 or BlockId.FlowerRed or BlockId.FlowerYellow or BlockId.Cactus
                 or BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2
                 or BlockId.Torch => "dig_leaves",
-        BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.MossyCobblestone
+        BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.EnchantingTable or BlockId.MossyCobblestone
                 or BlockId.WeatheredCobblestone or BlockId.CrackedBrick or BlockId.MossyBrick
                 or BlockId.CobblestoneSlab or BlockId.BrickSlab
                 or BlockId.CobblestoneStairs or BlockId.BrickStairs
@@ -251,7 +251,7 @@ public partial class Sound : Node
                 or BlockId.SwampLeaves or BlockId.RiverReeds or BlockId.TallGrass
                 or BlockId.FlowerRed or BlockId.FlowerYellow or BlockId.Cactus
                 or BlockId.Torch => "place_leaves",
-        BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.MossyCobblestone
+        BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.EnchantingTable or BlockId.MossyCobblestone
                 or BlockId.WeatheredCobblestone or BlockId.CrackedBrick or BlockId.MossyBrick
                 or BlockId.CobblestoneSlab or BlockId.BrickSlab
                 or BlockId.CobblestoneStairs or BlockId.BrickStairs
@@ -366,7 +366,7 @@ public partial class Sound : Node
                 or BlockId.SwampLeaves or BlockId.RiverReeds or BlockId.TallGrass
                 or BlockId.FlowerRed or BlockId.FlowerYellow => 1.45f,
         BlockId.Glass => 1.35f,
-        BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.MossyCobblestone
+        BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.EnchantingTable or BlockId.MossyCobblestone
                 or BlockId.WeatheredCobblestone or BlockId.CrackedBrick or BlockId.MossyBrick
                 or BlockId.CobblestoneSlab or BlockId.BrickSlab
                 or BlockId.CobblestoneStairs or BlockId.BrickStairs

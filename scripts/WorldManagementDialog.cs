@@ -200,6 +200,7 @@ public partial class WorldManagementDialog : Control
             Filters = ["*.zip ; World archive"],
         };
         _importDialog.FileSelected += ImportWorld;
+        _importDialog.Canceled += CloseDialog;
         AddChild(_importDialog);
 
         _restoreDialog = new ConfirmationDialog
