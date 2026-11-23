@@ -13,16 +13,22 @@ public sealed class Container
     public const int Size = 27;
 
     public readonly ItemStack[] Slots = new ItemStack[Size];
-    private readonly ItemStackSave?[] _unrecognizedSavedSlots = new ItemStackSave?[Size];
+    private Dictionary<int, ItemStackSave>? _unrecognizedSavedSlots;
 
     public bool HasUnrecognizedSaveSlot(int slot) =>
-            (uint)slot < _unrecognizedSavedSlots.Length && _unrecognizedSavedSlots[slot] != null;
+            _unrecognizedSavedSlots?.ContainsKey(slot) ?? false;
 
     public void ClearUnrecognizedSaveSlot(int slot)
     {
-        if ((uint)slot < _unrecognizedSavedSlots.Length)
+        if (_unrecognizedSavedSlots == null)
         {
-            _unrecognizedSavedSlots[slot] = null;
+            return;
+        }
+
+        _unrecognizedSavedSlots.Remove(slot);
+        if (_unrecognizedSavedSlots.Count == 0)
+        {
+            _unrecognizedSavedSlots = null;
         }
     }
 
@@ -30,12 +36,9 @@ public sealed class Container
     {
         get
         {
-            foreach (ItemStackSave? saved in _unrecognizedSavedSlots)
+            if (_unrecognizedSavedSlots is { Count: > 0 })
             {
-                if (saved != null)
-                {
-                    return false;
-                }
+                return false;
             }
 
             foreach (ItemStack stack in Slots)
@@ -62,11 +65,14 @@ public sealed class Container
             }
         }
 
-        for (int i = 0; i < _unrecognizedSavedSlots.Length; i++)
+        if (_unrecognizedSavedSlots != null)
         {
-            if (_unrecognizedSavedSlots[i] is { } saved && Slots[i].IsEmpty)
+            foreach (KeyValuePair<int, ItemStackSave> entry in _unrecognizedSavedSlots)
             {
-                data.Add(saved);
+                if (Slots[entry.Key].IsEmpty)
+                {
+                    data.Add(entry.Value);
+                }
             }
         }
 
@@ -76,7 +82,7 @@ public sealed class Container
     public void LoadFrom(List<ItemStackSave>? items)
     {
         Array.Fill(Slots, ItemStack.Empty);
-        Array.Fill(_unrecognizedSavedSlots, null);
+        _unrecognizedSavedSlots = null;
         if (items == null)
         {
             return;
@@ -100,7 +106,8 @@ public sealed class Container
                 }
 
                 loadedSlots[saved.Slot] = true;
-                _unrecognizedSavedSlots[saved.Slot] = saved;
+                _unrecognizedSavedSlots ??= new Dictionary<int, ItemStackSave>();
+                _unrecognizedSavedSlots.Add(saved.Slot, saved);
                 ItemStackSaveValidator.ReportUnrecognized("container", saved);
                 continue;
             }

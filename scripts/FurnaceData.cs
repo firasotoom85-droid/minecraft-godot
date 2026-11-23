@@ -20,25 +20,30 @@ public sealed class FurnaceData
     public float SmeltTime;
 
     private ItemId? _smeltResult;
-    private readonly ItemStackSave?[] _unrecognizedSavedSlots = new ItemStackSave?[3];
+    private Dictionary<int, ItemStackSave>? _unrecognizedSavedSlots;
 
     public bool IsBurning => BurnTime > 0.0f;
 
     public bool HasUnrecognizedSaveSlot(int slot) =>
-            (uint)slot < _unrecognizedSavedSlots.Length && _unrecognizedSavedSlots[slot] != null;
+            _unrecognizedSavedSlots?.ContainsKey(slot) ?? false;
 
     public void ClearUnrecognizedSaveSlot(int slot)
     {
-        if ((uint)slot < _unrecognizedSavedSlots.Length)
+        if (_unrecognizedSavedSlots == null)
         {
-            _unrecognizedSavedSlots[slot] = null;
+            return;
+        }
+
+        _unrecognizedSavedSlots.Remove(slot);
+        if (_unrecognizedSavedSlots.Count == 0)
+        {
+            _unrecognizedSavedSlots = null;
         }
     }
 
     public bool IsEmpty => Input.IsEmpty && Fuel.IsEmpty && Output.IsEmpty
             && BurnTime <= 0.0f && SmeltTime <= 0.0f
-            && !HasUnrecognizedSaveSlot(0) && !HasUnrecognizedSaveSlot(1)
-            && !HasUnrecognizedSaveSlot(2);
+            && _unrecognizedSavedSlots is not { Count: > 0 };
 
     /// <summary>Advance one tick; carries elapsed time across fuel boundaries.</summary>
     public bool Tick(float delta)
@@ -166,17 +171,20 @@ public sealed class FurnaceData
             data.Add(new ItemStackSave(2, (int)Output.Id, Output.Count, Output.Durability, Output.Sharpness, Output.Protection, Output.Unbreaking));
         }
 
-        for (int i = 0; i < _unrecognizedSavedSlots.Length; i++)
+        if (_unrecognizedSavedSlots != null)
         {
-            ItemStack runtime = i switch
+            foreach (KeyValuePair<int, ItemStackSave> entry in _unrecognizedSavedSlots)
             {
-                0 => Input,
-                1 => Fuel,
-                _ => Output,
-            };
-            if (_unrecognizedSavedSlots[i] is { } saved && runtime.IsEmpty)
-            {
-                data.Add(saved);
+                ItemStack runtime = entry.Key switch
+                {
+                    0 => Input,
+                    1 => Fuel,
+                    _ => Output,
+                };
+                if (runtime.IsEmpty)
+                {
+                    data.Add(entry.Value);
+                }
             }
         }
 
@@ -186,7 +194,7 @@ public sealed class FurnaceData
     public void LoadFrom(List<ItemStackSave>? items)
     {
         Input = Fuel = Output = ItemStack.Empty;
-        Array.Fill(_unrecognizedSavedSlots, null);
+        _unrecognizedSavedSlots = null;
         if (items != null)
         {
             bool[] loadedSlots = new bool[3];
@@ -207,7 +215,8 @@ public sealed class FurnaceData
                     }
 
                     loadedSlots[saved.Slot] = true;
-                    _unrecognizedSavedSlots[saved.Slot] = saved;
+                    _unrecognizedSavedSlots ??= new Dictionary<int, ItemStackSave>();
+                    _unrecognizedSavedSlots.Add(saved.Slot, saved);
                     ItemStackSaveValidator.ReportUnrecognized("furnace", saved);
                     continue;
                 }
