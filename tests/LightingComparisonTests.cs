@@ -219,16 +219,51 @@ public static class LightingComparisonTests
         {
             IReadOnlyList<LightingProbeComparison.ReferenceSample> reference =
                     LightingProbeComparison.LoadReference(profile.Id);
-            TestAssert.Equal(1, reference.Count,
-                    $"{profile.DisplayName} retains its one historically measured anchor");
-            if (reference.Count == 0)
-                continue;
-            TestAssert.Equal("center", reference[0].Id,
-                    $"{profile.DisplayName} reference uses the stable centre probe id");
-            TestAssert.Equal(expected[profile.Id].Sky, reference[0].Sky,
-                    $"{profile.DisplayName} reference skylight matches the original capture report");
-            TestAssert.Equal(expected[profile.Id].Block, reference[0].Block,
-                    $"{profile.DisplayName} reference block light matches the original capture report");
+            TestAssert.Equal(27, reference.Count,
+                    $"{profile.DisplayName} reference covers the complete 3x3x3 probe grid");
+            HashSet<string> referenceIds = [];
+            LightingProbeComparison.ReferenceSample? centre = null;
+            foreach (LightingProbeComparison.ReferenceSample sample in reference)
+            {
+                TestAssert.Check(referenceIds.Add(sample.Id),
+                        $"{profile.DisplayName} reference contains unique probe ids");
+                if (sample.Id == "center")
+                    centre = sample;
+            }
+
+            foreach (Vector3I offset in LightingProbeComparison.GridOffsets)
+                TestAssert.Check(referenceIds.Contains(LightingProbeComparison.IdForOffset(offset)),
+                        $"{profile.DisplayName} reference includes probe {LightingProbeComparison.IdForOffset(offset)}");
+
+            TestAssert.Check(centre != null,
+                    $"{profile.DisplayName} reference retains its historical centre anchor");
+            if (centre != null)
+            {
+                TestAssert.Equal(expected[profile.Id].Sky, centre.Sky,
+                        $"{profile.DisplayName} centre skylight matches the original capture report");
+                TestAssert.Equal(expected[profile.Id].Block, centre.Block,
+                        $"{profile.DisplayName} centre block light matches the original capture report");
+            }
+
+            List<LightingProbeComparison.Sample> identicalCapture = [];
+            foreach (LightingProbeComparison.ReferenceSample sample in reference)
+                identicalCapture.Add(new LightingProbeComparison.Sample(
+                        sample.Id, 0, 0, 0, sample.Sky, sample.Block, "Reference"));
+
+            LightingProbeComparison.Drift drift = LightingProbeComparison.Compare(
+                    identicalCapture, reference);
+            TestAssert.Equal(27, drift.ComparedSamples,
+                    $"{profile.DisplayName} compares all 27 measured spatial probes");
+            TestAssert.Equal(0, drift.UnreferencedSamples,
+                    $"{profile.DisplayName} has no unreferenced spatial probes");
+            TestAssert.Equal(0, drift.MissingSamples,
+                    $"{profile.DisplayName} has no missing spatial reference probes");
+            TestAssert.Equal(1.0, drift.ReferenceCoverage,
+                    $"{profile.DisplayName} has complete spatial reference coverage");
+            TestAssert.Equal(0.0, drift.MeanAbsoluteChannelDrift,
+                    $"{profile.DisplayName} reference reproduces zero channel drift");
+            TestAssert.Equal(0.0, drift.MaxColorDrift,
+                    $"{profile.DisplayName} reference reproduces zero shader RGB drift");
         }
     }
 }
