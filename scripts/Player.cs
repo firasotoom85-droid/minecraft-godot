@@ -553,7 +553,7 @@ public partial class Player : CharacterBody3D, IDamageable
 
     private void UpdateWaterCamera(double delta)
     {
-        if (_underwaterEnvironment == null || _lavaEnvironment == null || Camera == null) return;
+        if (_lavaEnvironment == null || Camera == null) return;
         float dt = (float)System.Math.Clamp(delta, 0.0, 0.1);
         float waterTarget = Underwater ? Mathf.Lerp(0.72f, 1.0f, _waterImmersion) : 0.0f;
         _waterViewBlend = Mathf.MoveToward(_waterViewBlend, waterTarget, dt * 2.2f);

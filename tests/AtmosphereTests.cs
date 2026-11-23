@@ -602,9 +602,9 @@ public static class AtmosphereTests
         TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential,
                 WorldEnvironmentFactory.FogModeFor(true, underground: true),
                 "cave darkness retains close-range exponential fog");
-        TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential,
+        TestAssert.Equal(Godot.Environment.FogModeEnum.Depth,
                 WorldEnvironmentFactory.FogModeFor(true, underground: false),
-                "underwater immersion retains close-range exponential fog");
+                "modern underwater transitions retain depth fog while its range contracts");
 
         foreach (int presetIndex in new[] { 0, 1 })
         {
