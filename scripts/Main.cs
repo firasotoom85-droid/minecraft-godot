@@ -153,6 +153,12 @@ public partial class Main : Node3D
         _player.CampfireUsed += _hud.ShowToast;
         _player.Respawned += () => _mobs.ClearHostilesNear(_player.GlobalPosition, 10.0f);
         _player.Slept += () => _mobs.ClearHostilesNear(_player.GlobalPosition, 32.0f);
+        if (_player.Stats.Dead)
+        {
+            // A save captured during the death screen resumes through the same
+            // softcore respawn path as a live death, after cleanup is wired.
+            _player.Respawn();
+        }
 
         _player.Inventory.Changed += _world.MarkDirty;
         _player.ToolBroke += () =>
