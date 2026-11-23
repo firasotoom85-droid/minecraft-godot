@@ -1355,7 +1355,7 @@ public static class WorldgenTests
         TestAssert.Equal(BlockId.Log,
                 WorldGenV12.MergeTreeBlock(BlockId.Log, BlockId.Leaves),
                 "V12 later canopy leaves cannot replace a trunk");
-        TestAssert.Equal(BlockId.BirchLog,
+        TestAssert.Equal(BlockId.Stone,
                 WorldGenV12.MergeTreeBlock(BlockId.Stone, BlockId.BirchLog),
                 "V12 tree stamping retains the existing air-only rule for non-leaf blocks");
         TestAssert.Equal(BlockId.Log,
