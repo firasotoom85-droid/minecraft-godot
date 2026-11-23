@@ -1360,7 +1360,7 @@ public static class WorldgenTests
             if (WorldGenV12.TryRecordUniqueOrePosition(
                             solidVisited, solidOccupied, position))
             {
-                WorldGenV12.TryCountOrePlacement(isNaturalStone: true, ref solidPlaced);
+                WorldGenV12.TryCountOrePlacement(true, ref solidPlaced);
             }
         }
         TestAssert.Equal(4, solidPlaced,
@@ -1368,7 +1368,7 @@ public static class WorldgenTests
 
         int blockedPlaced = 0;
         TestAssert.Check(!WorldGenV12.TryCountOrePlacement(
-                        isNaturalStone: false, ref blockedPlaced),
+                        false, ref blockedPlaced),
                 "V12 ore walk does not count a cave or existing non-stone candidate");
         TestAssert.Equal(0, blockedPlaced,
                 "V12 non-stone candidates do not consume a vein placement slot");
