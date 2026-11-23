@@ -23,6 +23,7 @@ public partial class PhotoMode : Node
     private bool _playerWasInputLocked;
     private bool _playerCameraWasCurrent;
     private bool _dayNightWasPaused;
+    private Input.MouseModeEnum _mouseModeBeforePhotoMode;
 
     public void Setup(Player player, VoxelWorld world, Hud hud, DayNight daynight)
     {
@@ -87,6 +88,7 @@ public partial class PhotoMode : Node
         _playerCameraWasCurrent = PlayerRef.Camera.Current;
         _hudWasVisible = HudRef.Visible;
         _dayNightWasPaused = DayNightRef?.Paused ?? false;
+        _mouseModeBeforePhotoMode = Input.MouseMode;
         Active = true;
         _cam.GlobalPosition = PlayerRef.Camera.GlobalPosition;
         _yaw = PlayerRef.Camera.GlobalRotation.Y;
@@ -97,6 +99,9 @@ public partial class PhotoMode : Node
         if (DayNightRef != null)
             DayNightRef.Paused = true;
     }
+
+    internal static Input.MouseModeEnum MouseModeAfterExit(bool sceneExit, Input.MouseModeEnum previousMode) =>
+            sceneExit ? Input.MouseModeEnum.Visible : previousMode;
 
     private void ExitPhotoMode(bool restoreCamera, bool showToast)
     {
@@ -119,6 +124,7 @@ public partial class PhotoMode : Node
         }
         if (DayNightRef != null && GodotObject.IsInstanceValid(DayNightRef))
             DayNightRef.Paused = _dayNightWasPaused;
+        Input.MouseMode = MouseModeAfterExit(sceneExit: !restoreCamera, _mouseModeBeforePhotoMode);
     }
 
     public override void _ExitTree()

@@ -128,31 +128,46 @@ public static class KeybindTests
                 "photo mode cannot be entered while another modal owns player input");
         TestAssert.Check(!PhotoMode.CanTogglePhotoMode(false, false, false, true),
                 "photo mode cannot enter while the scene tree is paused");
+        TestAssert.Equal(Input.MouseModeEnum.Captured,
+                PhotoMode.MouseModeAfterExit(sceneExit: false, Input.MouseModeEnum.Captured),
+                "leaving photo mode restores captured gameplay mouse ownership");
+        TestAssert.Equal(Input.MouseModeEnum.Visible,
+                PhotoMode.MouseModeAfterExit(sceneExit: true, Input.MouseModeEnum.Captured),
+                "scene teardown hands mouse ownership back to menu UI");
 
         for (int i = 0; i <= (int)Biome.Meadow; i++)
             TestAssert.Check(Hud.BiomeName((Biome)i) != "?", $"F3 HUD resolves biome id {i}");
         TestAssert.Equal("?", Hud.BiomeName((Biome)255), "unknown biome ids keep a clear fallback");
 
-        TestAssert.Equal("dig_leaves", Sound.FamilyFor(BlockId.SpruceLeaves),
-                "appended spruce leaves use foliage break sounds");
-        TestAssert.Equal("place_leaves", Sound.PlaceFamilyFor(BlockId.RiverReeds),
-                "appended river reeds use foliage placement sounds");
-        TestAssert.Equal("dig_stone", Sound.FamilyFor(BlockId.WeatheredCobblestone),
-                "weathered masonry uses stone break sounds");
-        TestAssert.Equal("dig_stone", Sound.FamilyFor(BlockId.EnchantingTable),
-                "enchanting tables use stone break sounds");
-        TestAssert.Equal("place_stone", Sound.PlaceFamilyFor(BlockId.CobblestoneStairs),
-                "masonry stairs use stone placement sounds");
-        TestAssert.Equal("place_stone", Sound.PlaceFamilyFor(BlockId.EnchantingTable),
-                "enchanting tables use stone placement sounds");
-        TestAssert.Equal("dig_wood", Sound.FamilyFor(BlockId.PlanksSlab),
-                "wooden slabs use wood break sounds");
-        TestAssert.Equal("place_wood", Sound.PlaceFamilyFor(BlockId.PlanksStairs),
-                "wooden stairs use wood placement sounds");
-        TestAssert.Equal(1.45f, Sound.PitchFor(BlockId.JungleLeaves),
-                "foliage sound pitch applies to appended leaf types");
-        TestAssert.Equal(0.75f, Sound.PitchFor(BlockId.MossyBrick),
-                "stone sound pitch applies to appended masonry types");
+        BlockId[] appendedFoliage = [BlockId.SpruceLeaves, BlockId.JungleLeaves,
+                BlockId.SwampLeaves, BlockId.RiverReeds];
+        foreach (BlockId id in appendedFoliage)
+        {
+            TestAssert.Equal("dig_leaves", Sound.FamilyFor(id), $"{id} uses foliage break sounds");
+            TestAssert.Equal("place_leaves", Sound.PlaceFamilyFor(id), $"{id} uses foliage placement sounds");
+            TestAssert.Equal(1.45f, Sound.PitchFor(id), $"{id} uses the foliage pitch");
+        }
+
+        BlockId[] appendedWood = [BlockId.PlanksSlab, BlockId.PlanksStairs];
+        foreach (BlockId id in appendedWood)
+        {
+            TestAssert.Equal("dig_wood", Sound.FamilyFor(id), $"{id} uses wood break sounds");
+            TestAssert.Equal("place_wood", Sound.PlaceFamilyFor(id), $"{id} uses wood placement sounds");
+        }
+
+        BlockId[] appendedStone = [BlockId.CobblestoneSlab, BlockId.BrickSlab,
+                BlockId.CobblestoneStairs, BlockId.BrickStairs, BlockId.MossyCobblestone,
+                BlockId.WeatheredCobblestone, BlockId.CrackedBrick, BlockId.MossyBrick,
+                BlockId.EnchantingTable];
+        foreach (BlockId id in appendedStone)
+        {
+            TestAssert.Equal("dig_stone", Sound.FamilyFor(id), $"{id} uses stone break sounds");
+            TestAssert.Equal("place_stone", Sound.PlaceFamilyFor(id), $"{id} uses stone placement sounds");
+            TestAssert.Equal(0.75f, Sound.PitchFor(id), $"{id} uses the stone pitch");
+        }
+        TestAssert.Equal("dig_sand", Sound.FamilyFor(BlockId.Ash), "ash uses the sand break sound family");
+        TestAssert.Equal("place_sand", Sound.PlaceFamilyFor(BlockId.Ash), "ash uses the sand placement sound family");
+        TestAssert.Equal(1.25f, Sound.PitchFor(BlockId.Ash), "ash uses the sand pitch");
 
         VBoxContainer focusRoot = new();
         Button disabledFocus = new() { Disabled = true };
