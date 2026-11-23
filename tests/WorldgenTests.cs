@@ -1330,22 +1330,20 @@ public static class WorldgenTests
                 "V12 does not open a surface without a cave directly below");
 
         Span<Vector3I> visited = stackalloc Vector3I[2];
-        int visitedCount = 0;
+        Span<byte> occupied = stackalloc byte[2];
         Vector3I firstPosition = new(7, 24, -3);
         TestAssert.Check(WorldGenV12.TryRecordUniqueOrePosition(
-                        visited, ref visitedCount, firstPosition),
+                        visited, occupied, firstPosition),
                 "V12 ore walk records its first candidate");
         TestAssert.Check(!WorldGenV12.TryRecordUniqueOrePosition(
-                        visited, ref visitedCount, firstPosition),
+                        visited, occupied, firstPosition),
                 "V12 ore walk rejects a revisited candidate");
         TestAssert.Check(WorldGenV12.TryRecordUniqueOrePosition(
-                        visited, ref visitedCount, new Vector3I(8, 24, -3)),
+                        visited, occupied, new Vector3I(8, 24, -3)),
                 "V12 ore walk records a distinct candidate");
         TestAssert.Check(!WorldGenV12.TryRecordUniqueOrePosition(
-                        visited, ref visitedCount, new Vector3I(9, 24, -3)),
-                "V12 ore walk stops recording when its fixed visit buffer is full");
-        TestAssert.Equal(2, visitedCount,
-                "V12 ore visit count tracks unique coordinates only");
+                        visited, occupied, new Vector3I(9, 24, -3)),
+                "V12 ore walk stops recording when its fixed visit table is full");
 
         TestAssert.Equal(BlockId.Leaves,
                 WorldGenV12.MergeTreeBlock(BlockId.Air, BlockId.Leaves),
