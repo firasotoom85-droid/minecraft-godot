@@ -275,7 +275,7 @@ public partial class Sound : Node
         ulong ownedId = ownedEffect.GetInstanceId();
         for (int index = 0; index < AudioServer.GetBusEffectCount(bus); index++)
         {
-            AudioEffect candidate = AudioServer.GetBusEffect(bus, index);
+            AudioEffect? candidate = AudioServer.GetBusEffect(bus, index);
             if (candidate != null && GodotObject.IsInstanceValid(candidate)
                     && candidate.GetInstanceId() == ownedId)
                 return index;

@@ -86,6 +86,8 @@ public static class Keybinds
         return true;
     }
 
+    internal static Error SaveConfig(ConfigFile config, string path) => config.Save(path);
+
     public static Error Save()
     {
         ConfigFile cfg = new();
@@ -98,7 +100,7 @@ public static class Keybinds
             }
         }
 
-        Error result = cfg.Save(Path);
+        Error result = SaveConfig(cfg, Path);
         if (result != Error.Ok)
             GD.PushError($"Could not persist keyboard bindings to {Path}: {result}.");
         return result;

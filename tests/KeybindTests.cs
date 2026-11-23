@@ -92,6 +92,17 @@ public static class KeybindTests
                 "wrong-typed Boolean settings are rejected");
         TestAssert.Check(!Settings.TryReadInt(malformed.GetValue("video", "view_distance"), 5, 2, 24, out _),
                 "out-of-range integer settings are rejected");
+        ConfigFile malformedKeys = new();
+        malformedKeys.SetValue("keys", "jump", "not-a-key");
+        TestAssert.Check(!Keybinds.TryReadKey(malformedKeys.GetValue("keys", "jump"), out _),
+                "wrong-typed keyboard binding variants are rejected");
+        malformedKeys.SetValue("keys", "jump", (int)Key.F10);
+        TestAssert.Check(Keybinds.TryReadKey(malformedKeys.GetValue("keys", "jump"), out Key validKey)
+                        && validKey == Key.F10,
+                "valid keyboard binding variants are round-tripped");
+        TestAssert.Check(Keybinds.SaveConfig(new ConfigFile(),
+                        "user://w09-missing-keyboard-dir/keybinds.cfg") != Error.Ok,
+                "keyboard binding persistence failures are observable");
         TestAssert.Check(Settings.SaveConfig(malformed, "user://w09-missing-settings-dir/settings.cfg") != Error.Ok,
                 "settings persistence failures are observable");
 
@@ -121,6 +132,23 @@ public static class KeybindTests
         for (int i = 0; i <= (int)Biome.Meadow; i++)
             TestAssert.Check(Hud.BiomeName((Biome)i) != "?", $"F3 HUD resolves biome id {i}");
         TestAssert.Equal("?", Hud.BiomeName((Biome)255), "unknown biome ids keep a clear fallback");
+
+        TestAssert.Equal("dig_leaves", Sound.FamilyFor(BlockId.SpruceLeaves),
+                "appended spruce leaves use foliage break sounds");
+        TestAssert.Equal("place_leaves", Sound.PlaceFamilyFor(BlockId.RiverReeds),
+                "appended river reeds use foliage placement sounds");
+        TestAssert.Equal("dig_stone", Sound.FamilyFor(BlockId.WeatheredCobblestone),
+                "weathered masonry uses stone break sounds");
+        TestAssert.Equal("place_stone", Sound.PlaceFamilyFor(BlockId.CobblestoneStairs),
+                "masonry stairs use stone placement sounds");
+        TestAssert.Equal("dig_wood", Sound.FamilyFor(BlockId.PlanksSlab),
+                "wooden slabs use wood break sounds");
+        TestAssert.Equal("place_wood", Sound.PlaceFamilyFor(BlockId.PlanksStairs),
+                "wooden stairs use wood placement sounds");
+        TestAssert.Equal(1.45f, Sound.PitchFor(BlockId.JungleLeaves),
+                "foliage sound pitch applies to appended leaf types");
+        TestAssert.Equal(0.75f, Sound.PitchFor(BlockId.MossyBrick),
+                "stone sound pitch applies to appended masonry types");
 
         VBoxContainer focusRoot = new();
         Button disabledFocus = new() { Disabled = true };
