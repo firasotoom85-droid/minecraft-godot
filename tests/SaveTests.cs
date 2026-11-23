@@ -67,6 +67,7 @@ public static class SaveTests
                 "explicitly dead player save restores zero health and dead state");
 
         Player deadPlayer = new();
+        ((SceneTree)Engine.GetMainLoop()).Root.AddChild(deadPlayer);
         deadPlayer.Position = new Vector3(3.0f, 20.0f, 4.0f);
         deadPlayer.LoadFromSave(deadReload?.Mode, deadReload?.Health ?? 0.0f,
                 deadReload?.Hunger ?? -1.0f,
