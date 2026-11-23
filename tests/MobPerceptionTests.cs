@@ -60,12 +60,17 @@ public static class MobPerceptionTests
                     "supported crop advances exactly one growth stage");
 
             world.SetBlock(cropCell.X, cropCell.Y - 1, cropCell.Z, BlockId.Stone);
+            TestAssert.Check(!crops.ProcessCropForTests(cropCell),
+                    "wheat stops growing when its loaded farmland support is replaced");
+            TestAssert.Equal(BlockId.Wheat1, world.GetBlock(cropCell.X, cropCell.Y, cropCell.Z),
+                    "unsupported wheat remains planted instead of disappearing without a drop");
+            TestAssert.Check(world.CropSnapshot().Contains(cropCell),
+                    "unsupported crop remains registered so support can be revalidated");
+            world.SetBlock(cropCell.X, cropCell.Y - 1, cropCell.Z, BlockId.Farmland);
             TestAssert.Check(crops.ProcessCropForTests(cropCell),
-                    "unsupported wheat is removed when its loaded support is replaced");
-            TestAssert.Equal(BlockId.Air, world.GetBlock(cropCell.X, cropCell.Y, cropCell.Z),
-                    "unsupported wheat removal uses the normal world mutation path");
-            TestAssert.Check(!world.CropSnapshot().Contains(cropCell),
-                    "unsupported crop removal unregisters the crop");
+                    "wheat resumes growth when farmland support is restored");
+            TestAssert.Equal(BlockId.Wheat2, world.GetBlock(cropCell.X, cropCell.Y, cropCell.Z),
+                    "restored farmland permits the next crop growth stage");
 
             Vector3I unloadedCrop = new(64, 54, 0);
             long cachedBlockBytes = world.GetCacheMemorySnapshot().BlockDataBytes;

@@ -63,8 +63,7 @@ public partial class CropSystem : Node
 
         if (!_world.TryGetLoadedBlock(cell.X, cell.Y - 1, cell.Z, out BlockId support))
             return false;
-        if (support != BlockId.Farmland)
-            return _world.SetBlock(cell.X, cell.Y, cell.Z, BlockId.Air);
+        if (support != BlockId.Farmland) return false;
 
         if (!_world.TryGetLoadedBlock(cell.X, cell.Y + 1, cell.Z, out BlockId above)
                 || above != BlockId.Air)

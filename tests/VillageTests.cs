@@ -236,6 +236,17 @@ public static class VillageTests
         TestAssert.Equal(1, quests.ProgressOf(questId)?.Stage ?? -1,
                 "one new biome completes the reconciled three-biome objective");
 
+        VoxelWorld oneBiomeWorld = new();
+        Player oneBiomePlayer = new();
+        Mobs oneBiomeMobs = new();
+        QuestSystem oneBiomeQuests = new();
+        oneBiomeWorld.Flags["explored/Birch"] = true;
+        oneBiomeQuests.Setup(oneBiomeWorld, oneBiomePlayer, oneBiomeMobs);
+        TestAssert.Check(oneBiomeQuests.Accept(questId),
+                "merchant quest accepts with one previously explored biome");
+        TestAssert.Equal(1, oneBiomeQuests.ProgressOf(questId)?.Progress ?? -1,
+                "one prior unique biome is reconciled into merchant progress");
+
         VoxelWorld exploredWorld = new();
         Player exploredPlayer = new();
         Mobs exploredMobs = new();
@@ -252,6 +263,7 @@ public static class VillageTests
                 "completed exploration stage starts the next objective with zero progress");
 
         TestAssert.FreeAll(quests, mobs, player, world,
+                oneBiomeQuests, oneBiomeMobs, oneBiomePlayer, oneBiomeWorld,
                 exploredQuests, exploredMobs, exploredPlayer, exploredWorld);
     }
 
