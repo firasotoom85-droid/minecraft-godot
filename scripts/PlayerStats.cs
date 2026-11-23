@@ -241,9 +241,10 @@ public sealed class PlayerStats
     }
 
     /// <summary>Restore persisted values; a negative hunger sentinel means the field was absent in an old save.</summary>
-    public void Load(float health, float hunger, int experience = 0)
+    public void Load(float health, float hunger, int experience = 0, bool dead = false)
     {
-        Health = health > 0.0f ? Mathf.Clamp(health, 1.0f, MaxHealth) : MaxHealth;
+        Health = dead ? 0.0f
+                : health > 0.0f ? Mathf.Clamp(health, 1.0f, MaxHealth) : MaxHealth;
         Hunger = hunger >= 0.0f ? Mathf.Clamp(hunger, 0.0f, MaxHunger) : MaxHunger;
         Breath = MaxBreath;
         Dead = false;
