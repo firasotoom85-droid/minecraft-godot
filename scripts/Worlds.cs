@@ -270,8 +270,9 @@ public static class WorldStore
     {
         int resolved = seed ?? unchecked((int)(Time.GetTicksUsec() & 0x7FFFFFFF));
         string dir = ReserveWorldDirectory();
+        long createdUtc = NowUtc();
         WorldManifest manifest = new(
-                name, resolved, CurrentGenVersion, DeriveNoiseSeeds(resolved), NowUtc(), NowUtc(), mode,
+                name, resolved, CurrentGenVersion, DeriveNoiseSeeds(resolved), createdUtc, createdUtc, mode,
                 preset == "normal" ? null : preset);
         if (!WriteManifest(dir, manifest))
         {
@@ -348,11 +349,12 @@ public static class WorldStore
             return null;
         }
 
+        long duplicatedUtc = NowUtc();
         bool manifestWritten = WriteManifest(target, manifest with
         {
             Name = string.IsNullOrWhiteSpace(name) ? $"{manifest.Name} copy" : name.Trim(),
-            CreatedUtc = NowUtc(),
-            PlayedUtc = NowUtc(),
+            CreatedUtc = duplicatedUtc,
+            PlayedUtc = duplicatedUtc,
         });
         if (!manifestWritten)
         {
@@ -512,8 +514,9 @@ public static class WorldStore
 
         if (!System.IO.Directory.Exists(absolute))
             System.IO.Directory.CreateDirectory(absolute);
+        long createdUtc = NowUtc();
         WorldManifest manifest = new(
-                "My World", LegacyNoiseSeeds[0], 1, LegacyNoiseSeeds, NowUtc(), NowUtc());
+                "My World", LegacyNoiseSeeds[0], 1, LegacyNoiseSeeds, createdUtc, createdUtc);
         if (!WriteManifest(dir, manifest))
             throw new System.IO.IOException($"Could not write the default manifest for {dir}.");
         return manifest;
