@@ -1,3 +1,5 @@
+using Godot;
+
 namespace Minecraft;
 
 public static class VoxelStreamingTests
