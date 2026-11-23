@@ -2936,17 +2936,24 @@ public partial class VoxelWorld : Node3D
         }
     }
 
-    private readonly record struct SpawnCandidate(int X, int Z, int SurfaceY, long DistanceSquared);
+    internal readonly record struct SpawnCandidate(int X, int Z, int SurfaceY, long DistanceSquared);
 
     /// <summary>Nearest validated dry-land column to the origin.</summary>
-    public Vector3 FindSpawn()
+    public Vector3 FindSpawn() => FindSpawn(null);
+
+    /// <summary>
+    /// Testable candidate validator seam. Production callers use the actual
+    /// world/capsule validator; regression tests can deterministically reject
+    /// every candidate to verify the no-safe-spawn failure path.
+    /// </summary>
+    internal Vector3 FindSpawn(Func<SpawnCandidate, bool>? candidateValidatorOverride)
     {
         List<SpawnCandidate> candidates = [];
         HashSet<long> tested = [];
         HashSet<long> seen = [];
 
         SearchSpawnCandidates(64, 4, candidates, seen);
-        if (TryFindSafeSpawn(candidates, tested, out Vector3 spawn))
+        if (TryFindSafeSpawn(candidates, tested, out Vector3 spawn, candidateValidatorOverride))
         {
             return spawn;
         }
@@ -2955,7 +2962,7 @@ public partial class VoxelWorld : Node3D
         // deterministically. Keep all original candidates and avoid rechecking
         // their already-tested coordinates.
         SearchSpawnCandidates(512, 8, candidates, seen);
-        if (TryFindSafeSpawn(candidates, tested, out spawn))
+        if (TryFindSafeSpawn(candidates, tested, out spawn, candidateValidatorOverride))
         {
             return spawn;
         }
@@ -2996,7 +3003,8 @@ public partial class VoxelWorld : Node3D
     private bool TryFindSafeSpawn(
             List<SpawnCandidate> candidates,
             HashSet<long> tested,
-            out Vector3 spawn)
+            out Vector3 spawn,
+            Func<SpawnCandidate, bool>? candidateValidatorOverride = null)
     {
         candidates.Sort(static (a, b) =>
         {
@@ -3009,7 +3017,10 @@ public partial class VoxelWorld : Node3D
         foreach (SpawnCandidate candidate in candidates)
         {
             long key = ((long)candidate.X << 32) ^ (uint)candidate.Z;
-            if (!tested.Add(key) || !IsSafeSpawnCandidate(candidate))
+            bool isSafe = candidateValidatorOverride != null
+                    ? candidateValidatorOverride(candidate)
+                    : IsSafeSpawnCandidate(candidate);
+            if (!tested.Add(key) || !isSafe)
             {
                 continue;
             }
