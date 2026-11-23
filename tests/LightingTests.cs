@@ -613,8 +613,8 @@ public static class LightingTests
         float integerTag = Mathf.Floor(tag + 0.001f);
         TestAssert.Equal(9.0f, integerTag,
                 "fractional cave fill does not change the material family or wet bit");
-        TestAssert.Check(Mathf.IsEqualApprox(
-                        14.0f / 15.0f, (tag - integerTag) * 16.0f),
+        TestAssert.Check(Mathf.Abs(
+                        14.0f / 15.0f - (tag - integerTag) * 16.0f) < 0.00001f,
                 "four-bit cave fill round-trips through the unused material-tag fraction");
     }
 
