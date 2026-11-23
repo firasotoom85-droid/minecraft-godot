@@ -25,7 +25,7 @@ public partial class MobProjectile : Area3D
     internal void ConfigureTerrainRayForTests(Vector3 from, Vector3 to)
     {
         if (_terrainRay == null) return;
-        _terrainRay.GlobalPosition = from;
+        _terrainRay.Position = Vector3.Zero;
         _terrainRay.TargetPosition = to - from;
         if (_terrainRay.IsInsideTree())
             _terrainRay.ForceRaycastUpdate();
@@ -98,7 +98,7 @@ public partial class MobProjectile : Area3D
             QueueFree();
             return;
         }
-        _terrainRay.GlobalPosition = GlobalPosition;
+        _terrainRay.Position = Vector3.Zero;
         _terrainRay.TargetPosition = nextPosition - GlobalPosition;
         _terrainRay.ForceRaycastUpdate();
         bool terrainHit = _terrainRay.IsColliding();

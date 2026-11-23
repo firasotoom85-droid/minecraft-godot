@@ -154,8 +154,8 @@ public static class MobContentTests
         projectile.ConfigureTerrainRayForTests(Vector3.One, Vector3.Up);
         TestAssert.Check(ReferenceEquals(terrainRay, projectile.TerrainRayForTests),
                 "mob projectile reuses one RayCast3D node across physics ticks");
-        TestAssert.Equal(Vector3.One, terrainRay.GlobalPosition,
-                "reused projectile ray updates its world-space start");
+        TestAssert.Equal(Vector3.Zero, terrainRay.Position,
+                "reused projectile ray remains anchored at the projectile origin");
         TestAssert.Equal(Vector3.Up - Vector3.One, terrainRay.TargetPosition,
                 "reused projectile ray updates its segment endpoint");
         TestAssert.Equal((uint)PhysicsLayer.Terrain, terrainRay.CollisionMask,

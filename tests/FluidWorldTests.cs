@@ -47,6 +47,7 @@ public static class FluidWorldTests
         fluids.SimulateForTests(world, new Vector3(25, 50, 2));
         TestAssert.Equal(BlockId.FlowingWater1, world.GetBlock(31, 50, 1),
                 "unknown chunk-edge support prevents a weaker loaded neighbour from downgrading flow");
+        fluids.Free();
 
         // A supported cell at the foot of a vertical stream must remain level 1,
         // and its horizontal offers must be level 2 rather than level 3.
@@ -57,12 +58,14 @@ public static class FluidWorldTests
         world.SetBlock(10, 54, 10, BlockId.Stone);
         world.SetBlock(10, 55, 10, BlockId.FlowingWater1);
         world.SetBlock(10, 56, 10, BlockId.FlowingWater1);
-        world.SetBlock(10, 57, 10, BlockId.FlowingWater1);
-        fluids.SimulateForTests(world, new Vector3(10, 55, 10), 512);
+        world.SetBlock(10, 57, 10, BlockId.Water);
+        FluidSystem columnFluids = new();
+        columnFluids.SimulateForTests(world, new Vector3(10, 55, 10), 512);
         TestAssert.Equal(BlockId.FlowingWater1, world.GetBlock(10, 55, 10),
                 "water directly above a supported fall foot preserves level 1");
         TestAssert.Equal(BlockId.FlowingWater2, world.GetBlock(11, 55, 10),
                 "horizontal spread from a falling column foot uses level 2");
+        columnFluids.Free();
 
         // The initial discovery occurs before chunk 2 has streamed. A bounded
         // retry finds its water without movement or a nearby block mutation.
@@ -86,15 +89,17 @@ public static class FluidWorldTests
                 "periodic discovery registers nearby water loaded after the first scan");
 
         world.SetBlock(4, 50, 2, BlockId.Stone);
+        world.SetBlock(3, 50, 3, BlockId.Water);
         world.SetBlock(3, 50, 4, BlockId.Lava);
-        fluids.SimulateForTests(world, new Vector3(2, 50, 2));
+        FluidSystem lavaFluids = new();
+        lavaFluids.SimulateForTests(world, new Vector3(3, 50, 3), 512);
         TestAssert.Equal(BlockId.Stone, world.GetBlock(4, 50, 2),
                 "solid terrain remains impermeable to water");
         TestAssert.Equal(BlockId.Cobblestone, world.GetBlock(3, 50, 4),
                 "water contact converts adjacent lava to cobblestone");
 
+        lavaFluids.Free();
         delayedDiscovery.Free();
-        fluids.Free();
         host.RemoveChild(world);
         world.QueueFree();
         DirAccess.RemoveAbsolute(dir + "/manifest.json");
