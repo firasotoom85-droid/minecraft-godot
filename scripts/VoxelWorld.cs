@@ -107,6 +107,9 @@ public partial class VoxelWorld : Node3D
     public bool HasChunk(Vector2I cp) => _chunks.ContainsKey(cp);
 
     private readonly Dictionary<Vector2I, byte[]> _dataCache = new();
+    // Lazy reservations coalesce concurrent cache misses without holding the
+    // world mutex during expensive terrain generation.
+    private readonly Dictionary<Vector2I, Lazy<byte[]>> _generationInFlight = new();
     private readonly Dictionary<Vector2I, Dictionary<int, BlockId>> _edits = new();  // persisted block IDs
     private readonly Dictionary<Vector2I, Dictionary<int, byte>> _blockStateEdits = new(); // optional persisted shape state
     private readonly Dictionary<Vector2I, byte[]> _blockStateCache = new();
@@ -130,6 +133,11 @@ public partial class VoxelWorld : Node3D
     private readonly PriorityQueue<Vector2I, float> _rebuildQueue = new();
     private readonly HashSet<Vector2I> _rebuildQueued = new();
     private readonly Lock _queueLock = new();
+    private readonly ChunkWorkTracker _workTracker = new();
+    private readonly Dictionary<Vector2I, int> _workerFailureAttempts = new();
+    private const int MaxWorkerBuildAttempts = 3;
+    private Vector2I _streamCenter;
+    private int _streamRetentionLimit;
     private long _group;                    // active WorkerThreadPool group
     private bool _groupActive;
     // Worker payloads wait here until the main thread applies them, a few per
@@ -1552,6 +1560,7 @@ public partial class VoxelWorld : Node3D
     /// </summary>
     public byte[] ChunkData(Vector2I cp)
     {
+        Lazy<byte[]> generation;
         lock (_mutex)
         {
             if (_dataCache.TryGetValue(cp, out byte[]? cached))
@@ -1559,9 +1568,37 @@ public partial class VoxelWorld : Node3D
                 RegisterLightSourcesLocked(cp, cached);
                 return cached;
             }
+
+            if (!_generationInFlight.TryGetValue(cp, out generation!))
+            {
+                generation = new Lazy<byte[]>(
+                        () => GenerateChunkData(cp),
+                        LazyThreadSafetyMode.ExecutionAndPublication);
+                _generationInFlight.Add(cp, generation);
+            }
         }
 
-        byte[] data = GenerateChunkData(cp);
+        byte[] data;
+        try
+        {
+            // Exactly one caller generates this coordinate. Other workers wait
+            // on the same Lazy while unrelated coordinates remain parallel.
+            data = generation.Value;
+        }
+        catch
+        {
+            lock (_mutex)
+            {
+                if (_generationInFlight.TryGetValue(cp, out Lazy<byte[]>? current)
+                        && ReferenceEquals(current, generation))
+                {
+                    _generationInFlight.Remove(cp);
+                }
+            }
+
+            throw;
+        }
+
         lock (_mutex)
         {
             if (_dataCache.TryGetValue(cp, out byte[]? existing))
@@ -1572,9 +1609,13 @@ public partial class VoxelWorld : Node3D
 
             _dataCache[cp] = data;
             RegisterLightSourcesLocked(cp, data);
+            if (_generationInFlight.TryGetValue(cp, out Lazy<byte[]>? current)
+                    && ReferenceEquals(current, generation))
+            {
+                _generationInFlight.Remove(cp);
+            }
+            return data;
         }
-
-        return data;
     }
 
     /// <summary>Cache a chunk's emitter positions once, including natural lava and saved edits.</summary>
@@ -2509,17 +2550,7 @@ public partial class VoxelWorld : Node3D
             bool rebuild;
             lock (_queueLock)
             {
-                if (_rebuildQueue.TryDequeue(out cp, out _))
-                {
-                    _rebuildQueued.Remove(cp);
-                    rebuild = true;
-                }
-                else if (_queue.TryDequeue(out cp, out _))
-                {
-                    _queued.Remove(cp);
-                    rebuild = false;
-                }
-                else
+                if (!TryDequeueWorkLocked(out cp, out rebuild))
                 {
                     return;
                 }
@@ -2527,23 +2558,35 @@ public partial class VoxelWorld : Node3D
 
             bool reserved = false;
             bool published = false;
+            bool retryRequest = false;
             MeshPayload? payload = null;
             try
             {
                 // Capacity is released by the main thread after applying a
-                // payload. Cancellation unblocks workers on scene shutdown.
+                // payload. Revalidate after waiting because travel can make
+                // this request obsolete while the worker is blocked here.
+                if (!IsWithinCurrentRetention(cp))
+                {
+                    return;
+                }
+
                 _completedPayloadSlots.Wait(_workerShutdown.Token);
                 reserved = true;
-                if (!_alive) return;
+                if (!_alive || !IsWithinCurrentRetention(cp)) return;
 
                 long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                 payload = Mesher.Build(this, cp);
                 Profiler.RecordBuild(System.Diagnostics.Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
-                if (!_alive)
+                if (!_alive || !IsWithinCurrentRetention(cp))
                 {
                     PayloadPool.Release(payload);
                     payload = null;
                     return;
+                }
+
+                lock (_queueLock)
+                {
+                    _workerFailureAttempts.Remove(cp);
                 }
 
                 Profiler.RecordPayloadEnqueued(payload.EstimatedBufferBytes);
@@ -2557,7 +2600,27 @@ public partial class VoxelWorld : Node3D
             }
             catch (Exception exception)
             {
-                GD.PushError($"minecraft: chunk worker failed at ({cp.X},{cp.Y}): {exception}");
+                int attempts;
+                lock (_queueLock)
+                {
+                    attempts = _workerFailureAttempts.TryGetValue(cp, out int previous)
+                            ? previous + 1 : 1;
+                    if (ChunkStreamingPolicy.ShouldRetry(attempts, MaxWorkerBuildAttempts)
+                            && _alive)
+                    {
+                        _workerFailureAttempts[cp] = attempts;
+                        retryRequest = true;
+                    }
+                    else
+                    {
+                        _workerFailureAttempts.Remove(cp);
+                    }
+                }
+
+                string retryText = retryRequest
+                        ? $" (retry {attempts}/{MaxWorkerBuildAttempts})"
+                        : $" (gave up after {attempts} attempts; a later streaming/edit request can retry)";
+                GD.PushError($"minecraft: chunk worker failed at ({cp.X},{cp.Y}){retryText}: {exception}");
                 if (payload != null)
                 {
                     PayloadPool.Release(payload);
@@ -2567,8 +2630,79 @@ public partial class VoxelWorld : Node3D
             finally
             {
                 if (reserved && !published)
+                {
                     _completedPayloadSlots.Release();
+                }
+
+                lock (_queueLock)
+                {
+                    bool rebuildRequested = _workTracker.Complete(cp);
+                    if (_alive && ChunkStreamingPolicy.IsWithinRetention(
+                            cp, _streamCenter, _streamRetentionLimit))
+                    {
+                        if (rebuildRequested || retryRequest && rebuild)
+                        {
+                            QueueRebuildLocked(cp, _streamCenter);
+                        }
+                        else if (retryRequest)
+                        {
+                            QueueFreshLocked(cp, _streamCenter);
+                        }
+                    }
+                }
             }
+        }
+    }
+
+    /// <summary>Removes stale heap entries and claims one coordinate exactly once.</summary>
+    private bool TryDequeueWorkLocked(out Vector2I cp, out bool rebuild)
+    {
+        while (true)
+        {
+            if (_rebuildQueue.TryDequeue(out cp, out _))
+            {
+                if (!_rebuildQueued.Remove(cp))
+                {
+                    continue; // stale heap entry superseded by a newer request
+                }
+
+                rebuild = true;
+            }
+            else if (_queue.TryDequeue(out cp, out _))
+            {
+                if (!_queued.Remove(cp))
+                {
+                    continue; // e.g. a rebuild superseded this fresh request
+                }
+
+                rebuild = false;
+            }
+            else
+            {
+                rebuild = false;
+                return false;
+            }
+
+            if (_workTracker.TryBegin(cp))
+            {
+                return true;
+            }
+
+            // Defensive recovery if duplicate heap entries ever survive a
+            // queue transition while another worker owns the coordinate.
+            if (rebuild)
+            {
+                _workTracker.RequestRebuild(cp);
+            }
+        }
+    }
+
+    private bool IsWithinCurrentRetention(Vector2I cp)
+    {
+        lock (_queueLock)
+        {
+            return _alive && ChunkStreamingPolicy.IsWithinRetention(
+                    cp, _streamCenter, _streamRetentionLimit);
         }
     }
 
