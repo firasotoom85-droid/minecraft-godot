@@ -1363,7 +1363,8 @@ public partial class VoxelWorld : Node3D
     }
 
     private bool IsV12NaturalStone(int x, int y, int z,
-            byte[] data, int strideY, int ox, int oz)
+            byte[] data, int strideY, int ox, int oz,
+            Dictionary<Vector2I, (WorldGenV7.SurfaceSample Surface, bool IsIsland)> columnCache)
     {
         if (y < 0 || y >= Height
                 || !WorldGenV12.ContainsWorldPosition(x, z))
@@ -1379,12 +1380,30 @@ public partial class VoxelWorld : Node3D
             return (BlockId)data[index] == BlockId.Stone;
         }
 
-        // The same path is replayed in each neighboring output chunk. For
-        // positions outside this chunk, classify the natural terrain directly
-        // so every chunk makes the same successful-placement decision.
-        WorldGenV7.SurfaceSample surface = GeneratorV8.SampleSurface(x, z, SeaLevel);
-        return BlockAt(x, y, z, surface.Height,
-                surface.Height <= SeaLevel + 1, surface.Biome) == BlockId.Stone;
+        // Each output chunk replays the same neighboring ore paths. Cache one
+        // surface/climate sample per remote column instead of resampling it for
+        // each Y position visited by different veins.
+        Vector2I column = new(x, z);
+        if (!columnCache.TryGetValue(column, out var cached))
+        {
+            WorldGenV7.SurfaceSample surface = GeneratorV8.SampleSurface(x, z, SeaLevel);
+            bool isIsland = _preset != "sky" || GeneratorV8.IsIsland(x, z);
+            cached = (surface, isIsland);
+            columnCache.Add(column, cached);
+        }
+
+        int height = cached.Surface.Height;
+        if (y > height - 4 || (_preset == "sky"
+                && (!cached.IsIsland || y < height - 26)))
+        {
+            return false;
+        }
+
+        // These are the remaining V8 block-classifier conditions for a natural
+        // Stone voxel below the topsoil. Avoid calling the full BlockAt path,
+        // which would resample the column and repeat its surface noise layers.
+        return GeneratorV8.OreAt(x, y, z, cached.Surface.Biome) == BlockId.Stone
+                && !GeneratorV8.IsCave(x, y, z, height);
     }
 
     private void StampOre(int gx, int gy, int gz, BlockId ore, byte[] data, int strideY, int ox, int oz)
