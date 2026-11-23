@@ -150,7 +150,7 @@ public static class VoxelStreamingTests
         int failureSlots = 1;
         int failureAttempts = 0;
         int failureReports = 0;
-        ChunkWorkerExecutionResult failed = ChunkWorkerLifecycle.Execute(
+        ChunkWorkerExecutionResult failed = ChunkWorkerLifecycle.Execute<object>(
                 () => true,
                 () => failureSlots--,
                 () => throw new InvalidOperationException("injected one-time mesher failure"),
@@ -275,7 +275,7 @@ public static class VoxelStreamingTests
                 "shutdown-cancellation test claims its coordinate");
         int cancelledSlots = 1;
         int retryCallsAfterCancellation = 0;
-        ChunkWorkerExecutionResult cancelled = ChunkWorkerLifecycle.Execute(
+        ChunkWorkerExecutionResult cancelled = ChunkWorkerLifecycle.Execute<object>(
                 () => true,
                 () => cancelledSlots--,
                 () => throw new OperationCanceledException(),
