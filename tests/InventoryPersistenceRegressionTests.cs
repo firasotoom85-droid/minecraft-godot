@@ -105,6 +105,8 @@ public static class InventoryPersistenceRegressionTests
                 "furnace rejects fuel overstacks");
         TestAssert.Equal(ItemId.IronIngot, furnace.Output.Id,
                 "furnace loader rejects items that do not belong in input, fuel, or output slots");
+        TestAssert.Equal(1, furnace.Output.Count,
+                "furnace loader rejects overstacked output records");
         TestAssert.Check(!ItemStackSaveValidator.TryCreate(
                         new ItemStackSave(0, 500, 1), out _, out _),
                 "item IDs outside the byte range are rejected");
