@@ -49,21 +49,35 @@ public static class FluidWorldTests
                 "unknown chunk-edge support prevents a weaker loaded neighbour from downgrading flow");
         fluids.Free();
 
-        // A supported cell at the foot of a vertical stream must remain level 1,
-        // and its horizontal offers must be level 2 rather than level 3.
+        // Isolate a vertical stream away from the earlier basin fixture. The
+        // source at the top keeps the falling column alive while the supported
+        // foot spreads horizontally at the next level.
+        const int fallX = 20;
+        const int fallZ = 20;
         for (int y = 54; y <= 57; y++)
-        for (int z = 9; z <= 11; z++)
-        for (int x = 9; x <= 12; x++)
+        for (int z = 18; z <= 22; z++)
+        for (int x = 18; x <= 22; x++)
             world.SetBlock(x, y, z, BlockId.Air);
-        world.SetBlock(10, 54, 10, BlockId.Stone);
-        world.SetBlock(10, 55, 10, BlockId.FlowingWater1);
-        world.SetBlock(10, 56, 10, BlockId.FlowingWater1);
-        world.SetBlock(10, 57, 10, BlockId.Water);
+        world.SetBlock(fallX, 54, fallZ, BlockId.Stone);
+        world.SetBlock(fallX + 1, 54, fallZ, BlockId.Stone);
+        world.SetBlock(fallX, 55, fallZ, BlockId.FlowingWater1);
+        world.SetBlock(fallX, 56, fallZ, BlockId.FlowingWater1);
+        world.SetBlock(fallX, 57, fallZ, BlockId.Water);
+        // Keep the upper source and falling segment from creating a parallel
+        // side column above the foot, leaving only the foot's east offer open.
+        world.SetBlock(fallX - 1, 56, fallZ, BlockId.Stone);
+        world.SetBlock(fallX + 1, 56, fallZ, BlockId.Stone);
+        world.SetBlock(fallX, 56, fallZ - 1, BlockId.Stone);
+        world.SetBlock(fallX, 56, fallZ + 1, BlockId.Stone);
+        world.SetBlock(fallX - 1, 57, fallZ, BlockId.Stone);
+        world.SetBlock(fallX + 1, 57, fallZ, BlockId.Stone);
+        world.SetBlock(fallX, 57, fallZ - 1, BlockId.Stone);
+        world.SetBlock(fallX, 57, fallZ + 1, BlockId.Stone);
         FluidSystem columnFluids = new();
-        columnFluids.SimulateForTests(world, new Vector3(10, 55, 10), 512);
-        TestAssert.Equal(BlockId.FlowingWater1, world.GetBlock(10, 55, 10),
+        columnFluids.SimulateForTests(world, new Vector3(fallX, 55, fallZ), 512);
+        TestAssert.Equal(BlockId.FlowingWater1, world.GetBlock(fallX, 55, fallZ),
                 "water directly above a supported fall foot preserves level 1");
-        TestAssert.Equal(BlockId.FlowingWater2, world.GetBlock(11, 55, 10),
+        TestAssert.Equal(BlockId.FlowingWater2, world.GetBlock(fallX + 1, 55, fallZ),
                 "horizontal spread from a falling column foot uses level 2");
         columnFluids.Free();
 
@@ -89,13 +103,15 @@ public static class FluidWorldTests
                 "periodic discovery registers nearby water loaded after the first scan");
 
         world.SetBlock(4, 50, 2, BlockId.Stone);
-        world.SetBlock(3, 50, 3, BlockId.Water);
-        world.SetBlock(3, 50, 4, BlockId.Lava);
+        const int lavaX = 24;
+        const int lavaZ = 3;
+        world.SetBlock(lavaX, 50, lavaZ, BlockId.Water);
+        world.SetBlock(lavaX + 1, 50, lavaZ, BlockId.Lava);
         FluidSystem lavaFluids = new();
-        lavaFluids.SimulateForTests(world, new Vector3(3, 50, 3), 512);
+        lavaFluids.SimulateForTests(world, new Vector3(lavaX, 50, lavaZ), 512);
         TestAssert.Equal(BlockId.Stone, world.GetBlock(4, 50, 2),
                 "solid terrain remains impermeable to water");
-        TestAssert.Equal(BlockId.Cobblestone, world.GetBlock(3, 50, 4),
+        TestAssert.Equal(BlockId.Cobblestone, world.GetBlock(lavaX + 1, 50, lavaZ),
                 "water contact converts adjacent lava to cobblestone");
 
         lavaFluids.Free();
