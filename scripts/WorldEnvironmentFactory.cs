@@ -19,13 +19,15 @@ public static class WorldEnvironmentFactory
     public const float ContactSsaoRadius = 0.82f;
     public const float ContactSsaoIntensity = 1.30f;
 
+    // Modern worlds keep one camera-depth fog mode through water entry/exit;
+    // immersion changes the depth range rather than switching the fog algorithm.
     internal static Godot.Environment.FogModeEnum FogModeFor(
-            bool usesDistanceHaze, bool underground, bool underwater) =>
-            usesDistanceHaze && !underground && !underwater
+            bool usesDistanceHaze, bool underground) =>
+            usesDistanceHaze && !underground
                     ? Godot.Environment.FogModeEnum.Depth
                     : Godot.Environment.FogModeEnum.Exponential;
 
-    public static Godot.Environment Build(int generatorVersion = WorldStore.CurrentGenVersion)
+    public static Godot.Environment Build(int generatorVersion = WorldStore.CurrentGenVersion, int? presetIndex = null)
     {
         bool improvedWorldgenLighting = generatorVersion >= WorldGenV8.Version;
         ProceduralSkyMaterial skyMat = new()
@@ -90,6 +92,11 @@ public static class WorldEnvironmentFactory
             environment.FogDepthCurve = DistanceHazeCurve;
         }
 
+        // A caller without an explicit preset keeps the factory's historical
+        // high-quality defaults, including its generator-version-specific AO.
+        // Gameplay supplies the saved preset before the first rendered frame.
+        if (presetIndex.HasValue)
+            Gfx.ApplyEnvironmentPreset(environment, presetIndex.Value);
         return environment;
     }
 

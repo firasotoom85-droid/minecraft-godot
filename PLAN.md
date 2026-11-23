@@ -11,13 +11,36 @@ Aspect tags: `WG` worldgen · `CT` content/items · `SV` survival · `MG` manage
 
 ## 0. Current state (one paragraph)
 
-Working sandbox: infinite-streaming 16×64×16 chunks (seeded noise, 4 biomes,
-threshold caves, 4 ores, trees/cacti, campfires) with worker-thread meshing and
-far-LOD; player with instant break/place, 9-slot hotbar, always-available flight;
-6 wandering sheep, one-punch kills; day/night, weather, particles, fully
-procedural textures and 22 kHz audio; code-built HUD; single JSON save
-(`user://minecraft_save.json`: edits + player + time), no menus, no items, no
-health, no crafting, unrebindable input.
+**Rewritten 2026-11-23.** The 2026-10-13 audit snapshot it replaced is kept
+verbatim at the end of this section as a historical record.
+
+Voxel survival sandbox on Godot 4.7.2 (.NET / C#): infinite streaming
+16×64×16 chunks across eleven frozen generator versions (V1–V11, V11 current),
+worker-thread meshing with both the greedy and per-face paths, far LOD and an
+enforced streaming-memory budget; append-only `BlockId`/`ItemId` registries
+(128 block ids, `Ash` appended as 60) over a fully procedural atlas with no
+proprietary assets. Survival loop with health, hunger, equipment and durability,
+crafting, containers and furnaces, farming, fishing, boats and buckets;
+passive and hostile mobs with baked-light perception; villages, traders,
+quests, dungeons and generated structures. Day/night, weather with storm
+lightning, an adaptive procedural soundscape and continuous air-to-water fog.
+Multi-world saves under `user://worlds/<id>/` with append-only extensions;
+code-built HUD, minimap, pause/settings/keybind screens, achievements and an
+onboarding guide, plus a live 3D main menu and photo mode. Rendering shares one
+material-response table across the atlas, greedy texture-array, glass, water and
+lava shaders with LOW/BALANCED/HIGH presets and baked voxel lighting that
+separates direct sunlight, lateral cave spill and warm block emission. One
+headless runner covers 52 registered suites and **200,141 checks**.
+
+Historical record — 2026-10-13 audit snapshot, unchanged:
+
+> Working sandbox: infinite-streaming 16×64×16 chunks (seeded noise, 4 biomes,
+> threshold caves, 4 ores, trees/cacti, campfires) with worker-thread meshing and
+> far-LOD; player with instant break/place, 9-slot hotbar, always-available flight;
+> 6 wandering sheep, one-punch kills; day/night, weather, particles, fully
+> procedural textures and 22 kHz audio; code-built HUD; single JSON save
+> (`user://minecraft_save.json`: edits + player + time), no menus, no items, no
+> health, no crafting, unrebindable input.
 
 ## 1. Decisions (LOCKED 2026-10-13)
 
@@ -709,3 +732,60 @@ this shader-only change.
 - No block/item IDs, save fields, generator rules, shader channels, light solver,
   mesher, streaming or renderer preset settings changed. No scene nodes, light
   emitters, per-frame scans, physics work or new gameplay allocations added.
+
+
+## 14. Pale-surface directional contrast — 2026-11-23
+
+- Audit result: baked voxel-light channels, directional sky, warm block light,
+  shared material families, LOW/BALANCED render budgets and deterministic
+  multi-scene lighting captures were already present. The remaining readability
+  gap was bright Stone/Soil albedo: all faces used the same narrow directional
+  sky-gain range, so snow, sand and pale stone read too uniformly when turned
+  away from the sun.
+- The opaque atlas and greedy-array shaders now derive a soft weight from
+  sampled albedo luminance, gated to the existing Stone and Soil families. The
+  weight modestly reduces indirect sky gain on sun-turned-away faces, while
+  full sun-facing gain remains unchanged. Dark soil, wood, foliage, ore, glass,
+  water and lava do not opt into this response.
+- The C# MaterialResponse evaluator owns the thresholds and default strength;
+  both opaque shader materials receive the same uniforms. The shared
+  ChunkMaterials owner exposes a temporary zero-strength baseline for the
+  comparison runner and restores the previous value after capture.
+- Added a sixth deterministic real-main-scene fixture. It builds snow, sand and
+  stone swatches at fixed relative positions over cobblestone, all through
+  VoxelWorld.SetBlock, then supports paired baseline/contrast captures at the
+  same seed, noon, clear weather, camera, resolution and LOW preset.
+- Compatibility: no packed sky/block value, VoxelLightData, AO channel,
+  BlockId/ItemId, save schema, V1–V11 generator output, environment,
+  transparent shader, emitter registry, greedy merge key, chunk-streaming
+  behavior or mutation ownership changed.
+- Performance boundary: no additional nodes, lights, vertex attributes,
+  texture lookups beyond the existing albedo sample, physics work or per-frame
+  CPU scans. Opaque fragments add one luminance dot/smoothstep and one bounded
+  gain adjustment; LOW/BALANCED continue to avoid screen-space/volumetric
+  post-effects.
+- Focused tests cover bright/dark family gating, sun-facing and indirect gain,
+  no-sun/night neutrality, unchanged dry/wet tags, unchanged sky/block/AO
+  vertex channels, shader/material uniform parity, and baseline override.
+- Runtime verification status: build, full test runner and paired GPU captures
+  are pending execution on Godot 4.7.2 .NET. The capture commands are committed
+  in README; no screenshot or FPS result is claimed before those runs.
+
+## Lightning flash terrain response — 2026-11-23
+
+- Connected the existing storm SkyFlash envelope to the shared
+  SkyPalette.SkyLightEnergy value consumed by all chunk material families.
+  The flash adds a bounded 0.95 maximum contribution under the existing 1.25
+  energy ceiling; the shader still multiplies it by each vertex's packed
+  skylight, so zero-skylight cave interiors are not globally illuminated.
+- Kept the existing max-combined secondary flash and 4.5-per-second linear
+  decay, extracting deterministic helpers so overlap, decay and recovery have
+  direct regression coverage.
+- Added atmosphere checks for flash bounds and recovery, storm terrain response,
+  propagation to atlas / greedy-array / glass / water / lava materials, and
+  zero-skylight cave attenuation. No IDs, saves, generator versions, voxel
+  mutations, shader passes, mesh layouts, streaming rules or quality presets
+  changed.
+- Build, scripts/verify.sh, GPU captures and frame-time comparisons are not
+  claimed here; they require a local Godot 4.7.2 .NET runtime and renderer and
+  remain required before treating this change as fully verified.

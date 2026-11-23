@@ -8,15 +8,29 @@ namespace Minecraft;
 /// One packed byte per voxel: sky light in the high nibble and block light in
 /// the low nibble. Each channel ranges from 0 (dark) to 15 (full intensity).
 /// </summary>
-public sealed class VoxelLightData(byte[] packed)
+public sealed class VoxelLightData(byte[] packed, byte[]? directSkyPacked = null)
 {
     public readonly byte[] Packed = packed;
+    // Two direct-sky levels share one byte. Packed remains the authoritative
+    // combined-sky/block byte for game logic and existing cache consumers.
+    public readonly byte[] DirectSkyPacked = directSkyPacked ?? Array.Empty<byte>();
 
     public static int Index(int x, int y, int z, int height) =>
         x + z * VoxelWorld.ChunkX + y * VoxelWorld.ChunkX * VoxelWorld.ChunkZ;
 
     public byte SkyAt(int x, int y, int z, int height) =>
         (byte)(Packed[Index(x, y, z, height)] >> 4);
+
+    public byte DirectSkyAt(int x, int y, int z, int height)
+    {
+        int index = Index(x, y, z, height);
+        if (DirectSkyPacked.Length <= (index >> 1))
+            return (byte)(Packed[index] >> 4);
+        return (byte)((DirectSkyPacked[index >> 1] >> ((index & 1) * 4)) & 0x0F);
+    }
+
+    public byte BouncedSkyAt(int x, int y, int z, int height) =>
+        VoxelLighting.SkyBounce(SkyAt(x, y, z, height), DirectSkyAt(x, y, z, height));
 
     public byte BlockAt(int x, int y, int z, int height) =>
         (byte)(Packed[Index(x, y, z, height)] & 0x0F);
@@ -44,6 +58,16 @@ public static class VoxelLighting
 
     [ThreadStatic]
     private static Queue<(int Index, byte Level)>? _removalQueueScratch;
+
+    [ThreadStatic]
+    private static byte[]? _directSkyScratch;
+
+    private static byte[] RentDirectSkyScratch(int length)
+    {
+        if (_directSkyScratch is null || _directSkyScratch.Length < length)
+            _directSkyScratch = new byte[length];
+        return _directSkyScratch;
+    }
 
     private static Queue<int> RentQueue()
     {
@@ -116,7 +140,21 @@ public static class VoxelLighting
     /// blocks stop sun; glass transmits it; water and foliage attenuate it.
     /// </summary>
     public static byte[] BuildSkyLight(
-            byte[] blocks, int width, int height, int depth, byte[]? states = null)
+            byte[] blocks, int width, int height, int depth, byte[]? states = null) =>
+        BuildSkyLightCore(blocks, width, height, depth, states, false, out _);
+
+    /// <summary>
+    /// Builds the existing combined skylight map and optionally snapshots the
+    /// vertical direct-sun pass before lateral cave propagation.
+    /// </summary>
+    public static byte[] BuildSkyLight(
+            byte[] blocks, int width, int height, int depth,
+            byte[]? states, out byte[] directSky) =>
+        BuildSkyLightCore(blocks, width, height, depth, states, true, out directSky);
+
+    private static byte[] BuildSkyLightCore(
+            byte[] blocks, int width, int height, int depth,
+            byte[]? states, bool captureDirectSky, out byte[] directSky)
     {
         BlockDb.EnsureTables();
         int volume = width * height * depth;
@@ -161,6 +199,9 @@ public static class VoxelLighting
             }
         }
 
+        directSky = captureDirectSky ? RentDirectSkyScratch(sky.Length) : Array.Empty<byte>();
+        if (captureDirectSky)
+            System.Array.Copy(sky, directSky, sky.Length);
         Queue<int> queue = RentQueue();
         // Only darker neighbours are enqueued, so open columns do not flood
         // the queue with duplicate level-15 cells. Shape boundaries are checked
@@ -609,7 +650,18 @@ public static class VoxelLighting
         return Mathf.Clamp(Mathf.Lerp(y0, y1, z), 0.0f, MaxLevel);
     }
 
-    /// <summary>Shader channels: sky, warm block emission, and AO/face shade.</summary>
+    /// <summary>
+    /// Returns the lateral skylight spill not present in the vertical
+    /// direct-sun pass. Inputs are nibble levels in the 0..15 range.
+    /// </summary>
+    public static byte SkyBounce(byte combinedSky, byte directSky) =>
+        combinedSky > directSky ? (byte)(combinedSky - directSky) : (byte)0;
+
+    /// <summary>Average four scalar nibble samples around a face corner.</summary>
+    public static byte AverageLevelCorner(byte a, byte b, byte c, byte d) =>
+        (byte)((a + b + c + d + 2) / 4);
+
+    /// <summary>Shader channels: direct sky, warm block emission, and AO/face shade.</summary>
     public static Color VertexColor(byte packed, float shade) =>
         new((packed >> 4) / 15.0f, (packed & 0x0F) / 15.0f,
                 Mathf.Clamp(shade, 0.0f, 1.0f), 1.0f);

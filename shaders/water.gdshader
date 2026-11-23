@@ -22,14 +22,26 @@ uniform float moonlight_energy : hint_range(0.0, 0.35) = 0.0;
 uniform float caustic_strength : hint_range(0.0, 2.0) = 0.0;
 
 varying vec3 world_pos;
+#ifndef MINECRAFT_LOW_QUALITY
 varying vec3 world_normal;
+#else
+varying vec2 low_directional_facing;
+#endif
 varying float view_depth;
 
 vec3 directional_sky_light(vec3 normal, float sky, float sky_exposure) {
+#ifdef MINECRAFT_LOW_QUALITY
+    float sun_facing = normal.x;
+#else
     float sun_facing = max(dot(normalize(normal), sun_direction), 0.0);
+#endif
     float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
     float directional_gain = 0.88 + direct_sun * 0.12;
+#ifdef MINECRAFT_LOW_QUALITY
+    float moon_facing = normal.y;
+#else
     float moon_facing = max(dot(normalize(normal), moon_direction), 0.0);
+#endif
     float moon_fill = clamp(sky_exposure, 0.0, 1.0)
             * moonlight_energy * (0.28 + moon_facing * 0.72) * 0.12;
     vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
@@ -50,7 +62,13 @@ vec3 warm_block_emission(float response) {
     return warm_block_light_color * response * 0.025;
 }
 
+vec3 cave_bounce_illumination(float bounce) {
+    return vec3(0.62, 0.75, 0.96) * bounce * 0.22;
+}
+
 void vertex() {
+#ifndef MINECRAFT_LOW_QUALITY
+
 	vec3 base_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	float swell = sin(base_world_pos.x * 1.1 + TIME * wave_speed)
 		+ cos(base_world_pos.z * 1.3 + TIME * wave_speed * 0.8)
@@ -72,15 +90,30 @@ void vertex() {
 		+ cos(world_pos.x * 1.9 + TIME * 0.9) * 0.03;
 	NORMAL = normalize(NORMAL + vec3(rx, 0.0, rz) * max(NORMAL.y, 0.0) * ripple_fade);
     world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+#else
+    world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+    view_depth = -(VIEW_MATRIX * vec4(world_pos, 1.0)).z;
+    vec3 transformed_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+    low_directional_facing = vec2(
+            max(dot(transformed_normal, sun_direction), 0.0),
+            max(dot(transformed_normal, moon_direction), 0.0));
+#endif
 }
-
 void fragment() {
 	vec4 tex = texture(atlas_texture, UV);
-	float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+	float direct_sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+	float bounce = clamp(fract(COLOR.a) * 16.0 * sky_light_energy, 0.0, 1.0);
+	float sky = clamp(direct_sky + bounce, 0.0, 1.0);
 	float block = clamp(COLOR.g, 0.0, 1.0);
 	float warm_response = warm_block_response(sky, block);
 	float shade = COLOR.b;
-	vec3 illumination = vec3(0.04) + directional_sky_light(world_normal, sky, COLOR.r)
+#ifdef MINECRAFT_LOW_QUALITY
+	vec3 directional_response = vec3(low_directional_facing, 0.0);
+#else
+	vec3 directional_response = world_normal;
+#endif
+	vec3 illumination = vec3(0.04) + directional_sky_light(directional_response, direct_sky, COLOR.r)
+		+ cave_bounce_illumination(bounce)
 		+ warm_block_illumination(warm_response);
 	vec3 base = tex.rgb * illumination * shade;
 	// Shoreline fade: how much water sits between this fragment and the
@@ -92,6 +125,11 @@ void fragment() {
 	float scene_depth = -behind.z;
 	float thickness = max(scene_depth - view_depth, 0.0);
 	float depth_alpha = clamp(thickness / shore_fade, 0.18, 1.0);
+	ALBEDO = base * dim;
+	EMISSION = tex.rgb * warm_block_emission(warm_response);
+	ALPHA = clamp(tex.a * alpha_base * depth_alpha, 0.0, 1.0);
+	ROUGHNESS = 0.5;
+#ifndef MINECRAFT_LOW_QUALITY
 	float fresnel = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 2.0);
 	// Restrained animated foam gives shallow river/lake edges a readable
 	// transition without adding another material or particle system.
@@ -99,9 +137,10 @@ void fragment() {
 	float foam_wave = 0.5 + 0.5 * sin(world_pos.x * 1.9 + world_pos.z * 1.4 + TIME * 0.55);
 	float foam = shoreline * smoothstep(0.58, 0.88, foam_wave) * 0.20;
 	ALBEDO = mix(base * dim, vec3(0.78, 0.89, 0.94), foam);
-	EMISSION = tex.rgb * warm_block_emission(warm_response);
 	ALPHA = clamp(tex.a * alpha_base * depth_alpha + fresnel * 0.2, 0.0, 1.0);
 	ROUGHNESS = mix(0.12, 0.5, smoothstep(40.0, 120.0, view_depth) + foam * 0.4);
+#endif
+#ifndef MINECRAFT_LOW_QUALITY
 	// Caustic light webs on the underside of the surface (diver's view).
 	if (!FRONT_FACING && caustic_strength > 0.0) {
 		float w1 = sin(world_pos.x * 1.9 + TIME * 1.1) * sin(world_pos.z * 1.5 - TIME * 0.8);
@@ -110,6 +149,7 @@ void fragment() {
 		ALBEDO += vec3(0.20, 0.23, 0.26) * web * caustic_strength;
 		EMISSION += vec3(0.10, 0.12, 0.14) * web * caustic_strength;
 	}
+#endif
 	METALLIC = 0.0;
 	SPECULAR = 0.5;
 }

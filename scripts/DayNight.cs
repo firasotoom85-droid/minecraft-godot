@@ -26,6 +26,8 @@ public partial class DayNight : Node
     internal const float OutdoorAutoExposureMaxSensitivity = 140.0f;
     internal const float CaveAutoExposureMaxSensitivity = MinimumAutoExposureSensitivity;
     internal const float CaveAmbientScale = 0.08f;
+    internal const float MaximumSkyLightEnergy = 1.25f;
+    internal const float LightningSkyLightBoost = 0.95f;
     internal const float WaterAutoExposureMinSensitivity = 36.0f;
     internal const float WaterAutoExposureMaxSensitivity = 108.0f;
     internal const float SnowAutoExposureMinSensitivity = 32.0f;
@@ -38,6 +40,8 @@ public partial class DayNight : Node
 
     internal readonly record struct ExposureLimits(
             float MinimumSensitivity, float MaximumSensitivity);
+    internal readonly record struct WaterFogProfile(
+            Color Color, float Density, float DepthBegin, float DepthEnd);
     internal readonly record struct BiomeLightingProfile(
             Color FogTint, float SnowWeight, float ForestWeight);
 
@@ -112,7 +116,8 @@ public partial class DayNight : Node
         // gain a small light-dependent rim response rather than raising global
         // ambient and washing every terrain surface out of the dark.
         float skyLight = (float)System.Math.Clamp(
-                day * (1.0 - cover * 0.65) + night * 0.065, 0.0, 1.25);
+                day * (1.0 - cover * 0.65) + night * 0.065, 0.0, MaximumSkyLightEnergy);
+        skyLight = EvaluateLightningSkyEnergy(skyLight, lightning);
         float ambient = (float)((0.065 + day * 0.935) * (1.0 - cover * 0.30)
                 + lightning * 2.0);
         float sunEnergy = (float)(day * 1.15 * (1.0 - cover * 0.60));
@@ -195,6 +200,21 @@ public partial class DayNight : Node
     {
         double distance = (value - center) / width;
         return System.Math.Exp(-distance * distance);
+    }
+
+    /// <summary>
+    /// Adds the transient storm flash to the shared baked-skylight response.
+    /// The shader still multiplies this scalar by each vertex's packed skylight,
+    /// so a sealed cave with a zero sky channel remains unaffected.
+    /// </summary>
+    internal static float EvaluateLightningSkyEnergy(float baseSkyEnergy, double flash)
+    {
+        float safeBase = float.IsFinite(baseSkyEnergy)
+                ? Mathf.Clamp(baseSkyEnergy, 0.0f, MaximumSkyLightEnergy) : 0.0f;
+        float strength = double.IsFinite(flash)
+                ? (float)System.Math.Clamp(flash, 0.0, 1.0) : 0.0f;
+        return Mathf.Clamp(safeBase + strength * LightningSkyLightBoost,
+                0.0f, MaximumSkyLightEnergy);
     }
 
     /// <summary>
@@ -292,6 +312,25 @@ public partial class DayNight : Node
         return Mathf.Clamp(1.0f - (float)System.Math.Exp(-delta * rate), 0.0f, 1.0f);
     }
 
+    /// <summary>
+    /// Blends immersion fog on the shared world environment. Modern worlds keep
+    /// camera-depth fog active and shorten its range; legacy worlds retain their
+    /// exponential profile and blend its density. This avoids swapping camera
+    /// environments at the waterline.
+    /// </summary>
+    internal static WaterFogProfile EvaluateWaterFog(
+            Color airColor, float airDensity, float waterBlend)
+    {
+        float blend = float.IsFinite(waterBlend)
+                ? Mathf.Clamp(waterBlend, 0.0f, 1.0f) : 0.0f;
+        Color waterColor = new(0.018f, 0.105f, 0.205f);
+        return new WaterFogProfile(
+                airColor.Lerp(waterColor, blend),
+                Mathf.Lerp(airDensity, UnderwaterFogDensity, blend),
+                Mathf.Lerp(WorldEnvironmentFactory.DistanceHazeBegin, 0.0f, blend),
+                Mathf.Lerp(WorldEnvironmentFactory.DistanceHazeEnd, 14.0f, blend));
+    }
+
     internal static BiomeLightingProfile EvaluateBiomeLightingProfile(Biome biome) => biome switch
     {
         Biome.Desert => new(new Color(1.06f, 0.98f, 0.82f), 0.0f, 0.0f),
@@ -307,6 +346,8 @@ public partial class DayNight : Node
     private const double CausticFrameTime = 0.1;
 
     private readonly DirectionalLight3D _moon = new();
+    /// <summary>The existing single directional moon light, configured by Gfx presets.</summary>
+    public DirectionalLight3D Moon => _moon;
     private MeshInstance3D _stars = null!;
     private MeshInstance3D _clouds = null!;
     private MeshInstance3D _cloudsHigh = null!;
@@ -315,7 +356,7 @@ public partial class DayNight : Node
     private ProceduralSkyMaterial _skyMat = null!;
     private float _fogDensityAir = WorldEnvironmentFactory.LegacyAirFogDensity;
     private bool _usesDistanceHaze;
-    private readonly float _fogDensityUnderwater = 0.07f;
+    internal const float UnderwaterFogDensity = 0.07f;
     public double Cloudiness;      // 0..1 driven by Weather (clear -> storm)
     public double SkyFlash;        // 0..1 lightning flash driven by Weather
     public bool Paused;            // photo mode freezes the clock (time still scrubs)
@@ -365,7 +406,8 @@ public partial class DayNight : Node
         _moon.LightColor = new Color(0.55f, 0.65f, 1.0f);
         _moon.LightEnergy = 0.0f;
         _moon.ShadowEnabled = true;
-        _moon.DirectionalShadowMaxDistance = 120.0f;
+        // Gfx applies the selected preset's shadow distance when it attaches
+        // this existing moon after DayNight setup. Keep range ownership there.
         // Keep the existing four blended cascades for the moving sun. Filter
         // quality, sun angular size and sun blur are selected by Gfx so LOW
         // does not inherit an expensive global SoftHigh/PCSS configuration.
@@ -463,9 +505,12 @@ public partial class DayNight : Node
             }
         }
 
+        // One continuous immersion value drives both the camera adaptation and
+        // the shared-environment water fog, so both agree at the waterline.
+        float waterBlend = PlayerRef?.WaterViewBlend ?? 0.0f;
+
         if (_cameraAttributes != null && GodotObject.IsInstanceValid(_cameraAttributes))
         {
-            float waterBlend = PlayerRef?.WaterViewBlend ?? 0.0f;
             ExposureLimits limits = EvaluateExposureLimits(caveDarkness, waterBlend,
                     _snowExposureWeight, _forestExposureWeight);
             if (Mathf.Abs(limits.MinimumSensitivity - _lastAutoExposureMinSensitivity) >= 0.5f)
@@ -515,12 +560,9 @@ public partial class DayNight : Node
             env.AmbientLightEnergy *= EvaluateCaveAmbientScale(caveDarkness);
         }
 
-        bool underwater = PlayerRef is { Underwater: true };
-        if (underwater)
-        {
-            fogColor = new Color(0.04f, 0.18f, 0.38f);
-            fogDensity = _fogDensityUnderwater;
-        }
+        WaterFogProfile waterFog = EvaluateWaterFog(fogColor, (float)fogDensity, waterBlend);
+        fogColor = waterFog.Color;
+        fogDensity = waterFog.Density;
 
         if (flash > 0.001)
         {
@@ -536,16 +578,20 @@ public partial class DayNight : Node
         // Keep close-quarters cave and immersion fog exponential so those
         // established high-density profiles still close in around the player.
         Godot.Environment.FogModeEnum fogMode = WorldEnvironmentFactory.FogModeFor(
-                _usesDistanceHaze, sheltered, underwater);
+                _usesDistanceHaze, sheltered);
         if (env.FogMode != fogMode)
         {
             env.FogMode = fogMode;
         }
 
-        if (_usesDistanceHaze && !sheltered && !underwater)
+        if (_usesDistanceHaze && !sheltered)
         {
             fogDensity = System.Math.Clamp(fogDensity,
                     0.0, WorldEnvironmentFactory.MaxDistanceHazeDensity);
+            // Keep the shared depth-fog mode while its range contracts from
+            // outdoor haze to the close underwater profile.
+            env.FogDepthBegin = waterFog.DepthBegin;
+            env.FogDepthEnd = Mathf.Max(waterFog.DepthBegin + 1.0f, waterFog.DepthEnd);
         }
 
         float blend = (float)System.Math.Clamp(delta * 5.0, 0.0, 1.0);

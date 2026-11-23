@@ -20,6 +20,7 @@ public partial class TestRunner : Node
         RunSuite("performance-benchmark", PerformanceBenchmarkTests.Run);
         RunSuite("voxel-streaming", VoxelStreamingTests.Run);
         RunSuite("graphics", GraphicsTests.Run);
+        RunSuite("low-cost-shaders", LowCostShaderTests.Run);
         RunSuite("biome-foliage", () => FoliageTests.Run(this));
         RunSuite("surface-variation", SurfaceVariationTests.Run);
         RunSuite("wood-textures", WoodTextureTests.Run);
@@ -32,6 +33,7 @@ public partial class TestRunner : Node
         RunSuite("selection-outline", SelectionOutlineTests.Run);
         RunSuite("lighting", LightingTests.Run);
         RunSuite("lighting-comparisons", LightingComparisonTests.Run);
+        RunSuite("lighting-screenshot-audit", LightingScreenshotAuditTests.Run);
         RunSuite("transparent-materials", () => GlassTests.Run(this));
         RunSuite("atmosphere", AtmosphereTests.Run);
         RunSuite("moonlight", MoonlightTests.Run);

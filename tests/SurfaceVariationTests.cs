@@ -30,7 +30,8 @@ public static class SurfaceVariationTests
             TestAssert.Check(shader.Contains("surface_cell_hash"), $"{label} uses deterministic world-cell variation");
             TestAssert.Check(shader.Contains("surface_world_position"), $"{label} anchors variation in world space");
             TestAssert.Check(shader.Contains("tone * 0.035"), $"{label} keeps stone variation low contrast");
-            TestAssert.Check(shader.Contains("COLOR.a < 0.5"), $"{label} limits variation to the stone response family");
+            TestAssert.Check(shader.Contains("mod(floor(COLOR.a + 0.001), 8.0) < 0.5"),
+                    $"{label} keeps the material-family test independent of fractional cave fill");
         }
 
         foreach ((string shader, string label) in new[]
@@ -39,8 +40,12 @@ public static class SurfaceVariationTests
             (glassShader, "glass"), (waterShader, "water"),
         })
         {
-            TestAssert.Check(shader.Contains("clamp(COLOR.r * sky_light_energy, 0.0, 1.0)"),
-                    $"{label} bounds sky contribution before blending light channels");
+            TestAssert.Check(shader.Contains("float direct_sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);"),
+                    $"{label} bounds direct sky before combining light channels");
+            TestAssert.Check(shader.Contains(
+                            "float bounce = clamp(fract(COLOR.a) * 16.0 * sky_light_energy, 0.0, 1.0);")
+                    && shader.Contains("cave_bounce_illumination(bounce)"),
+                    $"{label} consumes the independent cave-spill channel");
             TestAssert.Check(shader.Contains("warm_block_response(float sky, float block)")
                     && shader.Contains("return (1.0 - exp(-block * 1.25)) * (1.0 - sky);"),
                     $"{label} consumes warm block light only where skylight leaves headroom");

@@ -55,3 +55,39 @@ gameplay. The capture bound is intentionally 25 preview chunks. The captures
 confirm that emitters remain baked voxel-light sources and do not allocate one
 OmniLight node per torch/campfire. This is not a whole-game MX230 frame-time or
 VRAM benchmark.
+
+
+## Spatial probe-grid comparison — 2026-11-23
+
+The shared capture runner now reads a deterministic 27-point grid from the
+production `VoxelWorld.LightData` cache around each scenario's original probe.
+Offsets are `-2, 0, +2` voxels on each axis. Each sample records its stable
+offset id, world coordinate, block type, packed sky nibble and packed block
+nibble. The runner writes a companion `.lighting.json` report beside each
+PNG; the JSON records the seed, generator version, selected quality preset,
+samples, reference samples and drift summary.
+
+The comparison converts the packed sky/block pair through the existing
+`VoxelLighting.VertexColor` function (with neutral blue/face-shade input) and
+reports mean/max nibble drift, normalized RGB input-channel drift,
+luminance-weighted intensity drift, and the number of samples beyond a
+one-nibble normalized tolerance. Missing reference samples and captured
+samples without a reference are reported separately.
+
+### Spatial reference coverage and validation
+
+`lighting-probe-reference-v1.json` contains all **27 measured samples for each
+of the five scenes** (135 samples total). The values were captured by the
+GitHub Actions Godot 4.7.2 .NET `--headless --probe-only` job using seed 1337,
+generator V11, LOW preset and clear weather. The five centre samples match the
+exact sky/block values in the original capture table above. The remaining 130
+values are taken directly from the production `VoxelWorld.LightData` cache,
+not interpolated or inferred.
+
+The CI artifact `lighting-probe-grids` stores the raw companion JSON reports
+for all five scenarios. Automated tests cover stable ids, 27-point coverage,
+missing/unreferenced samples, duplicate ids, per-channel drift,
+color/intensity aggregates and tolerance handling. Headless probe-only
+captures validate baked CPU light data; they do not verify rendered pixels or
+replace the existing Forward+ screenshots. No new MX230 frame-time/VRAM
+measurement is claimed.

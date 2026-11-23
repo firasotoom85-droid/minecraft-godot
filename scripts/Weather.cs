@@ -21,6 +21,27 @@ public partial class Weather : Node
 
     public static readonly string[] StateNames = ["clear", "cloudy", "rain", "storm"];
 
+    private const double LightningFlashDecayPerSecond = 4.5;
+
+    /// <summary>Combines overlapping lightning pulses without additive over-brightening.</summary>
+    internal static double CombineFlashIntensity(double current, double incoming)
+    {
+        double safeCurrent = double.IsFinite(current)
+                ? System.Math.Clamp(current, 0.0, 1.0) : 0.0;
+        double safeIncoming = double.IsFinite(incoming)
+                ? System.Math.Clamp(incoming, 0.0, 1.0) : 0.0;
+        return System.Math.Max(safeCurrent, safeIncoming);
+    }
+
+    /// <summary>Linearly decays a flash using the existing 4.5-per-second envelope.</summary>
+    internal static double DecayFlashIntensity(double intensity, double delta)
+    {
+        double safeIntensity = double.IsFinite(intensity)
+                ? System.Math.Clamp(intensity, 0.0, 1.0) : 0.0;
+        double elapsed = double.IsFinite(delta) ? System.Math.Max(delta, 0.0) : 0.0;
+        return System.Math.Max(safeIntensity - elapsed * LightningFlashDecayPerSecond, 0.0);
+    }
+
     private static readonly IReadOnlyDictionary<State, float> TargetCloudiness = new Dictionary<State, float>
     {
         [State.Clear] = 0.05f,
@@ -153,7 +174,7 @@ public partial class Weather : Node
             if (_lightningTimer <= 0.0)
             {
                 _lightningTimer = _rng.RandfRange(5.0f, 18.0f);
-                _flash = 1.0;
+                _flash = CombineFlashIntensity(_flash, 1.0);
                 if (_rng.Randf() < 0.5f)
                 {
                     _flashAgain = 0.12;
@@ -178,12 +199,12 @@ public partial class Weather : Node
             _flashAgain -= delta;
             if (_flashAgain <= 0.0)
             {
-                _flash = System.Math.Max(_flash, 0.75);
+                _flash = CombineFlashIntensity(_flash, 0.75);
                 _flashAgain = -1.0;
             }
         }
 
-        _flash = System.Math.Max(_flash - delta * 4.5, 0.0);
+        _flash = DecayFlashIntensity(_flash, delta);
         DayNightRef.Cloudiness = Cloudiness;
         DayNightRef.SkyFlash = _flash;
 

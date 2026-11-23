@@ -6,11 +6,11 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>
-/// Repeatable real-main-scene comparison of torch, campfire, overlap and lava
-/// emission. Usage:
+/// Repeatable real-main-scene comparison of torch, campfire, overlap, lava
+/// and negative-coordinate chunk-seam lighting. Usage:
 /// godot --path . res://tests/WarmLightingVisualCapture.tscn --
 ///   <seed> <generator-version> <campfire-cell-x> <campfire-cell-z>
-///   <torch|campfire|overlap|lava> <output.png>
+///   <torch|campfire|overlap|lava|negative-overlap> <output.png>
 /// </summary>
 public partial class WarmLightingVisualCapture : Node
 {
@@ -31,7 +31,7 @@ public partial class WarmLightingVisualCapture : Node
                     : $"user://tests/warm-lighting-{mode}.png";
 
             if (version is < 1 or > WorldStore.CurrentGenVersion
-                    || mode is not ("torch" or "campfire" or "overlap" or "lava"))
+                    || mode is not ("torch" or "campfire" or "overlap" or "lava" or "negative-overlap"))
             {
                 GD.PushError($"Invalid capture arguments: version={version}, mode={mode}.");
                 GetTree().Quit(2);
@@ -69,25 +69,46 @@ public partial class WarmLightingVisualCapture : Node
             world.SetLodRadius(0.0f);
             if (FindNode<Gfx>(game) is { } gfx) gfx.ApplyPreset(Gfx.DefaultPreset, false);
 
-            Vector3I? selectedFire = world.GetCampfireSite(cellX, cellZ);
-            for (int radius = 1; radius <= 8 && selectedFire == null; radius++)
+            Vector3I fire;
+            Vector3 center;
+            if (mode == "negative-overlap")
             {
-                for (int dz = -radius; dz <= radius && selectedFire == null; dz++)
-                for (int dx = -radius; dx <= radius && selectedFire == null; dx++)
-                    selectedFire = world.GetCampfireSite(cellX + dx, cellZ + dz);
+                // The sources sit on opposite sides of both x=-16 and z=-16.
+                // A compact stone room suppresses direct sun so the baked warm
+                // overlap can be inspected in the production material path.
+                const int sourceY = 120;
+                center = new Vector3(-15.5f, sourceY + 0.5f, -15.5f);
+                player.GlobalPosition = center + new Vector3(0.0f, 1.0f, 0.0f);
+                world.BuildPreview(center, 1);
+                BuildNegativeOverlapRoom(world, sourceY);
+                fire = new Vector3I(-17, sourceY, -17);
+                if (!world.SetBlock(fire.X, fire.Y, fire.Z, BlockId.Torch)
+                        || !world.SetBlock(-16, sourceY, -16, BlockId.Torch))
+                    throw new InvalidOperationException("Could not place both negative-coordinate seam torches through SetBlock.");
+                GD.Print("WARM_LIGHT_FIXTURE negative-overlap sources=(-17,120,-17),(-16,120,-16) chunks=(-2,-2),(-1,-1)");
             }
+            else
+            {
+                Vector3I? selectedFire = world.GetCampfireSite(cellX, cellZ);
+                for (int radius = 1; radius <= 8 && selectedFire == null; radius++)
+                {
+                    for (int dz = -radius; dz <= radius && selectedFire == null; dz++)
+                    for (int dx = -radius; dx <= radius && selectedFire == null; dx++)
+                        selectedFire = world.GetCampfireSite(cellX + dx, cellZ + dz);
+                }
 
-            Vector3I fire = selectedFire
-                    ?? throw new InvalidOperationException("No generated campfire was found near the requested cell.");
-            GD.Print($"WARM_LIGHT_FIXTURE cell=({Mathf.FloorToInt(fire.X / (float)Campfires.Cell)},{Mathf.FloorToInt(fire.Z / (float)Campfires.Cell)}) site=({fire.X},{fire.Y},{fire.Z})");
-            Vector3 center = new(fire.X + 0.5f, fire.Y + 1.0f, fire.Z + 0.5f);
-            player.GlobalPosition = center + new Vector3(0, 1.0f, 0);
+                fire = selectedFire
+                        ?? throw new InvalidOperationException("No generated campfire was found near the requested cell.");
+                GD.Print($"WARM_LIGHT_FIXTURE cell=({Mathf.FloorToInt(fire.X / (float)Campfires.Cell)},{Mathf.FloorToInt(fire.Z / (float)Campfires.Cell)}) site=({fire.X},{fire.Y},{fire.Z})");
+                center = new Vector3(fire.X + 0.5f, fire.Y + 1.0f, fire.Z + 0.5f);
+                player.GlobalPosition = center + new Vector3(0, 1.0f, 0);
 
-            // The real world owns chunk generation, the fire particles, and
-            // every edit; the capture never writes directly into chunk arrays.
-            world.BuildPreview(center, 1);
-            if (world.GetBlock(fire.X, fire.Y, fire.Z) != BlockId.Log)
-                throw new InvalidOperationException("The generated campfire log is not present in the fixture.");
+                // The real world owns chunk generation, the fire particles, and
+                // every edit; the capture never writes directly into chunk arrays.
+                world.BuildPreview(center, 1);
+                if (world.GetBlock(fire.X, fire.Y, fire.Z) != BlockId.Log)
+                    throw new InvalidOperationException("The generated campfire log is not present in the fixture.");
+            }
 
             if (mode == "torch")
             {
@@ -128,7 +149,10 @@ public partial class WarmLightingVisualCapture : Node
                 Current = true,
             };
             game.AddChild(camera);
-            camera.GlobalPosition = center + new Vector3(5.0f, 3.5f, 6.0f);
+            Vector3 cameraOffset = mode == "negative-overlap"
+                    ? new Vector3(0.8f, 0.7f, 0.8f)
+                    : new Vector3(5.0f, 3.5f, 6.0f);
+            camera.GlobalPosition = center + cameraOffset;
             camera.LookAt(center + new Vector3(0.0f, 0.35f, 0.0f), Vector3.Up);
 
             GD.Print($"WARM_LIGHT_CAPTURE_START seed={seed} version={version} cell=({cellX},{cellZ}) mode={mode}");
@@ -143,17 +167,15 @@ public partial class WarmLightingVisualCapture : Node
             Error saveResult = image.SavePng(absoluteOutput);
             int sourceCount = world.NearbyLightSources(
                     fire.X - 12, fire.X + 12, fire.Z - 12, fire.Z + 12).Count;
-            Vector2I lightChunk = new(
-                    Mathf.FloorToInt(fire.X / (float)VoxelWorld.ChunkX),
-                    Mathf.FloorToInt(fire.Z / (float)VoxelWorld.ChunkZ));
-            VoxelLightData light = world.LightData(lightChunk);
-            int localX = fire.X - lightChunk.X * VoxelWorld.ChunkX;
-            int localZ = fire.Z - lightChunk.Y * VoxelWorld.ChunkZ;
-            int sampleY = mode == "lava" ? fire.Y : fire.Y + 1;
-            byte packedSourceLevel = light.BlockAt(localX, sampleY, localZ, world.Height);
-            byte adjacentLevel = light.BlockAt(Mathf.Min(localX + 1, VoxelWorld.ChunkX - 1),
-                    sampleY, localZ, world.Height);
-            GD.Print($"WARM_LIGHT_CAPTURE_RESULT success={(saveResult == Error.Ok)} mode={mode} chunks={world.ChunkCount} sources={sourceCount} packed_source_level={packedSourceLevel} adjacent_level={adjacentLevel} elapsed={Time.GetTicksMsec() / 1000.0 - started:F2}s size={image.GetWidth()}x{image.GetHeight()} path={absoluteOutput}");
+            int sampleY = mode is "lava" or "negative-overlap"
+                    ? fire.Y : fire.Y + 1;
+            byte packedSourceLevel = ReadBlockLightAt(world, fire.X, sampleY, fire.Z);
+            byte adjacentLevel = ReadBlockLightAt(world, fire.X + 1, sampleY, fire.Z);
+            byte adjacentZLevel = ReadBlockLightAt(world, fire.X, sampleY, fire.Z + 1);
+            GD.Print($"WARM_LIGHT_CAPTURE_RESULT success={(saveResult == Error.Ok)} mode={mode} chunks={world.ChunkCount} sources={sourceCount} packed_source_level={packedSourceLevel} adjacent_x_level={adjacentLevel} adjacent_z_level={adjacentZLevel} elapsed={Time.GetTicksMsec() / 1000.0 - started:F2}s size={image.GetWidth()}x{image.GetHeight()} path={absoluteOutput}");
+            if (mode == "negative-overlap"
+                    && (adjacentLevel != 13 || adjacentZLevel != 13))
+                throw new InvalidOperationException($"Negative seam overlap expected 13/13 adjacent light, got {adjacentLevel}/{adjacentZLevel}.");
             if (saveResult != Error.Ok)
                 throw new IOException($"Screenshot save failed: {saveResult}.");
         }
@@ -188,6 +210,42 @@ public partial class WarmLightingVisualCapture : Node
         }
 
         GetTree().Quit();
+    }
+
+    private static void BuildNegativeOverlapRoom(VoxelWorld world, int sourceY)
+    {
+        const int min = -19;
+        const int max = -14;
+        for (int z = min; z <= max; z++)
+        for (int x = min; x <= max; x++)
+        {
+            SetFixtureBlock(world, x, sourceY - 1, z, BlockId.Stone);
+            SetFixtureBlock(world, x, sourceY + 2, z, BlockId.Stone);
+            // Leave the positive-X/positive-Z corner open for the capture
+            // camera; the opposite walls still prevent side spill from the
+            // adjacent generated terrain from dominating the room.
+            if (x != min && z != min)
+                continue;
+
+            SetFixtureBlock(world, x, sourceY, z, BlockId.Stone);
+            SetFixtureBlock(world, x, sourceY + 1, z, BlockId.Stone);
+        }
+    }
+
+    private static void SetFixtureBlock(VoxelWorld world, int x, int y, int z, BlockId block)
+    {
+        if (world.GetBlock(x, y, z) != block && !world.SetBlock(x, y, z, block))
+            throw new InvalidOperationException($"Could not construct negative-overlap fixture at ({x},{y},{z}).");
+    }
+
+    private static byte ReadBlockLightAt(VoxelWorld world, int x, int y, int z)
+    {
+        int chunkX = Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX);
+        int chunkZ = Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ);
+        int localX = x - chunkX * VoxelWorld.ChunkX;
+        int localZ = z - chunkZ * VoxelWorld.ChunkZ;
+        return world.LightData(new Vector2I(chunkX, chunkZ))
+                .BlockAt(localX, y, localZ, world.Height);
     }
 
     private static T? FindNode<T>(Node root) where T : Node

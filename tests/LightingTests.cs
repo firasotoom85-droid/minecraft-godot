@@ -14,6 +14,7 @@ public static class LightingTests
         TestSkyLightInterpolation();
         TestHostileSilhouetteResponse();
         TestWarmEmitterResponse();
+        TestPaleSurfaceContrast();
         TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Torch] >= 13, "torch has a strong nibble emission");
         TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Lava] > 0
                 && BlockDb.LightEmission[(int)BlockId.Lava] < BlockDb.LightEmission[(int)BlockId.Torch],
@@ -34,6 +35,9 @@ public static class LightingTests
         TestRemoval();
         TestIncrementalBlockUpdates();
         TestSunlightAndCaves();
+        TestSkyBounceSeparation();
+        TestGreedyMergePreservesBounce();
+        TestMaterialTagChannels();
     }
 
     private static void TestCornerAverageChannels()
@@ -140,10 +144,12 @@ public static class LightingTests
         TestAssert.Check(lavaShader.Contains("float block = clamp(COLOR.g, 0.0, 1.0);",
                         StringComparison.Ordinal)
                         && lavaShader.Contains("block / max(lava_source_level", StringComparison.Ordinal)
+                        && lavaShader.Contains("fract(COLOR.a) * 16.0", StringComparison.Ordinal)
+                        && lavaShader.Contains("bounce * 0.22", StringComparison.Ordinal)
                         && lavaShader.Contains("EMISSION = tex.rgb * warm * lava_emission * 0.9;",
                                 StringComparison.Ordinal)
                         && !lavaShader.Contains("warm * 0.9 +", StringComparison.Ordinal),
-                "lava keeps its orange core but cannot emit independently of packed block light");
+                "lava separates indirect sky fill while retaining packed block emission");
 
         Godot.Environment environment = WorldEnvironmentFactory.Build();
         TestAssert.Equal(Godot.Environment.ToneMapper.Filmic, environment.TonemapMode,
@@ -170,6 +176,96 @@ public static class LightingTests
                 && shader.Contains("response * 0.025;", StringComparison.Ordinal)
                 && !shader.Contains("shadowed_block", StringComparison.Ordinal),
                 $"{label} evaluates one bounded warm response per fragment");
+        TestAssert.Check(shader.Contains(
+                        "float bounce = clamp(fract(COLOR.a) * 16.0 * sky_light_energy, 0.0, 1.0);",
+                        StringComparison.Ordinal)
+                && shader.Contains("bounce * 0.22", StringComparison.Ordinal),
+                $"{label} reads a separate bounded cool cave-bounce channel");
+    }
+
+    private static void TestPaleSurfaceContrast()
+    {
+        TestAssert.Equal(1.0f, MaterialResponse.PaleSurfaceWeight(Colors.White, SurfaceFamily.Soil),
+                "snow-white soil receives full pale-surface response");
+        TestAssert.Equal(1.0f, MaterialResponse.PaleSurfaceWeight(
+                        new Color(0.86f, 0.81f, 0.61f), SurfaceFamily.Soil),
+                "bright sand receives full pale-surface response");
+        float paleStone = MaterialResponse.PaleSurfaceWeight(
+                new Color(0.60f, 0.60f, 0.60f), SurfaceFamily.Stone);
+        TestAssert.Check(paleStone > 0.5f && paleStone < 1.0f,
+                "mid-value stone receives a soft partial response");
+        TestAssert.Equal(0.0f, MaterialResponse.PaleSurfaceWeight(
+                        new Color(0.24f, 0.26f, 0.28f), SurfaceFamily.Stone),
+                "dark stone does not receive pale-surface contrast");
+        TestAssert.Equal(0.0f, MaterialResponse.PaleSurfaceWeight(Colors.White, SurfaceFamily.Wood),
+                "bright wood keeps its original directional response");
+        TestAssert.Equal(0.0f, MaterialResponse.PaleSurfaceWeight(Colors.White, SurfaceFamily.Foliage),
+                "bright foliage keeps its original directional response");
+
+        TestAssert.Equal(0.70f, MaterialResponse.DirectionalSkyGain(0.0f, 1.0f, 1.0f),
+                "turned-away pale surfaces receive stronger daylight shading");
+        TestAssert.Equal(1.0f, MaterialResponse.DirectionalSkyGain(1.0f, 1.0f, 1.0f),
+                "fully sun-facing pale surfaces keep their previous gain");
+        TestAssert.Equal(0.88f, MaterialResponse.DirectionalSkyGain(0.0f, 0.0f, 1.0f),
+                "zero-sun conditions retain existing sky fill");
+        TestAssert.Equal(0.88f, MaterialResponse.DirectionalSkyGain(0.0f, 1.0f, 0.0f),
+                "non-pale surfaces retain existing indirect sky gain");
+        TestAssert.Equal(0.88f, MaterialResponse.DirectionalSkyGain(0.0f, 1.0f, 1.0f, 0.0f),
+                "baseline mode restores the original directional sky gain");
+
+        TestAssert.Equal(2.0f, MaterialResponse.VertexTag(SurfaceFamily.Soil, false),
+                "dry soil retains its existing vertex tag");
+        TestAssert.Equal(10.0f, MaterialResponse.VertexTag(SurfaceFamily.Soil, true),
+                "wet soil retains its existing vertex tag");
+
+        ShaderMaterial atlas = BlockDb.MakeOpaqueMaterial();
+        ShaderMaterial array = BlockDb.MakeArrayOpaqueMaterial();
+        foreach (ShaderMaterial material in new[] { atlas, array })
+        {
+            TestAssert.Equal(new Vector2(MaterialResponse.PaleSurfaceLuminanceMin,
+                            MaterialResponse.PaleSurfaceLuminanceMax),
+                    material.GetShaderParameter("pale_surface_luminance_range").AsVector2(),
+                    "opaque renderers share the albedo threshold range");
+            TestAssert.Equal(MaterialResponse.PaleSurfaceDirectionalContrast,
+                    material.GetShaderParameter("pale_surface_contrast_strength").AsSingle(),
+                    "opaque renderers share the default contrast strength");
+            string shader = material.Shader?.Code ?? string.Empty;
+            // The merged renderer feeds the pale weight into the directional
+            // gain and passes the separated direct-sky channel, never the
+            // combined sky that still carries lateral cave fill.
+            TestAssert.Check(shader.Contains("pale_surface_luminance_range.x", StringComparison.Ordinal)
+                            && shader.Contains("pale_surface_contrast_strength", StringComparison.Ordinal)
+                            && shader.Contains("directional_sky_light(directional_response, direct_sky, COLOR.r, pale_surface)",
+                                    StringComparison.Ordinal)
+                            && shader.Contains("- pale_surface * pale_surface_contrast_strength",
+                                    StringComparison.Ordinal),
+                    "opaque shader applies pale weight only to directional sky gain");
+        }
+        string glassShader = BlockDb.MakeGlassMaterial().Shader?.Code ?? string.Empty;
+        TestAssert.Check(!glassShader.Contains("pale_surface_contrast_strength", StringComparison.Ordinal),
+                "glass remains outside opaque pale-surface response");
+        string waterShader = (ChunkMaterials.Water as ShaderMaterial)?.Shader?.Code ?? string.Empty;
+        TestAssert.Check(!waterShader.Contains("pale_surface_contrast_strength", StringComparison.Ordinal),
+                "water remains outside opaque pale-surface response");
+
+        ShaderMaterial sharedOpaque = ChunkMaterials.Opaque as ShaderMaterial
+                ?? throw new InvalidOperationException("Active opaque material must remain shader-backed.");
+        ChunkMaterials.SetPaleSurfaceContrast(0.0f);
+        TestAssert.Equal(0.0f,
+                sharedOpaque.GetShaderParameter("pale_surface_contrast_strength").AsSingle(),
+                "baseline switch updates the shared opaque material");
+        ChunkMaterials.SetPaleSurfaceContrast(MaterialResponse.PaleSurfaceDirectionalContrast);
+        TestAssert.Equal(MaterialResponse.PaleSurfaceDirectionalContrast,
+                sharedOpaque.GetShaderParameter("pale_surface_contrast_strength").AsSingle(),
+                "contrast restore updates the shared opaque material");
+
+        Color channels = VoxelLighting.VertexColor(VoxelLighting.Pack(11, 7), 0.75f);
+        TestAssert.Equal(11.0f / VoxelLighting.MaxLevel, channels.R,
+                "pale contrast leaves packed skylight vertex channel unchanged");
+        TestAssert.Equal(7.0f / VoxelLighting.MaxLevel, channels.G,
+                "pale contrast leaves packed block-light vertex channel unchanged");
+        TestAssert.Equal(0.75f, channels.B,
+                "pale contrast leaves AO/face-shade vertex channel unchanged");
     }
 
     private static void TestBlockAttenuation()
@@ -562,6 +658,125 @@ public static class LightingTests
         TestAssert.Equal((byte)15, opening, "open skylight shaft keeps direct sun");
         TestAssert.Check(caveEdge > 0 && caveEdge < opening,
                 "skylight diffuses laterally into cave openings");
+    }
+
+    private static void TestSkyBounceSeparation()
+    {
+        const int width = 5;
+        const int height = 6;
+        const int depth = 5;
+        byte[] blocks = new byte[width * height * depth];
+
+        // A stone ceiling with one open shaft feeds a horizontal cave tunnel.
+        for (int z = 0; z < depth; z++)
+        for (int x = 0; x < width; x++)
+            blocks[Idx(width, height, depth, x, 4, z)] = (byte)BlockId.Stone;
+        blocks[Idx(width, height, depth, 2, 4, 2)] = (byte)BlockId.Air;
+
+        byte[] combined = VoxelLighting.BuildSkyLight(
+                blocks, width, height, depth, null, out byte[] direct);
+        byte directOpening = At(direct, width, height, depth, 2, 3, 2);
+        byte directTunnel = At(direct, width, height, depth, 1, 3, 2);
+        byte combinedTunnel = At(combined, width, height, depth, 1, 3, 2);
+
+        TestAssert.Equal((byte)15, directOpening,
+                "the unobstructed shaft retains full direct skylight");
+        TestAssert.Equal((byte)0, directTunnel,
+                "vertical direct skylight remains zero beneath the solid cave roof");
+        TestAssert.Equal((byte)14, combinedTunnel,
+                "the existing combined skylight still floods one step into the cave");
+        TestAssert.Equal((byte)14, VoxelLighting.SkyBounce(combinedTunnel, directTunnel),
+                "lateral cave fill is exposed as an independent indirect channel");
+        TestAssert.Equal((byte)0, VoxelLighting.SkyBounce(directTunnel, directOpening),
+                "the indirect channel cannot become negative when direct sky is brighter");
+
+        Color channels = VoxelLighting.VertexColor(VoxelLighting.Pack(directTunnel, 9), 0.75f);
+        TestAssert.Equal(0.0f, channels.R,
+                "the mesh red channel carries direct sunlight only, not cave spill");
+        TestAssert.Equal(9.0f / 15.0f, channels.G,
+                "the mesh green channel remains reserved for warm block emission");
+
+        float tag = MaterialResponse.VertexTag(
+                SurfaceFamily.Wood, true, 14.0f / 15.0f);
+        float integerTag = Mathf.Floor(tag + 0.001f);
+        TestAssert.Equal(9.0f, integerTag,
+                "fractional cave fill does not change the material family or wet bit");
+        TestAssert.Check(Mathf.Abs(
+                        14.0f / 15.0f - (tag - integerTag) * 16.0f) < 0.01f,
+                "four-bit cave fill round-trips through the unused material-tag fraction");
+    }
+
+    /// <summary>
+    /// Greedy merging must never fuse two faces whose cave spill differs: the
+    /// merged quad re-uses one corner set for every covered cell. Combined sky
+    /// and block light alone cannot prove that, because two cells can share the
+    /// same combined sky while receiving different amounts of direct sun.
+    /// </summary>
+    private static void TestGreedyMergePreservesBounce()
+    {
+        const int height = 6;
+        byte[] pad = new byte[Mesher.PLANE * height];
+        byte[] statePad = new byte[Mesher.PLANE * height];
+        int center = Mesher.PLANE * 2 + Mesher.PZ * 2 + 2;
+        pad[center] = (byte)BlockId.Stone;
+
+        // Same combined sky and block light, different vertical direct sun:
+        // one sample is open to the sky, the other is lateral cave fill.
+        byte[] sunlit = new byte[Mesher.PLANE * height];
+        byte[] sunlitDirect = new byte[Mesher.PLANE * height];
+        byte[] spilled = new byte[Mesher.PLANE * height];
+        byte[] spilledDirect = new byte[Mesher.PLANE * height];
+        Array.Fill(sunlit, VoxelLighting.Pack(15, 7));
+        Array.Fill(sunlitDirect, (byte)15);
+        Array.Fill(spilled, VoxelLighting.Pack(15, 7));
+        Array.Fill(spilledDirect, (byte)5);
+
+        TestAssert.Equal(
+                Mesher.FaceKey(pad, statePad, sunlit, center, 0),
+                Mesher.FaceKey(pad, statePad, spilled, center, 0),
+                "the legacy surface key alone cannot tell cave spill from direct sun");
+
+        Mesher.FaceMergeKey lit = Mesher.MergeKey(pad, statePad, sunlit, sunlitDirect, center, 0);
+        Mesher.FaceMergeKey spill = Mesher.MergeKey(pad, statePad, spilled, spilledDirect, center, 0);
+        TestAssert.Check(!lit.IsEmpty && !spill.IsEmpty,
+                "both samples expose a visible opaque top face");
+        TestAssert.Check(lit.Bounce == 0UL,
+                "a fully sunlit corner contributes no cave spill to the merge key");
+        TestAssert.Check(spill.Bounce == 0xAAAAUL,
+                "every corner of the cave-lit sample records a ten-level spill nibble");
+        TestAssert.Check(!lit.Equals(spill),
+                "faces with different cave spill never share a greedy merge key");
+        TestAssert.Check(Mesher.MergeKey(pad, statePad, spilled, spilledDirect, center, 0)
+                        .Equals(spill),
+                "identical lighting still merges, so greedy meshing is not over-split");
+    }
+
+    /// <summary>
+    /// The fractional material-tag range must decode back to the same spill
+    /// level for every family and wet combination without disturbing either.
+    /// </summary>
+    private static void TestMaterialTagChannels()
+    {
+        foreach (SurfaceFamily family in Enum.GetValues<SurfaceFamily>())
+        {
+            foreach (bool wet in new[] { false, true })
+            {
+                float expectedInteger = (byte)family + (wet ? 8.0f : 0.0f);
+                foreach (byte bounce in new byte[] { 0, 1, 7, 15 })
+                {
+                    float tag = MaterialResponse.VertexTag(family, wet, bounce / 15.0f);
+                    float decodedInteger = Mathf.Floor(tag + 0.001f);
+                    TestAssert.Equal(expectedInteger, decodedInteger,
+                            $"{family} wet={wet} spill={bounce} keeps its material family and wet flag");
+                    // The tag lives around magnitude 8-15, where float32 steps
+                    // are ~1e-6; 0.01 of a 15-level unit stays far inside one of
+                    // the sixteen encoded steps and rejects a mis-scaled decode.
+                    float decodedBounce = (tag - decodedInteger) * 16.0f * 15.0f;
+                    TestAssert.Check(Mathf.Abs(decodedBounce - bounce) < 0.01f,
+                            $"{family} wet={wet} spill={bounce} round-trips the cave-spill nibble");
+                }
+            }
+        }
     }
 
     private static int Idx(int width, int height, int depth, int x, int y, int z) =>

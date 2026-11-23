@@ -13,11 +13,11 @@ public static class VoxelStreamingTests
         TestAssert.Check(StreamingApplyBudget.ShouldStop(0.0, 1, 0.0),
                 "zero time budget stops after the first payload");
 
-        long expectedLow = 11L * 11L * 16 * 128 * 16 * 5;
+        long expectedLow = 11L * 11L * 16 * 128 * 16 * StreamingMemoryBudget.BytesPerVoxelUpperBound;
         TestAssert.Equal(expectedLow,
                 StreamingMemoryBudget.EstimateVoxelArrayBudgetBytes(2, 2, 16, 128, 16),
-                "voxel cache budget includes the streamed radius and existing halo");
-        TestAssert.Equal(17L * 17L * 16 * 128 * 16 * 5,
+                "voxel cache budget includes the direct-sky side map, streamed radius and existing halo");
+        TestAssert.Equal(17L * 17L * 16 * 128 * 16 * StreamingMemoryBudget.BytesPerVoxelUpperBound,
                 StreamingMemoryBudget.EstimateVoxelArrayBudgetBytes(5, 2, 16, 128, 16),
                 "voxel cache budget scales with the selected view distance");
         TestAssert.Equal(expectedLow,

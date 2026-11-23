@@ -58,8 +58,10 @@ public static class IntegrationRegressionTests
         CheckV11ShorelineDelta(host);
         CheckNewContentSaveRoundTrip();
         CheckWetGreedyMergeKey();
+        CheckSkyChannelsFollowRoofEdits(host);
         CheckCampfireBakedEmitterLifecycle(host);
         CheckChunkLightingSolveOrderIndependence(host);
+        CheckNegativeChunkOverlappingEmitterLighting(host);
     }
 
     private static void CheckAppendOnlyIds()
@@ -296,6 +298,75 @@ public static class IntegrationRegressionTests
         }
     }
 
+    /// <summary>
+    /// A roof edit must refresh both skylight channels for the covered chunk.
+    /// The direct vertical pass is a separate cached side map, so a stale entry
+    /// would keep sunlight on a cell that is no longer open to the sky.
+    /// </summary>
+    private static void CheckSkyChannelsFollowRoofEdits(Node host)
+    {
+        string dir = NewWorld(WorldGenV11.Version);
+        VoxelWorld? world = null;
+        try
+        {
+            GameSession.Instance.SelectWorld(dir);
+            world = new VoxelWorld { Name = "Direct-sky invalidation", BuildCollision = false };
+            host.AddChild(world);
+            world.BuildPreview(Vector3.Zero, 1);
+
+            // Chunk zero near the world top is open sky, matching the existing
+            // world-light regression fixture, so no terrain or tree shades the
+            // probe and the direct pass is unambiguous.
+            Vector2I chunk = Vector2I.Zero;
+            int x = 8;
+            int z = 8;
+            int height = world.Height;
+            int roofY = height - 2;
+            int cellY = roofY - 1;
+            for (int y = cellY; y < height; y++)
+            {
+                if (world.GetBlock(x, y, z) != BlockId.Air)
+                    world.SetBlock(x, y, z, BlockId.Air);
+            }
+
+            VoxelLightData open = world.LightData(chunk);
+            TestAssert.Equal((byte)15, open.DirectSkyAt(x, cellY, z, height),
+                    "open air records full vertical direct skylight");
+            TestAssert.Equal(0, (int)VoxelLighting.SkyBounce(
+                            open.SkyAt(x, cellY, z, height),
+                            open.DirectSkyAt(x, cellY, z, height)),
+                    "open air has no lateral cave spill to add");
+
+            TestAssert.Check(world.SetBlock(x, roofY, z, BlockId.Stone),
+                    "placing a roof through SetBlock succeeds");
+            VoxelLightData roofed = world.LightData(chunk);
+            TestAssert.Equal((byte)0, roofed.DirectSkyAt(x, cellY, z, height),
+                    "a fresh roof clears the cached direct-sky value of the covered cell");
+            // The neighbouring column is still open at the same height, so the
+            // existing lateral flood keeps one step of combined skylight while
+            // the vertical direct pass is already dark: the two channels now
+            // disagree, and that gap is the cave-bounce channel.
+            TestAssert.Equal((byte)14, roofed.SkyAt(x, cellY, z, height),
+                    "the covered cell keeps only its lateral combined skylight");
+            TestAssert.Equal((byte)14, VoxelLighting.SkyBounce(
+                            roofed.SkyAt(x, cellY, z, height),
+                            roofed.DirectSkyAt(x, cellY, z, height)),
+                    "a roofed cell exposes its remaining sky as lateral cave spill");
+
+            TestAssert.Check(world.SetBlock(x, roofY, z, BlockId.Air),
+                    "removing the roof through SetBlock succeeds");
+            VoxelLightData reopened = world.LightData(chunk);
+            TestAssert.Equal((byte)15, reopened.DirectSkyAt(x, cellY, z, height),
+                    "cache invalidation cannot leave stale direct skylight after an edit");
+            TestAssert.Equal((byte)15, reopened.SkyAt(x, cellY, z, height),
+                    "the combined gameplay skylight agrees with the refreshed direct pass");
+        }
+        finally
+        {
+            RemoveWorld(host, world, dir);
+        }
+    }
+
     private static void CheckWetGreedyMergeKey()
     {
         const int height = 6;
@@ -486,12 +557,150 @@ public static class IntegrationRegressionTests
         }
     }
 
+    private static void CheckNegativeChunkOverlappingEmitterLighting(Node host)
+    {
+        // The two torches occupy diagonally opposite sides of both negative
+        // chunk seams. Their shared edge-adjacent voxels are in the other two
+        // chunks, which catches floor-division and 3x3 crop/index mistakes.
+        const int y = 120;
+        const int firstX = -17;
+        const int firstZ = -17;
+        const int secondX = -16;
+        const int secondZ = -16;
+        Vector2I northWestCenter = new(-2, -2);
+        Vector2I southEastCenter = new(-1, -1);
+        string forwardDir = NewWorld(WorldGenV11.Version);
+        string reverseDir = NewWorld(WorldGenV11.Version);
+        VoxelWorld? forward = null;
+        VoxelWorld? reverse = null;
+
+        try
+        {
+            GameSession.Instance.SelectWorld(forwardDir);
+            forward = new VoxelWorld
+            {
+                Name = "Negative chunk overlap forward",
+                BuildCollision = false,
+            };
+            host.AddChild(forward);
+            forward.BuildPreview(new Vector3(-16.0f, y, -16.0f), 1);
+            // Prime both overlapping 3x3 cache sets before placement so the
+            // following SetBlock calls exercise the incremental add path.
+            forward.LightDataNeighborhood(northWestCenter);
+            forward.LightDataNeighborhood(southEastCenter);
+            TestAssert.Check(forward.SetBlock(firstX, y, firstZ, BlockId.Torch),
+                    "first overlapping torch is editable in chunk (-2,-2)");
+            TestAssert.Check(forward.SetBlock(secondX, y, secondZ, BlockId.Torch),
+                    "second overlapping torch is editable in chunk (-1,-1)");
+
+            List<VoxelLightSource> forwardSources = forward.NearbyLightSources(
+                    -18, -15, -18, -15);
+            TestAssert.Equal(2, forwardSources.Count,
+                    "both negative-coordinate emitters are retained in the world source registry");
+
+            VoxelLightData[] forwardNorthWest =
+                    forward.LightDataNeighborhood(northWestCenter);
+            VoxelLightData[] forwardSouthEast =
+                    forward.LightDataNeighborhood(southEastCenter);
+
+            GameSession.Instance.SelectWorld(reverseDir);
+            reverse = new VoxelWorld
+            {
+                Name = "Negative chunk overlap reverse",
+                BuildCollision = false,
+            };
+            host.AddChild(reverse);
+            reverse.BuildPreview(new Vector3(-16.0f, y, -16.0f), 1);
+            TestAssert.Check(reverse.SetBlock(firstX, y, firstZ, BlockId.Torch),
+                    "reverse fixture places the first negative-coordinate torch through SetBlock");
+            TestAssert.Check(reverse.SetBlock(secondX, y, secondZ, BlockId.Torch),
+                    "reverse fixture places the second negative-coordinate torch through SetBlock");
+
+            VoxelLightData[] reverseSouthEast =
+                    reverse.LightDataNeighborhood(southEastCenter);
+            VoxelLightData[] reverseNorthWest =
+                    reverse.LightDataNeighborhood(northWestCenter);
+
+            // The two 3x3 requests share a 2x2 set of chunks around (-1,-1).
+            // Compare both solve orders with live emitters, not only skylight.
+            for (int dz = 0; dz <= 1; dz++)
+            for (int dx = 0; dx <= 1; dx++)
+            {
+                int northWestSlot = (dz + 1) * 3 + dx + 1;
+                int southEastSlot = dz * 3 + dx;
+                Vector2I sharedChunk = northWestCenter + new Vector2I(dx, dz);
+                TestAssert.Check(EqualPackedLight(
+                                forwardNorthWest[northWestSlot],
+                                reverseSouthEast[southEastSlot]),
+                        $"negative shared chunk {sharedChunk} keeps identical packed light when its neighbour is solved first");
+                TestAssert.Check(EqualPackedLight(
+                                forwardSouthEast[southEastSlot],
+                                reverseNorthWest[northWestSlot]),
+                        $"negative shared chunk {sharedChunk} keeps identical packed light when its own neighbourhood is solved first");
+            }
+
+            // These are the two voxels between the diagonal sources. They are
+            // in chunks (-1,-2) and (-2,-1), respectively, and receive level
+            // 13 from either source without summing the two contributions.
+            TestAssert.Equal((byte)13,
+                    ReadBlockLight(forward, -16, y, -17),
+                    "overlapping block light stays level 13 across the negative X seam");
+            TestAssert.Equal((byte)13,
+                    ReadBlockLight(forward, -17, y, -16),
+                    "overlapping block light stays level 13 across the negative Z seam");
+            TestAssert.Equal((byte)14,
+                    ReadBlockLight(forward, firstX, y, firstZ),
+                    "negative chunk source A retains its registered torch level");
+            TestAssert.Equal((byte)14,
+                    ReadBlockLight(forward, secondX, y, secondZ),
+                    "negative chunk source B retains its registered torch level");
+
+            TestAssert.Check(forward.SetBlock(firstX, y, firstZ, BlockId.Air),
+                    "removing source A after the negative neighbourhoods are cached uses the existing edit path");
+            TestAssert.Equal((byte)13,
+                    ReadBlockLight(forward, -16, y, -17),
+                    "incremental removal retains source B's overlapping light across the negative X seam");
+            TestAssert.Equal((byte)13,
+                    ReadBlockLight(forward, -17, y, -16),
+                    "incremental removal retains source B's overlapping light across the negative Z seam");
+            TestAssert.Check(forward.SetBlock(secondX, y, secondZ, BlockId.Air),
+                    "removing the remaining negative-coordinate emitter succeeds through SetBlock");
+            TestAssert.Equal((byte)0,
+                    ReadBlockLight(forward, -16, y, -17),
+                    "removing the last emitter clears stale block light across the negative X seam");
+            TestAssert.Equal((byte)0,
+                    ReadBlockLight(forward, -17, y, -16),
+                    "removing the last emitter clears stale block light across the negative Z seam");
+        }
+        finally
+        {
+            RemoveWorld(host, forward, forwardDir);
+            RemoveWorld(host, reverse, reverseDir);
+        }
+    }
+
+    private static byte ReadBlockLight(VoxelWorld world, int x, int y, int z)
+    {
+        int chunkX = Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX);
+        int chunkZ = Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ);
+        int localX = x - chunkX * VoxelWorld.ChunkX;
+        int localZ = z - chunkZ * VoxelWorld.ChunkZ;
+        return world.LightData(new Vector2I(chunkX, chunkZ))
+                .BlockAt(localX, y, localZ, world.Height);
+    }
+
     private static bool EqualPackedLight(VoxelLightData first, VoxelLightData second)
     {
-        if (first.Packed.Length != second.Packed.Length) return false;
+        if (first.Packed.Length != second.Packed.Length
+                || first.DirectSkyPacked.Length != second.DirectSkyPacked.Length)
+            return false;
         for (int i = 0; i < first.Packed.Length; i++)
         {
             if (first.Packed[i] != second.Packed[i]) return false;
+        }
+        for (int i = 0; i < first.DirectSkyPacked.Length; i++)
+        {
+            if (first.DirectSkyPacked[i] != second.DirectSkyPacked[i]) return false;
         }
         return true;
     }

@@ -1,0 +1,701 @@
+{
+  "version": 1,
+  "source": "GitHub Actions Godot 4.7.2 .NET headless probe-only captures; seed 1337, generator V11, LOW preset, clear weather",
+  "capture": {
+    "runtime": "Godot 4.7.2 .NET",
+    "seed": 1337,
+    "generator_version": 11,
+    "preset": "LOW",
+    "weather": "Clear",
+    "grid": "3x3x3; offsets -2, 0, +2 voxels on each axis",
+    "sampling": "VoxelWorld.LightData packed sky/block nibbles",
+    "validated_against": "Historical centre probes in LIGHTING_COMPARISON_REPORT_2026-11-22.md"
+  },
+  "scenarios": {
+    "forest-canopy": [
+      {
+        "id": "x-2_y-2_z-2",
+        "sky": 11,
+        "block": 0
+      },
+      {
+        "id": "x0_y-2_z-2",
+        "sky": 11,
+        "block": 0
+      },
+      {
+        "id": "x2_y-2_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x-2_y-2_z0",
+        "sky": 10,
+        "block": 0
+      },
+      {
+        "id": "x0_y-2_z0",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x2_y-2_z0",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x-2_y-2_z2",
+        "sky": 14,
+        "block": 0
+      },
+      {
+        "id": "x0_y-2_z2",
+        "sky": 14,
+        "block": 0
+      },
+      {
+        "id": "x2_y-2_z2",
+        "sky": 14,
+        "block": 0
+      },
+      {
+        "id": "x-2_y0_z-2",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x0_y0_z-2",
+        "sky": 11,
+        "block": 0
+      },
+      {
+        "id": "x2_y0_z-2",
+        "sky": 10,
+        "block": 0
+      },
+      {
+        "id": "x-2_y0_z0",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "center",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x2_y0_z0",
+        "sky": 12,
+        "block": 0
+      },
+      {
+        "id": "x-2_y0_z2",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x0_y0_z2",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x2_y0_z2",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x-2_y2_z-2",
+        "sky": 15,
+        "block": 0
+      },
+      {
+        "id": "x0_y2_z-2",
+        "sky": 11,
+        "block": 0
+      },
+      {
+        "id": "x2_y2_z-2",
+        "sky": 9,
+        "block": 0
+      },
+      {
+        "id": "x-2_y2_z0",
+        "sky": 15,
+        "block": 0
+      },
+      {
+        "id": "x0_y2_z0",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x2_y2_z0",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x-2_y2_z2",
+        "sky": 15,
+        "block": 0
+      },
+      {
+        "id": "x0_y2_z2",
+        "sky": 15,
+        "block": 0
+      },
+      {
+        "id": "x2_y2_z2",
+        "sky": 15,
+        "block": 0
+      }
+    ],
+    "torch-cave": [
+      {
+        "id": "x-2_y-2_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y-2_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x2_y-2_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x-2_y-2_z0",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y-2_z0",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x2_y-2_z0",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x-2_y-2_z2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y-2_z2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x2_y-2_z2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x-2_y0_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y0_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x2_y0_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x-2_y0_z0",
+        "sky": 8,
+        "block": 12
+      },
+      {
+        "id": "center",
+        "sky": 10,
+        "block": 14
+      },
+      {
+        "id": "x2_y0_z0",
+        "sky": 12,
+        "block": 12
+      },
+      {
+        "id": "x-2_y0_z2",
+        "sky": 10,
+        "block": 10
+      },
+      {
+        "id": "x0_y0_z2",
+        "sky": 12,
+        "block": 12
+      },
+      {
+        "id": "x2_y0_z2",
+        "sky": 14,
+        "block": 10
+      },
+      {
+        "id": "x-2_y2_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y2_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x2_y2_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x-2_y2_z0",
+        "sky": 8,
+        "block": 10
+      },
+      {
+        "id": "x0_y2_z0",
+        "sky": 10,
+        "block": 12
+      },
+      {
+        "id": "x2_y2_z0",
+        "sky": 12,
+        "block": 10
+      },
+      {
+        "id": "x-2_y2_z2",
+        "sky": 10,
+        "block": 8
+      },
+      {
+        "id": "x0_y2_z2",
+        "sky": 12,
+        "block": 10
+      },
+      {
+        "id": "x2_y2_z2",
+        "sky": 14,
+        "block": 8
+      }
+    ],
+    "river-valley": [
+      {
+        "id": "x-2_y-2_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y-2_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x2_y-2_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x-2_y-2_z0",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y-2_z0",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x2_y-2_z0",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x-2_y-2_z2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y-2_z2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x2_y-2_z2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x-2_y0_z-2",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x0_y0_z-2",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x2_y0_z-2",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x-2_y0_z0",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "center",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x2_y0_z0",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x-2_y0_z2",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x0_y0_z2",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x2_y0_z2",
+        "sky": 13,
+        "block": 0
+      },
+      {
+        "id": "x-2_y2_z-2",
+        "sky": 15,
+        "block": 0
+      },
+      {
+        "id": "x0_y2_z-2",
+        "sky": 15,
+        "block": 0
+      },
+      {
+        "id": "x2_y2_z-2",
+        "sky": 15,
+        "block": 0
+      },
+      {
+        "id": "x-2_y2_z0",
+        "sky": 15,
+        "block": 0
+      },
+      {
+        "id": "x0_y2_z0",
+        "sky": 15,
+        "block": 0
+      },
+      {
+        "id": "x2_y2_z0",
+        "sky": 15,
+        "block": 0
+      },
+      {
+        "id": "x-2_y2_z2",
+        "sky": 15,
+        "block": 0
+      },
+      {
+        "id": "x0_y2_z2",
+        "sky": 15,
+        "block": 0
+      },
+      {
+        "id": "x2_y2_z2",
+        "sky": 15,
+        "block": 0
+      }
+    ],
+    "village-street": [
+      {
+        "id": "x-2_y-2_z-2",
+        "sky": 7,
+        "block": 8
+      },
+      {
+        "id": "x0_y-2_z-2",
+        "sky": 9,
+        "block": 10
+      },
+      {
+        "id": "x2_y-2_z-2",
+        "sky": 14,
+        "block": 8
+      },
+      {
+        "id": "x-2_y-2_z0",
+        "sky": 9,
+        "block": 10
+      },
+      {
+        "id": "x0_y-2_z0",
+        "sky": 11,
+        "block": 12
+      },
+      {
+        "id": "x2_y-2_z0",
+        "sky": 14,
+        "block": 10
+      },
+      {
+        "id": "x-2_y-2_z2",
+        "sky": 10,
+        "block": 8
+      },
+      {
+        "id": "x0_y-2_z2",
+        "sky": 9,
+        "block": 10
+      },
+      {
+        "id": "x2_y-2_z2",
+        "sky": 14,
+        "block": 8
+      },
+      {
+        "id": "x-2_y0_z-2",
+        "sky": 7,
+        "block": 10
+      },
+      {
+        "id": "x0_y0_z-2",
+        "sky": 9,
+        "block": 12
+      },
+      {
+        "id": "x2_y0_z-2",
+        "sky": 14,
+        "block": 8
+      },
+      {
+        "id": "x-2_y0_z0",
+        "sky": 9,
+        "block": 12
+      },
+      {
+        "id": "center",
+        "sky": 11,
+        "block": 14
+      },
+      {
+        "id": "x2_y0_z0",
+        "sky": 14,
+        "block": 10
+      },
+      {
+        "id": "x-2_y0_z2",
+        "sky": 9,
+        "block": 10
+      },
+      {
+        "id": "x0_y0_z2",
+        "sky": 9,
+        "block": 12
+      },
+      {
+        "id": "x2_y0_z2",
+        "sky": 14,
+        "block": 8
+      },
+      {
+        "id": "x-2_y2_z-2",
+        "sky": 15,
+        "block": 5
+      },
+      {
+        "id": "x0_y2_z-2",
+        "sky": 15,
+        "block": 7
+      },
+      {
+        "id": "x2_y2_z-2",
+        "sky": 15,
+        "block": 9
+      },
+      {
+        "id": "x-2_y2_z0",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y2_z0",
+        "sky": 15,
+        "block": 5
+      },
+      {
+        "id": "x2_y2_z0",
+        "sky": 15,
+        "block": 7
+      },
+      {
+        "id": "x-2_y2_z2",
+        "sky": 15,
+        "block": 1
+      },
+      {
+        "id": "x0_y2_z2",
+        "sky": 15,
+        "block": 3
+      },
+      {
+        "id": "x2_y2_z2",
+        "sky": 15,
+        "block": 5
+      }
+    ],
+    "dungeon-arena": [
+      {
+        "id": "x-2_y-2_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y-2_z-2",
+        "sky": 4,
+        "block": 11
+      },
+      {
+        "id": "x2_y-2_z-2",
+        "sky": 6,
+        "block": 9
+      },
+      {
+        "id": "x-2_y-2_z0",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y-2_z0",
+        "sky": 6,
+        "block": 12
+      },
+      {
+        "id": "x2_y-2_z0",
+        "sky": 8,
+        "block": 10
+      },
+      {
+        "id": "x-2_y-2_z2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y-2_z2",
+        "sky": 8,
+        "block": 10
+      },
+      {
+        "id": "x2_y-2_z2",
+        "sky": 10,
+        "block": 8
+      },
+      {
+        "id": "x-2_y0_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y0_z-2",
+        "sky": 4,
+        "block": 12
+      },
+      {
+        "id": "x2_y0_z-2",
+        "sky": 6,
+        "block": 10
+      },
+      {
+        "id": "x-2_y0_z0",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "center",
+        "sky": 6,
+        "block": 14
+      },
+      {
+        "id": "x2_y0_z0",
+        "sky": 8,
+        "block": 12
+      },
+      {
+        "id": "x-2_y0_z2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y0_z2",
+        "sky": 8,
+        "block": 12
+      },
+      {
+        "id": "x2_y0_z2",
+        "sky": 10,
+        "block": 10
+      },
+      {
+        "id": "x-2_y2_z-2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y2_z-2",
+        "sky": 4,
+        "block": 10
+      },
+      {
+        "id": "x2_y2_z-2",
+        "sky": 6,
+        "block": 8
+      },
+      {
+        "id": "x-2_y2_z0",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y2_z0",
+        "sky": 6,
+        "block": 12
+      },
+      {
+        "id": "x2_y2_z0",
+        "sky": 8,
+        "block": 10
+      },
+      {
+        "id": "x-2_y2_z2",
+        "sky": 0,
+        "block": 0
+      },
+      {
+        "id": "x0_y2_z2",
+        "sky": 8,
+        "block": 10
+      },
+      {
+        "id": "x2_y2_z2",
+        "sky": 10,
+        "block": 8
+      }
+    ]
+  }
+}

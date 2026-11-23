@@ -211,7 +211,7 @@ public static class StreamingApplyBudget
 
 public static class StreamingMemoryBudget
 {
-    public const int BytesPerVoxelUpperBound = 5; // blocks, optional block states, sky, block, packed light
+    public const int BytesPerVoxelUpperBound = 6; // blocks, states, sky, block, packed light and direct-sky nibble
 
     /// <summary>
     /// Bound byte-array caches to the streamed area plus the existing one-chunk
