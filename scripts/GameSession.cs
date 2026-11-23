@@ -71,9 +71,29 @@ public partial class GameSession : Node
                         "The selected world contains an incomplete save set. Restore a matching world/player backup before playing.");
             }
 
+            if (worldRead.Status == WorldReadStatus.Missing && playerRead.Status == WorldReadStatus.Missing
+                    && (Manifest.HasSavedData || Manifest.PlaytimeSeconds > 0
+                    || Manifest.PlayedUtc > Manifest.CreatedUtc))
+            {
+                WorldStore.RequireRecovery(WorldDir);
+                throw new System.IO.InvalidDataException(
+                        "This world previously contained saved progress, but all world/player save candidates are missing. Recovery is required.");
+            }
+
             if (WorldStore.IsRecoveryRequired(WorldDir))
                 throw new System.IO.InvalidDataException(
                         "The selected world is marked as recovery-required. Its data will not be overwritten.");
+
+            // Upgrade older manifests in place after verifying both existing
+            // save models. The optional field is ignored by pre-existing versions.
+            if (!Manifest.HasSavedData && worldRead.Value is not null && playerRead.Value is not null)
+            {
+                WorldManifest marked = Manifest with { HasSavedData = true };
+                if (!WorldStore.WriteManifest(WorldDir, marked))
+                    throw new System.IO.IOException(
+                            "The world is readable, but its save-history safety metadata could not be persisted.");
+                Manifest = marked;
+            }
 
             return WorldDir;
         }
