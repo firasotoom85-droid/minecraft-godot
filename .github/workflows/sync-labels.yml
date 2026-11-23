@@ -20,6 +20,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Create or update repository labels
         env:
-          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
-          GH_REPOSITORY: \${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPOSITORY: ${{ github.repository }}
         run: bash scripts/sync-issue-labels.sh
