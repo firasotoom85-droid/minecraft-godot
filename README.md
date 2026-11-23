@@ -1627,3 +1627,33 @@ their original exponential mode and blend density. The camera environment is
 not switched at the waterline, eliminating the end-of-transition full-screen
 colour snap. Lava keeps its existing camera override. No extra nodes, lights,
 shader passes, voxel edits or persisted data are introduced.
+
+## Gameplay lifecycle and navigation regression fixes — 2026-11-23
+
+Crop growth now validates its farmland support and open space using loaded-only
+voxel reads. Wheat without farmland remains planted but does not advance; it
+resumes when valid support is restored. An unloaded crop coordinate never
+causes its terrain chunk to be generated just to process a growth tick.
+
+The Merchant's three-biome exploration quest initializes from the persistent
+unique `explored/<Biome>` world flags, so previously discovered biomes count
+when the quest is accepted. Revisiting a biome does not add progress twice.
+
+Mob simulation is suspended when an entity's current terrain chunk is absent
+and resumes when that chunk becomes available again. This includes residents
+managed by the village system. The village removal pass reuses its scratch list,
+and mob projectiles reuse a configured terrain `RayCast3D` instead of building
+a ray-query object and result dictionary every physics tick.
+
+Fluid updates preserve level 1 at the foot of a falling column, avoid weakening
+flow when a neighbouring chunk is unknown, and periodically rediscover water
+in newly streamed nearby chunks. The retry examines loaded cells only. Gravity
+mob steering treats non-solid plants as traversable while retaining explicit
+lava avoidance; Crystal Wisp steering accounts for the occupied microcells of
+slabs and stairs.
+
+All block changes continue through `VoxelWorld.SetBlock`. These fixes do not
+change persisted IDs, save format, generator versions, the mesher, or chunk
+streaming architecture. Regression cases live in the existing
+`MobPerceptionTests`, `VillageTests`, `FluidWorldTests`, and
+`MobContentTests` suites.

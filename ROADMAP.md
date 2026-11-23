@@ -3166,3 +3166,12 @@ conflict resolutions and verification are recorded in
 - **Still unmeasured.** No real-renderer capture or frame-time comparison was
   produced here. The MX230 PASS/FAIL and the GPU-quantised cave-spill response
   remain open visual checks; the capture commands are committed.
+
+## 64. Gameplay lifecycle, quest, fluid and navigation regressions — 2026-11-23
+
+- **Farming and quest state.** Crop growth checks valid farmland through loaded-only reads. Unsupported wheat remains planted but pauses growth until support returns; unloaded crop coordinates do not rehydrate terrain. Merchant biome progress is reconciled from the persistent unique `explored/<Biome>` flags at quest acceptance.
+- **Chunk/entity lifecycle.** Mobs suspend AI and physics when their current terrain chunk is unavailable and resume when it streams back in. The same refresh path is used for village residents. The resident-removal pass reuses a scratch list, and each mob projectile reuses one terrain `RayCast3D` rather than allocating a ray-query wrapper/result on every physics tick.
+- **Fluid correctness and discovery.** A vertical water column keeps level 1 at its supported foot and spreads horizontally at level 2. Unknown chunk neighbours cannot cause a loaded flow cell to weaken. A bounded two-second retry discovers water in nearby chunks that stream in after the first scan, without querying unloaded terrain.
+- **Voxel-aware mob movement.** Gravity-driven mob steering does not treat non-solid plants as walls and still treats lava as hazardous. Crystal Wisp steering intersects its bounds with actual stateful slab/stair occupancy.
+- **Regression coverage.** Existing registered `MobPerceptionTests`, `VillageTests`, `FluidWorldTests`, and `MobContentTests` cover the fixes. The completed implementation branch passed the Debug/Release warning-as-error builds and all 200,197 headless checks; all five spatial voxel-light probe grids reported 27/27 samples. The current documentation-only follow-up is re-run through CI before merge.
+- **Compatibility.** No persisted IDs, save fields, generator versions, voxel mutation ownership, greedy meshing, or chunk streaming contracts changed. All gameplay voxel edits continue through `VoxelWorld.SetBlock`.
