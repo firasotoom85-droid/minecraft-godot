@@ -2695,11 +2695,17 @@ public partial class VoxelWorld : Node3D
                     _completedPayloadSlots.Release();
                 }
 
+                bool outsideRetention;
+                Vector2I streamCenter;
+                int cacheLimit;
                 lock (_queueLock)
                 {
                     bool rebuildRequested = _workTracker.Complete(cp);
-                    if (_alive && ChunkStreamingPolicy.IsWithinRetention(
-                            cp, _streamCenter, _streamRetentionLimit))
+                    streamCenter = _streamCenter;
+                    cacheLimit = _streamRetentionLimit + 1;
+                    outsideRetention = !ChunkStreamingPolicy.IsWithinRetention(
+                            cp, _streamCenter, _streamRetentionLimit);
+                    if (_alive && !outsideRetention)
                     {
                         if (rebuildRequested || retryRequest && rebuild)
                         {
@@ -2710,6 +2716,13 @@ public partial class VoxelWorld : Node3D
                             QueueFreshLocked(cp, _streamCenter);
                         }
                     }
+                }
+
+                // A build can populate a halo cache after UnloadFar has
+                // already evicted it. Re-prune stale worker output on completion.
+                if (_alive && outsideRetention)
+                {
+                    PruneWorldCaches(streamCenter, cacheLimit);
                 }
             }
         }
@@ -3257,11 +3270,21 @@ public partial class VoxelWorld : Node3D
             }
         }
 
-        // Keep a one-chunk data/light halo for boundary propagation. Emitter
-        // registrations outside it are re-discovered from voxel data on reload.
+        // Keep the one-chunk data/light halo required for neighbour snapshots.
+        PruneWorldCaches(pcp, limit + 1);
+    }
+
+    /// <summary>
+    /// Evict generated data and deterministic spatial lookup caches outside
+    /// the retained region. Safe to call after a worker completes because the
+    /// data arrays are immutable once generated; active snapshots own references.
+    /// </summary>
+    private void PruneWorldCaches(Vector2I center, int limit)
+    {
         lock (_mutex)
         {
-            bool Outside(Vector2I cp) => Mathf.Abs(cp.X - pcp.X) > limit + 1 || Mathf.Abs(cp.Y - pcp.Y) > limit + 1;
+            bool Outside(Vector2I cp) =>
+                    !ChunkStreamingPolicy.IsWithinRetention(cp, center, limit);
             foreach (Vector2I cp in _dataCache.Keys.Where(Outside).ToArray()) _dataCache.Remove(cp);
             foreach (Vector2I cp in _blockStateCache.Keys.Where(Outside).ToArray()) _blockStateCache.Remove(cp);
             foreach (Vector2I cp in _skyLightCache.Keys.Where(Outside).ToArray()) _skyLightCache.Remove(cp);
@@ -3275,8 +3298,9 @@ public partial class VoxelWorld : Node3D
                             Mathf.FloorToInt(pos.Z / (float)ChunkZ)))).ToArray())
                 _crops.Remove(crop);
             foreach (Vector3I pos in _lightSources.Keys.Where(pos =>
-                    Mathf.Abs(Mathf.FloorToInt(pos.X / (float)ChunkX) - pcp.X) > limit + 1
-                    || Mathf.Abs(Mathf.FloorToInt(pos.Z / (float)ChunkZ) - pcp.Y) > limit + 1).ToArray())
+                    Outside(new Vector2I(
+                            Mathf.FloorToInt(pos.X / (float)ChunkX),
+                            Mathf.FloorToInt(pos.Z / (float)ChunkZ)))).ToArray())
                 _lightSources.Remove(pos);
 
             // Procedural site lookups, including cached null results, are
@@ -3285,7 +3309,7 @@ public partial class VoxelWorld : Node3D
                     ChunkStreamingPolicy.IsSiteCellOutsideRetention(
                             unchecked((int)(key >> 32)),
                             unchecked((int)(uint)key),
-                            cellSize, pcp, limit + 1, ChunkX);
+                            cellSize, center, limit, ChunkX);
             foreach (long key in _campfireCache.Keys
                     .Where(key => SiteOutside(key, Campfires.Cell)).ToArray())
                 _campfireCache.Remove(key);
