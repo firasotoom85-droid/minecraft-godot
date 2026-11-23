@@ -779,11 +779,12 @@ public partial class VoxelWorld
                         && !claimedOrePositions.Contains(position)
                         && !rejectedOrePositions.Contains(position))
                 {
-                    if (IsV12NaturalStone(x, y, z, data, strideY, ox, oz, oreColumnCache))
+                    bool isNaturalStone = IsV12NaturalStone(
+                            x, y, z, data, strideY, ox, oz, oreColumnCache);
+                    if (WorldGenV12.TryCountOrePlacement(isNaturalStone, ref placedCount))
                     {
                         claimedOrePositions.Add(position);
                         StampOre(x, y, z, ore, data, strideY, ox, oz);
-                        placedCount++;
                     }
                     else
                     {
