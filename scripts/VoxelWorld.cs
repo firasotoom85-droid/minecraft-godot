@@ -86,6 +86,7 @@ public partial class VoxelWorld : Node3D
     public float SavedHealth;            // 0 = unset, full bars
     public float SavedHunger = -1.0f;
     public int SavedExperience;
+    public bool SavedPlayerDead;
     public Vector3? SavedRespawn;        // campfire anchor, null = world spawn
     public List<BoatSave>? SavedBoats;   // optional vehicle state; absent in older saves
     public BoatSystem? BoatSystem;
