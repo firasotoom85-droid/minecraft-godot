@@ -754,6 +754,60 @@ public static class WorldStore
         return true;
     }
 
+    private static bool TryGetCandidateAttributes(
+            string candidate, out System.IO.FileAttributes attributes, out bool exists, out string? error)
+    {
+        attributes = 0;
+        exists = false;
+        error = null;
+        string absolute = ProjectSettings.GlobalizePath(candidate);
+        try
+        {
+            attributes = System.IO.File.GetAttributes(absolute);
+            exists = true;
+            return true;
+        }
+        catch (FileNotFoundException) { return true; }
+        catch (DirectoryNotFoundException) { return true; }
+        catch (Exception e) when (e is IOException
+                or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            exists = System.IO.File.Exists(absolute) || System.IO.Directory.Exists(absolute);
+            error = e.Message;
+            return false;
+        }
+    }
+
+    private static string? ValidateWorldReadDirectory(string path)
+    {
+        string? worldDirectory = ParentWorldDirectory(path);
+        if (worldDirectory is null) return null;
+
+        foreach (string directory in new[]
+                {
+                    ProjectSettings.GlobalizePath(WorldsRoot),
+                    ProjectSettings.GlobalizePath(worldDirectory),
+                })
+        {
+            try
+            {
+                System.IO.FileAttributes attributes = System.IO.File.GetAttributes(directory);
+                if ((attributes & System.IO.FileAttributes.Directory) == 0
+                        || (attributes & System.IO.FileAttributes.ReparsePoint) != 0)
+                    return $"world storage path is not a regular directory: {directory}";
+            }
+            catch (DirectoryNotFoundException) { return null; }
+            catch (FileNotFoundException) { return null; }
+            catch (Exception e) when (e is IOException
+                    or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                return $"world storage path cannot be inspected: {e.Message}";
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Parse and structurally validate a JSON file; fall back to the next recovery candidate.</summary>
     public static T? ReadJson<T>(string path, JsonSerializerOptions options)
         where T : class => ReadJsonResult<T>(path, options).Value;
@@ -764,10 +818,32 @@ public static class WorldStore
         bool found = false;
         bool inaccessible = false;
         string? lastError = null;
+        if (ValidateWorldReadDirectory(path) is { } directoryError)
+        {
+            MarkRecoveryRequired(path);
+            return new WorldReadResult<T>(null, WorldReadStatus.Inaccessible, directoryError);
+        }
+
         foreach (string candidate in new[] { path, path + ".bak", path + ".bak2" })
         {
-            if (!FileAccess.FileExists(candidate)) continue;
+            if (!TryGetCandidateAttributes(candidate, out System.IO.FileAttributes attributes,
+                    out bool exists, out string? attributeError))
+            {
+                found = true;
+                inaccessible = true;
+                lastError = $"{candidate}: {attributeError}";
+                continue;
+            }
+            if (!exists) continue;
             found = true;
+            if ((attributes & (System.IO.FileAttributes.Directory
+                    | System.IO.FileAttributes.ReparsePoint)) != 0)
+            {
+                inaccessible = true;
+                lastError = $"{candidate}: directories and filesystem links are not save files";
+                continue;
+            }
+
             try
             {
                 using FileAccess? file = FileAccess.Open(candidate, FileAccess.ModeFlags.Read);
