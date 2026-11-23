@@ -683,6 +683,15 @@ public static class WorldStore
             return false;
         }
 
+        if (!TryGetCandidateAttributes(tmp, out System.IO.FileAttributes temporaryAttributes,
+                out bool temporaryExists, out string? temporaryError))
+            return Fail($"could not inspect temporary file path ({temporaryError})");
+        if (temporaryExists && (temporaryAttributes & (System.IO.FileAttributes.Directory
+                | System.IO.FileAttributes.ReparsePoint)) != 0)
+            return Fail("the temporary file path is a directory or filesystem link");
+        if (temporaryExists && DirAccess.RemoveAbsolute(tmp) != Error.Ok)
+            return Fail("could not remove a stale temporary file");
+
         Error writeError;
         using (FileAccess? file = FileAccess.Open(tmp, FileAccess.ModeFlags.Write))
         {
