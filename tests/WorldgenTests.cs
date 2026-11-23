@@ -948,8 +948,8 @@ public static class WorldgenTests
             new(-2, -2), new(-1, -2), new(0, -2), new(1, -2),
             new(-2, -1), new(-1, -1), new(0, -1), new(1, -1),
         ];
-        double[] elapsed = new double[3];
-        int[] versions = [6, WorldGenV7.Version, WorldGenV8.Version];
+        double[] elapsed = new double[4];
+        int[] versions = [6, WorldGenV7.Version, WorldGenV8.Version, WorldGenV12.Version];
         for (int v = 0; v < versions.Length; v++)
         {
             int version = versions[v];
@@ -978,9 +978,10 @@ public static class WorldgenTests
             DirAccess.RemoveAbsolute(dir);
         }
 
-        GD.Print($"WORLDGEN_CHUNK_PROFILE chunks={chunks.Length} v6_ms_per_chunk={elapsed[0]:F2} v7_ms_per_chunk={elapsed[1]:F2} v8_ms_per_chunk={elapsed[2]:F2} v8_vs_v7={(elapsed[2] / Math.Max(0.001, elapsed[1])):F2}x");
-        TestAssert.Check(elapsed[0] > 0.0 && elapsed[1] > 0.0 && elapsed[2] > 0.0,
-                "V6, V7 and V8 chunk generation profiling completed");
+        GD.Print($"WORLDGEN_CHUNK_PROFILE chunks={chunks.Length} v6_ms_per_chunk={elapsed[0]:F2} v7_ms_per_chunk={elapsed[1]:F2} v8_ms_per_chunk={elapsed[2]:F2} v12_ms_per_chunk={elapsed[3]:F2} v12_vs_v8={(elapsed[3] / Math.Max(0.001, elapsed[2])):F2}x");
+        TestAssert.Check(elapsed[0] > 0.0 && elapsed[1] > 0.0
+                        && elapsed[2] > 0.0 && elapsed[3] > 0.0,
+                "V6, V7, V8 and V12 chunk generation profiling completed");
     }
 
     private static void ProfileV7ColumnSampling()
