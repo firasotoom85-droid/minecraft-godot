@@ -94,7 +94,7 @@ internal static class ChunkStreamingPolicy
             return true;
         }
 
-        return wasMoving && Vector3.Dot(previous, current) < 0.8f;
+        return wasMoving && previous.Dot(current) < 0.8f;
     }
 
     /// <summary>
