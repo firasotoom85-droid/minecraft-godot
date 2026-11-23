@@ -50,6 +50,10 @@ vec3 warm_block_emission(float response) {
     return warm_block_light_color * response * 0.025;
 }
 
+vec3 cave_bounce_illumination(float bounce) {
+    return vec3(0.62, 0.75, 0.96) * bounce * 0.22;
+}
+
 void vertex() {
 	vec3 base_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	float swell = sin(base_world_pos.x * 1.1 + TIME * wave_speed)
@@ -76,11 +80,14 @@ void vertex() {
 
 void fragment() {
 	vec4 tex = texture(atlas_texture, UV);
-	float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+	float direct_sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+	float bounce = clamp(fract(COLOR.a) * 16.0 * sky_light_energy, 0.0, 1.0);
+	float sky = clamp(direct_sky + bounce, 0.0, 1.0);
 	float block = clamp(COLOR.g, 0.0, 1.0);
 	float warm_response = warm_block_response(sky, block);
 	float shade = COLOR.b;
-	vec3 illumination = vec3(0.04) + directional_sky_light(world_normal, sky, COLOR.r)
+	vec3 illumination = vec3(0.04) + directional_sky_light(world_normal, direct_sky, COLOR.r)
+		+ cave_bounce_illumination(bounce)
 		+ warm_block_illumination(warm_response);
 	vec3 base = tex.rgb * illumination * shade;
 	// Shoreline fade: how much water sits between this fragment and the

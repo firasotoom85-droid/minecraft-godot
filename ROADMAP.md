@@ -2844,3 +2844,54 @@ pipeline or a per-emitter node system.
   199,436 checks with 0 failures. The final integration-regressions summary and
   subsequent Release build were not retrievable; the production capture
   sampled 14 / 13 / 13 on the MX230. No final full-suite pass is claimed.
+
+## 54. Direct skylight, cave spill and block-emitter separation — 2026-11-23
+
+The previous renderer kept vertical direct sunlight and the lateral flood into
+open caves in the same high-nibble sky value. The shared shader then treated
+that combined value as directional sky, so a cave entrance could receive the
+same normal-dependent sun response as an exposed surface. Block emitters were
+already separate and warm, but their contrast was coupled to that combined
+sky value.
+
+- **Solver/cache:** `BuildSkyLight` still produces the same combined sky map
+  and still runs the existing direct-column pass followed by the same
+  `FloodSky`. Meshing requests an optional snapshot of the direct-column
+  result before the flood. `VoxelLightData` retains direct values in a
+  two-nibbles-per-byte side map; `SkyAt` and the packed high/low byte remain
+  unchanged for existing gameplay, perception and exposure readers.
+- **Mesh/shaders:** vertex red now represents direct sky only, green remains
+  block emission, and blue remains face/AO shade. The unused fractional 1/16
+  range of the existing alpha material tag carries the four-bit difference
+  between combined and direct sky. Integer material-family and wet flags are
+  preserved. Atlas, greedy-array, glass, water and lava use direct sky for the
+  directional sun/moon term, a restrained cool diffuse cave fill for the
+  indirect component, and the existing warm block-emitter response against
+  total sky exposure. The greedy merge key includes the four corner bounce
+  values so a merge cannot erase their contrast.
+- **Design boundary:** cave fill is the existing propagated sky entering from
+  open shafts/entrances, represented as a cheaper diffuse approximation. It
+  is not ray-traced GI or a physical material-reflection solver. Direct
+  skylight, cave spill and warm block emission remain three explicit shader
+  inputs. No light node per emitter, extra mesh attribute, new shader pass or
+  scene node is introduced.
+- **Compatibility/performance:** the combined packed sky/block byte, save V4,
+  persisted IDs, generator V1–V11, world-generation hashes, voxel mutation
+  ownership, greedy topology and chunk streaming are retained. Opacity and
+  emitter edits continue to invalidate/update the same cache neighbourhoods;
+  direct sky is regenerated only with the existing region solve. The cache
+  adds a compact half-byte-per-voxel direct-sky map. The pre-flood region
+  snapshot uses a reusable thread-local buffer; mesher pads are also thread-local
+  scratch. Existing `COLOR`/UV2 attribute counts are unchanged; LOW/BALANCED
+  renderer settings are untouched.
+- **Validation added:** synthetic shaft/tunnel coverage pins zero direct sky
+  under an opaque roof while the combined sky still spills laterally, guards
+  against negative bounce values, and checks the fractional material-tag
+  round-trip. Shader regressions cover atlas/array/glass/water/lava; the five
+  controlled comparison captures now log direct, combined, cave-spill and
+  block-light values. Neighbourhood-order integration comparisons include the
+  direct-sky nibble map as well as the original packed bytes.
+- **Verification status:** source-level test coverage and capture probes are
+  added. A Godot 4.7.2 .NET build, full `scripts/verify.sh`, and fresh MX230
+  real-renderer comparisons are still required before merge; no runtime FPS
+  or visual-difference result is claimed here.

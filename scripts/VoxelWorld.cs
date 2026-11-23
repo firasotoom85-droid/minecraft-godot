@@ -1738,7 +1738,8 @@ public partial class VoxelWorld : Node3D
                 }
             }
 
-            byte[] sky = VoxelLighting.BuildSkyLight(region, width, Height, depth, regionStates);
+            byte[] sky = VoxelLighting.BuildSkyLight(
+                    region, width, Height, depth, regionStates, out byte[] directSky);
             int plane = width * depth;
             List<VoxelLightSource> sources = NearbyLightSources(
                     originX, originX + width - 1, originZ, originZ + depth - 1);
@@ -1759,6 +1760,7 @@ public partial class VoxelWorld : Node3D
                 int slot = (dz + 1) * 3 + dx + 1;
                 Vector2I cp = center + new Vector2I(dx, dz);
                 byte[] packed = new byte[ChunkX * Height * ChunkZ];
+                byte[] directPacked = new byte[(packed.Length + 1) / 2];
                 int cropX = halo + ChunkX + dx * ChunkX;
                 int cropZ = halo + ChunkZ + dz * ChunkZ;
                 for (int y = 0; y < Height; y++)
@@ -1767,10 +1769,16 @@ public partial class VoxelWorld : Node3D
                     int src = y * plane + (cropZ + z) * width + cropX;
                     int dst = (y * ChunkZ + z) * ChunkX;
                     for (int x = 0; x < ChunkX; x++)
-                        packed[dst + x] = VoxelLighting.Pack(sky[src + x], block[src + x]);
+                    {
+                        int voxelIndex = dst + x;
+                        packed[voxelIndex] = VoxelLighting.Pack(sky[src + x], block[src + x]);
+                        int nibbleIndex = voxelIndex >> 1;
+                        int shift = (voxelIndex & 1) * 4;
+                        directPacked[nibbleIndex] |= (byte)((directSky[src + x] & 0x0F) << shift);
+                    }
                 }
 
-                VoxelLightData data = new(packed);
+                VoxelLightData data = new(packed, directPacked);
                 lock (_mutex)
                 {
                     if (_voxelLightCache.TryGetValue(cp, out VoxelLightData? cached))
@@ -2450,7 +2458,8 @@ public partial class VoxelWorld : Node3D
             foreach (byte[] data in _blockStateCache.Values) states += data.LongLength;
             foreach (byte[] data in _skyLightCache.Values) sky += data.LongLength;
             foreach (byte[] data in _blockLightCache.Values) block += data.LongLength;
-            foreach (VoxelLightData data in _voxelLightCache.Values) packed += data.Packed.LongLength;
+            foreach (VoxelLightData data in _voxelLightCache.Values)
+                packed += data.Packed.LongLength + data.DirectSkyPacked.LongLength;
             foreach (Dictionary<int, BlockId> edits in _edits.Values)
                 editMetadata += 64L + edits.Count * 24L;
             foreach (Dictionary<int, byte> edits in _blockStateEdits.Values)

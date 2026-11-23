@@ -36,10 +36,14 @@ public static class MaterialResponse
 
     public static SurfaceResponse Get(SurfaceFamily family) => Responses[(int)family];
 
-    // COLOR.a is the compact material-family channel. The unused range 8..14
-    // flags damp faces without adding a vertex attribute.
+    // COLOR.a retains its integer material-family / wet tag and stores one
+    // normalized four-bit cave-bounce value in the fractional 1/16 range.
     public static float VertexTag(SurfaceFamily family, bool wet) =>
-            (byte)family + (wet ? 8.0f : 0.0f);
+            VertexTag(family, wet, 0.0f);
+
+    public static float VertexTag(SurfaceFamily family, bool wet, float caveBounce) =>
+            (byte)family + (wet ? 8.0f : 0.0f)
+                    + Mathf.Clamp(caveBounce, 0.0f, 1.0f) * (1.0f / 16.0f);
 
     public static Color WetTint(Color color) =>
             new(color.R * 0.80f, color.G * 0.86f, color.B * 0.88f, color.A);

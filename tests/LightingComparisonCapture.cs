@@ -22,7 +22,7 @@ public partial class LightingComparisonCapture : Node
             Vector3I LightProbe,
             string LocationDescription);
 
-    private readonly record struct LightSample(byte Sky, byte Block);
+    private readonly record struct LightSample(byte Sky, byte DirectSky, byte SkyBounce, byte Block);
 
     public override async void _Ready()
     {
@@ -144,7 +144,8 @@ public partial class LightingComparisonCapture : Node
             Error saveResult = image.SavePng(absoluteOutput);
             GD.Print($"LIGHTING_COMPARISON_SAMPLE scenario={Scenario} probe=({fixture.LightProbe.X}," +
                     $"{fixture.LightProbe.Y},{fixture.LightProbe.Z}) block={probeBlock} " +
-                    $"sky={probe.Sky} block_light={probe.Block} nearby_emitters={sources} omni_lights={omniLights}");
+                    $"sky={probe.Sky} direct_sky={probe.DirectSky} cave_bounce={probe.SkyBounce} " +
+                    $"block_light={probe.Block} nearby_emitters={sources} omni_lights={omniLights}");
             GD.Print($"LIGHTING_COMPARISON_RENDER scenario={Scenario} size={image.GetWidth()}x{image.GetHeight()} " +
                     $"ssao={preset.Ssao} ssr={preset.Ssr} glow={preset.Glow} volumetric_fog={preset.VolFog} " +
                     $"shadows={preset.ShadowSize} path={absoluteOutput} success={saveResult == Error.Ok}");
@@ -455,6 +456,8 @@ public partial class LightingComparisonCapture : Node
         VoxelLightData light = world.LightData(chunk);
         return new LightSample(
                 light.SkyAt(localX, position.Y, localZ, world.Height),
+                light.DirectSkyAt(localX, position.Y, localZ, world.Height),
+                light.BouncedSkyAt(localX, position.Y, localZ, world.Height),
                 light.BlockAt(localX, position.Y, localZ, world.Height));
     }
 

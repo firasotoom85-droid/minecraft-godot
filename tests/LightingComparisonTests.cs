@@ -69,13 +69,20 @@ public static class LightingComparisonTests
         TestAssert.Equal(Godot.Environment.FogModeEnum.Depth, environment.FogMode,
                 "current-generation comparison scenes retain camera-depth distance haze");
 
-        byte packed = VoxelLighting.Pack(11, 7);
-        Color channels = VoxelLighting.VertexColor(packed, 0.75f);
-        TestAssert.Equal(11.0f / 15.0f, channels.R,
-                "the scene probe keeps baked skylight in the shader red channel");
+        Color channels = VoxelLighting.VertexColor(VoxelLighting.Pack(5, 7), 0.75f);
+        TestAssert.Equal(5.0f / 15.0f, channels.R,
+                "the scene probe keeps direct skylight in the shader red channel");
         TestAssert.Equal(7.0f / 15.0f, channels.G,
                 "the scene probe keeps baked warm block light in the shader green channel");
         TestAssert.Equal(0.75f, channels.B,
                 "the scene probe keeps ambient occlusion/face shade in the shader blue channel");
+        float channelTag = MaterialResponse.VertexTag(SurfaceFamily.Stone, false,
+                VoxelLighting.SkyBounce(11, 5) / 15.0f);
+        TestAssert.Equal(6.0f / 15.0f,
+                (channelTag - Mathf.Floor(channelTag + 0.001f)) * 16.0f,
+                "the comparison mesh retains indirect sky spill separately from direct sun");
+        TestAssert.Equal(11.0f, VoxelLighting.MaxLevel
+                * (channels.R + (channelTag - Mathf.Floor(channelTag + 0.001f)) * 16.0f),
+                "direct plus indirect sky preserves the combined probe level");
     }
 }
