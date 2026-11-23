@@ -48,7 +48,10 @@ public partial class LightingComparisonCapture : Node
                     ? args[1]
                     : $"user://tests/lighting-comparisons/{Scenario}-seed-{seed}.png";
 
+            // Positional arg 3 is the pale-surface mode, but probe-only runs put
+            // their --flag in the same slot; a flag must not be read as a mode.
             string contrastMode = args.Length > 3
+                    && !args[3].StartsWith("--", StringComparison.Ordinal)
                     ? args[3].Trim().ToLowerInvariant() : "contrast";
             if (contrastMode is not ("baseline" or "contrast"))
                 throw new ArgumentException(

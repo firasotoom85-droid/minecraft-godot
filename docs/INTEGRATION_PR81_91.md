@@ -84,6 +84,13 @@ Local, Godot 4.7.2 mono (`4.7.2.stable.mono.official.ed1daf0bf`), .NET SDK
   atmosphere, graphics, water-adjacent, mob perception and the comparison
   suites.
 
+- Baked-light probe drift, LOW preset, seed 1337, `--probe-only`, against the
+  five committed probe references: **27/27 samples compared, coverage 100%,
+  `outside_tolerance=0` in every scene** (forest canopy, torch cave, river
+  valley, village street, dungeon arena). The channel separation therefore
+  leaves the combined sky/block light that gameplay reads unchanged at every
+  reference probe. This is a baked-data check, not a rendered-image check.
+
 Individually, before integration:
 
 - PR #91 head `a7e02f7`: 199,565 checks, 0 failures.
