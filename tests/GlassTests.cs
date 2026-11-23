@@ -202,6 +202,17 @@ public static class GlassTests
             TestAssert.Check(world.SetBlock(11, 100, 2, BlockId.Ladder),
                     "ladder fixture is placed through VoxelWorld.SetBlock");
 
+            // Cross-chunk interface: the foliage is the final voxel in chunk 0
+            // and the solid backing block is the first voxel in chunk 1.
+            for (int y = 99; y <= 102; y++)
+            for (int z = 4; z <= 6; z++)
+            for (int x = 14; x <= 17; x++)
+                world.SetBlock(x, y, z, BlockId.Air);
+            TestAssert.Check(world.SetBlock(15, 100, 5, BlockId.Leaves),
+                    "chunk-seam foliage is placed through VoxelWorld.SetBlock");
+            TestAssert.Check(world.SetBlock(16, 100, 5, BlockId.Stone),
+                    "chunk-seam opaque backing block is placed through VoxelWorld.SetBlock");
+
             foreach (bool greedy in new[] { false, true })
             {
                 Mesher.Greedy = greedy;
@@ -269,6 +280,18 @@ public static class GlassTests
                     {
                         PayloadPool.Release(interleaved);
                         Mesher.Greedy = greedy;
+                    }
+
+                    MeshPayload seamPayload = Mesher.Build(world, new Vector2I(1, 0));
+                    try
+                    {
+                        TestAssert.Equal(2, CountTrianglesOnPlane(seamPayload.Opaque.Vertex,
+                                        axis: 0, coordinate: 0.0f, y: 100, z: 5),
+                                $"{mode} chunk-seam build emits the stone backing face behind cutout foliage");
+                    }
+                    finally
+                    {
+                        PayloadPool.Release(seamPayload);
                     }
                 }
                 finally
