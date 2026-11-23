@@ -506,10 +506,12 @@ public static class WorldStore
     /// <summary>One-time import of the pre-worlds save file into a world folder.</summary>
     public static void MigrateLegacyIfNeeded()
     {
-        if (!FileAccess.FileExists(LegacySavePath) || List().Count > 0)
-        {
+        if (!FileAccess.FileExists(LegacySavePath))
             return;
-        }
+
+        List<(string Dir, WorldManifest Manifest)> worlds = List();
+        if (LastListError is not null || UnreadableWorldDirectories.Count > 0 || worlds.Count > 0)
+            return;
 
         LegacySave? save;
         try
