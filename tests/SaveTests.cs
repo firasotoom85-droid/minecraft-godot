@@ -512,6 +512,7 @@ public static class SaveTests
 
         string unsupportedPath = root + "/future-save.json";
         WorldStore.WriteAtomic(unsupportedPath, v2);
+        WorldStore.WriteAtomic(unsupportedPath, v2);
         System.IO.File.WriteAllText(ProjectSettings.GlobalizePath(unsupportedPath),
                 """{"version":999,"edits":{},"time":0.5}""");
         WorldReadResult<WorldSave> unsupportedRead = WorldStore.ReadJsonResult<WorldSave>(
