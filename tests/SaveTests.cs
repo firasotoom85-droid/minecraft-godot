@@ -49,6 +49,10 @@ public static class SaveTests
                 legacyPlayer?.Experience ?? 0, legacyPlayer?.Dead ?? false);
         TestAssert.Check(!legacyStats.Dead && legacyStats.Health == PlayerStats.MaxHealth,
                 "legacy zero-health sentinel still restores as a healthy player");
+        PlayerStats livingStats = new();
+        livingStats.Load(13.5f, 6.0f, 24, dead: false);
+        TestAssert.Check(!livingStats.Dead && livingStats.Health == 13.5f,
+                "living player saves restore their persisted health without a death state");
 
         PlayerSave deadSave = new([3.0f, 20.0f, 4.0f], Mode: "survival", Health: 0.0f,
                 Hunger: 7.0f, Respawn: [10.5f, 65.0f, -2.5f], Experience: 120, Dead: true);
