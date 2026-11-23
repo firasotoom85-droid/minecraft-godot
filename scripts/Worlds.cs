@@ -109,6 +109,7 @@ public static class WorldStore
     internal static Func<string>? WorldIdFactoryForTests;
     internal static Func<string, string, Error>? RenameForTests;
     internal static Func<string, bool>? CopyFileAllowedForTests;
+    internal static Func<string, bool>? CopyFileWriteAllowedForTests;
     internal static Func<string, string[]>? EnumerateWorldDirectoriesForTests;
 
     public static long NowUtc() => (long)Time.GetUnixTimeFromSystem();
@@ -200,6 +201,8 @@ public static class WorldStore
         {
             if (!System.IO.Directory.Exists(absoluteRoot))
                 System.IO.Directory.CreateDirectory(absoluteRoot);
+            if ((System.IO.File.GetAttributes(absoluteRoot) & System.IO.FileAttributes.ReparsePoint) != 0)
+                throw new System.IO.IOException("The worlds library directory is a filesystem link; refusing to enumerate through it.");
             directories = EnumerateWorldDirectoriesForTests?.Invoke(absoluteRoot)
                     ?? System.IO.Directory.GetDirectories(absoluteRoot);
         }
@@ -378,6 +381,17 @@ public static class WorldStore
                 ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
             return false;
 
+        try
+        {
+            if ((System.IO.File.GetAttributes(root) & System.IO.FileAttributes.ReparsePoint) != 0)
+                return false;
+        }
+        catch (Exception e) when (e is System.IO.IOException
+                or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return false;
+        }
+
         bool deleted = DeleteDirectoryAbsolute(target);
         if (deleted) RecoveryRequiredDirectories.Remove(dir.TrimEnd('/'));
         return deleted;
@@ -477,6 +491,8 @@ public static class WorldStore
                     System.IO.FileAccess.Read, System.IO.FileShare.Read);
             using System.IO.FileStream output = new(destination, System.IO.FileMode.CreateNew,
                     System.IO.FileAccess.Write, System.IO.FileShare.None);
+            if (CopyFileWriteAllowedForTests?.Invoke(entry) == false)
+                return false;
             input.CopyTo(output);
             output.Flush(flushToDisk: true);
             if (output.Length != input.Length) return false;
