@@ -195,8 +195,8 @@ public partial class LightingComparisonCapture : Node
                     $"outside_tolerance={drift.OutsideToleranceSamples} tolerance={drift.Tolerance:F5}");
             if (!probeOnly)
             {
-                Image image = GetViewport().GetTexture().GetImage();
-                GD.Print($"LIGHTING_COMPARISON_RENDER scenario={Scenario} size={image.GetWidth()}x{image.GetHeight()} " +
+                GD.Print($"LIGHTING_COMPARISON_RENDER scenario={Scenario} " +
+                        $"size={LightingComparisonProfiles.CaptureWidth}x{LightingComparisonProfiles.CaptureHeight} " +
                         $"ssao={preset.Ssao} ssr={preset.Ssr} glow={preset.Glow} volumetric_fog={preset.VolFog} " +
                         $"shadows={preset.ShadowSize} path={absoluteOutput} success=true");
             }
