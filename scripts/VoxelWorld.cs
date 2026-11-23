@@ -109,7 +109,7 @@ public partial class VoxelWorld : Node3D
     private readonly Dictionary<Vector2I, byte[]> _dataCache = new();
     // Lazy reservations coalesce concurrent cache misses without holding the
     // world mutex during expensive terrain generation.
-    private readonly Dictionary<Vector2I, Lazy<byte[]>> _generationInFlight = new();
+    private readonly ChunkGenerationReservations _generationInFlight = new();
     private readonly Dictionary<Vector2I, Dictionary<int, BlockId>> _edits = new();  // persisted block IDs
     private readonly Dictionary<Vector2I, Dictionary<int, byte>> _blockStateEdits = new(); // optional persisted shape state
     private readonly Dictionary<Vector2I, byte[]> _blockStateCache = new();
@@ -1572,13 +1572,7 @@ public partial class VoxelWorld : Node3D
                 return cached;
             }
 
-            if (!_generationInFlight.TryGetValue(cp, out generation!))
-            {
-                generation = new Lazy<byte[]>(
-                        () => GenerateChunkData(cp),
-                        LazyThreadSafetyMode.ExecutionAndPublication);
-                _generationInFlight.Add(cp, generation);
-            }
+            generation = _generationInFlight.GetOrCreate(cp, () => GenerateChunkData(cp));
         }
 
         byte[] data;
@@ -1592,11 +1586,7 @@ public partial class VoxelWorld : Node3D
         {
             lock (_mutex)
             {
-                if (_generationInFlight.TryGetValue(cp, out Lazy<byte[]>? current)
-                        && ReferenceEquals(current, generation))
-                {
-                    _generationInFlight.Remove(cp);
-                }
+                _generationInFlight.Complete(cp, generation);
             }
 
             throw;
@@ -1614,11 +1604,7 @@ public partial class VoxelWorld : Node3D
             _dataCache[cp] = data;
             RegisterLightSourcesLocked(cp, data);
             RegisterCropSourcesLocked(cp, data);
-            if (_generationInFlight.TryGetValue(cp, out Lazy<byte[]>? current)
-                    && ReferenceEquals(current, generation))
-            {
-                _generationInFlight.Remove(cp);
-            }
+            _generationInFlight.Complete(cp, generation);
             return data;
         }
     }
