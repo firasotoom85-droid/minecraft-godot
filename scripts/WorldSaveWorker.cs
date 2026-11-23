@@ -76,13 +76,17 @@ internal static class WorldSaveWorker
     /// Filesystem-only counterpart to WorldStore.WriteAtomic. No Godot API is
     /// called here: the caller globalizes user:// paths before dispatching.
     /// </summary>
-    internal static bool WriteAtomic(string path, string text, out string? error)
+    internal static bool WriteAtomic(
+            string path, string text, out string? error, Action? beforePublish = null)
     {
         string temporary = path + ".tmp";
         string backup = path + ".bak";
         string oldestBackup = path + ".bak2";
+        string stagedOldestBackup = oldestBackup + ".stage-" + Guid.NewGuid().ToString("N");
+        bool movedOldestBackup = false;
         bool movedBackup = false;
         bool movedCurrent = false;
+        bool committed = false;
 
         try
         {
@@ -106,9 +110,13 @@ internal static class WorldSaveWorker
 
             if (File.Exists(path))
             {
+                // Preserve the oldest known-good generation until the new
+                // primary is committed. All staged paths are unique siblings
+                // so the rename remains on the same filesystem.
                 if (File.Exists(oldestBackup))
                 {
-                    File.Delete(oldestBackup);
+                    File.Move(oldestBackup, stagedOldestBackup);
+                    movedOldestBackup = true;
                 }
 
                 if (File.Exists(backup))
@@ -121,7 +129,30 @@ internal static class WorldSaveWorker
                 movedCurrent = true;
             }
 
+            // Failure injection is internal and used only by the regression
+            // suite to exercise rollback at the final publish boundary.
+            beforePublish?.Invoke();
             File.Move(temporary, path);
+            committed = true;
+
+            // The previous .bak2 is disposable only after the new primary is
+            // visible. A cleanup failure does not invalidate that committed save.
+            if (movedOldestBackup)
+            {
+                try
+                {
+                    File.Delete(stagedOldestBackup);
+                }
+                catch (IOException)
+                {
+                    // Leave the uniquely named staged backup for recovery.
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // Leave the uniquely named staged backup for recovery.
+                }
+            }
+
             error = null;
             return true;
         }
@@ -129,7 +160,7 @@ internal static class WorldSaveWorker
         {
             List<string> recoveryErrors = [];
 
-            if (movedCurrent && !File.Exists(path) && File.Exists(backup))
+            if (!committed && movedCurrent && !File.Exists(path) && File.Exists(backup))
             {
                 try
                 {
@@ -141,7 +172,7 @@ internal static class WorldSaveWorker
                 }
             }
 
-            if (movedBackup && !File.Exists(backup) && File.Exists(oldestBackup))
+            if (!committed && movedBackup && !File.Exists(backup) && File.Exists(oldestBackup))
             {
                 try
                 {
@@ -150,6 +181,19 @@ internal static class WorldSaveWorker
                 catch (Exception recoveryFailure)
                 {
                     recoveryErrors.Add($"could not restore previous backup: {recoveryFailure.Message}");
+                }
+            }
+
+            if (!committed && movedOldestBackup
+                    && !File.Exists(oldestBackup) && File.Exists(stagedOldestBackup))
+            {
+                try
+                {
+                    File.Move(stagedOldestBackup, oldestBackup);
+                }
+                catch (Exception recoveryFailure)
+                {
+                    recoveryErrors.Add($"could not restore oldest backup: {recoveryFailure.Message}");
                 }
             }
 
@@ -162,6 +206,19 @@ internal static class WorldSaveWorker
                 catch (Exception cleanupFailure)
                 {
                     recoveryErrors.Add($"could not remove temporary file: {cleanupFailure.Message}");
+                }
+            }
+
+            if (!committed && File.Exists(stagedOldestBackup)
+                    && File.Exists(oldestBackup))
+            {
+                try
+                {
+                    File.Delete(stagedOldestBackup);
+                }
+                catch (Exception cleanupFailure)
+                {
+                    recoveryErrors.Add($"could not remove staged oldest backup: {cleanupFailure.Message}");
                 }
             }
 
