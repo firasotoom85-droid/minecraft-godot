@@ -767,9 +767,9 @@ public static class WorldStore
             exists = true;
             return true;
         }
-        catch (FileNotFoundException) { return true; }
-        catch (DirectoryNotFoundException) { return true; }
-        catch (Exception e) when (e is IOException
+        catch (System.IO.FileNotFoundException) { return true; }
+        catch (System.IO.DirectoryNotFoundException) { return true; }
+        catch (Exception e) when (e is System.IO.IOException
                 or UnauthorizedAccessException or System.Security.SecurityException)
         {
             exists = System.IO.File.Exists(absolute) || System.IO.Directory.Exists(absolute);
@@ -796,9 +796,9 @@ public static class WorldStore
                         || (attributes & System.IO.FileAttributes.ReparsePoint) != 0)
                     return $"world storage path is not a regular directory: {directory}";
             }
-            catch (DirectoryNotFoundException) { return null; }
-            catch (FileNotFoundException) { return null; }
-            catch (Exception e) when (e is IOException
+            catch (System.IO.DirectoryNotFoundException) { return null; }
+            catch (System.IO.FileNotFoundException) { return null; }
+            catch (Exception e) when (e is System.IO.IOException
                     or UnauthorizedAccessException or System.Security.SecurityException)
             {
                 return $"world storage path cannot be inspected: {e.Message}";
