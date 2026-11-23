@@ -127,6 +127,32 @@ public static class InventoryPersistenceRegressionTests
         TestAssert.Equal(2, opaqueInventory.FirstEmptySlot(),
                 "first-empty lookup skips preserved future item slots");
 
+        Inventory opaqueHotbar = new();
+        opaqueHotbar.LoadFrom([new ItemStackSave(3, 110, 1)]);
+        TestAssert.Check(opaqueHotbar.TrySetHotbarOrAdd(3, ItemDb.New(ItemId.Stone, 4)),
+                "hotbar give falls back when its selected slot holds an opaque future item");
+        TestAssert.Check(opaqueHotbar.ToSave().Exists(
+                        s => s.Slot == 3 && s.Id == 110 && s.Count == 1),
+                "hotbar give does not overwrite the preserved future item");
+        TestAssert.Equal(4, opaqueHotbar.CountOf(ItemId.Stone),
+                "hotbar give transfers the complete item count into available inventory space");
+
+        Inventory fullOpaqueHotbar = new();
+        fullOpaqueHotbar.LoadFrom([new ItemStackSave(3, 110, 1)]);
+        for (int slot = 0; slot < Inventory.SlotCount; slot++)
+        {
+            if (slot != 3)
+            {
+                fullOpaqueHotbar.Set(slot, ItemDb.New(ItemId.Dirt, 64));
+            }
+        }
+
+        TestAssert.Check(!fullOpaqueHotbar.TrySetHotbarOrAdd(3, ItemDb.New(ItemId.Stone, 4)),
+                "hotbar give refuses when the reserved slot cannot be replaced and no inventory room exists");
+        TestAssert.Check(fullOpaqueHotbar.ToSave().Exists(
+                        s => s.Slot == 3 && s.Id == 110 && s.Count == 1),
+                "failed hotbar give still preserves the opaque record");
+
         Inventory opaqueToolInventory = new();
         opaqueToolInventory.LoadFrom([new ItemStackSave(0, 110, 1)]);
         TestAssert.Equal(0, opaqueToolInventory.Add(ItemDb.New(ItemId.WoodPick, 1)),

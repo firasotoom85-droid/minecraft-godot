@@ -371,6 +371,26 @@ public sealed class Inventory
         System.Array.Fill(_unrecognizedSavedSlots, null);
     }
 
+    /// <summary>
+    /// Place an item in a hotbar slot, falling back to an atomic inventory
+    /// insertion when that slot is reserved for an unknown future item.
+    /// </summary>
+    public bool TrySetHotbarOrAdd(int hotbarSlot, ItemStack stack)
+    {
+        if ((uint)hotbarSlot >= HotbarSize || stack.IsEmpty || !ItemDb.IsRegistered(stack.Id))
+        {
+            return false;
+        }
+
+        if (HasUnrecognizedSaveSlot(hotbarSlot))
+        {
+            return TryAddAtomic(stack);
+        }
+
+        Set(hotbarSlot, stack);
+        return true;
+    }
+
     public bool TryAddAtomic(ItemStack stack)
     {
         if (stack.IsEmpty)

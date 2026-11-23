@@ -1009,9 +1009,16 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     private void PaletteGive(ItemId item)
     {
-        _player.Inventory.Hotbar[_player.Selected] = ItemDb.New(item, 64);
+        if (!_player.Inventory.TrySetHotbarOrAdd(_player.Selected, ItemDb.New(item, 64)))
+        {
+            _hud.ShowToast("Inventory full");
+            return;
+        }
+
         _player.Inventory.RaiseChanged();
-        _hud.ShowToast($"{ItemDb.NameOf(item)} ×64 → slot {_player.Selected + 1}");
+        _hud.ShowToast(_player.Inventory.HasUnrecognizedSaveSlot(_player.Selected)
+                ? $"{ItemDb.NameOf(item)} ×64 → inventory"
+                : $"{ItemDb.NameOf(item)} ×64 → slot {_player.Selected + 1}");
     }
 
     // -----------------------------------------------------------------------

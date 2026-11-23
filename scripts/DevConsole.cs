@@ -298,7 +298,12 @@ public partial class DevConsole : CanvasLayer
                     return $"unknown item: {name}";
                 }
 
-                _player.Inventory.Hotbar[_player.Selected] = ItemDb.New(id, count);
+                if (!_player.Inventory.TrySetHotbarOrAdd(
+                            _player.Selected, ItemDb.New(id, count)))
+                {
+                    return "inventory full";
+                }
+
                 _player.Inventory.RaiseChanged();
                 return $"{ItemDb.NameOf(id)} x{count} in hand";
             }
