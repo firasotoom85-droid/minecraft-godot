@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -17,6 +18,8 @@ public static class VillageTests
         CheckQuestStages();
         CheckQuestStageFeedback();
         CheckVillageQuestSaveRoundTrip();
+        CheckMerchantQuestReconciliation();
+        CheckVillageRemovalScratch();
     }
 
     private static void CheckBiomeThemes()
@@ -205,4 +208,71 @@ public static class VillageTests
         TestAssert.Check(old?.Villagers == null && old?.Quests == null,
                 "V3 saves load without village/quest fields");
     }
+
+    private static void CheckMerchantQuestReconciliation()
+    {
+        const string questId = "village/merchant-routes";
+        VoxelWorld world = new();
+        Player player = new();
+        Mobs mobs = new();
+        QuestSystem quests = new();
+        world.Flags["explored/Plains"] = true;
+        world.Flags["explored/Desert"] = true;
+        quests.Setup(world, player, mobs);
+
+        TestAssert.Equal(2, QuestProgression.CountExploredBiomes(world.Flags),
+                "merchant reconciliation counts prior unique biome flags");
+        TestAssert.Check(quests.Accept(questId), "merchant quest accepts after prior exploration");
+        QuestProgressSave? progress = quests.ProgressOf(questId);
+        TestAssert.Equal(0, progress?.Stage ?? -1,
+                "two pre-accepted discoveries keep the merchant on the exploration objective");
+        TestAssert.Equal(2, progress?.Progress ?? -1,
+                "merchant quest starts with its two previously explored biomes counted");
+
+        quests.DiscoverBiomeForTests(Biome.Plains);
+        TestAssert.Equal(2, quests.ProgressOf(questId)?.Progress ?? -1,
+                "revisiting a biome does not duplicate objective progress");
+        quests.DiscoverBiomeForTests(Biome.Snow);
+        TestAssert.Equal(1, quests.ProgressOf(questId)?.Stage ?? -1,
+                "one new biome completes the reconciled three-biome objective");
+
+        VoxelWorld exploredWorld = new();
+        Player exploredPlayer = new();
+        Mobs exploredMobs = new();
+        QuestSystem exploredQuests = new();
+        exploredWorld.Flags["explored/Plains"] = true;
+        exploredWorld.Flags["explored/Desert"] = true;
+        exploredWorld.Flags["explored/Snow"] = true;
+        exploredQuests.Setup(exploredWorld, exploredPlayer, exploredMobs);
+        TestAssert.Check(exploredQuests.Accept(questId),
+                "merchant quest accepts when all required biomes were explored beforehand");
+        TestAssert.Equal(1, exploredQuests.ProgressOf(questId)?.Stage ?? -1,
+                "all prior discoveries advance the accepted merchant quest immediately");
+        TestAssert.Equal(0, exploredQuests.ProgressOf(questId)?.Progress ?? -1,
+                "completed exploration stage starts the next objective with zero progress");
+
+        TestAssert.FreeAll(quests, mobs, player, world,
+                exploredQuests, exploredMobs, exploredPlayer, exploredWorld);
+    }
+
+    private static void CheckVillageRemovalScratch()
+    {
+        VillageSystem system = new();
+        List<string> scratch = system.RemovalScratchForTests;
+        for (int i = 0; i < 16; i++)
+            system.RunRemovalPassForTests(Vector3.Zero);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 512; i++)
+            system.RunRemovalPassForTests(Vector3.Zero);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        TestAssert.Check(ReferenceEquals(scratch, system.RemovalScratchForTests),
+                "resident removal scan retains the same scratch list between frames");
+        TestAssert.Check(allocated <= 64,
+                $"resident scan with no removals avoids per-frame managed allocations (allocated {allocated} bytes)");
+        TestAssert.Equal(0, scratch.Count, "empty resident scans leave no deferred removals");
+        TestAssert.FreeAll(system);
+    }
+
 }

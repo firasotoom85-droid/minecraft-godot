@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Threading.Tasks;
 using Godot;
 
@@ -15,6 +16,7 @@ public static class MobPerceptionTests
         GameSession.Instance.SelectWorld(directory);
 
         VoxelWorld world = new();
+        CropSystem crops = new();
         Player player = new();
         Mobs manager = new();
         MobPerceptionProbe probe = new();
@@ -47,6 +49,32 @@ public static class MobPerceptionTests
                         && z >= -1 && z <= 1 && y >= 53 && y <= 57;
                 world.SetBlock(x, y, z, interior ? BlockId.Air : BlockId.Stone);
             }
+
+            crops.Setup(world);
+            Vector3I cropCell = new(-17, 54, 0);
+            world.SetBlock(cropCell.X, cropCell.Y - 1, cropCell.Z, BlockId.Farmland);
+            world.SetBlock(cropCell.X, cropCell.Y, cropCell.Z, BlockId.Wheat0);
+            TestAssert.Check(crops.ProcessCropForTests(cropCell),
+                    "supported wheat can advance through the loaded crop lifecycle");
+            TestAssert.Equal(BlockId.Wheat1, world.GetBlock(cropCell.X, cropCell.Y, cropCell.Z),
+                    "supported crop advances exactly one growth stage");
+
+            world.SetBlock(cropCell.X, cropCell.Y - 1, cropCell.Z, BlockId.Stone);
+            TestAssert.Check(crops.ProcessCropForTests(cropCell),
+                    "unsupported wheat is removed when its loaded support is replaced");
+            TestAssert.Equal(BlockId.Air, world.GetBlock(cropCell.X, cropCell.Y, cropCell.Z),
+                    "unsupported wheat removal uses the normal world mutation path");
+            TestAssert.Check(!world.CropSnapshot().Contains(cropCell),
+                    "unsupported crop removal unregisters the crop");
+
+            Vector3I unloadedCrop = new(64, 54, 0);
+            long cachedBlockBytes = world.GetCacheMemorySnapshot().BlockDataBytes;
+            TestAssert.Check(!crops.ProcessCropForTests(unloadedCrop),
+                    "crop simulation skips coordinates in chunks that are not streamed");
+            TestAssert.Equal(cachedBlockBytes, world.GetCacheMemorySnapshot().BlockDataBytes,
+                    "unloaded crop check does not rehydrate the terrain data cache");
+            TestAssert.Check(!world.HasChunk(Mob.ChunkForBlock(unloadedCrop.X, unloadedCrop.Z)),
+                    "remote crop test cell remains outside the streamed chunk set");
 
             TestAssert.Equal(new Vector2I(-2, 0), Mob.ChunkForBlock(-17, 0),
                     "negative block coordinates use floor chunk division");
@@ -101,7 +129,19 @@ public static class MobPerceptionTests
 
             host.AddChild(probe);
             probe.Setup(world, manager, new Vector3(-23, 61, 0.5f));
-            probe.GlobalPosition = new Vector3(-23, 61, 0.5f);
+            Vector3 loadedMobPosition = new(-23, 61, 0.5f);
+            probe.GlobalPosition = loadedMobPosition;
+            probe.RefreshTerrainSimulation();
+            TestAssert.Check(probe.TerrainSimulationEnabled,
+                    "mob simulation remains enabled while its terrain chunk is loaded");
+            probe.GlobalPosition = new Vector3(128, 61, 0.5f);
+            probe.RefreshTerrainSimulation();
+            TestAssert.Check(!probe.TerrainSimulationEnabled,
+                    "mob suspends physics after its current terrain chunk unloads");
+            probe.GlobalPosition = loadedMobPosition;
+            probe.RefreshTerrainSimulation();
+            TestAssert.Check(probe.TerrainSimulationEnabled,
+                    "mob simulation resumes when its terrain chunk is loaded again");
             probe.SetPhysicsProcess(false);
             TestAssert.Check(probe.TryHear(out Vector3 investigationDirection),
                     "hostile perception accepts an existing player noise pulse");
@@ -178,6 +218,7 @@ public static class MobPerceptionTests
                 if (probe.IsInsideTree()) host.RemoveChild(probe);
                 probe.Free();
             }
+            if (GodotObject.IsInstanceValid(crops)) crops.Free();
             if (GodotObject.IsInstanceValid(parent))
             {
                 if (parent.IsInsideTree()) host.RemoveChild(parent);
