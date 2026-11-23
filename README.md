@@ -1394,3 +1394,31 @@ encounters, 218 sound investigations, 22,621 juvenile observations, successful
 save/reload, temporary-world cleanup and no non-finite creature positions. The
 runner defaults to one hour; that full 3600-second run is recorded in the
 integration report and is separate from a human combat or visual playtest.
+
+
+## LOW preset voxel shader instruction budget
+
+The LOW graphics preset selects a compile-time `MINECRAFT_LOW_QUALITY` variant
+on the existing atlas, greedy texture-array, glass, lava and water materials.
+BALANCED and every higher preset keep the full shader path. The variant is
+selected only when the preset changes; the normal day/night path continues to
+update the same shared sky/moon uniforms without scanning or rewriting shader
+source each frame.
+
+For the flat voxel faces used by terrain, LOW evaluates the existing sun- and
+moon-facing dot products once per vertex and interpolates the two values in one
+`vec2` varying. The directional-light equations, warm block-light response,
+packed sky/block channels, AO/shade channel, lava emission threshold, wet
+surface response and material-family response are unchanged. Atlas and greedy
+array materials also compile out their decorative world-cell hash and its
+position varying. LOW water compiles out vertex swell/ripple trigonometry,
+ripple-normal work, fresnel alpha, animated foam and caustic webs; its baked
+lighting, warm emission and depth-based shoreline thickness/alpha remain.
+
+The change edits shader code on the already shared `ChunkMaterials` resources.
+It does not create per-emitter lights or scene nodes, rebuild chunk meshes,
+alter greedy merge keys, modify chunk streaming, change the world environment
+or touch save/world-generation data. The visible tradeoff is a quieter, flatter
+water surface and removal of subtle material micro-variation only at LOW. This
+keeps the low-end path lean without changing gameplay lighting rules or
+disabling baked torch/campfire/lava illumination.
