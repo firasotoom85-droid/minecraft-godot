@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using Godot;
 
 namespace Minecraft;
@@ -35,6 +36,20 @@ public static class LightingComparisonTests
                     $"{profile.DisplayName} uses a controlled camera field of view");
             TestAssert.Check(profile.CameraOffset.LengthSquared() > 0.0f,
                     $"{profile.DisplayName} camera is offset from its look target");
+
+            string referencePath = ProjectSettings.GlobalizePath(profile.ReferenceScreenshot);
+            TestAssert.Check(File.Exists(referencePath),
+                    $"{profile.DisplayName} has a committed screenshot reference");
+            Image referenceImage = Image.LoadFromFile(referencePath);
+            TestAssert.Check(!referenceImage.IsEmpty(),
+                    $"{profile.DisplayName} reference screenshot can be decoded");
+            if (!referenceImage.IsEmpty())
+            {
+                TestAssert.Equal(LightingComparisonProfiles.CaptureWidth, referenceImage.GetWidth(),
+                        $"{profile.DisplayName} reference screenshot has the fixed width");
+                TestAssert.Equal(LightingComparisonProfiles.CaptureHeight, referenceImage.GetHeight(),
+                        $"{profile.DisplayName} reference screenshot has the fixed height");
+            }
 
             TestAssert.Check(LightingComparisonProfiles.TryGet(profile.Id, out _),
                     $"{profile.DisplayName} can be selected by its stable id");

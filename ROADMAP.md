@@ -2804,3 +2804,52 @@ so merging #71 first applied only its moonlight/starfield contribution.
   Weather captures are terrain-facing, so cloud planes are verified by palette
   values and tests rather than framed pixels. Interactive playtesting and GPU
   frame-time capture remain manual.
+
+
+## 53. Image-space voxel-light regression gates — 2026-11-23
+
+- **Audit result.** The five production lighting fixtures and matched MX230
+  reference screenshots already existed. Their runner logged baked light
+  probes and asserted zero `OmniLight3D` nodes, but saved screenshots were not
+  machine-checked for severe dark regions. No production lighting or renderer
+  feature needed to be rebuilt; the missing capability was image-space
+  regression validation.
+- **Screenshot audit.** Added `LightingScreenshotAudit`, shared by the
+  existing `LightingComparisonCapture` runner. Each current frame is compared
+  with its scene-specific committed PNG at a fixed 1280×720 resolution. A
+  repeatable 8×6 grid samples each tile. A lit tile fails when its mean
+  luminance drops below 55% of the reference and by at least 18/255, or when
+  at least 20% of its samples lose 65% or more of their reference luminance
+  with the same absolute floor. Reference-dark pixels and tiles are excluded,
+  so the dungeon night and dark cave are not judged against an unsuitable
+  global brightness floor. The screenshot is saved before comparison to keep
+  failed output available for diagnosis.
+- **Regression coverage.** The synthetic suite checks unchanged frames,
+  a broad local dark patch, a whole-tile collapse, small tolerated brightness
+  shifts, mismatched dimensions, missing and empty references, and acceptance
+  of intentionally dark reference regions. Scene/profile tests check that all
+  five committed references exist, decode and match the fixed dimensions.
+- **Repeatable GPU validation.** `scripts/verify-lighting-screenshots.sh`
+  builds with Godot 4.7.2 .NET and captures all five fixtures using seed 1337
+  and LOW by default. On the NVIDIA MX230 / Vulkan Forward+ / LOW, all five
+  captures passed: forest 48 lit tiles, cave 24, river 38, village 44, dungeon
+  2; zero regressed tiles in every scene. Baked probes remained cave torch
+  10/14, river water 13/0, village torch 11/14 and dungeon torch 6/14
+  (sky/block). Every scene reported zero `OmniLight3D` nodes.
+- **Verification.** Godot 4.7.2 .NET Debug build: 0 warnings / 0 errors.
+  `scripts/verify.sh` completed with 199,445 checks and 0 failures before
+  the last missing/empty-input assertions were added; the final rerun also
+  passed the expanded `lighting-screenshot-audit` suite. The display-backed
+  five-scene capture script completed successfully and each scene audit
+  passed. Godot printed the existing invalid external-resource UID fallback
+  warnings from `scenes/main.tscn`; it resolved the referenced C# scripts
+  through their text paths and all scenes completed.
+- **Performance and compatibility.** The comparison is invoked only by the
+  standalone screenshot runner; it adds no gameplay scans, allocations,
+  shader work, render passes, physics operations, light nodes or chunk edits.
+  Image sampling is bounded to 48 tiles per captured frame. LOW retains its
+  existing 0.80 render scale, 1024 shadow atlas and disabled SSAO/SSR/glow/
+  volumetric fog. No save fields, persisted IDs, generator versions or rules,
+  baked-light propagation, `SetBlock`/`ApplyEdit` ownership, greedy meshing
+  or chunk streaming changed. This is an image regression gate, not an FPS
+  benchmark; other GPUs/drivers may need their own reviewed reference set.
