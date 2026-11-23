@@ -3873,7 +3873,7 @@ public partial class VoxelWorld : Node3D
         }
     }
 
-    public void SaveNow()
+    public bool SaveNow()
     {
         if (_worldReadOnlyReason != null)
         {
@@ -3883,14 +3883,25 @@ public partial class VoxelWorld : Node3D
                 _readOnlyWarningShown = true;
             }
 
-            return;
+            return false;
         }
 
-        // Explicit save/quit keeps its synchronous durability contract. Finish
-        // the older snapshot first, then capture and write the latest state.
-        FlushBackgroundSave();
-        WorldSaveSnapshot snapshot = CaptureSaveSnapshot();
-        CompleteSave(snapshot, WorldSaveWorker.WriteSynchronously(snapshot));
+        try
+        {
+            // Explicit save/quit keeps its synchronous durability contract. Finish
+            // the older snapshot first, then capture and write the latest state.
+            FlushBackgroundSave();
+            WorldSaveSnapshot snapshot = CaptureSaveSnapshot();
+            WorldSaveWorkerResult result = WorldSaveWorker.WriteSynchronously(snapshot);
+            CompleteSave(snapshot, result);
+            return result.Success;
+        }
+        catch (Exception error)
+        {
+            _dirty = true;
+            GD.PushWarning($"minecraft: could not complete explicit save ({error.Message})");
+            return false;
+        }
     }
 
     /// <summary>Focus-loss hook: write only when something actually changed.</summary>
