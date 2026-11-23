@@ -3445,18 +3445,8 @@ public partial class VoxelWorld : Node3D
     // Persistence
     // -----------------------------------------------------------------------
 
-    public void SaveNow()
+    private WorldSaveSnapshot CaptureSaveSnapshot()
     {
-        if (_worldReadOnlyReason != null)
-        {
-            if (!_readOnlyWarningShown)
-            {
-                GD.PushWarning($"minecraft: world is read-only: {_worldReadOnlyReason}");
-                _readOnlyWarningShown = true;
-            }
-            return;
-        }
-
         BeforeSave?.Invoke();
         Dictionary<string, Dictionary<string, BlockId>> editsOut = [];
         foreach ((Vector2I cp, Dictionary<int, BlockId> inner) in _edits)
@@ -3504,64 +3494,214 @@ public partial class VoxelWorld : Node3D
 
         Dictionary<string, Dictionary<string, byte>> blockStatesOut = [];
         foreach ((Vector2I cp, Dictionary<int, byte> states) in _blockStateEdits)
+        {
             if (states.Count > 0)
-                blockStatesOut[$"{cp.X},{cp.Y}"] = states.ToDictionary(e => e.Key.ToString(), e => e.Value);
+            {
+                blockStatesOut[$"{cp.X},{cp.Y}"] =
+                        states.ToDictionary(e => e.Key.ToString(), e => e.Value);
+            }
+        }
+
+        Dictionary<string, bool>? flagsOut = Flags.Count == 0
+                ? null : new Dictionary<string, bool>(Flags);
+        Dictionary<string, VillagerSave>? villagersOut = Villagers.Count == 0
+                ? null
+                : Villagers.ToDictionary(
+                        pair => pair.Key,
+                        pair => pair.Value with
+                        {
+                            Position = (float[])pair.Value.Position.Clone(),
+                            Home = (float[])pair.Value.Home.Clone(),
+                            Work = (float[])pair.Value.Work.Clone(),
+                        });
+        Dictionary<string, QuestProgressSave>? questsOut = Quests.Count == 0
+                ? null : new Dictionary<string, QuestProgressSave>(Quests);
+
+        List<BoatSave>? boats = BoatSystem != null ? BoatSystem.ToSave() : SavedBoats;
+        List<BoatSave>? boatsOut = boats?.Select(boat => boat with
+        {
+            Position = (float[])boat.Position.Clone(),
+            Velocity = (float[])boat.Velocity.Clone(),
+        }).ToList();
 
         WorldSave world = new(
                 WorldStore.WorldFormatVersion,
                 editsOut,
                 TimeOfDay,
                 containers,
-                Flags.Count == 0 ? null : Flags,
+                flagsOut,
                 furnaces,
                 blockStatesOut.Count == 0 ? null : blockStatesOut,
-                Villagers.Count == 0 ? null : Villagers,
-                Quests.Count == 0 ? null : Quests,
-                BoatSystem != null ? BoatSystem.ToSave() : SavedBoats);
-        bool worldSaved = WorldStore.WriteAtomic(
-                WorldStore.WorldSavePath(_worldDir),
-                JsonSerializer.Serialize(world, WorldStore.Json));
+                villagersOut,
+                questsOut,
+                boatsOut);
 
         float[] playerPos = Player is null
                 ? []
                 : [Player.GlobalPosition.X, Player.GlobalPosition.Y, Player.GlobalPosition.Z];
         float[]? respawn = Player?.RespawnPoint is { } rp ? [rp.X, rp.Y, rp.Z] : null;
-        bool playerSaved = WorldStore.WriteAtomic(
-                WorldStore.PlayerSavePath(_worldDir),
-                JsonSerializer.Serialize(
-                        new PlayerSave(
-                                playerPos,
-                                Player?.Selected ?? 0,
-                                Player?.Inventory.ToSave(),
-                                Player?.SaveMode,
-                                Player?.Stats.Health ?? 0.0f,
-                                Player?.Stats.Hunger ?? 0.0f,
-                                respawn,
-                                Player?.Stats.Experience ?? 0),
-                        WorldStore.Json));
+        PlayerSave player = new(
+                playerPos,
+                Player?.Selected ?? 0,
+                Player?.Inventory.ToSave(),
+                Player?.SaveMode,
+                Player?.Stats.Health ?? 0.0f,
+                Player?.Stats.Hunger ?? 0.0f,
+                respawn,
+                Player?.Stats.Experience ?? 0);
 
         long elapsedPlaytime = (long)_unsavedPlaytimeSeconds;
         WorldManifest updatedManifest = _manifest with
         {
+            NoiseSeeds = (int[])_manifest.NoiseSeeds.Clone(),
             PlayedUtc = WorldStore.NowUtc(),
             PlaytimeSeconds = _manifest.PlaytimeSeconds + elapsedPlaytime,
         };
-        bool manifestSaved = WorldStore.WriteManifest(_worldDir, updatedManifest);
-        if (worldSaved && playerSaved && manifestSaved)
+
+        // Globalize paths before dispatch. The worker receives only immutable
+        // save models and ordinary filesystem paths, never Godot objects/APIs.
+        return new WorldSaveSnapshot(
+                world,
+                player,
+                updatedManifest,
+                ProjectSettings.GlobalizePath(WorldStore.WorldSavePath(_worldDir)),
+                ProjectSettings.GlobalizePath(WorldStore.PlayerSavePath(_worldDir)),
+                ProjectSettings.GlobalizePath(WorldStore.ManifestPath(_worldDir)),
+                _saveRevision,
+                elapsedPlaytime);
+    }
+
+    private void CompleteSave(WorldSaveSnapshot snapshot, WorldSaveWorkerResult result)
+    {
+        if (result.Success)
         {
-            _manifest = updatedManifest;
-            _unsavedPlaytimeSeconds = Math.Max(0.0, _unsavedPlaytimeSeconds - elapsedPlaytime);
-            _dirty = false;
-            if (Player != null)
+            _manifest = snapshot.Manifest;
+            _unsavedPlaytimeSeconds = Math.Max(
+                    0.0, _unsavedPlaytimeSeconds - snapshot.ElapsedPlaytimeSeconds);
+            _dirty = _saveRevision != snapshot.DirtyRevision;
+            if (snapshot.Player.Pos is { Length: 3 } position)
             {
-                _lastSavedPos = Player.GlobalPosition;
+                _lastSavedPos = new Vector3(position[0], position[1], position[2]);
             }
         }
         else
         {
             _dirty = true;
-            GD.PushWarning("minecraft: save incomplete; it will be retried on the next autosave");
+            GD.PushWarning(
+                    $"minecraft: background save incomplete; it will be retried on the next autosave ({result.Error})");
         }
+    }
+
+    private void QueueBackgroundSave()
+    {
+        if (_worldReadOnlyReason != null)
+        {
+            if (!_readOnlyWarningShown)
+            {
+                GD.PushWarning($"minecraft: world is read-only: {_worldReadOnlyReason}");
+                _readOnlyWarningShown = true;
+            }
+
+            return;
+        }
+
+        if (_pendingSave != null)
+        {
+            _saveRequested = true;
+            return;
+        }
+
+        try
+        {
+            WorldSaveSnapshot snapshot = CaptureSaveSnapshot();
+            _pendingSaveSnapshot = snapshot;
+            _pendingSave = WorldSaveWorker.WriteAsync(snapshot);
+        }
+        catch (Exception error)
+        {
+            _dirty = true;
+            GD.PushWarning($"minecraft: could not capture autosave snapshot ({error.Message})");
+        }
+    }
+
+    private void PollBackgroundSave()
+    {
+        if (_pendingSave is not { IsCompleted: true } task)
+        {
+            return;
+        }
+
+        WorldSaveSnapshot? snapshot = _pendingSaveSnapshot;
+        _pendingSave = null;
+        _pendingSaveSnapshot = null;
+
+        if (snapshot != null)
+        {
+            try
+            {
+                CompleteSave(snapshot, task.GetAwaiter().GetResult());
+            }
+            catch (Exception error)
+            {
+                _dirty = true;
+                GD.PushWarning($"minecraft: background save worker failed ({error.Message})");
+            }
+        }
+
+        bool saveAgain = _saveRequested;
+        _saveRequested = false;
+        if (saveAgain && (_dirty || _unsavedPlaytimeSeconds >= AutosaveInterval))
+        {
+            QueueBackgroundSave();
+        }
+    }
+
+    private void FlushBackgroundSave()
+    {
+        Task<WorldSaveWorkerResult>? task = _pendingSave;
+        WorldSaveSnapshot? snapshot = _pendingSaveSnapshot;
+        if (task == null)
+        {
+            return;
+        }
+
+        _pendingSave = null;
+        _pendingSaveSnapshot = null;
+        _saveRequested = false;
+        if (snapshot == null)
+        {
+            return;
+        }
+
+        try
+        {
+            CompleteSave(snapshot, task.GetAwaiter().GetResult());
+        }
+        catch (Exception error)
+        {
+            _dirty = true;
+            GD.PushWarning($"minecraft: background save worker failed during flush ({error.Message})");
+        }
+    }
+
+    public void SaveNow()
+    {
+        if (_worldReadOnlyReason != null)
+        {
+            if (!_readOnlyWarningShown)
+            {
+                GD.PushWarning($"minecraft: world is read-only: {_worldReadOnlyReason}");
+                _readOnlyWarningShown = true;
+            }
+
+            return;
+        }
+
+        // Explicit save/quit keeps its synchronous durability contract. Finish
+        // the older snapshot first, then capture and write the latest state.
+        FlushBackgroundSave();
+        WorldSaveSnapshot snapshot = CaptureSaveSnapshot();
+        CompleteSave(snapshot, WorldSaveWorker.WriteSynchronously(snapshot));
     }
 
     /// <summary>Focus-loss hook: write only when something actually changed.</summary>
