@@ -146,6 +146,8 @@ public partial class Player : CharacterBody3D, IDamageable
     private double _swimStrokeTimer;
     private float _waterViewBlend;
     private Godot.Environment? _lavaEnvironment;
+    private float _lavaAirFogDensity;
+    private Color _lavaAirFogColor;
     private float _lavaViewBlend;
     private float _waterImmersion;
     private float _swimCameraPhase;
@@ -166,6 +168,9 @@ public partial class Player : CharacterBody3D, IDamageable
         // Water immersion is blended by DayNight on the shared world
         // environment so sky, biome tint and fog never switch as a camera
         // override. Lava retains its separate close-range presentation.
+        _lavaAirFogDensity = environment.FogMode == Godot.Environment.FogModeEnum.Depth
+                ? WorldEnvironmentFactory.ImmersionAirFogDensity : environment.FogDensity;
+        _lavaAirFogColor = environment.FogLightColor;
         _lavaEnvironment = (Godot.Environment)environment.Duplicate();
         _lavaEnvironment.FogEnabled = true;
         _lavaEnvironment.FogMode = Godot.Environment.FogModeEnum.Exponential;
@@ -555,8 +560,8 @@ public partial class Player : CharacterBody3D, IDamageable
         _lavaViewBlend = Mathf.MoveToward(_lavaViewBlend, InLava ? 1.0f : 0.0f, dt * 3.0f);
 
         _lavaEnvironment.FogDensity = Mathf.Lerp(
-                WorldEnvironmentFactory.ImmersionAirFogDensity, 0.085f, _lavaViewBlend);
-        _lavaEnvironment.FogLightColor = new Color(0.66f, 0.78f, 0.95f).Lerp(
+                _lavaAirFogDensity, 0.085f, _lavaViewBlend);
+        _lavaEnvironment.FogLightColor = _lavaAirFogColor.Lerp(
                 new Color(0.34f, 0.075f, 0.018f), _lavaViewBlend);
 
         // Water never replaces Camera.Environment: its smoothed blend is read
