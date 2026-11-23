@@ -156,6 +156,7 @@ public partial class VoxelWorld : Node3D
     private readonly CancellationTokenSource _workerShutdown = new();
     private double _memorySampleTimer;
     private Vector3 _velocityDir;           // smoothed player velocity (prefetch bias)
+    private Vector3 _lastPriorityDirection;
     private Vector3 _lastPlayerPos;
     private Vector2I _lastPlayerChunk = new(999999, 999999);
     private Vector3 _lastSavedPos = Vector3.Zero;
@@ -2825,20 +2826,34 @@ public partial class VoxelWorld : Node3D
         Vector3 pos = Player.GlobalPosition;
         if (delta > 0.0)
         {
-            Vector3 vel = (pos - _lastPlayerPos) / (float)delta;
-            vel.Y = 0.0f;
-            _velocityDir = vel.LengthSquared() > 1.0f ? vel.Normalized() : Vector3.Zero;
+            Vector3 displacement = pos - _lastPlayerPos;
+            displacement.Y = 0.0f;
+            Vector3 vel = displacement / (float)delta;
+            // A discontinuous relocation is not movement intent. Normal
+            // walking/sprinting/flying remains well below this threshold.
+            _velocityDir = displacement.LengthSquared() > 256.0f
+                    || vel.LengthSquared() > 400.0f
+                    ? Vector3.Zero
+                    : vel.LengthSquared() > 1.0f ? vel.Normalized() : Vector3.Zero;
         }
 
         _lastPlayerPos = pos;
 
         Vector2I pcp = PlayerChunk();
-        if (pcp != _lastPlayerChunk)
+        bool centerChanged = pcp != _lastPlayerChunk;
+        bool priorityChanged = ChunkStreamingPolicy.DirectionChanged(
+                _lastPriorityDirection, _velocityDir);
+        _lastPriorityDirection = _velocityDir;
+        if (centerChanged)
         {
             _lastPlayerChunk = pcp;
             RebuildQueue(pcp);
             UnloadFar(pcp);
             _farLod?.UpdateAround(pcp);
+        }
+        else if (priorityChanged)
+        {
+            RefreshFreshQueuePriorities(pcp);
         }
 
         if (_groupActive && WorkerThreadPool.IsGroupTaskCompleted(_group))
@@ -2917,26 +2932,72 @@ public partial class VoxelWorld : Node3D
     /// <summary>Queue every missing chunk inside the streamed square, nearest-first.</summary>
     private void RebuildQueue(Vector2I pcp)
     {
+        int limit = ViewDistance + UnloadMargin;
         lock (_queueLock)
         {
+            _streamCenter = pcp;
+            _streamRetentionLimit = limit;
+
+            // Rebuild requests are only useful while their coordinates remain
+            // in the retained region. Reconstructing the bounded heap also
+            // removes stale entries that were superseded by fresh requests.
+            foreach (Vector2I stale in _rebuildQueued.ToArray())
+            {
+                if (!ChunkStreamingPolicy.IsWithinRetention(stale, pcp, limit))
+                {
+                    _rebuildQueued.Remove(stale);
+                    _workTracker.ForgetFollowUp(stale);
+                }
+            }
+
+            _rebuildQueue.Clear();
+            foreach (Vector2I cp in _rebuildQueued)
+            {
+                _rebuildQueue.Enqueue(cp, Priority(cp, pcp));
+            }
+
             _queue.Clear();
             _queued.Clear();
             int r = ViewDistance;
-            // A LINQ query reads like the rule it encodes: every (dx,dz) offset in
-            // the square that has no built chunk yet.
-            IEnumerable<Vector2I> missing =
-                    from dz in Enumerable.Range(-r, 2 * r + 1)
-                    from dx in Enumerable.Range(-r, 2 * r + 1)
-                    let cp = pcp + new Vector2I(dx, dz)
-                    where !_chunks.ContainsKey(cp) && !_rebuildQueued.Contains(cp)
-                    select cp;
-            foreach (Vector2I cp in missing)
+            for (int dz = -r; dz <= r; dz++)
             {
-                if (_queued.Add(cp))
+                for (int dx = -r; dx <= r; dx++)
                 {
-                    _queue.Enqueue(cp, Priority(cp, pcp));
+                    Vector2I cp = pcp + new Vector2I(dx, dz);
+                    if (!_chunks.ContainsKey(cp)
+                            && !_rebuildQueued.Contains(cp)
+                            && !_workTracker.IsInFlight(cp))
+                    {
+                        QueueFreshLocked(cp, pcp);
+                    }
                 }
             }
+        }
+
+        // Completed rebuilds are bounded by the payload semaphore. Release
+        // obsolete results now so they cannot sit ahead of current-area work.
+        PrunePendingRebuildPayloads(pcp, limit);
+    }
+
+    private void PrunePendingRebuildPayloads(Vector2I center, int limit)
+    {
+        int pending = _applyRebuild.Count;
+        for (int i = 0; i < pending; i++)
+        {
+            if (!_applyRebuild.TryDequeue(out var item))
+            {
+                break;
+            }
+
+            if (ChunkStreamingPolicy.IsWithinRetention(item.Cp, center, limit))
+            {
+                _applyRebuild.Enqueue(item);
+                continue;
+            }
+
+            Profiler.RecordPayloadDequeued(item.Payload.EstimatedBufferBytes);
+            PayloadPool.Release(item.Payload);
+            _completedPayloadSlots.Release();
         }
     }
 
@@ -2958,10 +3019,17 @@ public partial class VoxelWorld : Node3D
     {
         lock (_queueLock)
         {
-            if (!_rebuildQueued.Contains(cp) && _queued.Add(cp))
-            {
-                _queue.Enqueue(cp, Priority(cp, pcp));
-            }
+            QueueFreshLocked(cp, pcp);
+        }
+    }
+
+    private void QueueFreshLocked(Vector2I cp, Vector2I pcp)
+    {
+        if (!_workTracker.IsInFlight(cp)
+                && !_rebuildQueued.Contains(cp)
+                && _queued.Add(cp))
+        {
+            _queue.Enqueue(cp, Priority(cp, pcp));
         }
     }
 
@@ -2970,10 +3038,40 @@ public partial class VoxelWorld : Node3D
     {
         lock (_queueLock)
         {
-            if (_rebuildQueued.Add(cp))
+            QueueRebuildLocked(cp, _streamCenter);
+        }
+    }
+
+    private void QueueRebuildLocked(Vector2I cp, Vector2I center)
+    {
+        if (!ChunkStreamingPolicy.IsWithinRetention(cp, center, _streamRetentionLimit))
+        {
+            return;
+        }
+
+        if (_workTracker.IsInFlight(cp))
+        {
+            _workTracker.RequestRebuild(cp);
+            return;
+        }
+
+        if (_rebuildQueued.Add(cp))
+        {
+            // The stale heap node in _queue is harmless: TryDequeueWorkLocked
+            // verifies side-set membership before assigning work.
+            _queued.Remove(cp);
+            _rebuildQueue.Enqueue(cp, Priority(cp, center));
+        }
+    }
+
+    private void RefreshFreshQueuePriorities(Vector2I pcp)
+    {
+        lock (_queueLock)
+        {
+            _queue.Clear();
+            foreach (Vector2I cp in _queued)
             {
-                _queued.Remove(cp);
-                _rebuildQueue.Enqueue(cp, Priority(cp, PlayerChunk()));
+                _queue.Enqueue(cp, Priority(cp, pcp));
             }
         }
     }
