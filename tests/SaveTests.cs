@@ -78,7 +78,7 @@ public static class SaveTests
         deadPlayer.Respawn();
         TestAssert.Check(!deadPlayer.Stats.Dead && deadPlayer.Stats.Health == PlayerStats.MaxHealth,
                 "restored death uses normal full-health respawn rules");
-        TestAssert.Equal(new Vector3(10.5f, 65.0f, -2.5f), deadPlayer.GlobalPosition,
+        TestAssert.Equal(new Vector3(10.5f, 65.0f, -2.5f), deadPlayer.Position,
                 "restored death respawns at the saved anchor");
         TestAssert.Equal(120, deadPlayer.Stats.Experience,
                 "softcore respawn preserves player experience");
