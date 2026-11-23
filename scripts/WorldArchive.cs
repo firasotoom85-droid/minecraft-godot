@@ -452,6 +452,7 @@ public static class WorldArchive
         && a.CreatedUtc == b.CreatedUtc && a.PlayedUtc == b.PlayedUtc
         && a.Mode == b.Mode && a.Preset == b.Preset
         && a.PlaytimeSeconds == b.PlaytimeSeconds
+        && a.HasSavedData == b.HasSavedData
         && a.NoiseSeeds.SequenceEqual(b.NoiseSeeds);
 
     private static string FindUniqueWorldName(string root, string requested)
