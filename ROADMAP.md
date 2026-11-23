@@ -3099,3 +3099,38 @@ time or visual metric is claimed until those captures complete.
   baked-light propagation, `SetBlock`/`ApplyEdit` ownership, greedy meshing
   or chunk streaming changed. This is an image regression gate, not an FPS
   benchmark; other GPUs/drivers may need their own reviewed reference set.
+
+## 62. Spatial voxel-light probe drift reporting — 2026-11-23
+
+- **Implementation.** Extended the existing five-scene capture runner to read
+  a deterministic 3×3×3 grid from the real cached `VoxelLightData` maps around
+  each scene's existing probe. The runner writes a companion JSON report with
+  all 27 positions, block types, packed sky/block nibbles and comparison
+  metrics. Production lighting, shaders, meshing and chunk streaming remain
+  untouched.
+- **Drift metrics.** Added a reusable comparator for mean/maximum 4-bit
+  channel drift, normalized shader vertex RGB drift, luminance-weighted
+  intensity drift, tolerance violations, missing reference points and
+  unreferenced captures. The blue vertex input is neutral for this calculation;
+  geometry AO remains part of the renderer's existing mesh path.
+- **Reference provenance.** Promoted all 27 samples per scene (135 total)
+  from the GitHub Actions Godot 4.7.2 .NET headless `--probe-only` capture
+  artifact. Captures use seed 1337, generator V11, LOW preset and clear weather.
+  All five centre samples match the historical readings in the original
+  capture report; the other 130 values are taken directly from production
+  cached voxel-light maps, not guessed or interpolated. Each scene now has
+  27/27 (100%) reference coverage.
+- **Regression tests.** Added checks for grid stability, comparison coverage,
+  missing/unreferenced ids, channel/RGB/intensity drift, tolerance thresholds,
+  duplicate samples and all five historical reference anchors.
+- **Validation status.** Added a `--probe-only` mode so the real main-scene
+  setup and baked-light sampling can run on a headless CI worker without
+  claiming a rendered image. CI now runs the five deterministic seed-1337 LOW
+  probe grids and uploads their JSON reports as the `lighting-probe-grids`
+  artifact, in addition to Debug/Release builds and the headless regression
+  suite. Desktop Forward+ image comparison and MX230 frame-time/VRAM
+  measurements remain separate visual/performance checks.
+- **Compatibility.** No BlockId/ItemId, save format, generator version, world
+  mutation path, production light solver, shader, renderer preset, greedy
+  meshing or chunk-streaming behavior was changed. Probe sampling runs only in
+  the standalone comparison capture scenes.

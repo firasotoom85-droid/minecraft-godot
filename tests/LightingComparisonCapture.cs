@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Collections.Generic;
+using System.Text.Json;
 using Godot;
 
 namespace Minecraft;
@@ -37,6 +39,7 @@ public partial class LightingComparisonCapture : Node
         {
             string[] args = OS.GetCmdlineUserArgs();
             int seed = ParseInt(args, 0, 1337);
+            bool probeOnly = Array.Exists(args, argument => argument == "--probe-only");
             if (!LightingComparisonProfiles.TryGet(Scenario, out LightingComparisonProfiles.Profile profile))
                 throw new ArgumentException($"Unknown lighting comparison scenario '{Scenario}'.");
 
@@ -57,6 +60,13 @@ public partial class LightingComparisonCapture : Node
             DisplayServer.WindowSetSize(new Vector2I(
                     LightingComparisonProfiles.CaptureWidth,
                     LightingComparisonProfiles.CaptureHeight));
+
+            // Probe-only runs read baked light without presenting or resizing
+            // a window, so they stay usable in a headless analysis job.
+            if (!probeOnly)
+                DisplayServer.WindowSetSize(new Vector2I(
+                        LightingComparisonProfiles.CaptureWidth,
+                        LightingComparisonProfiles.CaptureHeight));
             Engine.MaxFps = 60;
             Settings.AutoQuality = false;
 
@@ -156,6 +166,8 @@ public partial class LightingComparisonCapture : Node
             for (int frame = 0; frame < LightingComparisonProfiles.WarmupFrames; frame++)
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 
+            List<LightingProbeComparison.Sample> probeGrid =
+                    CaptureProbeGrid(world, fixture.LightProbe);
             LightSample probe = ReadLight(world, fixture.LightProbe);
             BlockId probeBlock = world.GetBlock(
                     fixture.LightProbe.X, fixture.LightProbe.Y, fixture.LightProbe.Z);
@@ -164,43 +176,97 @@ public partial class LightingComparisonCapture : Node
                     fixture.LightProbe.X + VoxelLighting.BlockLightRadius,
                     fixture.LightProbe.Z - VoxelLighting.BlockLightRadius,
                     fixture.LightProbe.Z + VoxelLighting.BlockLightRadius).Count;
-            Image image = GetViewport().GetTexture().GetImage();
-
+            IReadOnlyList<LightingProbeComparison.ReferenceSample> reference =
+                    LightingProbeComparison.LoadReference(Scenario);
+            LightingProbeComparison.Drift drift = LightingProbeComparison.Compare(
+                    probeGrid, reference);
             string absoluteOutput = ProjectSettings.GlobalizePath(output);
             string? directory = Path.GetDirectoryName(absoluteOutput);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-            Error saveResult = image.SavePng(absoluteOutput);
-            if (saveResult != Error.Ok)
-                throw new IOException($"Could not save screenshot: {saveResult}.");
+            Error saveResult = Error.Ok;
+            // Probe-only runs never read back the viewport, so the frame grab is
+            // created only when a PNG is actually produced.
+            Image? image = probeOnly ? null : GetViewport().GetTexture().GetImage();
+            if (image != null)
+            {
+                saveResult = image.SavePng(absoluteOutput);
+                if (saveResult != Error.Ok)
+                    throw new IOException($"Could not save screenshot: {saveResult}.");
 
-            if (profile.ReferenceScreenshot is { } reference)
-            {
-                Image referenceImage = Image.LoadFromFile(ProjectSettings.GlobalizePath(reference));
-                LightingScreenshotAudit.Result audit =
-                        LightingScreenshotAudit.Compare(image, referenceImage);
-                GD.Print($"LIGHTING_COMPARISON_AUDIT scenario={Scenario} " +
-                        $"tiles={audit.ComparedTiles} regressed={audit.RegressedTiles} " +
-                        $"worst_drop={audit.WorstTileDrop * 255.0f:F1}/255 passed={audit.Passed} " +
-                        $"details=\"{audit.Details}\"");
-                if (!audit.Passed)
-                    throw new InvalidOperationException(
-                            $"Screenshot lighting audit failed for '{Scenario}': {audit.Details}. " +
-                            $"Captured frame retained at {absoluteOutput}.");
+                if (profile.ReferenceScreenshot is { } referencePng)
+                {
+                    Image referenceImage = Image.LoadFromFile(
+                            ProjectSettings.GlobalizePath(referencePng));
+                    LightingScreenshotAudit.Result audit =
+                            LightingScreenshotAudit.Compare(image, referenceImage);
+                    GD.Print($"LIGHTING_COMPARISON_AUDIT scenario={Scenario} " +
+                            $"tiles={audit.ComparedTiles} regressed={audit.RegressedTiles} " +
+                            $"worst_drop={audit.WorstTileDrop * 255.0f:F1}/255 passed={audit.Passed} " +
+                            $"details=\"{audit.Details}\"");
+                    if (!audit.Passed)
+                        throw new InvalidOperationException(
+                                $"Screenshot lighting audit failed for '{Scenario}': {audit.Details}. " +
+                                $"Captured frame retained at {absoluteOutput}.");
+                }
+                else
+                {
+                    GD.Print($"LIGHTING_COMPARISON_AUDIT scenario={Scenario} passed=skipped " +
+                            $"details=\"no committed reference; frame saved for manual review\"");
+                }
             }
-            else
+
+            string metricsOutput = Path.ChangeExtension(absoluteOutput, ".lighting.json");
+            var metrics = new
             {
-                GD.Print($"LIGHTING_COMPARISON_AUDIT scenario={Scenario} passed=skipped " +
-                        $"details=\"no committed reference; frame saved for manual review\"");
-            }
+                schema_version = 1,
+                scenario = Scenario,
+                seed,
+                generator_version = world.WorldGenVersion,
+                preset = preset.Name,
+                reference_version = LightingProbeComparison.ReferenceVersion,
+                reference_file = LightingProbeComparison.ReferencePath,
+                samples = probeGrid,
+                reference_samples = reference,
+                drift,
+            };
+            File.WriteAllText(metricsOutput, JsonSerializer.Serialize(metrics,
+                    new JsonSerializerOptions { WriteIndented = true }));
 
             GD.Print($"LIGHTING_COMPARISON_SAMPLE scenario={Scenario} probe=({fixture.LightProbe.X}," +
                     $"{fixture.LightProbe.Y},{fixture.LightProbe.Z}) block={probeBlock} " +
                     $"sky={probe.Sky} direct_sky={probe.DirectSky} cave_bounce={probe.SkyBounce} " +
                     $"block_light={probe.Block} nearby_emitters={sources} omni_lights={omniLights}");
-            GD.Print($"LIGHTING_COMPARISON_RENDER scenario={Scenario} size={image.GetWidth()}x{image.GetHeight()} " +
-                    $"pale_mode={contrastMode} pale_contrast={captureContrast:F2} " +
-                    $"ssao={preset.Ssao} ssr={preset.Ssr} glow={preset.Glow} volumetric_fog={preset.VolFog} " +
-                    $"shadows={preset.ShadowSize} path={absoluteOutput} success={saveResult == Error.Ok}");
+            GD.Print($"LIGHTING_COMPARISON_PROBE_GRID scenario={Scenario} " +
+                    $"captured={drift.CapturedSamples} reference={drift.ReferenceSamples} " +
+                    $"compared={drift.ComparedSamples} unreferenced={drift.UnreferencedSamples} " +
+                    $"missing={drift.MissingSamples} coverage={drift.ReferenceCoverage:P1} " +
+                    $"json={metricsOutput}");
+            GD.Print($"LIGHTING_COMPARISON_DRIFT scenario={Scenario} " +
+                    $"mean_channel={drift.MeanAbsoluteChannelDrift:F3} " +
+                    $"max_channel={drift.MaxChannelDrift:F0} " +
+                    $"sky_mean={drift.MeanAbsoluteSkyDrift:F3} sky_max={drift.MaxSkyDrift:F0} " +
+                    $"block_mean={drift.MeanAbsoluteBlockDrift:F3} block_max={drift.MaxBlockDrift:F0} " +
+                    $"rgb_mean=({drift.MeanAbsoluteRedDrift:F5},{drift.MeanAbsoluteGreenDrift:F5}," +
+                    $"{drift.MeanAbsoluteBlueDrift:F5}) " +
+                    $"rgb_max=({drift.MaxRedDrift:F5},{drift.MaxGreenDrift:F5},{drift.MaxBlueDrift:F5}) " +
+                    $"intensity_mean={drift.MeanAbsoluteIntensityDrift:F5} " +
+                    $"intensity_max={drift.MaxIntensityDrift:F5} " +
+                    $"outside_tolerance={drift.OutsideToleranceSamples} tolerance={drift.Tolerance:F5}");
+            if (!probeOnly)
+            {
+                GD.Print($"LIGHTING_COMPARISON_RENDER scenario={Scenario} " +
+                        $"size={image!.GetWidth()}x{image.GetHeight()} " +
+                        $"pale_mode={contrastMode} pale_contrast={captureContrast:F2} " +
+                        $"ssao={preset.Ssao} ssr={preset.Ssr} glow={preset.Glow} volumetric_fog={preset.VolFog} " +
+                        $"shadows={preset.ShadowSize} path={absoluteOutput} success={saveResult == Error.Ok}");
+            }
+            else
+            {
+                GD.Print($"LIGHTING_COMPARISON_RENDER scenario={Scenario} probe_only=true " +
+                        $"pale_mode={contrastMode} pale_contrast={captureContrast:F2} " +
+                        $"ssao={preset.Ssao} ssr={preset.Ssr} glow={preset.Glow} volumetric_fog={preset.VolFog} " +
+                        $"shadows={preset.ShadowSize} metrics={metricsOutput}");
+            }
         }
         catch (Exception exception)
         {
@@ -537,6 +603,30 @@ public partial class LightingComparisonCapture : Node
             return;
         if (!world.SetBlock(x, y, z, block))
             throw new InvalidOperationException($"SetBlock rejected fixture edit ({x},{y},{z}) -> {block}.");
+    }
+
+    private static List<LightingProbeComparison.Sample> CaptureProbeGrid(
+            VoxelWorld world, Vector3I centre)
+    {
+        List<LightingProbeComparison.Sample> samples =
+                new(LightingProbeComparison.GridOffsets.Count);
+        foreach (Vector3I offset in LightingProbeComparison.GridOffsets)
+        {
+            Vector3I position = centre + offset;
+            if (position.Y < 0 || position.Y >= world.Height)
+                throw new InvalidOperationException(
+                        $"Probe grid sample {LightingProbeComparison.IdForOffset(offset)} " +
+                        $"is outside world height at Y={position.Y}.");
+
+            LightSample light = ReadLight(world, position);
+            BlockId block = world.GetBlock(position.X, position.Y, position.Z);
+            samples.Add(new LightingProbeComparison.Sample(
+                    LightingProbeComparison.IdForOffset(offset),
+                    position.X, position.Y, position.Z,
+                    light.Sky, light.Block, block.ToString()));
+        }
+
+        return samples;
     }
 
     private static LightSample ReadLight(VoxelWorld world, Vector3I position)
