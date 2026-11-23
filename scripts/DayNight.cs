@@ -540,7 +540,6 @@ public partial class DayNight : Node
         WaterFogProfile waterFog = EvaluateWaterFog(fogColor, (float)fogDensity, waterBlend);
         fogColor = waterFog.Color;
         fogDensity = waterFog.Density;
-        bool underwater = waterBlend > 0.001f;
 
         if (flash > 0.001)
         {
