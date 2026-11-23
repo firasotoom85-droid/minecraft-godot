@@ -50,11 +50,20 @@ internal static class WorldSaveWorker
             bool playerSaved = WriteAtomic(snapshot.PlayerPath, playerJson, out string? playerError);
             if (!playerSaved && playerError != null) errors.Add(playerError);
 
+            // The manifest's HasSavedData flag is the recovery sentinel for a
+            // completed world/player pair. Never advance it when either half
+            // failed, or a partial first save could look like valid history.
+            if (!worldSaved || !playerSaved)
+            {
+                return new WorldSaveWorkerResult(false,
+                        errors.Count == 0 ? "world/player save pair was incomplete" : string.Join("; ", errors));
+            }
+
             bool manifestSaved = WriteAtomic(snapshot.ManifestPath, manifestJson, out string? manifestError);
             if (!manifestSaved && manifestError != null) errors.Add(manifestError);
 
             return new WorldSaveWorkerResult(
-                    worldSaved && playerSaved && manifestSaved,
+                    manifestSaved,
                     errors.Count == 0 ? null : string.Join("; ", errors));
         }
         catch (Exception error)
