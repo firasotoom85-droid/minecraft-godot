@@ -108,7 +108,8 @@ public static class BlockShapes
         if ((uint)nx < 2 && (uint)ny < 2 && (uint)nz < 2)
             return !Occupied(id, state, nx, ny, nz);
 
-        if (!BlockDb.IsSolid(neighbor) || BlockDb.IsTransparent(neighbor)) return true;
+        if (!BlockDb.IsSolid(neighbor) || BlockDb.IsTransparent(neighbor)
+                || BlockDb.IsFoliage(neighbor)) return true;
         nx = face == 2 ? 0 : face == 3 ? 1 : x;
         ny = face == 0 ? 0 : face == 1 ? 1 : y;
         nz = face == 4 ? 0 : face == 5 ? 1 : z;
