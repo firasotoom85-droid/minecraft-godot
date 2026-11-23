@@ -1298,6 +1298,11 @@ public sealed class MeshPayload(
 /// </summary>
 public static class PayloadPool
 {
+    // Keep normal streaming reuse, but put a hard ceiling on process-wide
+    // backing-array retention. Buffers above the per-item ceiling are dropped.
+    internal const long MaxRetainedBufferBytes = 32L * 1024 * 1024;
+    internal const long MaxRetainedItemBytes = 8L * 1024 * 1024;
+
     private static readonly System.Collections.Concurrent.ConcurrentBag<SurfaceData> Surfaces = new();
     private static readonly System.Collections.Concurrent.ConcurrentBag<List<Vector3>> Collisions = new();
     private static long _retainedBufferBytes;
@@ -1327,10 +1332,7 @@ public static class PayloadPool
 
     public static void Release(MeshPayload payload)
     {
-        if (payload.Released)
-        {
-            return;
-        }
+        if (payload.Released) return;
 
         payload.Released = true;
         ReturnSurface(payload.Opaque);
@@ -1338,9 +1340,13 @@ public static class PayloadPool
         ReturnSurface(payload.Water);
         ReturnSurface(payload.Lava);
         payload.Collision.Clear();
-        Interlocked.Add(ref _retainedBufferBytes, (long)payload.Collision.Capacity * 12);
-        Interlocked.Increment(ref _retainedCollisionCount);
-        Collisions.Add(payload.Collision);
+
+        long collisionBytes = (long)payload.Collision.Capacity * 12;
+        if (TryReserve(collisionBytes))
+        {
+            Interlocked.Increment(ref _retainedCollisionCount);
+            Collisions.Add(payload.Collision);
+        }
     }
 
     private static void ReturnSurface(SurfaceData surf)
@@ -1350,11 +1356,25 @@ public static class PayloadPool
         surf.Color.Clear();
         surf.Uv.Clear();
         surf.Uv2.Clear();
-        Interlocked.Add(ref _retainedBufferBytes, surf.EstimatedBufferBytes);
+
+        long bytes = surf.EstimatedBufferBytes;
+        if (!TryReserve(bytes)) return;
         Interlocked.Increment(ref _retainedSurfaceCount);
         Surfaces.Add(surf);
     }
 
+    private static bool TryReserve(long bytes)
+    {
+        if (bytes <= 0 || bytes > MaxRetainedItemBytes) return false;
 
+        while (true)
+        {
+            long retained = Interlocked.Read(ref _retainedBufferBytes);
+            if (retained > MaxRetainedBufferBytes - bytes) return false;
+            if (Interlocked.CompareExchange(ref _retainedBufferBytes,
+                    retained + bytes, retained) == retained)
+                return true;
+        }
+    }
 
 }
