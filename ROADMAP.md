@@ -77,6 +77,16 @@ and generated campfires no longer own an `OmniLight3D` each. No rendered FPS
 delta is claimed because no controlled frame-time benchmark was run for this
 batch.
 
+## Persistence integrity continuation — 2026-11-23
+
+W05's persistence-hardening work is tracked in [PR #215](https://github.com/firasotoom85-droid/minecraft-godot/pull/215), based on the frozen implementation baseline. It adds model-specific manifest/world/player validation, backup candidate fallback, explicit recovery-required world state, safe handling of damaged selected worlds, link-safe duplication/deletion, collision-resistant world directory allocation, checked copy/creation/rename outcomes, archive metadata validation, and per-backup permission-error isolation.
+
+The optional manifest `HasSavedData` sentinel distinguishes a never-saved world from a world whose save history has disappeared. Legacy manifests remain compatible through the existing playtime/play timestamp evidence, and the sentinel is backfilled only after a valid world/player pair is found. Unsupported future save candidates are rejected rather than silently replaced by older backups.
+
+The W05-owned `WorldStore.WriteAtomic` now stages the oldest backup until the new primary commits and restores the prior generations after injected rename/commit failures. The pause-menu Save and Quit-to-menu callers now consume W01's bool-returning `VoxelWorld.SaveNow()` contract when present: a failed save keeps the world open and displays an error. W01 PR #207 owns that API and `WorldSaveWorker`; its background writer still needs the matching staged-oldest-backup fix before #132 can be closed. The save-result caller integration likewise depends on the W01 API being merged into the shared base before #131 is closed.
+
+Hosted CI on the storage/recovery head passed Debug and Release builds with warnings as errors, the full Godot headless runner, and spatial voxel-light probe grids. The subsequent pause-menu caller bridge is being revalidated on the latest PR head. Save format V4, generator versions, persisted block/item IDs, greedy meshing and chunk streaming remain unchanged.
+
 ## Current follow-up implementation — 2026-11-22 (rare and enchanted item language)
 
 The existing 32px generated-icon pipeline now expresses item quality without
