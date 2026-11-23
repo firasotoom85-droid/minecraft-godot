@@ -438,9 +438,29 @@ public static class WorldArchive
                 if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
                     continue;
                 string json = File.ReadAllText(path);
-                string baseName = isWorldSave ? "world.json" : "player.json";
-                if (!WorldStore.IsValidBackupModel(baseName, json))
+                WorldReadStatus candidateStatus;
+                string candidateError;
+                bool valid;
+                if (isWorldSave)
+                {
+                    WorldSave? save = JsonSerializer.Deserialize<WorldSave>(json, WorldStore.Json);
+                    valid = save is not null && WorldStore.ValidateModel(
+                            save, out candidateStatus, out candidateError);
+                }
+                else
+                {
+                    PlayerSave? player = JsonSerializer.Deserialize<PlayerSave>(json, WorldStore.Json);
+                    valid = player is not null && WorldStore.ValidateModel(
+                            player, out candidateStatus, out candidateError);
+                }
+
+                if (!valid)
+                {
+                    if (candidateStatus == WorldReadStatus.Unsupported)
+                        throw new InvalidDataException(
+                                $"The imported {fileName} uses an unsupported save version: {candidateError}");
                     continue;
+                }
                 return i > 0;
             }
             catch (JsonException) { }
