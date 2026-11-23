@@ -12,6 +12,7 @@ public static class LightingTests
         BlockDb.EnsureTables();
         TestCornerAverageChannels();
         TestSkyLightInterpolation();
+        TestHostileSilhouetteResponse();
         TestWarmEmitterResponse();
         TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Torch] >= 13, "torch has a strong nibble emission");
         TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Lava] > 0
@@ -26,6 +27,9 @@ public static class LightingTests
         TestOverlappingWarmEmitters();
         TestOpaqueBlocking();
         TestTransparentTransmission();
+        TestFoliageGapTransmission();
+        TestShapeLightPassages();
+        TestPartialShapeLighting();
         TestChunkBoundary();
         TestRemoval();
         TestIncrementalBlockUpdates();
@@ -75,28 +79,71 @@ public static class LightingTests
         TestAssert.FreeAll(emptyWorld);
     }
 
+    private static void TestHostileSilhouetteResponse()
+    {
+        StandardMaterial3D hostile = Mob.CreateBodyMaterial(hostile: true);
+        StandardMaterial3D passive = Mob.CreateBodyMaterial(hostile: false);
+
+        TestAssert.Check(hostile.RimEnabled,
+                "hostile vertex-colour bodies enable a contour rim for silhouette separation");
+        TestAssert.Equal(Mob.HostileRimStrength, hostile.Rim,
+                "hostile rim strength stays at the deliberately restrained level");
+        TestAssert.Equal(Mob.HostileRimTint, hostile.RimTint,
+                "hostile rim blends moon/sun light with the creature's existing albedo");
+        TestAssert.Check(!hostile.EmissionEnabled,
+                "hostile silhouette readability does not use self-emission or create scene-wide fill");
+        TestAssert.Check(!passive.RimEnabled,
+                "passive creature materials do not receive the hostile-only contour treatment");
+        TestAssert.Check(hostile.VertexColorUseAsAlbedo && passive.VertexColorUseAsAlbedo,
+                "hostile and passive bodies retain the existing procedural vertex-colour pipeline");
+    }
+
     private static void TestWarmEmitterResponse()
     {
         TestAssert.Equal(BlockDb.LightEmission[(int)BlockId.Torch], VoxelLighting.CampfireEmission,
                 "campfires share the exact baked source strength used by torches");
 
+        string waterShader = (ChunkMaterials.Water as ShaderMaterial)?.Shader?.Code ?? string.Empty;
+        TestAssert.Check(!string.IsNullOrEmpty(waterShader),
+                "water retains its dedicated production shader");
         foreach (string shader in BlockDb.WarmLightingShaderSources)
-        {
-            TestAssert.Check(shader.Contains(
-                    "uniform vec3 warm_block_light_color = vec3(1.0, 0.68, 0.42);",
-                    StringComparison.Ordinal),
-                    "opaque, array and glass materials use the same warm emitter hue");
-            TestAssert.Check(shader.Contains("warm_block_response(sky, block)",
-                    StringComparison.Ordinal)
-                    && shader.Contains("warm_block_illumination(warm_response)", StringComparison.Ordinal)
-                    && shader.Contains("warm_block_emission(warm_response)", StringComparison.Ordinal),
-                    "all voxel material paths share one warm response for diffuse and emission");
-            TestAssert.Check(shader.Split("exp(-block * 1.25)", StringSplitOptions.None).Length == 2
-                    && shader.Contains("response * 0.34;", StringComparison.Ordinal)
-                    && shader.Contains("response * 0.025;", StringComparison.Ordinal)
-                    && !shader.Contains("shadowed_block", StringComparison.Ordinal),
-                    "warm illumination and emission remain bounded with only one exponential evaluation per fragment");
-        }
+            CheckSharedWarmShader(shader, "opaque, array and glass");
+        CheckSharedWarmShader(waterShader, "water");
+
+        TestAssert.Check(!waterShader.Contains("shadowed_block", StringComparison.Ordinal)
+                        && !waterShader.Contains("vec3(1.0, 0.68, 0.38)", StringComparison.Ordinal),
+                "water no longer carries a separate, brighter block-light formula");
+
+        TestAssert.Equal((byte)12, BlockDb.LightEmission[(int)BlockId.Lava],
+                "lava's registered source remains twelve packed block-light levels");
+        Color lavaSourceChannels = VoxelLighting.VertexColor(
+                VoxelLighting.Pack(0, BlockDb.LightEmission[(int)BlockId.Lava]), 1.0f);
+        float lavaSourceLevel = BlockDb.LightEmission[(int)BlockId.Lava]
+                / (float)VoxelLighting.MaxLevel;
+        TestAssert.Equal(lavaSourceLevel, lavaSourceChannels.G,
+                "lava's packed low nibble is encoded unchanged in the shader block-light channel");
+        float safeSourceLevel = Mathf.Max(lavaSourceLevel, 1.0f / VoxelLighting.MaxLevel);
+        TestAssert.Equal(0.0f, Mathf.Clamp(0.0f / safeSourceLevel, 0.0f, 1.0f),
+                "a zero packed block-light channel produces no lava emission");
+        TestAssert.Equal(0.5f,
+                Mathf.Clamp((lavaSourceLevel * 0.5f) / safeSourceLevel, 0.0f, 1.0f),
+                "half of lava's source nibble produces half of its emissive output");
+        TestAssert.Equal(1.0f,
+                Mathf.Clamp(lavaSourceLevel / safeSourceLevel, 0.0f, 1.0f),
+                "the registered lava source nibble reaches the preserved molten-core emission");
+
+        ShaderMaterial lavaMaterial = ChunkMaterials.Lava;
+        string lavaShader = lavaMaterial.Shader?.Code ?? string.Empty;
+        TestAssert.Equal(lavaSourceLevel,
+                lavaMaterial.GetShaderParameter("lava_source_level").AsSingle(),
+                "lava shader normalization is derived from the registered block emission level");
+        TestAssert.Check(lavaShader.Contains("float block = clamp(COLOR.g, 0.0, 1.0);",
+                        StringComparison.Ordinal)
+                        && lavaShader.Contains("block / max(lava_source_level", StringComparison.Ordinal)
+                        && lavaShader.Contains("EMISSION = tex.rgb * warm * lava_emission * 0.9;",
+                                StringComparison.Ordinal)
+                        && !lavaShader.Contains("warm * 0.9 +", StringComparison.Ordinal),
+                "lava keeps its orange core but cannot emit independently of packed block light");
 
         Godot.Environment environment = WorldEnvironmentFactory.Build();
         TestAssert.Equal(Godot.Environment.ToneMapper.Filmic, environment.TonemapMode,
@@ -105,6 +152,24 @@ public static class LightingTests
                 "high-quality bloom is reserved for highlights instead of broadly lifting warm surfaces");
         TestAssert.Equal(1.0f, environment.AmbientLightEnergy,
                 "warm block sources do not globally tint or dim neutral sky ambient");
+    }
+
+    private static void CheckSharedWarmShader(string shader, string label)
+    {
+        TestAssert.Check(shader.Contains(
+                "uniform vec3 warm_block_light_color = vec3(1.0, 0.68, 0.42);",
+                StringComparison.Ordinal),
+                $"{label} uses the shared warm emitter hue");
+        TestAssert.Check(shader.Contains("warm_block_response(sky, block)",
+                StringComparison.Ordinal)
+                && shader.Contains("warm_block_illumination(warm_response)", StringComparison.Ordinal)
+                && shader.Contains("warm_block_emission(warm_response)", StringComparison.Ordinal),
+                $"{label} shares one response for diffuse fill and residual emission");
+        TestAssert.Check(shader.Split("exp(-block * 1.25)", StringSplitOptions.None).Length == 2
+                && shader.Contains("response * 0.34;", StringComparison.Ordinal)
+                && shader.Contains("response * 0.025;", StringComparison.Ordinal)
+                && !shader.Contains("shadowed_block", StringComparison.Ordinal),
+                $"{label} evaluates one bounded warm response per fragment");
     }
 
     private static void TestBlockAttenuation()
@@ -177,6 +242,208 @@ public static class LightingTests
         TestAssert.Check(At(waterLight, width, height, depth, 3, 2, 2)
                 < At(light, width, height, depth, 3, 2, 2),
                 "water attenuates more light than glass");
+    }
+
+    private static void TestFoliageGapTransmission()
+    {
+        const int width = 5;
+        const int height = 5;
+        const int depth = 3;
+        byte[] blocks = new byte[width * height * depth];
+        // Separate the foliage column and the open-gap column with stone so
+        // the below-canopy value measures direct transmission, not side spill.
+        for (int y = 0; y < height; y++)
+        {
+            for (int z = 0; z < depth; z++)
+            {
+                blocks[Idx(width, height, depth, 0, y, z)] = (byte)BlockId.Stone;
+                blocks[Idx(width, height, depth, 2, y, z)] = (byte)BlockId.Stone;
+                blocks[Idx(width, height, depth, 4, y, z)] = (byte)BlockId.Stone;
+            }
+            for (int x = 0; x < width; x++)
+            {
+                blocks[Idx(width, height, depth, x, y, 0)] = (byte)BlockId.Stone;
+                blocks[Idx(width, height, depth, x, y, 2)] = (byte)BlockId.Stone;
+            }
+        }
+        blocks[Idx(width, height, depth, 1, 3, 1)] = (byte)BlockId.Leaves;
+        // x=3 is intentionally left air: it is the open canopy gap.
+
+        byte[] sky = VoxelLighting.BuildSkyLight(blocks, width, height, depth);
+        TestAssert.Equal((byte)13, At(sky, width, height, depth, 1, 3, 1),
+                "leaf canopy voxels attenuate direct skylight without sealing the column");
+        TestAssert.Equal((byte)15, At(sky, width, height, depth, 3, 3, 1),
+                "an actual air gap in the canopy preserves full direct skylight");
+        TestAssert.Equal((byte)13, At(sky, width, height, depth, 1, 2, 1),
+                "direct skylight keeps the same attenuated level below the isolated leaf voxel");
+        TestAssert.Equal((byte)15, At(sky, width, height, depth, 3, 2, 1),
+                "the open foliage gap remains fully lit below the canopy");
+        TestAssert.Check(BlockDb.LightOpacity[(int)BlockId.Leaves] < 15
+                && BlockDb.Occl[(int)BlockId.Leaves] == 0,
+                "alpha-cutout foliage remains a light-transmitting non-AO-occluder");
+
+        byte[] isolated = new byte[3 * 4 * 3];
+        isolated[Idx(3, 4, 3, 1, 2, 1)] = (byte)BlockId.Leaves;
+        isolated[Idx(3, 4, 3, 0, 1, 1)] = (byte)BlockId.Stone;
+        isolated[Idx(3, 4, 3, 2, 1, 1)] = (byte)BlockId.Stone;
+        isolated[Idx(3, 4, 3, 1, 1, 0)] = (byte)BlockId.Stone;
+        isolated[Idx(3, 4, 3, 1, 1, 2)] = (byte)BlockId.Stone;
+        byte[] isolatedSky = VoxelLighting.BuildSkyLight(isolated, 3, 4, 3);
+        TestAssert.Equal((byte)13, At(isolatedSky, 3, 4, 3, 1, 1, 1),
+                "an isolated leaf transmits direct skylight with its full two-level opacity loss");
+    }
+
+    private static void TestShapeLightPassages()
+    {
+        BlockId slab = BlockId.PlanksSlab;
+        BlockId stairs = BlockId.PlanksStairs;
+        byte bottomTop = BlockShapes.LightPassageFaceMask(slab, BlockShapes.SlabBottom, 0);
+        byte bottomBottom = BlockShapes.LightPassageFaceMask(slab, BlockShapes.SlabBottom, 1);
+        byte topTop = BlockShapes.LightPassageFaceMask(slab, BlockShapes.SlabTop, 0);
+        byte topBottom = BlockShapes.LightPassageFaceMask(slab, BlockShapes.SlabTop, 1);
+        TestAssert.Check(bottomTop == 0x0F && bottomBottom == 0,
+                "bottom slab cavity opens upward but its occupied underside blocks light");
+        TestAssert.Check(topBottom == 0x0F && topTop == 0,
+                "top slab cavity opens downward but its occupied top blocks light");
+        TestAssert.Equal((byte)0, BlockShapes.LightPassageMask(slab, BlockShapes.SlabDouble),
+                "a double slab has no light passage faces");
+
+        byte uprightTop = BlockShapes.LightPassageFaceMask(stairs, 0, 0);
+        byte uprightBottom = BlockShapes.LightPassageFaceMask(stairs, 0, 1);
+        byte uprightFront = BlockShapes.LightPassageFaceMask(stairs, 0, 5);
+        byte uprightBack = BlockShapes.LightPassageFaceMask(stairs, 0, 4);
+        byte uprightRight = BlockShapes.LightPassageFaceMask(stairs, 0, 2);
+        byte uprightLeft = BlockShapes.LightPassageFaceMask(stairs, 0, 3);
+        byte invertedTop = BlockShapes.LightPassageFaceMask(stairs, BlockShapes.StairUpsideDown, 0);
+        byte invertedBottom = BlockShapes.LightPassageFaceMask(stairs, BlockShapes.StairUpsideDown, 1);
+        byte invertedFront = BlockShapes.LightPassageFaceMask(stairs, BlockShapes.StairUpsideDown, 5);
+        byte invertedBack = BlockShapes.LightPassageFaceMask(stairs, BlockShapes.StairUpsideDown, 4);
+        byte invertedRight = BlockShapes.LightPassageFaceMask(stairs, BlockShapes.StairUpsideDown, 2);
+        byte invertedLeft = BlockShapes.LightPassageFaceMask(stairs, BlockShapes.StairUpsideDown, 3);
+        TestAssert.Check(uprightTop == 0x03 && uprightBottom == 0
+                && uprightFront == 0x0C && uprightBack == 0,
+                "upright stair light follows its upper front cavity, not its solid back or base");
+        TestAssert.Check(invertedBottom == 0x03 && invertedTop == 0
+                && invertedFront == 0x03 && invertedBack == 0,
+                "inverted stair light follows the lower front cavity and blocks its covered top");
+        TestAssert.Equal((byte)0x04, uprightRight,
+                "upright stair right-side opening occupies the matching upper-front micro-face");
+        TestAssert.Equal((byte)0x04, uprightLeft,
+                "upright stair left-side opening occupies the matching upper-front micro-face");
+        TestAssert.Equal((byte)0x01, invertedRight,
+                "inverted stair right-side opening occupies the matching lower-front micro-face");
+        TestAssert.Equal((byte)0x01, invertedLeft,
+                "inverted stair left-side opening occupies the matching lower-front micro-face");
+
+        byte[] expectedTopApertures = [0x03, 0x0A, 0x0C, 0x05];
+        for (byte facing = 0; facing < 4; facing++)
+        {
+            byte uprightTopMask = BlockShapes.LightPassageFaceMask(stairs, facing, 0);
+            byte invertedBottomMask = BlockShapes.LightPassageFaceMask(stairs,
+                    (byte)(facing | BlockShapes.StairUpsideDown), 1);
+            TestAssert.Equal(expectedTopApertures[facing], uprightTopMask,
+                    $"stair facing {facing} exposes only its upper-front sky aperture");
+            TestAssert.Equal((byte)0, BlockShapes.LightPassageFaceMask(stairs, facing, 1),
+                    $"upright stair facing {facing} blocks vertical sunlight below its solid base");
+            TestAssert.Equal((byte)0, BlockShapes.LightPassageFaceMask(stairs,
+                    (byte)(facing | BlockShapes.StairUpsideDown), 0),
+                    $"inverted stair facing {facing} closes its upper face");
+            TestAssert.Equal(expectedTopApertures[facing], invertedBottomMask,
+                    $"inverted stair facing {facing} exposes the matching lower-front cavity");
+        }
+
+        TestAssert.Equal((byte)0, VoxelLighting.EffectiveOpacity(slab, BlockShapes.SlabBottom),
+                "partial-shape cavity traversal does not inherit the full-cube opacity entry");
+        TestAssert.Equal((byte)15, VoxelLighting.EffectiveOpacity(slab, BlockShapes.SlabDouble),
+                "fully occupied shape state retains full opacity");
+
+        byte[] blocks = new byte[3];
+        byte[] states = new byte[3];
+        blocks[0] = (byte)BlockId.PlanksStairs;
+        blocks[1] = (byte)BlockId.PlanksStairs;
+        blocks[2] = (byte)BlockId.Air;
+        // A lower-front inverted stair faces an upper-front upright stair.
+        // Their side openings do not line up in the shared four-bit face grid.
+        states[0] = BlockShapes.StairUpsideDown;
+        states[1] = 0;
+        byte[] mismatched = VoxelLighting.PropagateBlockLight(blocks, 3, 1, 1,
+                [new VoxelLightSource(new Vector3I(0, 0, 0), 14)], states);
+        TestAssert.Equal((byte)0, At(mismatched, 3, 1, 1, 2, 0, 0),
+                "light does not cross adjacent stair cavities whose half-face openings do not overlap");
+    }
+
+    private static void TestPartialShapeLighting()
+    {
+        const int width = 7;
+        const int height = 5;
+        const int depth = 5;
+
+        static byte[] BuildHorizontalTunnel(BlockId shape, byte state,
+                int width, int height, int depth, out byte[] states)
+        {
+            byte[] blocks = new byte[width * height * depth];
+            Array.Fill(blocks, (byte)BlockId.Stone);
+            states = new byte[blocks.Length];
+            for (int x = 1; x <= 5; x++)
+                blocks[Idx(width, height, depth, x, 2, 2)] = (byte)BlockId.Air;
+            blocks[Idx(width, height, depth, 1, 2, 2)] = (byte)BlockId.Torch;
+            int shapeIndex = Idx(width, height, depth, 3, 2, 2);
+            blocks[shapeIndex] = (byte)shape;
+            states[shapeIndex] = state;
+            return blocks;
+        }
+
+        foreach ((BlockId shape, byte state, string label) in new[]
+        {
+            (BlockId.PlanksSlab, BlockShapes.SlabBottom, "bottom slab"),
+            (BlockId.PlanksSlab, BlockShapes.SlabTop, "top slab"),
+            (BlockId.PlanksStairs, (byte)0, "upright stairs"),
+        })
+        {
+            byte[] blocks = BuildHorizontalTunnel(shape, state, width, height, depth, out byte[] states);
+            byte[] blockLight = VoxelLighting.PropagateBlockLight(blocks, width, height, depth,
+                    [new VoxelLightSource(new Vector3I(1, 2, 2), 14)], states);
+            TestAssert.Check(At(blockLight, width, height, depth, 4, 2, 2) > 0,
+                    $"block light remains continuous through the connected side cavity of a {label}");
+            TestAssert.Equal((byte)11, At(blockLight, width, height, depth, 4, 2, 2),
+                    $"{label} transmits light with one voxel-step attenuation through its opening");
+        }
+
+        // A roofed vertical shaft isolates top and bottom ports. The bottom
+        // slab receives sun in its upper cavity but cannot pass it through its
+        // occupied underside. Rotating it to a top slab closes the entrance.
+        const int shaftWidth = 5;
+        const int shaftHeight = 6;
+        const int shaftDepth = 5;
+        byte[] shaft = new byte[shaftWidth * shaftHeight * shaftDepth];
+        Array.Fill(shaft, (byte)BlockId.Stone);
+        byte[] shaftStates = new byte[shaft.Length];
+        for (int y = 3; y < shaftHeight; y++)
+            shaft[Idx(shaftWidth, shaftHeight, shaftDepth, 2, y, 2)] = (byte)BlockId.Air;
+        shaft[Idx(shaftWidth, shaftHeight, shaftDepth, 2, 1, 2)] = (byte)BlockId.Air;
+        int slabIndex = Idx(shaftWidth, shaftHeight, shaftDepth, 2, 2, 2);
+        shaft[slabIndex] = (byte)BlockId.PlanksSlab;
+        shaftStates[slabIndex] = BlockShapes.SlabBottom;
+        byte[] bottomSky = VoxelLighting.BuildSkyLight(shaft, shaftWidth, shaftHeight, shaftDepth, shaftStates);
+        TestAssert.Equal((byte)15, At(bottomSky, shaftWidth, shaftHeight, shaftDepth, 2, 2, 2),
+                "direct sun reaches the open upper cavity of a bottom slab");
+        TestAssert.Equal((byte)0, At(bottomSky, shaftWidth, shaftHeight, shaftDepth, 2, 1, 2),
+                "the occupied bottom half of a slab stops direct skylight");
+
+        shaftStates[slabIndex] = BlockShapes.SlabTop;
+        byte[] topSky = VoxelLighting.BuildSkyLight(shaft, shaftWidth, shaftHeight, shaftDepth, shaftStates);
+        TestAssert.Equal((byte)0, At(topSky, shaftWidth, shaftHeight, shaftDepth, 2, 2, 2),
+                "a top slab blocks sunlight at its closed upper face");
+        TestAssert.Equal((byte)0, At(topSky, shaftWidth, shaftHeight, shaftDepth, 2, 1, 2),
+                "closed top-slab state does not leak skylight into the space below");
+
+        shaftStates[slabIndex] = 0;
+        shaft[slabIndex] = (byte)BlockId.PlanksStairs;
+        byte[] stairSky = VoxelLighting.BuildSkyLight(shaft, shaftWidth, shaftHeight, shaftDepth, shaftStates);
+        TestAssert.Equal((byte)15, At(stairSky, shaftWidth, shaftHeight, shaftDepth, 2, 2, 2),
+                "direct sun enters the connected upper opening of an upright stair");
+        TestAssert.Equal((byte)0, At(stairSky, shaftWidth, shaftHeight, shaftDepth, 2, 1, 2),
+                "the solid stair base prevents skylight leaking into the lower voxel");
     }
 
     private static void TestChunkBoundary()

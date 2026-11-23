@@ -361,6 +361,37 @@ public static class BlockShapeTests
         PayloadPool.Release(greedy);
         Mesher.Greedy = originalGreedy;
 
+        // A loaded 1-cell tunnel isolates a shape-state edit from alternate
+        // paths. Changing the same slab from bottom to double must invalidate
+        // the packed 3x3 neighbourhood; restoring the cavity must relight it.
+        for (int y = 100; y <= 102; y++)
+        for (int z = 5; z <= 7; z++)
+        for (int x = 13; x <= 21; x++)
+            world.SetBlock(x, y, z, BlockId.Stone);
+        for (int x = 13; x <= 20; x++)
+            world.SetBlock(x, 101, 6, BlockId.Air);
+        TestAssert.Check(world.SetBlock(14, 101, 6, BlockId.Torch),
+                "isolated cross-chunk voxel-light tunnel accepts its torch through SetBlock");
+        TestAssert.Check(world.SetBlock(17, 101, 6, BlockId.PlanksSlab, BlockShapes.SlabBottom),
+                "neighbouring chunk accepts the light-passage slab through SetBlock");
+        Vector2I lightChunk = new(1, 0);
+        VoxelLightData bottomSlabLight = world.LightData(lightChunk);
+        byte throughOpenCavity = bottomSlabLight.BlockAt(3, 101, 6, world.Height);
+        TestAssert.Check(throughOpenCavity > 0,
+                "baked block light reaches the far side of an open slab cavity across the chunk boundary");
+
+        TestAssert.Check(world.SetBlock(17, 101, 6, BlockId.PlanksSlab, BlockShapes.SlabDouble),
+                "changing a neighbouring-chunk slab state succeeds through the shared SetBlock seam");
+        VoxelLightData doubleSlabLight = world.LightData(lightChunk);
+        TestAssert.Equal((byte)0, doubleSlabLight.BlockAt(3, 101, 6, world.Height),
+                "cross-chunk shape-state mutation invalidates cached light and a double slab blocks the tunnel");
+
+        TestAssert.Check(world.SetBlock(17, 101, 6, BlockId.PlanksSlab, BlockShapes.SlabBottom),
+                "restoring the partial slab state succeeds through SetBlock");
+        VoxelLightData restoredSlabLight = world.LightData(lightChunk);
+        TestAssert.Check(restoredSlabLight.BlockAt(3, 101, 6, world.Height) > 0,
+                "restoring the open slab cavity rebuilds continuous baked block light across the chunk seam");
+
         world.SaveNow();
         host.RemoveChild(world);
         world.QueueFree();

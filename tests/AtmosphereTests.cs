@@ -9,7 +9,9 @@ public static class AtmosphereTests
     public static void Run()
     {
         TestDayNightPalette();
+        TestWeatherSkyCloudPalette();
         TestCaveExposure();
+        TestWaterAndBiomeExposure();
         TestSunlightDirectionAndBakedChannels();
         TestDistanceHazeProfile();
         TestWeatherPrecipitationSelection();
@@ -40,6 +42,17 @@ public static class AtmosphereTests
                 "dawn and dusk receive a distinct twilight envelope");
         TestAssert.Check(noon.SkyLightEnergy > midnight.SkyLightEnergy,
                 "voxel sky light is stronger during the day");
+        TestAssert.Check(midnight.SkyLightEnergy <= 0.066f
+                && midnight.AmbientLightEnergy <= 0.066f,
+                "clear midnight keeps baked skylight and global ambient below the restrained night-fill ceiling");
+        TestAssert.Check(midnight.MoonEnergy > 0.17f && midnight.MoonEnergy <= 0.18f,
+                "night readability retains a directional moon key rather than compensating with global ambient");
+        TestAssert.Equal(1.0f, noon.AmbientLightEnergy,
+                "night contrast tuning does not reduce clear midday environment fill");
+        DayNight.SkyPalette cloudyMidnight = DayNight.EvaluatePalette(0.0, 1.0, 0.0);
+        TestAssert.Check(cloudyMidnight.AmbientLightEnergy < midnight.AmbientLightEnergy
+                && cloudyMidnight.MoonEnergy < midnight.MoonEnergy,
+                "cloud cover attenuates the already restrained night fill and moon key");
         TestAssert.Check(overcast.SkyLightEnergy < noon.SkyLightEnergy
                 && overcast.AmbientLightEnergy < noon.AmbientLightEnergy,
                 "heavy cloud cover softens sky and ambient lighting");
@@ -66,6 +79,138 @@ public static class AtmosphereTests
         }
     }
 
+    private static void TestWeatherSkyCloudPalette()
+    {
+        Weather.State[] states =
+        [
+            Weather.State.Clear,
+            Weather.State.Cloudy,
+            Weather.State.Rain,
+            Weather.State.Storm,
+        ];
+        double previousCloudBrightness = double.MaxValue;
+        double previousSkyBrightness = double.MaxValue;
+        float previousOpacity = 0.0f;
+
+        foreach (Weather.State state in states)
+        {
+            double cover = Weather.TargetCloudinessFor(state);
+            DayNight.SkyPalette palette = DayNight.EvaluatePalette(0.5, cover, 0.0);
+            double cloudBrightness = Luminance(palette.CloudColor);
+            double skyBrightness = Luminance(palette.Top);
+
+            TestAssert.Check(double.IsFinite(cloudBrightness)
+                    && palette.CloudOpacity >= 0.0f && palette.CloudOpacity <= 1.0f,
+                    $"{state} cloud tint and opacity remain finite and bounded");
+            TestAssert.Check(palette.CloudOpacity > previousOpacity,
+                    $"{state} increases cloud coverage over the previous weather state");
+            TestAssert.Check(cloudBrightness < previousCloudBrightness,
+                    $"{state} clouds darken progressively with heavier weather");
+            TestAssert.Check(skyBrightness < previousSkyBrightness,
+                    $"{state} upper sky dims progressively with heavier weather");
+            TestAssert.Check(Luminance(palette.Horizon) <= Luminance(
+                            DayNight.EvaluatePalette(0.5, 0.05, 0.0).Horizon) + 0.00001,
+                    $"{state} horizon is no brighter than clear noon");
+
+            TestAssert.Check(IsFinite(palette.Top) && IsFinite(palette.Horizon)
+                    && IsFinite(palette.GroundHorizon) && IsFinite(palette.CloudColor),
+                    $"{state} sky, horizon and cloud colours are finite");
+
+            previousCloudBrightness = cloudBrightness;
+            previousSkyBrightness = skyBrightness;
+            previousOpacity = palette.CloudOpacity;
+        }
+
+        DayNight.SkyPalette clearNoon = DayNight.EvaluatePalette(
+                0.5, Weather.TargetCloudinessFor(Weather.State.Clear), 0.0);
+        DayNight.SkyPalette clearNight = DayNight.EvaluatePalette(
+                0.0, Weather.TargetCloudinessFor(Weather.State.Clear), 0.0);
+        DayNight.SkyPalette storm = DayNight.EvaluatePalette(
+                0.5, Weather.TargetCloudinessFor(Weather.State.Storm), 0.0);
+        DayNight.SkyPalette stormFlash = DayNight.EvaluatePalette(
+                0.5, Weather.TargetCloudinessFor(Weather.State.Storm), 0.8);
+
+        TestAssert.Check(Luminance(clearNoon.CloudColor) > Luminance(clearNight.CloudColor),
+                "clear clouds retain daylight brightness and cool down at night");
+        TestAssert.Check(Luminance(stormFlash.CloudColor) > Luminance(storm.CloudColor)
+                && Luminance(stormFlash.Horizon) > Luminance(storm.Horizon),
+                "lightning briefly lifts storm cloud and horizon brightness");
+
+        DayNight.SkyPalette nonFinite = DayNight.EvaluatePalette(
+                double.NaN, double.NaN, double.PositiveInfinity);
+        TestAssert.Equal(clearNoon.Top, nonFinite.Top,
+                "non-finite time, cloudiness and flash use a stable clear-noon fallback");
+        TestAssert.Equal(clearNoon.CloudColor, nonFinite.CloudColor,
+                "non-finite weather inputs do not poison cloud material colour");
+
+        foreach (string weatherName in Weather.StateNames)
+        {
+            TestAssert.Check(AtmosphereVisualCapture.TryParseWeather(
+                            weatherName, out Weather.State parsed)
+                    && Enum.IsDefined(typeof(Weather.State), parsed),
+                    $"visual capture accepts {weatherName} weather");
+        }
+
+        TestAssert.Check(AtmosphereVisualCapture.TryParseWeather("sToRm", out Weather.State stormState)
+                && stormState == Weather.State.Storm,
+                "visual capture weather parsing is case-insensitive and includes storms");
+        TestAssert.Check(!AtmosphereVisualCapture.TryParseWeather("snowstorm", out _)
+                && !AtmosphereVisualCapture.TryParseWeather("42", out _),
+                "visual capture rejects unknown and undefined weather values");
+        TestAssert.Equal(8.0, AtmosphereVisualCapture.SettleSecondsForPreset(Gfx.Presets[0]),
+                "standard temporal/non-temporal presets use the normal capture warm-up");
+        TestAssert.Equal(16.0, AtmosphereVisualCapture.SettleSecondsForPreset(Gfx.Presets[5]),
+                "FSR2 gets a longer temporal-history warm-up before visual sampling");
+        TestAssert.Check(!AtmosphereVisualCapture.UsesProductionExposure("none", false),
+                "silhouette and weather captures keep deterministic fixed exposure");
+        TestAssert.Check(AtmosphereVisualCapture.UsesProductionExposure("none", true),
+                "cave captures exercise the production adaptive exposure");
+        TestAssert.Check(AtmosphereVisualCapture.UsesProductionExposure("water-exit", false)
+                        && AtmosphereVisualCapture.UsesProductionExposure("biome-pair", false),
+                "water and biome exposure captures exercise the production adaptive exposure");
+
+        DayNight.SkyPalette reference = default;
+        for (int presetIndex = 0; presetIndex < Gfx.Presets.Count; presetIndex++)
+        {
+            Gfx.Preset preset = Gfx.Presets[presetIndex];
+            bool lowCost = presetIndex <= 1;
+            TestAssert.Check(!lowCost || (!preset.Ssao && !preset.Ssr
+                            && !preset.Glow && !preset.VolFog),
+                    $"{preset.Name} keeps expensive atmosphere post-effects disabled");
+            TestAssert.Check(preset.Scale > 0.0f && preset.Scale <= 1.25f,
+                    $"{preset.Name} retains a supported render scale");
+
+            foreach (Weather.State state in states)
+            {
+                DayNight.SkyPalette palette = DayNight.EvaluatePalette(
+                        0.5, Weather.TargetCloudinessFor(state), 0.0);
+                TestAssert.Check(IsFinite(palette.Top) && IsFinite(palette.Horizon)
+                        && IsFinite(palette.CloudColor)
+                        && float.IsFinite(palette.CloudOpacity),
+                        $"{preset.Name} / {state} atmosphere remains finite");
+                if (presetIndex == 0 && state == Weather.State.Clear)
+                {
+                    reference = palette;
+                }
+                else if (state == Weather.State.Clear)
+                {
+                    TestAssert.Equal(reference.Top, palette.Top,
+                            $"{preset.Name} keeps the same clear-sky palette as LOW");
+                    TestAssert.Equal(reference.CloudColor, palette.CloudColor,
+                            $"{preset.Name} keeps the same clear-cloud tint as LOW");
+                }
+            }
+        }
+
+        Godot.Environment sharedEnvironment = WorldEnvironmentFactory.Build();
+        TestAssert.Check(sharedEnvironment.FogEnabled,
+                "all quality presets retain the shared inexpensive base fog path");
+    }
+
+    private static bool IsFinite(Color color) =>
+            float.IsFinite(color.R) && float.IsFinite(color.G)
+            && float.IsFinite(color.B) && float.IsFinite(color.A);
+
     private static void TestCaveExposure()
     {
         float openSky = DayNight.EvaluateCaveDarkness(15.0f);
@@ -82,6 +227,34 @@ public static class AtmosphereTests
         TestAssert.Equal(0.0f, DayNight.EvaluateCaveDarkness(20.0f),
                 "skylight above the nibble range clamps to outdoor exposure");
 
+        TestAssert.Equal(DayNight.OutdoorAutoExposureMaxSensitivity,
+                DayNight.EvaluateAutoExposureMaxSensitivity(openSky),
+                "open sky retains the existing outdoor auto-exposure range");
+        TestAssert.Equal(DayNight.CaveAutoExposureMaxSensitivity,
+                DayNight.EvaluateAutoExposureMaxSensitivity(enclosedCave),
+                "zero-skylight caves hold the camera at its minimum sensitivity");
+        TestAssert.Equal(DayNight.MinimumAutoExposureSensitivity,
+                DayNight.CaveAutoExposureMaxSensitivity,
+                "deep cave exposure has no upward camera-sensitivity headroom");
+        TestAssert.Check(DayNight.EvaluateAutoExposureMaxSensitivity(caveEntrance)
+                        < DayNight.OutdoorAutoExposureMaxSensitivity
+                        && DayNight.EvaluateAutoExposureMaxSensitivity(caveEntrance)
+                        > DayNight.CaveAutoExposureMaxSensitivity,
+                "camera sensitivity follows the partial skylight transition at cave entrances");
+        TestAssert.Equal(1.0f, DayNight.EvaluateCaveAmbientScale(openSky),
+                "open sky keeps the full environment ambient response");
+        TestAssert.Check(Math.Abs(DayNight.EvaluateCaveAmbientScale(enclosedCave)
+                        - DayNight.CaveAmbientScale) < 0.00001f,
+                "sealed caves retain only the deliberate low ambient floor");
+        TestAssert.Check(DayNight.EvaluateCaveAmbientScale(caveEntrance) < 1.0f
+                        && DayNight.EvaluateCaveAmbientScale(caveEntrance) > DayNight.CaveAmbientScale,
+                "environment ambient fill eases through the cave entrance");
+        TestAssert.Check(DayNight.EvaluateAutoExposureMaxSensitivity(0.5f)
+                        > DayNight.EvaluateAutoExposureMaxSensitivity(0.75f)
+                        && DayNight.EvaluateCaveAmbientScale(0.5f)
+                        > DayNight.EvaluateCaveAmbientScale(0.75f),
+                "deeper cave adaptation reduces both global exposure headroom and ambient fill");
+
         float previous = enclosedCave;
         for (int level = 1; level <= VoxelLighting.MaxLevel * 4; level++)
         {
@@ -91,6 +264,15 @@ public static class AtmosphereTests
                     $"cave exposure response remains finite and bounded at skylight {exposure:F2}");
             TestAssert.Check(darkness <= previous,
                     $"increasing skylight never increases cave darkness at {exposure:F2}");
+            float cameraSensitivity = DayNight.EvaluateAutoExposureMaxSensitivity(darkness);
+            float ambientScale = DayNight.EvaluateCaveAmbientScale(darkness);
+            TestAssert.Check(float.IsFinite(cameraSensitivity)
+                            && cameraSensitivity >= DayNight.CaveAutoExposureMaxSensitivity
+                            && cameraSensitivity <= DayNight.OutdoorAutoExposureMaxSensitivity
+                            && float.IsFinite(ambientScale)
+                            && ambientScale >= DayNight.CaveAmbientScale
+                            && ambientScale <= 1.0f,
+                    $"camera exposure and ambient fill remain finite and bounded at skylight {exposure:F2}");
             previous = darkness;
         }
 
@@ -98,6 +280,84 @@ public static class AtmosphereTests
         float after = DayNight.EvaluateCaveDarkness(8.5f);
         TestAssert.Check(System.Math.Abs(before - after) < 0.15f,
                 "fractional skylight interpolation changes cave exposure smoothly between adjacent cells");
+    }
+
+    private static void TestWaterAndBiomeExposure()
+    {
+        DayNight.ExposureLimits outdoor = DayNight.EvaluateExposureLimits(0.0f, 0.0f, 0.0f, 0.0f);
+        DayNight.ExposureLimits underwater = DayNight.EvaluateExposureLimits(0.0f, 1.0f, 0.0f, 0.0f);
+        DayNight.ExposureLimits snow = DayNight.EvaluateExposureLimits(0.0f, 0.0f, 1.0f, 0.0f);
+        DayNight.ExposureLimits forest = DayNight.EvaluateExposureLimits(0.0f, 0.0f, 0.0f, 1.0f);
+        DayNight.ExposureLimits cave = DayNight.EvaluateExposureLimits(1.0f, 1.0f, 1.0f, 1.0f);
+
+        TestAssert.Equal(DayNight.MinimumAutoExposureSensitivity, outdoor.MinimumSensitivity,
+                "outdoor minimum sensitivity retains the established camera baseline");
+        TestAssert.Equal(DayNight.OutdoorAutoExposureMaxSensitivity, outdoor.MaximumSensitivity,
+                "outdoor maximum sensitivity retains the established camera baseline");
+        TestAssert.Equal(DayNight.WaterAutoExposureMinSensitivity, underwater.MinimumSensitivity,
+                "full water immersion limits the bright-side sensitivity range");
+        TestAssert.Equal(DayNight.WaterAutoExposureMaxSensitivity, underwater.MaximumSensitivity,
+                "full water immersion prevents excessive dark-scene exposure lift");
+        TestAssert.Equal(DayNight.SnowAutoExposureMinSensitivity, snow.MinimumSensitivity,
+                "bright snow permits lower ISO so highlights can settle without washing out");
+        TestAssert.Equal(DayNight.SnowAutoExposureMaxSensitivity, snow.MaximumSensitivity,
+                "bright snow reduces the upper exposure ceiling");
+        TestAssert.Equal(DayNight.MinimumAutoExposureSensitivity, forest.MinimumSensitivity,
+                "shaded forest preserves the normal lower exposure boundary");
+        TestAssert.Equal(DayNight.ForestAutoExposureMaxSensitivity, forest.MaximumSensitivity,
+                "shaded forest permits a modestly higher upper exposure ceiling");
+        TestAssert.Equal(DayNight.MinimumAutoExposureSensitivity, cave.MinimumSensitivity,
+                "cave shelter overrides water and biome minimum-sensitivity modifiers");
+        TestAssert.Equal(DayNight.CaveAutoExposureMaxSensitivity, cave.MaximumSensitivity,
+                "cave shelter always wins over bright snow, water and forest exposure modifiers");
+
+        TestAssert.Check(DayNight.EvaluateExposureDarkness(0.0f, 1.0f, 0.0f, 0.0f) > 0.0f,
+                "water immersion contributes to the dark-adaptation context");
+        TestAssert.Check(DayNight.EvaluateExposureDarkness(0.0f, 0.0f, 0.0f, 1.0f)
+                        > DayNight.EvaluateExposureDarkness(0.0f, 0.0f, 0.0f, 0.0f),
+                "dense forest is treated as a darker exposure context than open terrain");
+        TestAssert.Equal(0.0f, DayNight.EvaluateExposureDarkness(0.0f, 0.0f, 1.0f, 0.0f),
+                "bright snow offsets the shaded-scene adaptation bias");
+        TestAssert.Check(DayNight.EvaluateAutoExposureSpeed(0.0f, 0.5f)
+                        < DayNight.EvaluateAutoExposureSpeed(0.5f, 0.0f),
+                "entering a darker scene adapts more slowly than emerging into brightness");
+        TestAssert.Equal(DayNight.SteadyAdaptationSpeed,
+                DayNight.EvaluateAutoExposureSpeed(0.25f, 0.25f),
+                "stable lighting uses the neutral camera adaptation speed");
+        TestAssert.Equal(DayNight.SteadyAdaptationSpeed,
+                DayNight.EvaluateAutoExposureSpeed(-1.0f, 1.0f),
+                "the first camera update starts from the neutral adaptation speed");
+
+        DayNight.BiomeLightingProfile snowProfile =
+                DayNight.EvaluateBiomeLightingProfile(Biome.Snow);
+        DayNight.BiomeLightingProfile forestProfile =
+                DayNight.EvaluateBiomeLightingProfile(Biome.DenseForest);
+        DayNight.BiomeLightingProfile taigaProfile =
+                DayNight.EvaluateBiomeLightingProfile(Biome.Taiga);
+        TestAssert.Equal(1.0f, snowProfile.SnowWeight,
+                "snow biome selects the bright-surface exposure profile");
+        TestAssert.Equal(0.0f, snowProfile.ForestWeight,
+                "snow biome does not inherit the canopy exposure modifier");
+        TestAssert.Equal(1.0f, forestProfile.ForestWeight,
+                "dense forest selects the shaded-canopy exposure profile");
+        TestAssert.Check(taigaProfile.ForestWeight > 0.0f
+                        && taigaProfile.ForestWeight < forestProfile.ForestWeight,
+                "taiga transitions through a milder forest exposure profile");
+
+        float blend60 = DayNight.EvaluateTransitionBlend(1.0 / 60.0, 2.8f);
+        float blend30 = DayNight.EvaluateTransitionBlend(1.0 / 30.0, 2.8f);
+        float value60 = 0.0f;
+        float value30 = 0.0f;
+        for (int frame = 0; frame < 60; frame++)
+            value60 = Mathf.Lerp(value60, 1.0f, blend60);
+        for (int frame = 0; frame < 30; frame++)
+            value30 = Mathf.Lerp(value30, 1.0f, blend30);
+        TestAssert.Check(Mathf.Abs(value60 - value30) < 0.0001f,
+                "biome presentation transitions are independent of 30/60 FPS frame rate");
+        TestAssert.Equal(0.0f, DayNight.EvaluateTransitionBlend(0.0, 2.8f),
+                "a paused frame does not advance the biome transition");
+        TestAssert.Equal(0.0f, DayNight.EvaluateTransitionBlend(0.1, 0.0f),
+                "a disabled transition rate remains stable");
     }
 
     private static void TestSunlightDirectionAndBakedChannels()
@@ -320,11 +580,22 @@ public static class AtmosphereTests
                 "precipitation resamples after movement across the X cell boundary");
         TestAssert.Check(Weather.NeedsBiomeSample(true, 12, 24, 12, 25),
                 "precipitation resamples after movement across the Z cell boundary");
+        float previousCloudiness = 0.0f;
+        foreach (Weather.State state in Enum.GetValues<Weather.State>())
+        {
+            float target = Weather.TargetCloudinessFor(state);
+            TestAssert.Check(target > previousCloudiness && target <= 1.0f,
+                    $"{state} has an ordered, bounded cloudiness target");
+            previousCloudiness = target;
+        }
         TestAssert.Equal(0.05f, Weather.TargetCloudinessFor(Weather.State.Clear),
                 "clear weather keeps its configured low cloud target");
-        TestAssert.Check(Weather.TargetCloudinessFor(Weather.State.Storm)
-                > Weather.TargetCloudinessFor(Weather.State.Rain),
-                "storm retains a heavier cloud target than rain");
+        TestAssert.Equal(0.55f, Weather.TargetCloudinessFor(Weather.State.Cloudy),
+                "cloudy weather keeps its configured mid cloud target");
+        TestAssert.Equal(0.78f, Weather.TargetCloudinessFor(Weather.State.Rain),
+                "rain keeps its configured heavy cloud target");
+        TestAssert.Equal(0.95f, Weather.TargetCloudinessFor(Weather.State.Storm),
+                "storm keeps its configured maximum cloud target");
     }
 
     private static void TestWaterDepthSpace()

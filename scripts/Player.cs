@@ -70,6 +70,8 @@ public partial class Player : CharacterBody3D, IDamageable
     public bool InWater;
     public bool InLava;
     public bool Swimming;
+    /// <summary>Current smoothed camera immersion blend, retained briefly after leaving water.</summary>
+    public float WaterViewBlend => _waterViewBlend;
     public bool Climbing;
     public int Selected;
     public GameMode Mode = GameMode.Creative;
@@ -193,8 +195,8 @@ public partial class Player : CharacterBody3D, IDamageable
         CameraAttributesPractical attrs = new()
         {
             AutoExposureEnabled = true,
-            AutoExposureMinSensitivity = 40.0f,
-            AutoExposureMaxSensitivity = 140.0f,
+            AutoExposureMinSensitivity = DayNight.MinimumAutoExposureSensitivity,
+            AutoExposureMaxSensitivity = DayNight.OutdoorAutoExposureMaxSensitivity,
             AutoExposureScale = 0.3f,
             AutoExposureSpeed = 0.8f,
         };

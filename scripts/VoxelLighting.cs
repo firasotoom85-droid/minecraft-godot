@@ -55,6 +55,59 @@ public static class VoxelLighting
     private static int Opacity(byte id) =>
         id < BlockDb.LightOpacity.Length ? BlockDb.LightOpacity[id] : MaxLevel;
 
+    private static byte StateAt(byte[]? states, int index) =>
+        states != null && states.Length > 0 ? states[index] : (byte)0;
+
+    /// <summary>24-bit connected cavity apertures; non-shape blocks use opacity.</summary>
+    public static uint LightPassageMask(BlockId id, byte state) =>
+        BlockShapes.LightPassageMask(id, state);
+
+    public static byte EffectiveOpacity(BlockId id, byte state)
+    {
+        if (BlockShapes.IsShape(id) && BlockShapes.LightPassageMask(id, state) != 0)
+            return 0;
+        int idValue = (int)id;
+        return (byte)(idValue >= 0 && idValue < BlockDb.LightOpacity.Length
+                ? BlockDb.LightOpacity[idValue] : MaxLevel);
+    }
+
+    private static byte FaceAperture(BlockId id, byte state, int face)
+    {
+        if (BlockShapes.IsShape(id))
+            return BlockShapes.LightPassageFaceMask(id, state, face);
+        int idValue = (int)id;
+        return idValue >= 0 && idValue < BlockDb.LightOpacity.Length
+                && BlockDb.LightOpacity[idValue] < MaxLevel ? (byte)0x0F : (byte)0;
+    }
+
+    private static bool CanLightCross(byte[] blocks, byte[]? states,
+            int source, int target, int sourceFace, int targetFace)
+    {
+        BlockId sourceId = (BlockId)blocks[source];
+        BlockId targetId = (BlockId)blocks[target];
+        bool sourceShape = BlockShapes.IsShape(sourceId);
+        bool targetShape = BlockShapes.IsShape(targetId);
+        // The established cube/glass/water/foliage path needs no face geometry:
+        // target opacity below preserves its original attenuation behavior.
+        if (!sourceShape && !targetShape) return true;
+
+        byte sourceAperture = sourceShape
+                ? BlockShapes.LightPassageFaceMask(sourceId, StateAt(states, source), sourceFace)
+                : (byte)0x0F;
+        byte targetAperture = targetShape
+                ? BlockShapes.LightPassageFaceMask(targetId, StateAt(states, target), targetFace)
+                : (byte)0x0F;
+        return (sourceAperture & targetAperture) != 0;
+    }
+
+    private static int PropagationOpacity(byte id, byte state)
+    {
+        BlockId blockId = (BlockId)id;
+        if (BlockShapes.IsShape(blockId) && BlockShapes.LightPassageMask(blockId, state) != 0)
+            return 0;
+        return Opacity(id);
+    }
+
     private static int Index(int x, int y, int z, int width, int depth) =>
         x + z * width + y * width * depth;
 
@@ -62,11 +115,13 @@ public static class VoxelLighting
     /// Direct skylight pass followed by a local flood into open caves. Opaque
     /// blocks stop sun; glass transmits it; water and foliage attenuate it.
     /// </summary>
-    public static byte[] BuildSkyLight(byte[] blocks, int width, int height, int depth)
+    public static byte[] BuildSkyLight(
+            byte[] blocks, int width, int height, int depth, byte[]? states = null)
     {
         BlockDb.EnsureTables();
-        if (blocks.Length != width * height * depth)
-            throw new ArgumentException("Block volume dimensions do not match its data.", nameof(blocks));
+        int volume = width * height * depth;
+        if (blocks.Length != volume || (states != null && states.Length > 0 && states.Length != volume))
+            throw new ArgumentException("Block and optional state volumes must match their dimensions.");
 
         byte[] sky = new byte[blocks.Length];
         int plane = width * depth;
@@ -79,7 +134,16 @@ public static class VoxelLighting
                 for (int y = height - 1; y >= 0; y--)
                 {
                     int i = x + z * width + y * plane;
-                    int opacity = Opacity(blocks[i]);
+                    BlockId id = (BlockId)blocks[i];
+                    byte state = StateAt(states, i);
+                    byte topAperture = FaceAperture(id, state, 0);
+                    if (topAperture == 0)
+                    {
+                        level = 0;
+                        continue;
+                    }
+
+                    int opacity = PropagationOpacity(blocks[i], state);
                     if (opacity >= MaxLevel)
                     {
                         level = 0;
@@ -88,13 +152,19 @@ public static class VoxelLighting
 
                     level = Math.Max(0, level - opacity);
                     sky[i] = (byte)level;
+
+                    // Direct sunlight can continue only when the same empty
+                    // shape component reaches the bottom face of this voxel.
+                    if ((topAperture & FaceAperture(id, state, 1)) == 0)
+                        level = 0;
                 }
             }
         }
 
         Queue<int> queue = RentQueue();
         // Only darker neighbours are enqueued, so open columns do not flood
-        // the queue with duplicate level-15 cells.
+        // the queue with duplicate level-15 cells. Shape boundaries are checked
+        // in both directions before any light crosses a voxel seam.
         for (int y = 0; y < height; y++)
         {
             for (int z = 0; z < depth; z++)
@@ -104,17 +174,17 @@ public static class VoxelLighting
                     int i = Index(x, y, z, width, depth);
                     int level = sky[i];
                     if (level <= 1) continue;
-                    SeedSky(blocks, sky, queue, x - 1, y, z, level, width, height, depth);
-                    SeedSky(blocks, sky, queue, x + 1, y, z, level, width, height, depth);
-                    SeedSky(blocks, sky, queue, x, y - 1, z, level, width, height, depth);
-                    SeedSky(blocks, sky, queue, x, y + 1, z, level, width, height, depth);
-                    SeedSky(blocks, sky, queue, x, y, z - 1, level, width, height, depth);
-                    SeedSky(blocks, sky, queue, x, y, z + 1, level, width, height, depth);
+                    SeedSky(blocks, states, sky, queue, i, x - 1, y, z, level, 3, 2, width, height, depth);
+                    SeedSky(blocks, states, sky, queue, i, x + 1, y, z, level, 2, 3, width, height, depth);
+                    SeedSky(blocks, states, sky, queue, i, x, y - 1, z, level, 1, 0, width, height, depth);
+                    SeedSky(blocks, states, sky, queue, i, x, y + 1, z, level, 0, 1, width, height, depth);
+                    SeedSky(blocks, states, sky, queue, i, x, y, z - 1, level, 5, 4, width, height, depth);
+                    SeedSky(blocks, states, sky, queue, i, x, y, z + 1, level, 4, 5, width, height, depth);
                 }
             }
         }
 
-        FloodSky(blocks, sky, queue, width, height, depth);
+        FloodSky(blocks, states, sky, queue, width, height, depth);
         return sky;
     }
 
@@ -155,7 +225,7 @@ public static class VoxelLighting
             }
         }
 
-        FloodSky(blocks, sky, queue, width, height, depth);
+        FloodSky(blocks, null, sky, queue, width, height, depth);
         return sky;
     }
 
@@ -170,14 +240,19 @@ public static class VoxelLighting
     }
 
     private static void SeedSky(
-            byte[] blocks, byte[] sky, Queue<int> queue,
-            int x, int y, int z, int source, int width, int height, int depth)
+            byte[] blocks, byte[]? states, byte[] sky, Queue<int> queue,
+            int sourceIndex, int x, int y, int z, int sourceLevel,
+            int sourceFace, int targetFace, int width, int height, int depth)
     {
         if ((uint)x >= (uint)width || (uint)y >= (uint)height || (uint)z >= (uint)depth)
             return;
 
         int target = Index(x, y, z, width, depth);
-        int candidate = source - Math.Max(1, Opacity(blocks[target]));
+        if (!CanLightCross(blocks, states, sourceIndex, target, sourceFace, targetFace))
+            return;
+
+        int candidate = sourceLevel
+                - Math.Max(1, PropagationOpacity(blocks[target], StateAt(states, target)));
         if (candidate > sky[target])
         {
             sky[target] = (byte)candidate;
@@ -186,7 +261,7 @@ public static class VoxelLighting
     }
 
     private static void FloodSky(
-            byte[] blocks, byte[] sky, Queue<int> queue,
+            byte[] blocks, byte[]? states, byte[] sky, Queue<int> queue,
             int width, int height, int depth)
     {
         int plane = width * depth;
@@ -198,18 +273,23 @@ public static class VoxelLighting
             int x = i % width;
             int z = (i / width) % depth;
             int y = i / plane;
-            if (x > 0) SpreadSky(blocks, sky, queue, i - 1, level);
-            if (x + 1 < width) SpreadSky(blocks, sky, queue, i + 1, level);
-            if (y > 0) SpreadSky(blocks, sky, queue, i - plane, level);
-            if (y + 1 < height) SpreadSky(blocks, sky, queue, i + plane, level);
-            if (z > 0) SpreadSky(blocks, sky, queue, i - width, level);
-            if (z + 1 < depth) SpreadSky(blocks, sky, queue, i + width, level);
+            if (x > 0) SpreadSky(blocks, states, sky, queue, i, i - 1, level, 3, 2);
+            if (x + 1 < width) SpreadSky(blocks, states, sky, queue, i, i + 1, level, 2, 3);
+            if (y > 0) SpreadSky(blocks, states, sky, queue, i, i - plane, level, 1, 0);
+            if (y + 1 < height) SpreadSky(blocks, states, sky, queue, i, i + plane, level, 0, 1);
+            if (z > 0) SpreadSky(blocks, states, sky, queue, i, i - width, level, 5, 4);
+            if (z + 1 < depth) SpreadSky(blocks, states, sky, queue, i, i + width, level, 4, 5);
         }
     }
 
-    private static void SpreadSky(byte[] blocks, byte[] sky, Queue<int> queue, int target, int source)
+    private static void SpreadSky(byte[] blocks, byte[]? states, byte[] sky,
+            Queue<int> queue, int source, int target, int level, int sourceFace, int targetFace)
     {
-        int candidate = source - Math.Max(1, Opacity(blocks[target]));
+        if (!CanLightCross(blocks, states, source, target, sourceFace, targetFace))
+            return;
+
+        int candidate = level
+                - Math.Max(1, PropagationOpacity(blocks[target], StateAt(states, target)));
         if (candidate > sky[target])
         {
             sky[target] = (byte)candidate;
@@ -223,11 +303,12 @@ public static class VoxelLighting
     /// </summary>
     public static byte[] PropagateBlockLight(
             byte[] blocks, int width, int height, int depth,
-            IReadOnlyList<VoxelLightSource> sources)
+            IReadOnlyList<VoxelLightSource> sources, byte[]? states = null)
     {
         BlockDb.EnsureTables();
-        if (blocks.Length != width * height * depth)
-            throw new ArgumentException("Block volume dimensions do not match its data.", nameof(blocks));
+        int volume = width * height * depth;
+        if (blocks.Length != volume || (states != null && states.Length > 0 && states.Length != volume))
+            throw new ArgumentException("Block and optional state volumes must match their dimensions.");
 
         byte[] light = new byte[blocks.Length];
         Queue<int> queue = RentQueue();
@@ -256,12 +337,12 @@ public static class VoxelLighting
             int x = i % width;
             int z = (i / width) % depth;
             int y = i / plane;
-            if (x > 0) SpreadBlock(blocks, light, queue, i - 1, level);
-            if (x + 1 < width) SpreadBlock(blocks, light, queue, i + 1, level);
-            if (y > 0) SpreadBlock(blocks, light, queue, i - plane, level);
-            if (y + 1 < height) SpreadBlock(blocks, light, queue, i + plane, level);
-            if (z > 0) SpreadBlock(blocks, light, queue, i - width, level);
-            if (z + 1 < depth) SpreadBlock(blocks, light, queue, i + width, level);
+            if (x > 0) SpreadBlock(blocks, states, light, queue, i, i - 1, level, 3, 2);
+            if (x + 1 < width) SpreadBlock(blocks, states, light, queue, i, i + 1, level, 2, 3);
+            if (y > 0) SpreadBlock(blocks, states, light, queue, i, i - plane, level, 1, 0);
+            if (y + 1 < height) SpreadBlock(blocks, states, light, queue, i, i + plane, level, 0, 1);
+            if (z > 0) SpreadBlock(blocks, states, light, queue, i, i - width, level, 5, 4);
+            if (z + 1 < depth) SpreadBlock(blocks, states, light, queue, i, i + width, level, 4, 5);
         }
 
         return light;
@@ -275,12 +356,13 @@ public static class VoxelLighting
     /// </summary>
     public static void ApplyIncrementalBlockLight(
             byte[] blocks, int width, int height, int depth,
-            byte[] light, int changedIndex, byte newEmission)
+            byte[] light, int changedIndex, byte newEmission, byte[]? states = null)
     {
         BlockDb.EnsureTables();
         int volume = width * height * depth;
-        if (blocks.Length < volume || light.Length < volume)
-            throw new ArgumentException("Block and light volumes must have matching dimensions.");
+        if (blocks.Length < volume || light.Length < volume
+                || (states != null && states.Length > 0 && states.Length < volume))
+            throw new ArgumentException("Block, state and light volumes must have matching dimensions.");
         if ((uint)changedIndex >= (uint)volume)
             throw new ArgumentOutOfRangeException(nameof(changedIndex));
 
@@ -292,7 +374,7 @@ public static class VoxelLighting
             light[changedIndex] = newEmission;
             Queue<int> additions = RentQueue();
             additions.Enqueue(changedIndex);
-            FloodBlockLight(blocks, light, additions, width, height, depth);
+            FloodBlockLight(blocks, states, light, additions, width, height, depth);
             return;
         }
 
@@ -309,12 +391,18 @@ public static class VoxelLighting
             int x = index % width;
             int z = (index / width) % depth;
             int y = index / plane;
-            if (x > 0) RemoveBlockNeighbour(blocks, light, removals, relight, index - 1, removedLevel);
-            if (x + 1 < width) RemoveBlockNeighbour(blocks, light, removals, relight, index + 1, removedLevel);
-            if (y > 0) RemoveBlockNeighbour(blocks, light, removals, relight, index - plane, removedLevel);
-            if (y + 1 < height) RemoveBlockNeighbour(blocks, light, removals, relight, index + plane, removedLevel);
-            if (z > 0) RemoveBlockNeighbour(blocks, light, removals, relight, index - width, removedLevel);
-            if (z + 1 < depth) RemoveBlockNeighbour(blocks, light, removals, relight, index + width, removedLevel);
+            if (x > 0) RemoveBlockNeighbour(blocks, states, light, removals, relight,
+                    index, index - 1, removedLevel, 3, 2);
+            if (x + 1 < width) RemoveBlockNeighbour(blocks, states, light, removals, relight,
+                    index, index + 1, removedLevel, 2, 3);
+            if (y > 0) RemoveBlockNeighbour(blocks, states, light, removals, relight,
+                    index, index - plane, removedLevel, 1, 0);
+            if (y + 1 < height) RemoveBlockNeighbour(blocks, states, light, removals, relight,
+                    index, index + plane, removedLevel, 0, 1);
+            if (z > 0) RemoveBlockNeighbour(blocks, states, light, removals, relight,
+                    index, index - width, removedLevel, 5, 4);
+            if (z + 1 < depth) RemoveBlockNeighbour(blocks, states, light, removals, relight,
+                    index, index + width, removedLevel, 4, 5);
         }
 
         byte ownEmission = Emission(blocks[changedIndex]);
@@ -324,17 +412,20 @@ public static class VoxelLighting
             relight.Enqueue(changedIndex);
         }
 
-        FloodBlockLight(blocks, light, relight, width, height, depth);
+        FloodBlockLight(blocks, states, light, relight, width, height, depth);
     }
 
     private static byte Emission(byte blockId) =>
         blockId < BlockDb.LightEmission.Length ? BlockDb.LightEmission[blockId] : (byte)0;
 
     private static void RemoveBlockNeighbour(
-            byte[] blocks, byte[] light,
+            byte[] blocks, byte[]? states, byte[] light,
             Queue<(int Index, byte Level)> removals, Queue<int> relight,
-            int target, byte removedLevel)
+            int source, int target, byte removedLevel, int sourceFace, int targetFace)
     {
+        if (!CanLightCross(blocks, states, source, target, sourceFace, targetFace))
+            return;
+
         byte current = light[target];
         if (current == 0) return;
 
@@ -358,7 +449,7 @@ public static class VoxelLighting
     }
 
     private static void FloodBlockLight(
-            byte[] blocks, byte[] light, Queue<int> queue,
+            byte[] blocks, byte[]? states, byte[] light, Queue<int> queue,
             int width, int height, int depth)
     {
         int plane = width * depth;
@@ -370,18 +461,23 @@ public static class VoxelLighting
             int x = i % width;
             int z = (i / width) % depth;
             int y = i / plane;
-            if (x > 0) SpreadBlock(blocks, light, queue, i - 1, level);
-            if (x + 1 < width) SpreadBlock(blocks, light, queue, i + 1, level);
-            if (y > 0) SpreadBlock(blocks, light, queue, i - plane, level);
-            if (y + 1 < height) SpreadBlock(blocks, light, queue, i + plane, level);
-            if (z > 0) SpreadBlock(blocks, light, queue, i - width, level);
-            if (z + 1 < depth) SpreadBlock(blocks, light, queue, i + width, level);
+            if (x > 0) SpreadBlock(blocks, states, light, queue, i, i - 1, level, 3, 2);
+            if (x + 1 < width) SpreadBlock(blocks, states, light, queue, i, i + 1, level, 2, 3);
+            if (y > 0) SpreadBlock(blocks, states, light, queue, i, i - plane, level, 1, 0);
+            if (y + 1 < height) SpreadBlock(blocks, states, light, queue, i, i + plane, level, 0, 1);
+            if (z > 0) SpreadBlock(blocks, states, light, queue, i, i - width, level, 5, 4);
+            if (z + 1 < depth) SpreadBlock(blocks, states, light, queue, i, i + width, level, 4, 5);
         }
     }
 
-    private static void SpreadBlock(byte[] blocks, byte[] light, Queue<int> queue, int target, int source)
+    private static void SpreadBlock(byte[] blocks, byte[]? states, byte[] light,
+            Queue<int> queue, int sourceIndex, int target, int source, int sourceFace, int targetFace)
     {
-        int candidate = source - Math.Max(1, Opacity(blocks[target]));
+        if (!CanLightCross(blocks, states, sourceIndex, target, sourceFace, targetFace))
+            return;
+
+        int candidate = source
+                - Math.Max(1, PropagationOpacity(blocks[target], StateAt(states, target)));
         if (candidate > light[target])
         {
             light[target] = (byte)candidate;
@@ -402,11 +498,26 @@ public static class VoxelLighting
         int chunkStride = VoxelWorld.ChunkX * VoxelWorld.ChunkZ;
 
         byte[][] chunks = new byte[9][];
+        byte[][]? stateChunks = null;
+        bool hasNonDefaultStates = false;
         for (int dz = -1; dz <= 1; dz++)
+        {
             for (int dx = -1; dx <= 1; dx++)
-                chunks[(dz + 1) * 3 + dx + 1] = world.ChunkData(cp + new Vector2I(dx, dz));
+            {
+                int slot = (dz + 1) * 3 + dx + 1;
+                Vector2I neighbour = cp + new Vector2I(dx, dz);
+                chunks[slot] = world.ChunkData(neighbour);
+                byte[] states = world.ChunkBlockStates(neighbour);
+                if (states.Length > 0)
+                {
+                    (stateChunks ??= new byte[9][])[slot] = states;
+                    hasNonDefaultStates = true;
+                }
+            }
+        }
 
         byte[] region = new byte[width * height * depth];
+        byte[]? regionStates = hasNonDefaultStates ? new byte[region.Length] : null;
         for (int z = 0; z < depth; z++)
         {
             int zGroup = z < BlockLightRadius ? 0
@@ -419,13 +530,30 @@ public static class VoxelLighting
             {
                 int dst = (y * depth + z) * width;
                 int src = y * chunkStride + localZ * VoxelWorld.ChunkX;
-                byte[] west = chunks[zGroup * 3];
-                byte[] center = chunks[zGroup * 3 + 1];
-                byte[] east = chunks[zGroup * 3 + 2];
+                int westSlot = zGroup * 3;
+                int centerSlot = westSlot + 1;
+                int eastSlot = westSlot + 2;
+                byte[] west = chunks[westSlot];
+                byte[] center = chunks[centerSlot];
+                byte[] east = chunks[eastSlot];
                 Array.Copy(west, src + VoxelWorld.ChunkX - BlockLightRadius, region, dst, BlockLightRadius);
                 Array.Copy(center, src, region, dst + BlockLightRadius, VoxelWorld.ChunkX);
                 Array.Copy(east, src, region, dst + BlockLightRadius + VoxelWorld.ChunkX,
                         VoxelWorld.ChunkX - BlockLightRadius);
+
+                if (regionStates != null && stateChunks != null)
+                {
+                    if (stateChunks[westSlot] is { Length: > 0 } westStates)
+                        Array.Copy(westStates, src + VoxelWorld.ChunkX - BlockLightRadius,
+                                regionStates, dst, BlockLightRadius);
+                    if (stateChunks[centerSlot] is { Length: > 0 } centerStates)
+                        Array.Copy(centerStates, src,
+                                regionStates, dst + BlockLightRadius, VoxelWorld.ChunkX);
+                    if (stateChunks[eastSlot] is { Length: > 0 } eastStates)
+                        Array.Copy(eastStates, src,
+                                regionStates, dst + BlockLightRadius + VoxelWorld.ChunkX,
+                                VoxelWorld.ChunkX - BlockLightRadius);
+                }
             }
         }
 
@@ -439,7 +567,7 @@ public static class VoxelLighting
                     source.Level));
         }
 
-        byte[] regionLight = PropagateBlockLight(region, width, height, depth, localSources);
+        byte[] regionLight = PropagateBlockLight(region, width, height, depth, localSources, regionStates);
         byte[] result = new byte[VoxelWorld.ChunkX * height * VoxelWorld.ChunkZ];
         for (int y = 0; y < height; y++)
         {

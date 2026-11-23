@@ -190,6 +190,9 @@ public static class ChunkMaterials
     private static Color _sunColor = new(1.0f, 0.96f, 0.89f);
     private static Color _skyLightColor = new(0.88f, 0.94f, 1.0f);
     private static float _sunlightEnergy = 1.0f;
+    private static Vector3 _moonDirection = Vector3.Down;
+    private static Color _moonColor = new(0.62f, 0.74f, 1.0f);
+    private static float _moonlightEnergy;
 
     private static readonly Lazy<ShaderMaterial> OpaqueLazy = new(CreateOpaqueMaterial);
     private static readonly Lazy<ShaderMaterial> OpaqueArrayLazy = new(CreateArrayOpaqueMaterial);
@@ -206,6 +209,10 @@ public static class ChunkMaterials
         material.SetShaderParameter("sky_light_color",
                 new Vector3(_skyLightColor.R, _skyLightColor.G, _skyLightColor.B));
         material.SetShaderParameter("sunlight_energy", _sunlightEnergy);
+        material.SetShaderParameter("moon_direction", _moonDirection);
+        material.SetShaderParameter("moon_color",
+                new Vector3(_moonColor.R, _moonColor.G, _moonColor.B));
+        material.SetShaderParameter("moonlight_energy", _moonlightEnergy);
         return material;
     }
 
@@ -233,12 +240,13 @@ public static class ChunkMaterials
 
     /// <summary>
     /// Updates the shared baked-sky response for every renderer path. Existing
-    /// chunk meshes keep their packed light and vertex layout; only five shared
-    /// material uniforms change as the existing sun moves through the day.
+    /// chunk meshes keep their packed light and vertex layout; shared sun/moon
+    /// uniforms change as the sky moves through the day/night cycle.
     /// </summary>
     public static void SetSkyLighting(
             float skyEnergy, Vector3 sunDirection, Color sunColor,
-            Color skyLightColor, float sunlightEnergy)
+            Color skyLightColor, float sunlightEnergy,
+            Vector3 moonDirection, Color moonColor, float moonlightEnergy)
     {
         _skyEnergy = Mathf.Clamp(skyEnergy, 0.0f, 1.25f);
         _sunDirection = sunDirection.LengthSquared() > 0.0001f
@@ -246,6 +254,10 @@ public static class ChunkMaterials
         _sunColor = sunColor;
         _skyLightColor = skyLightColor;
         _sunlightEnergy = Mathf.Clamp(sunlightEnergy, 0.0f, 1.25f);
+        _moonDirection = moonDirection.LengthSquared() > 0.0001f
+                ? moonDirection.Normalized() : Vector3.Down;
+        _moonColor = moonColor;
+        _moonlightEnergy = Mathf.Clamp(moonlightEnergy, 0.0f, 0.35f);
 
         if (OpaqueLazy.IsValueCreated) ApplyLighting(OpaqueLazy.Value);
         if (OpaqueArrayLazy.IsValueCreated) ApplyLighting(OpaqueArrayLazy.Value);
@@ -255,7 +267,15 @@ public static class ChunkMaterials
         if (LavaLazy.IsValueCreated) ApplyLighting(LavaLazy.Value);
     }
 
+    /// <summary>Updates solar response while retaining the current shared moon response.</summary>
+    public static void SetSkyLighting(
+            float skyEnergy, Vector3 sunDirection, Color sunColor,
+            Color skyLightColor, float sunlightEnergy) =>
+            SetSkyLighting(skyEnergy, sunDirection, sunColor, skyLightColor, sunlightEnergy,
+                    _moonDirection, _moonColor, _moonlightEnergy);
+
     /// <summary>Compatibility helper for callers that only need to scale baked skylight.</summary>
     public static void SetSkyEnergy(float energy) =>
-            SetSkyLighting(energy, _sunDirection, _sunColor, _skyLightColor, _sunlightEnergy);
+            SetSkyLighting(energy, _sunDirection, _sunColor, _skyLightColor, _sunlightEnergy,
+                    _moonDirection, _moonColor, _moonlightEnergy);
 }

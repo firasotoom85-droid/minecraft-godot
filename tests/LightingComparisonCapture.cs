@@ -1,0 +1,493 @@
+using System;
+using System.Globalization;
+using System.IO;
+using Godot;
+
+namespace Minecraft;
+
+/// <summary>
+/// Renders one fixed, scenario-specific comparison using the real main scene.
+/// Each fixture shares the same renderer preset and production lighting path.
+/// Usage:
+/// godot --path . res://tests/ForestCanopyLighting.tscn -- [seed] [output.png] [LOW|BALANCED|HIGH|ULTRA|MAX]
+/// </summary>
+public partial class LightingComparisonCapture : Node
+{
+    [Export]
+    public string Scenario { get; set; } = "forest-canopy";
+
+    private readonly record struct Fixture(
+            Vector3 PlayerPosition,
+            Vector3 LookTarget,
+            Vector3I LightProbe,
+            string LocationDescription);
+
+    private readonly record struct LightSample(byte Sky, byte Block);
+
+    public override async void _Ready()
+    {
+        string worldDir = string.Empty;
+        string previousWorldDir = GameSession.Instance.WorldDir;
+        WorldManifest? previousManifest = GameSession.Instance.Manifest;
+        bool previousAutoQuality = Settings.AutoQuality;
+        int previousMaxFps = Engine.MaxFps;
+        Node3D? game = null;
+        try
+        {
+            string[] args = OS.GetCmdlineUserArgs();
+            int seed = ParseInt(args, 0, 1337);
+            if (!LightingComparisonProfiles.TryGet(Scenario, out LightingComparisonProfiles.Profile profile))
+                throw new ArgumentException($"Unknown lighting comparison scenario '{Scenario}'.");
+
+            int presetIndex = ParsePreset(args.Length > 2 ? args[2] : "LOW");
+            string output = args.Length > 1
+                    ? args[1]
+                    : $"user://tests/lighting-comparisons/{Scenario}-seed-{seed}.png";
+
+            DisplayServer.WindowSetSize(new Vector2I(
+                    LightingComparisonProfiles.CaptureWidth,
+                    LightingComparisonProfiles.CaptureHeight));
+            Engine.MaxFps = 60;
+            Settings.AutoQuality = false;
+
+            worldDir = $"user://tests/lighting-comparisons/{Scenario}-{seed}-{Time.GetTicksUsec()}";
+            WorldManifest manifest = new(
+                    $"Lighting comparison: {profile.DisplayName}", seed,
+                    WorldStore.CurrentGenVersion, WorldStore.DeriveNoiseSeeds(seed),
+                    WorldStore.NowUtc(), WorldStore.NowUtc(), "creative", "normal");
+            if (!WorldStore.WriteManifest(worldDir, manifest))
+                throw new IOException($"Could not create disposable comparison world at {worldDir}.");
+
+            GameSession.Instance.SelectWorld(worldDir);
+            PackedScene gameScene = GD.Load<PackedScene>("res://scenes/main.tscn")
+                    ?? throw new InvalidOperationException("Could not load the real main game scene.");
+            game = gameScene.Instantiate<Node3D>();
+            AddChild(game);
+
+            VoxelWorld world = game.GetNode<VoxelWorld>("World");
+            Player player = game.GetNode<Player>("Player");
+            Hud hud = game.GetNode<Hud>("HUD");
+            DayNight dayNight = FindNode<DayNight>(game)
+                    ?? throw new InvalidOperationException("Main scene did not initialize DayNight.");
+            Weather weather = FindNode<Weather>(game)
+                    ?? throw new InvalidOperationException("Main scene did not initialize Weather.");
+            Gfx gfx = FindNode<Gfx>(game)
+                    ?? throw new InvalidOperationException("Main scene did not initialize Gfx.");
+
+            player.SetPhysicsProcess(false);
+            player.SetProcess(false);
+            player.SetProcessInput(false);
+            player.SetProcessUnhandledInput(false);
+            player.SetProcessUnhandledKeyInput(false);
+            player.Visible = false;
+            Input.MouseMode = Input.MouseModeEnum.Visible;
+            player.Camera.Current = false;
+            hud.Visible = false;
+            dayNight.Paused = true;
+            dayNight.Cloudiness = 0.0;
+            world.TimeOfDay = profile.TimeOfDay;
+            weather.Current = Weather.State.Clear;
+            weather.SetProcess(false);
+            FindNode<Mobs>(game)?.SetProcess(false);
+            FindNode<VillageSystem>(game)?.SetProcess(false);
+            FindNode<DungeonSystem>(game)?.SetProcess(false);
+
+            // LOW remains the default reference path for MX230-class GPUs.
+            // A small fixed view radius bounds this visual fixture without
+            // changing the quality-preset values used by the running game.
+            gfx.ApplyPreset(presetIndex, false);
+            world.SetViewDistance(LightingComparisonProfiles.ReferenceViewDistance);
+            world.BuildCollision = false;
+
+            Fixture fixture = BuildFixture(profile, world);
+            player.GlobalPosition = fixture.PlayerPosition;
+            world.BuildPreview(fixture.PlayerPosition, LightingComparisonProfiles.ChunkBuildRadius);
+
+            Camera3D camera = new()
+            {
+                Name = "LightingComparisonCamera",
+                Fov = profile.FieldOfView,
+                Near = 0.1f,
+                Far = 220.0f,
+                Current = true,
+            };
+            game.AddChild(camera);
+            camera.GlobalPosition = fixture.LookTarget + profile.CameraOffset;
+            camera.LookAt(fixture.LookTarget, Vector3.Up);
+
+            int omniLights = CountNodes<OmniLight3D>(game);
+            if (omniLights != 0)
+                throw new InvalidOperationException(
+                        $"The comparison scene contains {omniLights} OmniLight3D nodes; emitters must use baked voxel light.");
+
+            Gfx.Preset preset = Gfx.Presets[presetIndex];
+            GD.Print($"LIGHTING_COMPARISON_START scenario={Scenario} seed={seed} gen={world.WorldGenVersion} " +
+                    $"preset={preset.Name} time={profile.TimeOfDay:F3} weather=Clear " +
+                    $"view={world.ViewDistance} render_scale={preset.Scale:F2} location={fixture.LocationDescription}");
+
+            for (int frame = 0; frame < LightingComparisonProfiles.WarmupFrames; frame++)
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+            LightSample probe = ReadLight(world, fixture.LightProbe);
+            BlockId probeBlock = world.GetBlock(
+                    fixture.LightProbe.X, fixture.LightProbe.Y, fixture.LightProbe.Z);
+            int sources = world.NearbyLightSources(
+                    fixture.LightProbe.X - VoxelLighting.BlockLightRadius,
+                    fixture.LightProbe.X + VoxelLighting.BlockLightRadius,
+                    fixture.LightProbe.Z - VoxelLighting.BlockLightRadius,
+                    fixture.LightProbe.Z + VoxelLighting.BlockLightRadius).Count;
+            Image image = GetViewport().GetTexture().GetImage();
+
+            string absoluteOutput = ProjectSettings.GlobalizePath(output);
+            string? directory = Path.GetDirectoryName(absoluteOutput);
+            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            Error saveResult = image.SavePng(absoluteOutput);
+            GD.Print($"LIGHTING_COMPARISON_SAMPLE scenario={Scenario} probe=({fixture.LightProbe.X}," +
+                    $"{fixture.LightProbe.Y},{fixture.LightProbe.Z}) block={probeBlock} " +
+                    $"sky={probe.Sky} block_light={probe.Block} nearby_emitters={sources} omni_lights={omniLights}");
+            GD.Print($"LIGHTING_COMPARISON_RENDER scenario={Scenario} size={image.GetWidth()}x{image.GetHeight()} " +
+                    $"ssao={preset.Ssao} ssr={preset.Ssr} glow={preset.Glow} volumetric_fog={preset.VolFog} " +
+                    $"shadows={preset.ShadowSize} path={absoluteOutput} success={saveResult == Error.Ok}");
+            if (saveResult != Error.Ok)
+                throw new IOException($"Could not save screenshot: {saveResult}.");
+        }
+        catch (Exception exception)
+        {
+            GD.PushError($"Lighting comparison '{Scenario}' failed: {exception}");
+            GetTree().Quit(2);
+            return;
+        }
+        finally
+        {
+            if (game != null && GodotObject.IsInstanceValid(game))
+            {
+                game.QueueFree();
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            }
+
+            GameSession.Instance.WorldDir = previousWorldDir;
+            GameSession.Instance.Manifest = previousManifest;
+            Settings.AutoQuality = previousAutoQuality;
+            Engine.MaxFps = previousMaxFps;
+            if (!string.IsNullOrEmpty(worldDir))
+            {
+                string absoluteWorldDir = ProjectSettings.GlobalizePath(worldDir);
+                try
+                {
+                    if (Directory.Exists(absoluteWorldDir))
+                        Directory.Delete(absoluteWorldDir, recursive: true);
+                }
+                catch (Exception exception)
+                {
+                    GD.PushWarning($"Could not remove temporary comparison world {absoluteWorldDir}: {exception.Message}");
+                }
+            }
+        }
+
+        GetTree().Quit();
+    }
+
+    private static Fixture BuildFixture(LightingComparisonProfiles.Profile profile, VoxelWorld world)
+    {
+        return profile.Id switch
+        {
+            "forest-canopy" => BuildForestFixture(profile, world),
+            "torch-cave" => BuildTorchCaveFixture(profile, world),
+            "river-valley" => BuildRiverFixture(profile, world),
+            "village-street" => BuildVillageFixture(profile, world),
+            "dungeon-arena" => BuildDungeonFixture(profile, world),
+            _ => throw new ArgumentOutOfRangeException(nameof(profile.Id), profile.Id,
+                    "No fixture builder exists for this comparison profile."),
+        };
+    }
+
+    private static Fixture BuildForestFixture(
+            LightingComparisonProfiles.Profile profile, VoxelWorld world)
+    {
+        int bestCount = 0;
+        int bestX = 0;
+        int bestZ = 0;
+        VoxelWorld.TreeInfo bestTree = default;
+        for (int z = -768; z <= 768; z += 128)
+        for (int x = -768; x <= 768; x += 128)
+        {
+            (int height, Biome biome) = world.SurfaceSampleAt(x, z);
+            if (biome is not (Biome.DenseForest or Biome.Jungle or Biome.Taiga
+                    or Biome.Birch or Biome.Swamp))
+                continue;
+
+            int count = 0;
+            int nearestDistance = int.MaxValue;
+            VoxelWorld.TreeInfo nearestTree = default;
+            for (int dz = -24; dz <= 24; dz += 3)
+            for (int dx = -24; dx <= 24; dx += 3)
+            {
+                if (world.GetTreeAt(x + dx, z + dz) is not { } tree)
+                    continue;
+                count++;
+                int distance = dx * dx + dz * dz;
+                if (distance < nearestDistance)
+                {
+                    nearestDistance = distance;
+                    nearestTree = tree;
+                }
+            }
+
+            int score = count * 10 + (biome == Biome.DenseForest ? 12 : 0);
+            if (score > bestCount)
+            {
+                bestCount = score;
+                bestX = x;
+                bestZ = z;
+                bestTree = nearestTree;
+            }
+        }
+
+        if (bestCount == 0)
+            throw new InvalidOperationException("The fixed seed did not yield a tree-bearing forest candidate.");
+
+        (int playerSurfaceHeight, _) = world.SurfaceSampleAt(bestX, bestZ);
+        Vector3 player = new(bestX + 0.5f, playerSurfaceHeight + 1.0f, bestZ + 0.5f);
+        Vector3 target = new(bestTree.X + 0.5f,
+                bestTree.Base + bestTree.Trunk + 1.0f, bestTree.Z + 0.5f);
+        Vector3I probe = new(bestTree.X, bestTree.Base + bestTree.Trunk - 1, bestTree.Z);
+        return new Fixture(player, target, probe,
+                $"canopy=({bestX},{bestZ}) biome={world.SurfaceSampleAt(bestX, bestZ).Biome} sampled_trees={bestCount}");
+    }
+
+    private static Fixture BuildTorchCaveFixture(
+            LightingComparisonProfiles.Profile profile, VoxelWorld world)
+    {
+        Vector3 spawn = world.FindSpawn();
+        int x = Mathf.FloorToInt(spawn.X);
+        int z = Mathf.FloorToInt(spawn.Z);
+        int surface = world.SurfaceHeight(x, z);
+        int floorY = Math.Max(8, surface - 12);
+        int roofY = floorY + 5;
+
+        // Build a compact stone chamber in the disposable world. Every changed
+        // voxel passes through SetBlock so baked sky/block maps are invalidated
+        // and rebuilt by the exact same mutation path as player edits.
+        for (int dz = -4; dz <= 4; dz++)
+        for (int dx = -4; dx <= 4; dx++)
+        {
+            WriteBlock(world, x + dx, floorY, z + dz, BlockId.Stone);
+            WriteBlock(world, x + dx, roofY, z + dz, BlockId.Stone);
+            for (int dy = 1; dy < 5; dy++)
+            {
+                bool wall = Math.Abs(dx) == 4 || Math.Abs(dz) == 4;
+                WriteBlock(world, x + dx, floorY + dy, z + dz,
+                        wall ? BlockId.Stone : BlockId.Air);
+            }
+        }
+
+        // A one-voxel shaft leaves a controlled skylight gradient at the
+        // chamber edge while the far wall remains lit by a single voxel torch.
+        int shaftX = x + 2;
+        for (int y = roofY; y <= surface + 1 && y < world.Height; y++)
+            WriteBlock(world, shaftX, y, z, BlockId.Air);
+
+        // Leave a 3×3 doorway in the camera-facing wall so the fixed camera
+        // sees the interior light gradient rather than a close exterior wall.
+        for (int dx = -1; dx <= 1; dx++)
+        for (int dy = 1; dy <= 3; dy++)
+            WriteBlock(world, x + dx, floorY + dy, z + 4, BlockId.Air);
+
+        int torchX = x;
+        int torchY = floorY + 2;
+        int torchZ = z - 3;
+        WriteBlock(world, torchX, torchY, torchZ, BlockId.Torch);
+
+        Vector3 player = new(x + 0.5f, floorY + 1.0f, z + 0.5f);
+        Vector3 target = new(x + 0.5f, floorY + 2.8f, z + 0.5f);
+        Vector3I probe = new(torchX, torchY, torchZ);
+        return new Fixture(player, target, probe,
+                $"chamber=({x},{floorY},{z}) shaft=({shaftX},{surface + 1},{z})");
+    }
+
+    private static Fixture BuildRiverFixture(
+            LightingComparisonProfiles.Profile profile, VoxelWorld world)
+    {
+        WorldGenV8 generator = new(world.WorldSeed, world.PresetName);
+        float bestScore = float.MinValue;
+        int bestX = 0;
+        int bestZ = 0;
+        int bestHeight = 0;
+        float bestRiver = 0.0f;
+
+        for (int z = -1536; z <= 1536; z += 8)
+        for (int x = -1536; x <= 1536; x += 8)
+        {
+            WorldGenV7.SurfaceSample surface = generator.SampleSurface(x, z, world.SeaLevel);
+            if (surface.Height >= world.SeaLevel)
+                continue;
+
+            float river = generator.ClimateAt(x, z, world.SeaLevel + 12).RiverStrength;
+            if (river < 0.78f)
+                continue;
+
+            int bank = Math.Max(
+                    Math.Max(generator.SurfaceHeight(x - 28, z, world.SeaLevel),
+                            generator.SurfaceHeight(x + 28, z, world.SeaLevel)),
+                    Math.Max(generator.SurfaceHeight(x, z - 28, world.SeaLevel),
+                            generator.SurfaceHeight(x, z + 28, world.SeaLevel)));
+            float score = river * 40.0f + Math.Min(24, bank - surface.Height) * 1.5f;
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestX = x;
+                bestZ = z;
+                bestHeight = surface.Height;
+                bestRiver = river;
+            }
+        }
+
+        if (bestScore == float.MinValue)
+            throw new InvalidOperationException("The fixed seed did not yield a river-channel candidate.");
+
+        Vector3 player = new(bestX + 0.5f, bestHeight + 2.0f, bestZ + 0.5f);
+        Vector3 target = player + new Vector3(0.0f, 2.0f, 0.0f);
+        Vector3I probe = new(bestX, bestHeight + 1, bestZ);
+        return new Fixture(player, target, probe,
+                $"channel=({bestX},{bestZ}) river_strength={bestRiver:F2} bank_height_delta={bestScore:F1}");
+    }
+
+    private static Fixture BuildVillageFixture(
+            LightingComparisonProfiles.Profile profile, VoxelWorld world)
+    {
+        VillageInfo? best = null;
+        int bestDistance = int.MaxValue;
+        for (int radius = 0; radius <= 18; radius++)
+        {
+            for (int dz = -radius; dz <= radius; dz++)
+            for (int dx = -radius; dx <= radius; dx++)
+            {
+                if (Math.Max(Math.Abs(dx), Math.Abs(dz)) != radius)
+                    continue;
+                if (world.GetVillageSite(dx, dz) is not { } village)
+                    continue;
+
+                int distance = dx * dx + dz * dz;
+                if (distance < bestDistance)
+                {
+                    best = village;
+                    bestDistance = distance;
+                }
+            }
+
+            if (best != null)
+                break;
+        }
+
+        if (best is not { } site)
+            throw new InvalidOperationException("No deterministic V8+ village was found within the fixture search radius.");
+
+        Vector3 player = new(site.X + 0.5f, site.Y + 1.0f, site.Z + 0.5f);
+        Vector3 target = player + profile.TargetOffset;
+        Vector3I probe = FindNearestBlock(world, new Vector3I(site.X, site.Y + 4, site.Z),
+                BlockId.Torch, 24, 8)
+                ?? throw new InvalidOperationException("The selected village has no generated torch for its light probe.");
+        return new Fixture(player, target, probe,
+                $"theme={site.Theme} centre=({site.X},{site.Y},{site.Z}) torch=({probe.X},{probe.Y},{probe.Z})");
+    }
+
+    private static Fixture BuildDungeonFixture(
+            LightingComparisonProfiles.Profile profile, VoxelWorld world)
+    {
+        VoxelWorld.StructureInfo? found = world.FindNearestStructure(3, 0, 0, 28);
+        if (found is not { } site)
+            throw new InvalidOperationException("No deterministic Ember Deep arena was found within 28 structure cells.");
+
+        int arenaY = Structures.DungeonArenaY(site);
+        if (arenaY < 8)
+            throw new InvalidOperationException("The selected Ember Deep site is too low for its arena template.");
+
+        Vector3 player = new(site.X + 0.5f, arenaY + 1.0f, site.Z + 0.5f);
+        Vector3 target = player + profile.TargetOffset;
+        Vector3I probe = new(site.X - 6, arenaY + 2, site.Z - 2);
+        return new Fixture(player, target, probe,
+                $"EmberDeep site=({site.X},{site.Y},{site.Z}) arena_y={arenaY}");
+    }
+
+    private static Vector3I? FindNearestBlock(VoxelWorld world, Vector3I centre,
+            BlockId block, int horizontalRadius, int verticalRadius)
+    {
+        Vector3I? nearest = null;
+        int nearestDistance = int.MaxValue;
+        for (int y = Math.Max(1, centre.Y - verticalRadius);
+                y <= Math.Min(world.Height - 1, centre.Y + verticalRadius); y++)
+        for (int z = centre.Z - horizontalRadius; z <= centre.Z + horizontalRadius; z++)
+        for (int x = centre.X - horizontalRadius; x <= centre.X + horizontalRadius; x++)
+        {
+            if (world.GetBlock(x, y, z) != block)
+                continue;
+            int dx = x - centre.X;
+            int dy = y - centre.Y;
+            int dz = z - centre.Z;
+            int distance = dx * dx + dy * dy + dz * dz;
+            if (distance < nearestDistance)
+            {
+                nearest = new Vector3I(x, y, z);
+                nearestDistance = distance;
+            }
+        }
+        return nearest;
+    }
+
+    private static void WriteBlock(VoxelWorld world, int x, int y, int z, BlockId block)
+    {
+        if (y <= 0 || y >= world.Height)
+            throw new ArgumentOutOfRangeException(nameof(y), y, "Lighting fixture edit is outside the world.");
+        if (world.GetBlock(x, y, z) == block)
+            return;
+        if (!world.SetBlock(x, y, z, block))
+            throw new InvalidOperationException($"SetBlock rejected fixture edit ({x},{y},{z}) -> {block}.");
+    }
+
+    private static LightSample ReadLight(VoxelWorld world, Vector3I position)
+    {
+        Vector2I chunk = new(
+                Mathf.FloorToInt(position.X / (float)VoxelWorld.ChunkX),
+                Mathf.FloorToInt(position.Z / (float)VoxelWorld.ChunkZ));
+        int localX = position.X - chunk.X * VoxelWorld.ChunkX;
+        int localZ = position.Z - chunk.Y * VoxelWorld.ChunkZ;
+        VoxelLightData light = world.LightData(chunk);
+        return new LightSample(
+                light.SkyAt(localX, position.Y, localZ, world.Height),
+                light.BlockAt(localX, position.Y, localZ, world.Height));
+    }
+
+    private static T? FindNode<T>(Node root) where T : Node
+    {
+        if (root is T match)
+            return match;
+        foreach (Node child in root.GetChildren())
+        {
+            T? found = FindNode<T>(child);
+            if (found != null)
+                return found;
+        }
+        return null;
+    }
+
+    private static int CountNodes<T>(Node root) where T : Node
+    {
+        int count = root is T ? 1 : 0;
+        foreach (Node child in root.GetChildren())
+            count += CountNodes<T>(child);
+        return count;
+    }
+
+    private static int ParseInt(string[] args, int index, int fallback) =>
+            index < args.Length && int.TryParse(args[index], NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out int value) ? value : fallback;
+
+    private static int ParsePreset(string name)
+    {
+        for (int index = 0; index < Gfx.Presets.Count; index++)
+            if (string.Equals(Gfx.Presets[index].Name, name, StringComparison.OrdinalIgnoreCase))
+                return index;
+        throw new ArgumentException($"Unknown graphics preset '{name}'.");
+    }
+}

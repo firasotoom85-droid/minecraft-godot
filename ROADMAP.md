@@ -49,8 +49,22 @@ generation is byte-identical. The contribution map, conflict resolutions and
 measured validation are in
 [`docs/INTEGRATION_PR59_68.md`](docs/INTEGRATION_PR59_68.md).
 
-**Validation:** Debug and Release builds report 0 warnings and 0 errors; the
-headless suite reports **198,718 checks, 0 failures across 48 suites**. V9, V10
+**PRs #70–#79 integration:** nine branches are merged on
+`integration/pr70-79` from `main` at `c5093cc`; #73 was closed as superseded by
+#74. The batch adds controlled lighting fixtures (#77), chunk-stream light
+continuity (#78), shape-aware baked light (#79), packed emissive presentation
+(#70), dark-night silhouettes (#71), directional moonlight and stars (#72),
+bounded cave and exposure adaptation (#74), preset shadow softness (#75) and
+unified weather/cloud presentation (#76). Save format V4 and generator V1–V11
+remain unchanged. Dispositions, conflict resolutions, real-scene comparisons
+and MX230 measurements are in
+[`docs/INTEGRATION_PR70_79.md`](docs/INTEGRATION_PR70_79.md). Debug and
+Release builds report 0 warnings and 0 errors, and `scripts/verify.sh` passes
+**199,417 checks, 0 failures across 48 suites** with both meshing paths and
+the V1–V11/save compatibility checks included.
+
+**Validation (#59–#68):** Debug and Release builds report 0 warnings and 0 errors; the
+headless suite reported **198,718 checks, 0 failures across 48 suites**. V9, V10
 and V11 golden hashes match the pre-integration baseline, and the V1–V8 legacy
 anchors are unchanged. Matched headless measurements from the #49–#57 batch put
 greedy meshing at about 7.9 ms/chunk versus 6.9 ms on main (roughly 15% more CPU
@@ -2317,3 +2331,476 @@ commit ancestry traceable.
   the packed atlas and texture-array contracts, and the `SetBlock`/`ApplyEdit`
   mutation seam are unchanged. No world generation version was introduced by
   this batch because no generator rule changed.
+
+
+## 42. Controlled voxel-light comparison scenes — 2026-11-22
+
+- **Audit result.** Baked sky/block channels, incremental emitter mutation,
+  warm torch/campfire propagation, transparent-shader response, camera-driven
+  cave exposure, directional atmosphere, the Filmic WorldEnvironment and the
+  LOW/BALANCED renderer options were already integrated in the main branch.
+  The missing piece was a repeatable real-world comparison for forest canopy,
+  torch cave, river valley, village street and dungeon arena; production
+  lighting did not need another implementation.
+- **Fixtures.** Added five standalone scenes backed by one
+  `LightingComparisonCapture` runner and five immutable camera/time profiles.
+  Each runner loads `scenes/main.tscn`, uses the current V11 generator, a fixed
+  seed, clear weather, 1280×720 output and one explicitly selected Gfx preset.
+  The forest/river/village/dungeon positions are selected deterministically
+  from generated terrain and structures. The cave builds a small stone chamber
+  and open skylight shaft in a disposable world.
+- **Ownership and design.** Every cave block edit uses `VoxelWorld.SetBlock`,
+  so existing edit epochs, source registration and cache invalidation remain
+  authoritative. All emitters continue to use the existing packed voxel-light
+  caches and shared shaders; the runner asserts that no `OmniLight3D` nodes
+  appear. The 5×5 render-only preview bounds capture cost, while LOW stays the
+  default at its existing 0.80 scale with expensive post effects disabled.
+- **Validation.** LightingComparisonTests pins all five scene/profile
+  bindings, common output dimensions and view/chunk bounds, low-end preset
+  settings, shared Filmic/ambient/fog environment properties, and the baked
+  sky/block/AO vertex-channel layout. Godot 4.7.2 Debug build: 0 warnings /
+  0 errors. scripts/verify.sh: **198,773 checks, 0 failures**. Five real
+  1280×720 Forward+ captures completed on the MX230 at LOW; all reported
+  OmniLight3D=0. The torch cave probe read sky/block 10/14, the village torch
+  11/14, the dungeon torch 6/14 and river water 13/0. The forest image covers
+  canopy shading; its probe is on opaque trunk wood (0/0). Full locations and
+  capture files are indexed in
+  docs/visual/LIGHTING_COMPARISON_REPORT_2026-11-22.md.
+- **Compatibility and performance.** No production lighting, renderer
+  settings, shader code, greedy meshing, chunk streaming, saved fields,
+  BlockId/ItemId, atlas IDs or generator V1–V11 rules were changed. The
+  location scans run once at capture startup and are not part of gameplay.
+  No gameplay frame, physics or per-emitter node cost is added.
+
+## 43. Chunk-stream lighting continuity validation — 2026-11-22
+
+- Audited the existing stream/lighting path before changing it. Every mesh
+  neighbourhood uses the snapshot-locked `VoxelWorld.LightDataNeighborhood`
+  solve: one 5×5 block snapshot, a 14-voxel attenuation halo, nine packed
+  sky/block result maps cached for adjacent chunk workers. `ApplyBuild` calls
+  the existing `Chunk.FadeIn` for fresh streamed chunks; opaque, glass, water
+  and lava surfaces transition over 0.4 seconds after their baked vertex light
+  is already present. Camera cave exposure reads the existing cached sky
+  channel with trilinear interpolation. No production lighting, shader,
+  environment, graphics-preset, mesher or streaming implementation needed a
+  rebuild for this task.
+- Added an integration regression that requests neighbouring 3×3 lighting
+  snapshots in west-first and east-first order, then compares packed sky and
+  block channels for all six shared chunks. It also samples camera skylight
+  immediately on both sides of a negative-to-zero chunk seam. This pins cache
+  order independence and seam interpolation without adding runtime work.
+- Added `ChunkLightingStreamingCapture.tscn`, a repeatable production-main-scene
+  capture. A source torch is placed at the boundary of an already loaded chunk
+  through `SetBlock`; the adjacent target starts unloaded, then streams in when
+  a hidden player moves. The fixture writes before/fade/settled images and
+  verifies the first voxel of the arriving chunk has propagated baked light.
+  It runs in both classic atlas and greedy meshing modes with the same seed,
+  generator, LOW preset, camera and view distance.
+- **MX230 visual validation:** Godot 4.7.2 .NET / Vulkan Forward+, seed 1337,
+  V11 normal world, 1600×900, view distance 2. The source torch is at
+  `(15,41,24)` and target chunk `(1,1)` was absent in both before-captures.
+  Atlas mode streamed it in 36 frames; greedy mode took 33 frames. Both report
+  block light 13 at the first target voxel from the 14-level source, camera
+  skylight 15.00, and 35 loaded chunks at the settled capture. Matching PNGs:
+  `docs/visual/screenshots/chunk-light-{atlas,greedy}.{before,fade,settled}.png`.
+- Performance/compatibility: production runtime cost is unchanged; the capture
+  performs one fixture-only seam lookup and the test compares cached arrays
+  only when invoked. No per-emitter lights, per-frame scans, new renderer
+  effects, physics work, save fields, IDs, voxel-generation rules, generator
+  versions, edits outside `SetBlock`, greedy merge keys, or chunk-streaming
+  policies were introduced. V1–V11 and save V4 remain frozen.
+- **Verification:** `dotnet build` and `dotnet build -c Release` both pass with
+  0 warnings / 0 errors. `scripts/verify.sh` passes **198,736 checks / 0
+  failures across 48 suites** with Godot 4.7.2 .NET. This includes the 18 new
+  lighting-neighbourhood order and camera seam checks. The intentional save
+  failure/recovery warnings remain expected test output.
+
+## 44. Shape-aware baked light continuity — 2026-11-22
+
+- Closed a mismatch between the existing 2×2×2 slab/stair geometry and the
+  baked voxel-light solver: partial solid shapes no longer inherit the
+  full-cube opacity rule when their connected empty half-cells form a passage.
+- Added cached 24-bit face-aperture masks for the three slab states and eight
+  stair orientations. Each of the six faces carries four half-face bits in
+  shared tangent coordinates. A flood crosses a voxel boundary only where
+  the source and destination apertures overlap, preventing an upper stair
+  opening from leaking into a lower opening that does not meet it. Direct
+  sunlight uses matching top/bottom aperture bits, so an open slab cavity can
+  receive sun without passing it through an occupied underside.
+- Existing cube opacity and attenuation remain authoritative: glass keeps its
+  zero-loss path, water and foliage keep their current attenuation, and
+  full-block/double-slab occlusion is unchanged. The solver deliberately
+  treats disconnected empty components as opaque because one packed nibble
+  cannot represent independent cavity light levels.
+- LightDataNeighborhood, the per-chunk block-light halo, and incremental
+  emitter updates now carry optional sparse shape states. The contiguous
+  state snapshot is allocated only when the sampled neighbourhood contains a
+  non-default shape state. Shape orientation/half changes are detected at
+  VoxelWorld.SetBlock and invalidate the existing affected 3×3 packed-light
+  cache; no voxel array is edited outside the normal mutation seam.
+- Automated regressions cover all four stair facings and inverted states,
+  exact four-bit aperture alignment, mismatched adjacent stair openings,
+  horizontal light through slab/stair cavities, direct sunlight through open
+  and closed shape faces, foliage gaps, and a SetBlock slab-state change
+  crossing a chunk boundary. Existing greedy/per-face geometry, saved shape
+  states, streaming and V1–V11 world-generation checks remain in place.
+- Performance boundary: aperture connectivity is computed once for the 11
+  registered shape states and accessed through a static lookup table. Ordinary
+  blocks retain the existing opacity fast path. Shape-state buffers are
+  conditional, light work remains baked and event/cache driven, and the change
+  adds no emitter nodes, render passes, per-frame scans, physics work or mesh
+  topology changes.
+- Compatibility: no BlockId/ItemId values, save fields, atlas indices or
+  generator rules changed. Save V4 and generator V1–V11 remain byte-compatible;
+  V1–V8 stay frozen. Greedy meshing, chunk streaming, packed vertex channels,
+  shaders and SetBlock/ApplyEdit ownership remain intact.
+- Verification: Godot 4.7.2 .NET Debug and Release builds completed with
+  0 warnings and 0 errors. scripts/verify.sh passed **198,771 checks / 0
+  failures**. The only save output was the suite's two intentional
+  atomic-write-failure / backup-recovery warnings.
+- Real-scene validation: the new repeatable capture ran on GeForce MX230,
+  Vulkan Forward+, 1600×900, seed 1337 / V11, centre (8, 8), with 34 chunks.
+  Baked samples were glass 6, water 5, bottom slab 6 and upright stairs 6;
+  skylight below foliage was 13 and below the open canopy gap was 15. The
+  reference frame is docs/visual/screenshots/voxel-light-continuity.png.
+  The production main scene reported pre-existing stale external-resource UID
+  warnings and loaded each affected script using its text path; the capture
+  completed successfully. No controlled FPS delta was measured.
+
+## 45. Emissive surface / packed-channel audit — 2026-11-22
+
+- Closed a renderer contract gap left by the unified torch/campfire pass:
+  animated water had retained its earlier amber blend, instead of using the
+  same sky-headroom response, hue and bounded residual emission as the atlas,
+  greedy texture-array and glass surfaces. Water now calls the shared
+  `warm_block_response`, `warm_block_illumination` and `warm_block_emission`
+  functions once per fragment; wave motion, shore fade, transparency and
+  underwater caustics are unchanged.
+- Lava remains a dedicated opaque, depth-writing emissive surface so its
+  recognizable orange molten core does not inherit the torch/campfire hue.
+  Its emissive intensity now follows the baked low nibble in `COLOR.g`, scaled
+  against the registered lava source level (`LightEmission[Lava] / 15`, 12/15).
+  The material reads this source level from the existing block table; it no
+  longer adds a constant glow when packed block light is absent.
+- Extended the warm-light comparison fixture with a lava-only mode and added
+  regressions for the nibble-to-vertex-channel mapping, the lava material's
+  source-level uniform, zero-channel emissive suppression contract, and exact
+  water/shared-shader response parity.
+- Compatibility: no BlockId/ItemId values, save fields, generator V1–V11
+  outputs, block-light propagation, voxel mutation routes, mesh vertex layout,
+  greedy merge keys, chunk streaming, world environment, or graphics presets
+  changed. No per-emitter light nodes or scene nodes were added.
+- Performance: the water fragment path adds the same single exponential
+  response evaluation already used by terrain/glass; lava replaces its
+  unconditional glow with a bounded packed-channel normalization. No CPU
+  per-frame work, memory allocation, physics, mesh rebuild or stream work was
+  added. LOW/BALANCED continue to disable glow, SSAO, SSR and volumetric fog.
+- **Repeatable visual fixture:** the existing real-main-scene capture now
+  supports fixed seed 1337 / generator V11 / campfire site `(0,0)` and the
+  same camera for `torch`, `campfire`, `overlap` and `lava` modes. Each pass
+  logs its packed source and adjacent nibble levels and writes a PNG.
+- **Current manual-check status:** the fixture launched under Godot 4.7.2
+  Vulkan Forward+ on the MX230, but this attempt reached its 90-second timeout
+  before writing a screenshot/result while other Godot render/test processes
+  were active. No new pixel-level visual comparison or FPS delta is claimed.
+  Re-run on an idle desktop for screenshot verification and a sustained
+  frame-time soak.
+
+## 46. Nighttime hostile silhouette contrast — 2026-11-22
+
+**Goal:** preserve genuinely dark nights while making dark hostile actors distinguishable from terrain without adding per-actor lights or increasing global illumination.
+
+**Implementation:**
+- Lowered clear-night environment ambient and baked sky response from 0.10 to 0.065, while retaining the existing directional moon as the outdoor key and reducing its energy from 0.22 to 0.18. Midday settings remain unchanged; clouds and lightning continue through their existing palette paths.
+- Added a restrained light-dependent rim response to the procedural hostile body-material factory. Passive creatures remain unchanged; hostile bodies are not emissive, and the existing Shade eye emission is untouched.
+- Extended the atmosphere visual capture with a deterministic Dreadwing/Shade/Ember Warden lineup. Its temporary sky platform uses `VoxelWorld.SetBlock` and exists only in the disposable capture world.
+- No voxel IDs, save fields, generator rules, baked-light packing, propagation, greedy meshing, chunk streaming, scene light-node count, or LOW/BALANCED renderer budgets changed.
+
+**Validation:** Godot 4.7.2 .NET / .NET 9 Debug build (0 warnings, 0 errors); `scripts/verify.sh` exits 0; focused lighting and atmosphere suites pass; the full runner reports **198,728 checks, 0 failures**. The matched clear-midnight capture uses seed 1337 / V11 / `(512, -372)` on the NVIDIA MX230. Its mean frame luminance changes 26.29 → 25.96, sky 20.37 → 19.96, and unlit stage 10.01 → 6.77. Capture artifacts are stored under `docs/visual/screenshots/night-hostiles-*.png`.
+
+
+## 47. Moonlit voxel surfaces and cloud-aware stars — 2026-11-22
+
+- Reused the existing DayNight moon DirectionalLight3D; its normalized
+  direction remains opposite the sun and its blue-white tint/energy are sent
+  through the existing shared material owner. Atlas, greedy texture-array,
+  glass, water and lava shaders now receive moon direction, colour and energy.
+- Moon fill is gated by packed sky exposure separately from the low global
+  sky-energy scalar. Exposed surfaces receive a visible directional
+  contribution while cave faces with zero sky exposure receive none. The
+  existing 0.065 night ambient / baked-skylight floor and 0.18 moon key remain
+  unchanged; cloud cover continues to attenuate moon energy.
+- The procedural starfield retains its one sphere and one texture. Its
+  deterministic image gains restrained colour/size variation and low-energy
+  emission; visibility fades through twilight and monotonically decreases as
+  cloud cover increases. No per-star objects or texture updates occur in the
+  frame loop.
+- Added a focused moonlight suite for sun/moon opposition, normalized
+  directions, low night-fill invariants, cloud attenuation, bounded star
+  visibility, and the shared atlas/greedy/glass/water/lava shader uniforms.
+- Save format, persisted IDs, V1–V11 world generation, block-light propagation,
+  voxel mutation ownership, mesh channels, greedy meshing, chunk streaming and
+  LOW/BALANCED renderer budgets are unchanged. No light nodes, shadow passes,
+  mesh rebuilds, per-frame scans, physics work or new GPU effects are added.
+- Verification: Godot 4.7.2 .NET Debug build completed with 0 warnings and
+  0 errors. scripts/verify.sh passed 199,065 checks with 0 failures across
+  the complete registered suite. Automated shader/material regressions pass.
+  A matched real-scene MX230 visual capture was attempted but did not complete
+  in this environment; pixel-level review and a sustained FPS soak remain
+  outstanding before marking this change fully visually verified.
+
+## 48. Bounded cave eye adaptation — 2026-11-22
+
+Cave shelter already used the camera's trilinearly sampled baked skylight to
+blend ambient fill and fog. The remaining mismatch was the independent global
+camera auto-exposure: it could continue raising a sealed room, and a bright
+torch in that room could influence the camera histogram even though the
+voxel-light shader correctly confined the warm source to nearby surfaces.
+
+- **Shared sky signal.** DayNight now uses the existing caveDarkness weight
+  to update CameraAttributesPractical.AutoExposureMaxSensitivity. The range
+  eases from 140 outdoors to 40 in a zero-skylight cave. The cave cap equals
+  Player's 40 minimum sensitivity, so global exposure has no upward headroom
+  in a fully sealed cave. It is based on sky light only; block light does not
+  participate.
+- **Ambient fill.** The environment ambient scale eases from 1.0 outdoors to
+  0.08 at full cave darkness. The existing shader base fill remains unchanged,
+  retaining the deliberately small material floor without lifting the whole
+  cave. The camera attribute resource is cached at setup and only written when
+  its target changes by at least 0.5 sensitivity units.
+- **Torch behaviour.** No baked propagation, source strengths, warm shader
+  coefficients, light nodes, or rendering passes changed. Torches and
+  campfires still use their 14-level baked source channel, with the existing
+  shared 0.34 diffuse and 0.025 emissive warm response. A torch in a zero-sky
+  room therefore adds local block illumination without restoring global
+  exposure headroom.
+- **Validation.** Atmosphere tests pin the open-sky, entrance and sealed-cave
+  sensitivity/ambient bounds, monotonicity and interpolation. The production
+  AtmosphereVisualCapture now supports sealed, entrance and sealed-torch
+  fixtures, all edited through VoxelWorld.SetBlock and rendered with the
+  production camera attributes. Repeatable captures use seed 1337, generator
+  V11, location (512, -372), clear noon, 1600×900 and view radius 3; results are
+  stored under docs/visual/screenshots/cave-adaptation-*.png.
+- **Compatibility and performance.** No persisted IDs, save fields, generator
+  versions or generation rules changed. V1–V11 output remains frozen; greedy
+  meshing, chunk streaming, cached light propagation and mutation ownership are
+  untouched. The runtime adds one cached camera-resource reference, constant
+  time interpolation and throttled property writes; it adds no scene nodes,
+  per-emitter lights, per-frame scans, shader work or memory allocations.
+  LOW/BALANCED settings remain unchanged.
+
+
+## 49. Context-aware exposure transitions — 2026-11-22
+
+The cave-only exposure cap is now part of one context-aware camera profile
+that also covers water emergence and the snow-to-forest brightness range. The
+existing `Player` immersion blend and `DayNight` cached biome column remain the
+owners of their respective signals; no new global lighting system was added.
+
+- **Caves:** retain the baked skylight-only shelter weight. It has final
+  priority over every other profile and holds min/max sensitivity at ISO 40
+  when skylight reaches zero. Block light remains excluded, preserving local
+  torch/campfire readability without globally lifting the cave.
+- **Water:** the profile follows `Player.WaterViewBlend`, not only the binary
+  `Underwater` flag. The underwater exposure cap therefore remains active while
+  the existing fog environment fades out after the camera breaks the surface.
+  No new water probes or physics queries were added.
+- **Snow and forest:** the existing integer-column biome sample selects bright
+  snow and shaded-canopy weights. Snow eases the sensitivity range down
+  (ISO 32–124); dense forest raises only its upper bound (to ISO 156), with
+  intermediate taiga/birch/jungle/swamp weights. Fog tint, exposure weights and
+  limits ease toward the new column over the same frame-rate-independent
+  exponential blend (2.8 s⁻¹), so boundaries do not snap.
+- **Adaptation:** `AutoExposureSpeed` is set to 0.70 while the context gets
+  darker and 1.40 when it brightens, with a 0.90 steady value. The directional
+  speed is held for one second after the transition signal, then returns to the
+  steady value; this gives Godot's luminance adaptation time to respond instead
+  of changing speed for only one frame. Sensitivity and speed properties are
+  only written when their target changes enough to be visible.
+- **Tests and captures:** added bounded-profile tests for cave/water/snow/forest
+  priority, biome-profile selection, directional speed and 30/60 FPS blend
+  parity. `AtmosphereVisualCapture` now shares the gameplay camera attributes
+  for every capture and reports biome, immersion blend, ISO min/max and speed.
+  The MX230 / Godot 4.7.2 Forward+ water-exit capture (seed 1337, V11, clear
+  noon, 1600×900, 49 chunks) measured underwater blend 0.720 / ISO 37.4–117.0,
+  then surfaced blend 0.000 / ISO 39.6–140.0. The paired biome capture streamed
+  70 chunks and measured Snow at `(512, -388)` / ISO 32.3–124.3 and Taiga at
+  `(544, -380)` / ISO 39.6–153.4. A sealed-torch cave capture streamed 56 chunks
+  and measured 15.00 skylight outside / 0.00 in the room, darkness 1.000, max
+  ISO 40.0, ambient scale 0.079 and baked torch/adjacent levels 14/13. PNG
+  references are committed as
+  `docs/visual/screenshots/exposure-{cave-sealed-torch,water-exit-underwater,water-exit-emerged,biome-pair-snow,biome-pair-forest}.png`.
+- **Compatibility/performance:** only camera attributes and the current biome
+  fog tint are adjusted. Packed sky/block channels, emitter strengths, shaders,
+  renderer presets, saves, persisted IDs, V1–V11 generation, greedy meshing,
+  chunk streaming and SetBlock/ApplyEdit ownership are unchanged. Work remains
+  bounded to the existing cached light sample, one cached biome sample when
+  the player enters a new column, and a few scalar/color interpolations.
+  Auto-exposure itself remains the pre-existing camera feature; no new
+  renderer pass or cost was added to LOW/BALANCED post-processing settings.
+  This was not a controlled FPS benchmark, so no frame-time delta is claimed;
+  structural review and the real MX230 captures confirm the path functions,
+  while a sustained low-preset frame-time soak remains a separate validation.
+
+## 50. Shadow softness and contact shading — 2026-11-22
+
+- Audited the live main-scene Sun, DayNight.Setup, WorldEnvironmentFactory,
+  Gfx preset application, the existing baked vertex-AO mesher and the material
+  gallery. The sun already used four blended directional cascades; the gap was
+  that DayNight forced the renderer-global SoftHigh filter and 0.5-degree
+  directional PCSS for every preset, including LOW. Existing LOW/BALANCED
+  presets disabled SSAO but did not own the global shadow-filter setting.
+- Moved filter quality, angular source size and shadow blur into the existing
+  Gfx.Preset. LOW/BALANCED now use SoftLow, keep the existing 1024 px atlas,
+  preserve their 45 m / 65 m shadow distances, use a restrained 0.35 blur and
+  set sun angular distance to zero to avoid directional PCSS. HIGH uses
+  SoftMedium with a restrained 0.18-degree angular size; ULTRA/MAX progressively
+  increase filter tier and angular softness. The same profile is applied to
+  the existing sun when presets are changed; no light node is added.
+- Design boundary: Godot's directional filter-quality API is renderer-global,
+  not per-light or per-viewport. Gfx therefore owns it and applies it on
+  every preset change. DayNight retains four blended cascades and no longer
+  overwrites the selected sun profile; the low-energy moon uses filtered
+  shadows with zero angular PCSS. The baked four-corner voxel AO remains the
+  low-cost contact baseline. HIGH+ enables a tighter SSAO radius/intensity,
+  with direct-light and AO-texture channel contribution disabled. LOW/BALANCED
+  retain no SSAO/SSR/glow/volumetric-fog pass.
+- Extended the production material gallery with an optional profile argument:
+  -1 recreates the previous LOW shadow setup, 0 applies new LOW and 2 applies
+  HIGH. The runner fixes seed, camera, direction, material layout and greedy
+  meshing, and logs the applied filter, atlas, distance, angular size, blur
+  and SSAO profile for each image pair. The MX230 / Godot 4.7.2 Forward+ captures
+  use seed 1337, 1280×720, 61 blocks and nine ready chunks; committed close/far
+  pairs are in docs/visual/shadow-softness for legacy LOW, new LOW and HIGH.
+- Automated graphics regressions pin the low-end filter/PCSS choices, the
+  HIGH/ULTRA/MAX progression, per-profile light application, contact-AO
+  parameters, legacy graphics-preset migration and the factory defaults.
+  The existing lighting and block-shape suites continue to cover packed sky /
+  block light, greedy AO continuity and partial-shape contacts.
+- Performance boundary: LOW/BALANCED reduce directional filtering from
+  SoftHigh to SoftLow and remove the old PCSS angular-size cost. Their
+  screen-space effects remain disabled and the baked voxel/AO mesh path is
+  unchanged. HIGH+ opts into more expensive filtering/PCSS and local SSAO.
+  No controlled FPS delta is claimed; no new per-frame work, emitter nodes,
+  chunk rebuilds, physics work or persistent allocations are introduced.
+- Compatibility: no save fields, persisted block/item IDs, generation rules
+  or versions, baked-light channels, voxel mutation paths, greedy meshing or
+  chunk streaming changed. V1–V11 and save V4 remain untouched.
+
+## 51. Weather sky, horizon and cloud quality audit — 2026-11-22
+
+The atmosphere audit found two concrete gaps despite the existing day/night
+and distance-haze work: cloud tint was computed separately from the sky
+palette and barely distinguished the four weather targets, and the visual
+capture parser explicitly rejected `Storm`, silently falling back to clear
+weather. The capture runner also had no way to select each live graphics
+preset, so the requested weather/preset matrix could not be reproduced from
+one fixture.
+
+- Added cloud tint and weather-driven opacity to the existing deterministic
+  `DayNight.SkyPalette`. Daylight/night, overcast cover, twilight and lightning
+  now feed both sky/horizon and the two existing cloud materials. Clear weather
+  retains faint cloud wisps; cloudy, rain and storm increase coverage and
+  progressively lower cloud brightness. Lightning lifts the storm cloud tint
+  together with the horizon.
+- Reused the two existing cloud planes and standard materials. No extra nodes,
+  emitters, per-frame world scans, shader passes, textures, voxel edits or
+  persisted data were added. The sky/cloud palette is quality-independent;
+  LOW/BALANCED still disable SSAO, SSR, glow and volumetric fog while retaining
+  inexpensive base fog and the existing two cloud layers.
+- Extended `AtmosphereVisualCapture` to select presets 0–5 through
+  `Gfx.ApplyPreset(..., persist: false)`, report the active environment profile
+  and capture all four weather states. Its legacy include-torch/view-distance
+  argument order remains supported. The capture-only weather setup freezes
+  state transitions and random lightning so matrix images stay comparable;
+  lightning illumination itself remains part of the deterministic palette
+  regression coverage.
+- Added automated checks for ordered cloud coverage and brightness across
+  clear/cloudy/rain/storm, upper-sky and horizon dimming, night cloud colour,
+  lightning lift, non-finite inputs, weather parser validation, all six
+  quality-preset weather combinations and the LOW/BALANCED post-effect limits.
+- Compatibility: no save or world format, persisted IDs, generator V1–V11,
+  baked light channels, voxel mutation paths, greedy meshing, chunk streaming,
+  renderer material ownership or world-generation code changed.
+- **Verification:** Godot 4.7.2 .NET Debug and Release builds both succeeded
+  with 0 warnings / 0 errors. `scripts/verify.sh` passed **198,807 checks,
+  0 failures** across the registered suites. The two save warnings are the
+  existing negative-path checks for a deliberate failed atomic write and
+  backup recovery.
+- **Real-scene visual matrix:** all 24 unique captures (four weather states
+  × six presets) passed on NVIDIA GeForce MX230 / Vulkan Forward+ using seed
+  1337, generator V11, centre (512, -372), noon, 1600×900 and 49 streamed
+  chunks. The first FSR2/cloudy frame was discarded because the temporal
+  output had not settled; a 16-second FSR2 warm-up produced the stable
+  replacement. The standard presets retain the 8-second warm-up.
+- The matched central-sky / horizon 8-bit mean-luminance samples consistently
+  fall from Clear → Cloudy → Rain → Storm. Sky/horizon values are:
+  LOW 136.7/140.9 → 127.0/108.5 → 119.1/71.2 → 117.0/59.8;
+  BALANCED 136.5/140.3 → 126.9/108.2 → 119.1/71.0 → 116.9/59.7;
+  HIGH 136.5/138.8 → 127.5/108.4 → 119.1/70.5 → 117.0/59.0;
+  ULTRA 136.7/139.2 → 127.5/107.9 → 119.2/70.2 → 117.0/58.9;
+  MAX 138.6/142.0 → 128.2/110.0 → 119.6/72.8 → 117.0/61.2;
+  MAX · FSR2 138.5/140.2 → 128.1/109.7 → 120.5/75.7 → 117.9/63.5.
+  These are repeatable screenshot-region comparisons, not absolute
+  photometric calibration.
+- LOW/BALANCED captures reported SSAO, SSR, glow and volumetric fog disabled;
+  HIGH/ULTRA enable SSAO and glow, ULTRA also enables SSR; MAX / MAX · FSR2
+  enable volumetric fog. The shared weather palette remains unchanged across
+  the quality settings.
+- **Performance:** only the existing per-frame DayNight palette calculation
+  and two existing cloud-material colour/alpha updates changed. No added
+  scene nodes, materials, shader samples/passes, textures, emitters,
+  per-frame world scans, voxel work or physics work. No FPS delta is claimed;
+  the capture matrix is a visual compatibility check, not a controlled
+  frame-time benchmark.
+
+## 52. Consolidated integration of PRs #70–#79 — 2026-11-23
+
+The nine live branches in this batch were merged into `integration/pr70-79`
+from `main` at `c5093cc`, in dependency order: #77 → #78 → #79 → #70 → #71 →
+#72 → #74 → #75 → #76. Every branch landed as a real merge commit. #73 was
+closed as superseded by #74 because the two implemented the same cave
+adaptation in parallel; #74 also adds water, snow and forest exposure contexts,
+and merging both would have duplicated camera logic. #72 contains #71's head,
+so merging #71 first applied only its moonlight/starfield contribution.
+
+- **Semantic merges.** The water shader keeps #70's warm response and the #72
+  moon term in one pass. Lava keeps packed-channel emission plus the same moon
+  term. `SkyPalette` is one record containing sky, sun, moon and cloud fields,
+  consumed by #76's weather presentation. The atmosphere capture harness now
+  has one parser for legacy and preset-first arguments, cave modes, exposure
+  modes, hostiles and weather.
+- **Validation fixes.** #74's shared adaptive camera attributes were scoped to
+  cave and exposure captures; using them for every capture made #71's night and
+  #76's weather references depend on adaptation time. Captures default to LOW
+  rather than the saved preset. The hostile fixture waits for the mesh queue
+  and eye adaptation before sampling. The moon shader contribution is scaled by
+  0.12 so directional moonlight remains visible without undoing #71's dark
+  night; the silhouette capture then measures 25.51 mean luminance against the
+  25.96 reference (MAE 2.94).
+- **Real-scene validation.** On the MX230 / Vulkan Forward+, warm captures
+  reported torch/campfire/overlap 14→13 and lava 12→11; sealed, entrance and
+  sealed-torch caves matched at MAE 0.49 / 3.14 / 1.39 with room skylight 0,
+  ISO max 40 and torch 14/13; water and snow/taiga at MAX matched at MAE
+  0.54–2.11; shadow profiles matched at 0.34–3.21; five controlled lighting
+  scenes at 0.02–1.24; partial-shape light 6/5/6/6 and foliage 13 vs 15; chunk
+  seam atlas/greedy at 1.53–2.13 and cross-path at 1.51–1.95. Weather luminance
+  fell monotonically from 130.11 (Clear) to 101.40 (Storm).
+- **Performance.** Release / LOW / 1280×720 / view distance 5 / seed 1337,
+  three matched 30-second runs after a 10-second warm-up: median 9.72 ms p50,
+  11.11 ms p95 and 21.71 ms p99 (99.2 mean FPS), versus 12.96 / 16.67 / 49.87
+  ms on `main` `c5093cc` under the same harness. Heavy rain measured 10.00 ms
+  p50 and 17.59 ms p95. The difference is a whole-branch measurement and was
+  not bisected; it establishes no regression rather than a single-cause win.
+- **Compatibility.** `BlockId`/`ItemId`, save V4, V1–V11 generation, golden
+  hashes, greedy meshing, chunk streaming, packed light channels and the
+  `SetBlock`/`ApplyEdit` seam are unchanged. Debug and Release builds report
+  0 warnings / 0 errors; `scripts/verify.sh` passes **199,417 checks, 0
+  failures across 48 suites**; the atlas validator reports 0 errors and
+  `git diff --check` is clean.
+- **Remaining limitations.** The committed exposure references use MAX, so
+  they are reproduced with preset index 4 while a bare capture defaults to
+  LOW. The sealed cave's bright blue fog is pre-existing reference behaviour.
+  Weather captures are terrain-facing, so cloud planes are verified by palette
+  values and tests rather than framed pixels. Interactive playtesting and GPU
+  frame-time capture remain manual.

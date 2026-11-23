@@ -715,13 +715,19 @@ uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
 uniform vec3 sun_color = vec3(1.0, 0.96, 0.89);
 uniform vec3 sky_light_color = vec3(0.88, 0.94, 1.0);
 uniform float sunlight_energy = 1.0;
+uniform vec3 moon_direction = vec3(0.0, -1.0, 0.0);
+uniform vec3 moon_color = vec3(0.62, 0.74, 1.0);
+uniform float moonlight_energy = 0.0;
 
-vec3 directional_sky_light(vec3 world_normal, float sky) {
+vec3 directional_sky_light(vec3 world_normal, float sky, float sky_exposure) {
     float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
     float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
     float directional_gain = 0.88 + direct_sun * 0.12;
+    float moon_facing = max(dot(normalize(world_normal), moon_direction), 0.0);
+    float moon_fill = clamp(sky_exposure, 0.0, 1.0)
+            * moonlight_energy * (0.28 + moon_facing * 0.72) * 0.12;
     vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
-    return sky * sky_tint * directional_gain;
+    return sky * sky_tint * directional_gain + moon_color * moon_fill;
 }
 
 uniform vec3 response_stone = vec3(0.8, 0.0, 0.2);
@@ -770,7 +776,7 @@ void fragment() {
     float block = clamp(COLOR.g, 0.0, 1.0);
     float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
-    vec3 illumination = vec3(0.035) + directional_sky_light(surface_world_normal, sky)
+    vec3 illumination = vec3(0.035) + directional_sky_light(surface_world_normal, sky, COLOR.r)
             + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
     EMISSION = tex.rgb * warm_block_emission(warm_response);
@@ -797,13 +803,19 @@ uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
 uniform vec3 sun_color = vec3(1.0, 0.96, 0.89);
 uniform vec3 sky_light_color = vec3(0.88, 0.94, 1.0);
 uniform float sunlight_energy = 1.0;
+uniform vec3 moon_direction = vec3(0.0, -1.0, 0.0);
+uniform vec3 moon_color = vec3(0.62, 0.74, 1.0);
+uniform float moonlight_energy = 0.0;
 
-vec3 directional_sky_light(vec3 world_normal, float sky) {
+vec3 directional_sky_light(vec3 world_normal, float sky, float sky_exposure) {
     float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
     float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
     float directional_gain = 0.88 + direct_sun * 0.12;
+    float moon_facing = max(dot(normalize(world_normal), moon_direction), 0.0);
+    float moon_fill = clamp(sky_exposure, 0.0, 1.0)
+            * moonlight_energy * (0.28 + moon_facing * 0.72) * 0.12;
     vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
-    return sky * sky_tint * directional_gain;
+    return sky * sky_tint * directional_gain + moon_color * moon_fill;
 }
 
 uniform vec3 response_stone = vec3(0.8, 0.0, 0.2);
@@ -837,7 +849,7 @@ void fragment() {
     float block = clamp(COLOR.g, 0.0, 1.0);
     float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
-    vec3 illumination = vec3(0.05) + directional_sky_light(surface_world_normal, sky)
+    vec3 illumination = vec3(0.05) + directional_sky_light(surface_world_normal, sky, COLOR.r)
             + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade;
     EMISSION = tex.rgb * warm_block_emission(warm_response);
@@ -888,13 +900,19 @@ uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
 uniform vec3 sun_color = vec3(1.0, 0.96, 0.89);
 uniform vec3 sky_light_color = vec3(0.88, 0.94, 1.0);
 uniform float sunlight_energy = 1.0;
+uniform vec3 moon_direction = vec3(0.0, -1.0, 0.0);
+uniform vec3 moon_color = vec3(0.62, 0.74, 1.0);
+uniform float moonlight_energy = 0.0;
 
-vec3 directional_sky_light(vec3 world_normal, float sky) {
+vec3 directional_sky_light(vec3 world_normal, float sky, float sky_exposure) {
     float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
     float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
     float directional_gain = 0.88 + direct_sun * 0.12;
+    float moon_facing = max(dot(normalize(world_normal), moon_direction), 0.0);
+    float moon_fill = clamp(sky_exposure, 0.0, 1.0)
+            * moonlight_energy * (0.28 + moon_facing * 0.72) * 0.12;
     vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
-    return sky * sky_tint * directional_gain;
+    return sky * sky_tint * directional_gain + moon_color * moon_fill;
 }
 
 uniform vec3 response_stone = vec3(0.8, 0.0, 0.2);
@@ -947,7 +965,7 @@ void fragment() {
     float block = clamp(COLOR.g, 0.0, 1.0);
     float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
-    vec3 illumination = vec3(0.035) + directional_sky_light(surface_world_normal, sky)
+    vec3 illumination = vec3(0.035) + directional_sky_light(surface_world_normal, sky, COLOR.r)
             + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
     EMISSION = tex.rgb * warm_block_emission(warm_response);
@@ -1029,14 +1047,22 @@ uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
 uniform vec3 sun_color = vec3(1.0, 0.96, 0.89);
 uniform vec3 sky_light_color = vec3(0.88, 0.94, 1.0);
 uniform float sunlight_energy = 1.0;
+uniform vec3 moon_direction = vec3(0.0, -1.0, 0.0);
+uniform vec3 moon_color = vec3(0.62, 0.74, 1.0);
+uniform float moonlight_energy = 0.0;
 
-vec3 directional_sky_light(vec3 world_normal, float sky) {
+vec3 directional_sky_light(vec3 world_normal, float sky, float sky_exposure) {
     float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
     float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
     float directional_gain = 0.88 + direct_sun * 0.12;
+    float moon_facing = max(dot(normalize(world_normal), moon_direction), 0.0);
+    float moon_fill = clamp(sky_exposure, 0.0, 1.0)
+            * moonlight_energy * (0.28 + moon_facing * 0.72) * 0.12;
     vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
-    return sky * sky_tint * directional_gain;
+    return sky * sky_tint * directional_gain + moon_color * moon_fill;
 }
+
+uniform float lava_source_level = 0.8;
 
 varying vec3 surface_world_normal;
 
@@ -1046,13 +1072,16 @@ void vertex() {
 
 void fragment() {
     vec4 tex = texture(atlas, UV);
-    float sky = COLOR.r * sky_light_energy;
-    float block = COLOR.g;
+    float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+    float block = clamp(COLOR.g, 0.0, 1.0);
     float shade = COLOR.b;
     vec3 warm = vec3(1.0, 0.48, 0.12);
-    vec3 illumination = vec3(0.03) + directional_sky_light(surface_world_normal, sky) + warm * block * 0.35;
+    vec3 illumination = vec3(0.03) + directional_sky_light(surface_world_normal, sky, COLOR.r) + warm * block * 0.35;
+    float lava_emission = clamp(block / max(lava_source_level, 0.0666667), 0.0, 1.0);
     ALBEDO = tex.rgb * illumination * shade;
-    EMISSION = tex.rgb * (warm * 0.9 + warm * block * 0.7);
+    // Preserve the distinct lava core, but derive its strength exclusively
+    // from the packed block-light nibble baked into COLOR.g.
+    EMISSION = tex.rgb * warm * lava_emission * 0.9;
     ALPHA = tex.a;
     ROUGHNESS = 1.0;
 }
@@ -1060,9 +1089,12 @@ void fragment() {
 
     public static ShaderMaterial MakeLavaMaterial()
     {
+        EnsureTables();
         ShaderMaterial material = new() { Shader = new Shader { Code = LitLavaShader } };
         material.SetShaderParameter("atlas", AtlasTexture());
         material.SetShaderParameter("sky_light_energy", 1.0f);
+        material.SetShaderParameter("lava_source_level",
+                LightEmission[(int)BlockId.Lava] / (float)VoxelLighting.MaxLevel);
         return material;
     }
 
