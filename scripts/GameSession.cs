@@ -64,7 +64,11 @@ public partial class GameSession : Node
                         + $"player data: {playerRead.Status}. No files were replaced.");
             }
 
-            if ((worldRead.Status == WorldReadStatus.Missing) != (playerRead.Status == WorldReadStatus.Missing))
+            bool incompletePair = (worldRead.Status == WorldReadStatus.Missing)
+                    != (playerRead.Status == WorldReadStatus.Missing);
+            bool knownSavedHistory = manifest.HasSavedData || manifest.PlaytimeSeconds > 0
+                    || manifest.PlayedUtc > manifest.CreatedUtc;
+            if (incompletePair && knownSavedHistory)
             {
                 WorldStore.RequireRecovery(WorldDir);
                 throw new System.IO.InvalidDataException(
