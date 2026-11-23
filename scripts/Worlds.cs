@@ -693,6 +693,16 @@ public static class WorldStore
         if (temporaryExists && DirAccess.RemoveAbsolute(tmp) != Error.Ok)
             return Fail("could not remove a stale temporary file");
 
+        foreach (string candidate in new[] { path, path + ".bak", path + ".bak2" })
+        {
+            if (!TryGetCandidateAttributes(candidate, out System.IO.FileAttributes attributes,
+                    out bool exists, out string? attributeError))
+                return Fail($"could not inspect save generation {candidate} ({attributeError})");
+            if (exists && (attributes & (System.IO.FileAttributes.Directory
+                    | System.IO.FileAttributes.ReparsePoint)) != 0)
+                return Fail($"save generation {candidate} is a directory or filesystem link");
+        }
+
         Error writeError;
         using (FileAccess? file = FileAccess.Open(tmp, FileAccess.ModeFlags.Write))
         {
