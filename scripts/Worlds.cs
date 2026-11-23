@@ -929,7 +929,7 @@ public static class WorldStore
                 lastError ?? "No readable and structurally valid save candidate was found.");
     }
 
-    private static bool ValidateModel<T>(T value, out WorldReadStatus status, out string error)
+    internal static bool ValidateModel<T>(T value, out WorldReadStatus status, out string error)
         where T : class
     {
         status = WorldReadStatus.Corrupt;
