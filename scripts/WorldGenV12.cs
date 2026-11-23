@@ -19,6 +19,7 @@ public static class WorldGenV12
     // The largest V7/V8 ore vein has at most eleven distinct candidate blocks.
     // A bounded retry budget allows a random walk to skip revisited positions.
     public const int MaxOreWalkAttempts = 88;
+    public const int MaxVeinRadius = 11;
 
     public static bool ContainsWorldPosition(int x, int z) =>
             x >= -HorizontalBlockLimit && x < HorizontalBlockLimit
