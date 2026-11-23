@@ -207,7 +207,7 @@ public static class LightingProbeComparison
                 compared,
                 unreferenced,
                 missing,
-                reference.Count == 0 ? 0.0 : (double)compared / reference.Count,
+                captured.Count == 0 ? 0.0 : (double)compared / captured.Count,
                 compared == 0 ? 0.0 : channelTotal / (compared * 2),
                 maxChannel,
                 compared == 0 ? 0.0 : skyTotal / compared,
