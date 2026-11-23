@@ -23,6 +23,7 @@ public static class VoxelStreamingTests
         TestChunkGenerationReservation();
         TestMutationBlockIds();
         TestWorldCompatibilityPolicies();
+        TestPooledScratchBufferClearing();
         TestStreamingPolicies();
 
         long expectedLow = 11L * 11L * 16 * 128 * 16 * StreamingMemoryBudget.BytesPerVoxelUpperBound;
@@ -187,6 +188,17 @@ public static class VoxelStreamingTests
         TestAssert.Check(WorldCompatibilityPolicy.MustRejectMissingManifest(
                         false, false, true),
                 "a manifest-less folder with player data is not assumed to be V1");
+    }
+
+
+    private static void TestPooledScratchBufferClearing()
+    {
+        byte[] scratch = Enumerable.Repeat((byte)0x7F, 16).ToArray();
+        ChunkStreamingPolicy.ClearUsedBuffer(scratch, 12);
+        TestAssert.Check(scratch.Take(12).All(value => value == 0),
+                "pooled state scratch clears every active voxel before copying");
+        TestAssert.Check(scratch.Skip(12).All(value => value == 0x7F),
+                "pooled state scratch leaves the unused rented tail untouched");
     }
 
     private static void TestStreamingPolicies()
