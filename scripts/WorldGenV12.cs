@@ -96,6 +96,17 @@ public static class WorldGenV12
         return false;
     }
 
+    public static bool TryCountOrePlacement(bool isNaturalStone, ref int placedCount)
+    {
+        if (!isNaturalStone)
+        {
+            return false;
+        }
+
+        placedCount++;
+        return true;
+    }
+
     private static bool IsTreeLog(BlockId id) =>
             id is BlockId.Log or BlockId.BirchLog;
 
