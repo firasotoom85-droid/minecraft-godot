@@ -77,10 +77,22 @@ public static class WorldgenTests
                         new Vector3(0.5f, 0.0f, 0.5f), 0.35f, 1.8f,
                         new Vector3(0.86f, 0.8f, 0.0f), new Vector3(1.3f, 1.8f, 1.0f)),
                 "spawn capsule rejects non-overlapping adjacent collision volume");
+        TestAssert.Check(v5.SaveNow(),
+                "explicit world save reports a successful synchronous write");
+        TestAssert.Check(WorldStore.ReadManifest(v5Dir)?.HasSavedData == true,
+                "explicit world save persists the first-complete-save marker");
 
         host.RemoveChild(v5);
         v5.QueueFree();
-        DirAccess.RemoveAbsolute(v5Dir + "/manifest.json");
+        foreach (string savePath in new[]
+                {
+                    WorldStore.ManifestPath(v5Dir),
+                    WorldStore.WorldSavePath(v5Dir),
+                    WorldStore.PlayerSavePath(v5Dir),
+                })
+        {
+            DirAccess.RemoveAbsolute(savePath);
+        }
         DirAccess.RemoveAbsolute(v5Dir);
 
         string skySpawnDir = $"user://tests/world-sky-spawn-{Time.GetTicksUsec()}";
