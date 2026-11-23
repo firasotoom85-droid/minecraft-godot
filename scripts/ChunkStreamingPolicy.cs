@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Godot;
 
@@ -36,6 +37,40 @@ internal sealed class ChunkWorkTracker
     public void ForgetFollowUp(Vector2I cp) => _rebuildAfterFlight.Remove(cp);
 
     public int InFlightCount => _inFlight.Count;
+}
+
+
+/// <summary>
+/// Per-coordinate generation reservations. Callers protect the dictionary
+/// with the same world mutex used for the chunk-data cache.
+/// </summary>
+internal sealed class ChunkGenerationReservations
+{
+    private readonly Dictionary<Vector2I, Lazy<byte[]>> _inFlight = new();
+
+    public Lazy<byte[]> GetOrCreate(Vector2I cp, Func<byte[]> generate)
+    {
+        if (!_inFlight.TryGetValue(cp, out Lazy<byte[]>? reservation))
+        {
+            reservation = new Lazy<byte[]>(generate,
+                    System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
+            _inFlight.Add(cp, reservation);
+        }
+
+        return reservation;
+    }
+
+    /// <summary>Remove only the reservation being completed; a newer one is untouched.</summary>
+    public void Complete(Vector2I cp, Lazy<byte[]> reservation)
+    {
+        if (_inFlight.TryGetValue(cp, out Lazy<byte[]>? current)
+                && ReferenceEquals(current, reservation))
+        {
+            _inFlight.Remove(cp);
+        }
+    }
+
+    public int Count => _inFlight.Count;
 }
 
 /// <summary>Small, deterministic rules shared by world streaming and regression tests.</summary>
