@@ -109,19 +109,31 @@ public static class InventoryPersistenceRegressionTests
     {
         Inventory full = FilledInventory();
         full.Set(0, ItemDb.New(ItemId.Planks, 63));
-        ItemStack cursor = ItemStack.Empty;
+        ItemStack cursor = ItemDb.New(ItemId.Stone, 1);
         ItemStack result = ItemDb.New(ItemId.Planks, 4);
 
         bool collected = InventoryStackTransfer.TryCollectCraftingResult(
                 result, cursor, full, out ItemStack cursorAfter);
         TestAssert.Check(!collected,
-                "craft result refuses partial inventory capacity");
+                "craft result refuses partial inventory capacity when cursor is incompatible");
         TestAssert.Equal(63, full.Get(0).Count,
                 "failed craft collection leaves matching inventory stack unchanged");
         TestAssert.Equal(63, full.CountOf(ItemId.Planks),
                 "failed craft collection inserts no partial output");
-        TestAssert.Check(cursorAfter.IsEmpty,
-                "failed craft collection leaves the empty cursor unchanged");
+        TestAssert.Equal(ItemId.Stone, cursorAfter.Id,
+                "failed craft collection leaves the incompatible cursor unchanged");
+        TestAssert.Equal(1, cursorAfter.Count,
+                "failed craft collection preserves the complete cursor quantity");
+
+        ItemStack fullMatchingCursor = ItemDb.New(ItemId.Planks, 63);
+        collected = InventoryStackTransfer.TryCollectCraftingResult(
+                result, fullMatchingCursor, full, out cursorAfter);
+        TestAssert.Check(!collected,
+                "matching cursor that cannot accept the whole result falls back atomically");
+        TestAssert.Equal(63, cursorAfter.Count,
+                "failed matching-cursor collection does not partially increase the cursor");
+        TestAssert.Equal(63, full.CountOf(ItemId.Planks),
+                "failed matching-cursor collection does not partially insert into inventory");
 
         Inventory cursorOnly = FilledInventory();
         collected = InventoryStackTransfer.TryCollectCraftingResult(
