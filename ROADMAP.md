@@ -2819,12 +2819,13 @@ so merging #71 first applied only its moonlight/starfield contribution.
   intensity drift, tolerance violations, missing reference points and
   unreferenced captures. The blue vertex input is neutral for this calculation;
   geometry AO remains part of the renderer's existing mesh path.
-- **Reference provenance.** Added versioned reference data from the five
-  historically measured centre probes in
-  `docs/visual/LIGHTING_COMPARISON_REPORT_2026-11-22.md`. It intentionally
-  covers only 1/27 points (3.7%) in each grid. The other 26 values are not
-  guessed or inferred; the report marks them unreferenced until a reviewed
-  full-grid real-renderer capture is promoted.
+- **Reference provenance.** Promoted all 27 samples per scene (135 total)
+  from the GitHub Actions Godot 4.7.2 .NET headless `--probe-only` capture
+  artifact. Captures use seed 1337, generator V11, LOW preset and clear weather.
+  All five centre samples match the historical readings in the original
+  capture report; the other 130 values are taken directly from production
+  cached voxel-light maps, not guessed or interpolated. Each scene now has
+  27/27 (100%) reference coverage.
 - **Regression tests.** Added checks for grid stability, comparison coverage,
   missing/unreferenced ids, channel/RGB/intensity drift, tolerance thresholds,
   duplicate samples and all five historical reference anchors.
