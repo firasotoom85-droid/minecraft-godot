@@ -165,6 +165,10 @@ public partial class VoxelWorld : Node3D
     private bool _dirty;
     private double _autosaveTimer;
     private double _unsavedPlaytimeSeconds;
+    private string? _worldReadOnlyReason;
+    private bool _readOnlyWarningShown;
+
+    public bool IsReadOnly => _worldReadOnlyReason != null;
 
     public override void _Ready()
     {
@@ -289,24 +293,68 @@ public partial class VoxelWorld : Node3D
     /// <summary>Bind to the GameSession world: folder, manifest, seeds, gen version.</summary>
     private void ResolveWorld()
     {
-        string dir = GameSession.Instance?.EnsureWorld() ?? "";
+        GameSession? session = GameSession.Instance;
+        string selectedDir = session?.WorldDir ?? "";
+        if (selectedDir.Length > 0 && WorldStore.ReadManifest(selectedDir) == null
+                && HasWorldMetadataOrSaveFiles(selectedDir))
+        {
+            throw new InvalidOperationException(
+                    $"World '{selectedDir}' has save data but no readable manifest. " +
+                    "The files were left untouched; restore a compatible manifest before opening it.");
+        }
+
+        string dir = session?.EnsureWorld() ?? "";
         if (dir.Length == 0)
         {
             dir = $"{WorldStore.WorldsRoot}/default";
         }
 
         _worldDir = dir;
-        _manifest = WorldStore.ReadManifest(dir) ?? WorldStore.DefaultFor(dir);
+        WorldManifest? manifest = WorldStore.ReadManifest(dir);
+        if (manifest == null)
+        {
+            if (HasWorldMetadataOrSaveFiles(dir))
+            {
+                throw new InvalidOperationException(
+                        $"World '{dir}' has existing data but no readable manifest. " +
+                        "The files were left untouched.");
+            }
+
+            manifest = WorldStore.DefaultFor(dir);
+        }
+
+        if (!WorldCompatibilityPolicy.IsSupportedGeneratorVersion(
+                manifest.GenVersion, WorldStore.CurrentGenVersion))
+        {
+            throw new InvalidOperationException(
+                    $"World '{manifest.Name}' uses generator V{manifest.GenVersion}; " +
+                    $"this build supports V1–V{WorldStore.CurrentGenVersion}. " +
+                    "No world files were modified.");
+        }
+
+        if (!WorldCompatibilityPolicy.HasValidNoiseSeeds(manifest.NoiseSeeds))
+        {
+            throw new InvalidOperationException(
+                    $"World '{manifest.Name}' has incomplete generator noise metadata. " +
+                    "No replacement seeds were generated and no world files were modified.");
+        }
+
+        _manifest = manifest;
         _genVersion = _manifest.GenVersion;
-        _noiseSeeds = _manifest.NoiseSeeds is { Length: 5 } seeds
-                ? seeds
-                : WorldStore.DeriveNoiseSeeds(_manifest.Seed);
+        _noiseSeeds = (int[])_manifest.NoiseSeeds.Clone();
 
         // Gen v5 worlds are taller and can carry a shape preset; earlier gens
         // keep Height 64 and sea level 28 so their terrain stays byte-identical.
         Height = _genVersion >= 5 ? 128 : 64;
         SeaLevel = _genVersion >= 5 ? 40 : 28;
         _preset = _genVersion >= 5 ? _manifest.Preset ?? "normal" : "normal";
+    }
+
+    private static bool HasWorldMetadataOrSaveFiles(string dir)
+    {
+        return HasSaveCandidate(WorldStore.ManifestPath(dir))
+                || HasSaveCandidate(WorldStore.WorldSavePath(dir))
+                || HasSaveCandidate(WorldStore.PlayerSavePath(dir));
     }
 
     // -----------------------------------------------------------------------
@@ -2111,7 +2159,7 @@ public partial class VoxelWorld : Node3D
     {
         // BlockId values are persisted and index several definition tables.
         // Reject unknown values before normalization or any mutation side effect.
-        if (!IsMutationBlockIdDefined(id))
+        if (IsReadOnly || !IsMutationBlockIdDefined(id))
         {
             return false;
         }
@@ -3330,6 +3378,16 @@ public partial class VoxelWorld : Node3D
 
     public void SaveNow()
     {
+        if (_worldReadOnlyReason != null)
+        {
+            if (!_readOnlyWarningShown)
+            {
+                GD.PushWarning($"minecraft: world is read-only: {_worldReadOnlyReason}");
+                _readOnlyWarningShown = true;
+            }
+            return;
+        }
+
         BeforeSave?.Invoke();
         Dictionary<string, Dictionary<string, BlockId>> editsOut = [];
         foreach ((Vector2I cp, Dictionary<int, BlockId> inner) in _edits)
@@ -3451,10 +3509,33 @@ public partial class VoxelWorld : Node3D
         _dirty = true;
     }
 
+    private static bool HasSaveCandidate(string path) =>
+            FileAccess.FileExists(path)
+            || FileAccess.FileExists(path + ".bak")
+            || FileAccess.FileExists(path + ".bak2");
+
+    private void SetWorldReadOnly(string reason)
+    {
+        _worldReadOnlyReason ??= reason;
+    }
+
     private void LoadSave()
     {
-        WorldSave? world = WorldStore.ReadJson<WorldSave>(
-                WorldStore.WorldSavePath(_worldDir), WorldStore.Json);
+        string worldSavePath = WorldStore.WorldSavePath(_worldDir);
+        WorldSave? world = WorldStore.ReadJson<WorldSave>(worldSavePath, WorldStore.Json);
+        if (world == null && HasSaveCandidate(worldSavePath))
+        {
+            SetWorldReadOnly(
+                    "world save is unreadable in the primary file and both backups; saving is disabled");
+        }
+        else if (world != null && !WorldCompatibilityPolicy.IsSupportedSaveVersion(
+                world.Version, WorldStore.WorldFormatVersion))
+        {
+            SetWorldReadOnly(
+                    $"world save format V{world.Version} is unsupported; " +
+                    $"this build supports V1–V{WorldStore.WorldFormatVersion}");
+        }
+
         if (world?.Edits != null)
         {
             foreach ((string key, Dictionary<string, BlockId> inner) in world.Edits)
@@ -3478,7 +3559,10 @@ public partial class VoxelWorld : Node3D
 
                     if (!BlockDb.IsDefined(id))
                     {
-                        GD.PushWarning($"minecraft: ignoring unknown block id {(int)id} in {_worldDir}");
+                        SetWorldReadOnly(
+                                $"saved block ID {(int)id} is not registered by this build; saving is disabled");
+                        GD.PushWarning(
+                                $"minecraft: unknown saved block ID {(int)id} in {_worldDir}; world opened read-only");
                         continue;
                     }
 
@@ -3557,11 +3641,6 @@ public partial class VoxelWorld : Node3D
 
         if (world != null)
         {
-            if (world.Version > WorldStore.WorldFormatVersion)
-            {
-                GD.PushWarning($"minecraft: world save version {world.Version} is newer than {WorldStore.WorldFormatVersion}; loading known fields only");
-            }
-
             TimeOfDay = Mathf.Clamp(world.Time, 0.0, 1.0);
             SavedBoats = world.Boats;
             if (world.Containers != null)
