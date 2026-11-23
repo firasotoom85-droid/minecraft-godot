@@ -183,8 +183,17 @@ public sealed class WorldGenV7
                 includeRivers ? RiverStrength(x, z) : 0.0f);
     }
 
-    public Biome BiomeAt(int x, int z, int height, int seaLevel) =>
-            SampleSurface(x, z, seaLevel).Biome;
+    public Biome BiomeAt(int x, int z, int height, int seaLevel)
+    {
+        bool climateAtSurface = _preset is "flat" or "sky";
+        int climateHeight = climateAtSurface ? height : seaLevel + 12;
+        ClimateSample climate = ClimateAt(x, z, climateHeight, includeRivers: false);
+        float temperature = climateAtSurface ? climate.Temperature
+                : climate.Temperature - Math.Max(0, height - 40) * 0.0085f
+                        + Math.Max(0, seaLevel + 12 - 40) * 0.0085f;
+        return ClassifyBiome(temperature, climate.Moisture, height, seaLevel,
+                _plainsVariation.GetNoise2D(x, z));
+    }
 
     /// <summary>Pure classification function, also used by focused biome tests.</summary>
     public static Biome ClassifyBiome(float temperature, float moisture,
