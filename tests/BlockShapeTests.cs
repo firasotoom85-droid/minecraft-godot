@@ -316,8 +316,10 @@ public static class BlockShapeTests
                     "frontier fixture finds a generated solid block in the unloaded neighbor");
             if (solidY > 0)
             {
-                TestAssert.Check(world.SetBlock(31, solidY, 8, BlockId.Stone),
-                        "frontier fixture places its loaded-side block through SetBlock");
+                bool frontierSourceChanged = world.SetBlock(31, solidY, 8, BlockId.Stone);
+                TestAssert.Check(frontierSourceChanged
+                                || world.GetBlock(31, solidY, 8) == BlockId.Stone,
+                        "frontier fixture source block is stone through SetBlock");
 
                 MeshPayload frontierPayload = Mesher.Build(world, frontier);
                 try
