@@ -614,7 +614,7 @@ public static class Mesher
 
     private static readonly int[] AxisStep = [1, PLANE, PX];
 
-    private readonly record struct FaceMergeKey(long Surface, ulong Bounce)
+    internal readonly record struct FaceMergeKey(long Surface, ulong Bounce)
     {
         public bool IsEmpty => Surface == 0L;
     }
@@ -772,6 +772,15 @@ public static class Mesher
     /// <summary>Compatibility surface key used by existing merge-identity tests.</summary>
     internal static long FaceKey(byte[] pad, byte[] statePad, byte[] lightPad, int i, int f) =>
             BuildFaceMergeKey(pad, statePad, lightPad, null, i, f).Surface;
+
+    /// <summary>
+    /// Full merge key, including the per-corner cave-spill nibbles. Greedy and
+    /// per-face topology share one sampling routine, so an identical key is what
+    /// makes a merged quad carry exactly the corner lighting of its constituents.
+    /// </summary>
+    internal static FaceMergeKey MergeKey(
+            byte[] pad, byte[] statePad, byte[] lightPad, byte[] directLightPad, int i, int f) =>
+            BuildFaceMergeKey(pad, statePad, lightPad, directLightPad, i, f);
 
     /// <summary>Full merge key includes the corner-wise cave-bounce values.</summary>
     private static FaceMergeKey BuildFaceMergeKey(

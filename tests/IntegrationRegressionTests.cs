@@ -58,6 +58,7 @@ public static class IntegrationRegressionTests
         CheckV11ShorelineDelta(host);
         CheckNewContentSaveRoundTrip();
         CheckWetGreedyMergeKey();
+        CheckSkyChannelsFollowRoofEdits(host);
         CheckCampfireBakedEmitterLifecycle(host);
         CheckChunkLightingSolveOrderIndependence(host);
     }
@@ -293,6 +294,75 @@ public static class IntegrationRegressionTests
         finally
         {
             RemoveWorldDirectory(dir);
+        }
+    }
+
+    /// <summary>
+    /// A roof edit must refresh both skylight channels for the covered chunk.
+    /// The direct vertical pass is a separate cached side map, so a stale entry
+    /// would keep sunlight on a cell that is no longer open to the sky.
+    /// </summary>
+    private static void CheckSkyChannelsFollowRoofEdits(Node host)
+    {
+        string dir = NewWorld(WorldGenV11.Version);
+        VoxelWorld? world = null;
+        try
+        {
+            GameSession.Instance.SelectWorld(dir);
+            world = new VoxelWorld { Name = "Direct-sky invalidation", BuildCollision = false };
+            host.AddChild(world);
+            world.BuildPreview(Vector3.Zero, 1);
+
+            // Chunk zero near the world top is open sky, matching the existing
+            // world-light regression fixture, so no terrain or tree shades the
+            // probe and the direct pass is unambiguous.
+            Vector2I chunk = Vector2I.Zero;
+            int x = 8;
+            int z = 8;
+            int height = world.Height;
+            int roofY = height - 2;
+            int cellY = roofY - 1;
+            for (int y = cellY; y < height; y++)
+            {
+                if (world.GetBlock(x, y, z) != BlockId.Air)
+                    world.SetBlock(x, y, z, BlockId.Air);
+            }
+
+            VoxelLightData open = world.LightData(chunk);
+            TestAssert.Equal((byte)15, open.DirectSkyAt(x, cellY, z, height),
+                    "open air records full vertical direct skylight");
+            TestAssert.Equal(0, (int)VoxelLighting.SkyBounce(
+                            open.SkyAt(x, cellY, z, height),
+                            open.DirectSkyAt(x, cellY, z, height)),
+                    "open air has no lateral cave spill to add");
+
+            TestAssert.Check(world.SetBlock(x, roofY, z, BlockId.Stone),
+                    "placing a roof through SetBlock succeeds");
+            VoxelLightData roofed = world.LightData(chunk);
+            TestAssert.Equal((byte)0, roofed.DirectSkyAt(x, cellY, z, height),
+                    "a fresh roof clears the cached direct-sky value of the covered cell");
+            // The neighbouring column is still open at the same height, so the
+            // existing lateral flood keeps one step of combined skylight while
+            // the vertical direct pass is already dark: the two channels now
+            // disagree, and that gap is the cave-bounce channel.
+            TestAssert.Equal((byte)14, roofed.SkyAt(x, cellY, z, height),
+                    "the covered cell keeps only its lateral combined skylight");
+            TestAssert.Equal((byte)14, VoxelLighting.SkyBounce(
+                            roofed.SkyAt(x, cellY, z, height),
+                            roofed.DirectSkyAt(x, cellY, z, height)),
+                    "a roofed cell exposes its remaining sky as lateral cave spill");
+
+            TestAssert.Check(world.SetBlock(x, roofY, z, BlockId.Air),
+                    "removing the roof through SetBlock succeeds");
+            VoxelLightData reopened = world.LightData(chunk);
+            TestAssert.Equal((byte)15, reopened.DirectSkyAt(x, cellY, z, height),
+                    "cache invalidation cannot leave stale direct skylight after an edit");
+            TestAssert.Equal((byte)15, reopened.SkyAt(x, cellY, z, height),
+                    "the combined gameplay skylight agrees with the refreshed direct pass");
+        }
+        finally
+        {
+            RemoveWorld(host, world, dir);
         }
     }
 

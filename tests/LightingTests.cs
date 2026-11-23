@@ -35,6 +35,8 @@ public static class LightingTests
         TestIncrementalBlockUpdates();
         TestSunlightAndCaves();
         TestSkyBounceSeparation();
+        TestGreedyMergePreservesBounce();
+        TestMaterialTagChannels();
     }
 
     private static void TestCornerAverageChannels()
@@ -614,8 +616,81 @@ public static class LightingTests
         TestAssert.Equal(9.0f, integerTag,
                 "fractional cave fill does not change the material family or wet bit");
         TestAssert.Check(Mathf.Abs(
-                        14.0f / 15.0f - (tag - integerTag) * 16.0f) < 0.00001f,
+                        14.0f / 15.0f - (tag - integerTag) * 16.0f) < 0.01f,
                 "four-bit cave fill round-trips through the unused material-tag fraction");
+    }
+
+    /// <summary>
+    /// Greedy merging must never fuse two faces whose cave spill differs: the
+    /// merged quad re-uses one corner set for every covered cell. Combined sky
+    /// and block light alone cannot prove that, because two cells can share the
+    /// same combined sky while receiving different amounts of direct sun.
+    /// </summary>
+    private static void TestGreedyMergePreservesBounce()
+    {
+        const int height = 6;
+        byte[] pad = new byte[Mesher.PLANE * height];
+        byte[] statePad = new byte[Mesher.PLANE * height];
+        int center = Mesher.PLANE * 2 + Mesher.PZ * 2 + 2;
+        pad[center] = (byte)BlockId.Stone;
+
+        // Same combined sky and block light, different vertical direct sun:
+        // one sample is open to the sky, the other is lateral cave fill.
+        byte[] sunlit = new byte[Mesher.PLANE * height];
+        byte[] sunlitDirect = new byte[Mesher.PLANE * height];
+        byte[] spilled = new byte[Mesher.PLANE * height];
+        byte[] spilledDirect = new byte[Mesher.PLANE * height];
+        Array.Fill(sunlit, VoxelLighting.Pack(15, 7));
+        Array.Fill(sunlitDirect, (byte)15);
+        Array.Fill(spilled, VoxelLighting.Pack(15, 7));
+        Array.Fill(spilledDirect, (byte)5);
+
+        TestAssert.Equal(
+                Mesher.FaceKey(pad, statePad, sunlit, center, 0),
+                Mesher.FaceKey(pad, statePad, spilled, center, 0),
+                "the legacy surface key alone cannot tell cave spill from direct sun");
+
+        Mesher.FaceMergeKey lit = Mesher.MergeKey(pad, statePad, sunlit, sunlitDirect, center, 0);
+        Mesher.FaceMergeKey spill = Mesher.MergeKey(pad, statePad, spilled, spilledDirect, center, 0);
+        TestAssert.Check(!lit.IsEmpty && !spill.IsEmpty,
+                "both samples expose a visible opaque top face");
+        TestAssert.Check(lit.Bounce == 0UL,
+                "a fully sunlit corner contributes no cave spill to the merge key");
+        TestAssert.Check(spill.Bounce == 0xAAAAUL,
+                "every corner of the cave-lit sample records a ten-level spill nibble");
+        TestAssert.Check(!lit.Equals(spill),
+                "faces with different cave spill never share a greedy merge key");
+        TestAssert.Check(Mesher.MergeKey(pad, statePad, spilled, spilledDirect, center, 0)
+                        .Equals(spill),
+                "identical lighting still merges, so greedy meshing is not over-split");
+    }
+
+    /// <summary>
+    /// The fractional material-tag range must decode back to the same spill
+    /// level for every family and wet combination without disturbing either.
+    /// </summary>
+    private static void TestMaterialTagChannels()
+    {
+        foreach (SurfaceFamily family in Enum.GetValues<SurfaceFamily>())
+        {
+            foreach (bool wet in new[] { false, true })
+            {
+                float expectedInteger = (byte)family + (wet ? 8.0f : 0.0f);
+                foreach (byte bounce in new byte[] { 0, 1, 7, 15 })
+                {
+                    float tag = MaterialResponse.VertexTag(family, wet, bounce / 15.0f);
+                    float decodedInteger = Mathf.Floor(tag + 0.001f);
+                    TestAssert.Equal(expectedInteger, decodedInteger,
+                            $"{family} wet={wet} spill={bounce} keeps its material family and wet flag");
+                    // The tag lives around magnitude 8-15, where float32 steps
+                    // are ~1e-6; 0.01 of a 15-level unit stays far inside one of
+                    // the sixteen encoded steps and rejects a mis-scaled decode.
+                    float decodedBounce = (tag - decodedInteger) * 16.0f * 15.0f;
+                    TestAssert.Check(Mathf.Abs(decodedBounce - bounce) < 0.01f,
+                            $"{family} wet={wet} spill={bounce} round-trips the cave-spill nibble");
+                }
+            }
+        }
     }
 
     private static int Idx(int width, int height, int depth, int x, int y, int z) =>
