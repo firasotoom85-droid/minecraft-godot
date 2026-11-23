@@ -64,6 +64,19 @@ public static class WorldgenTests
         Vector3 normalSpawn = v5.FindSpawn();
         TestAssert.Check(v5.IsSafeSpawnPosition(normalSpawn),
                 "normal-world spawn has support and a clear dry player capsule");
+
+        bool noSafeSpawnReported = false;
+        try
+        {
+            _ = v5.FindSpawn(static _ => false);
+        }
+        catch (InvalidOperationException error)
+        {
+            noSafeSpawnReported = error.Message.Contains(
+                    "within 512 blocks", StringComparison.Ordinal);
+        }
+        TestAssert.Check(noSafeSpawnReported,
+                "rejecting every candidate reports a controlled no-safe-spawn failure instead of returning a fallback");
         int normalSpawnX = Mathf.FloorToInt(normalSpawn.X);
         int normalSpawnZ = Mathf.FloorToInt(normalSpawn.Z);
         int normalFloorY = Mathf.FloorToInt(normalSpawn.Y - 1.5f);
