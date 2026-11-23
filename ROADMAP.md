@@ -2804,3 +2804,26 @@ so merging #71 first applied only its moonlight/starfield contribution.
   Weather captures are terrain-facing, so cloud planes are verified by palette
   values and tests rather than framed pixels. Interactive playtesting and GPU
   frame-time capture remain manual.
+
+
+## 53. Renderer quality matrix and environment preset parity — 2026-11-23
+
+- Centralized the SSAO, SSR, glow and volumetric-fog switches in
+  `Gfx.ApplyEnvironmentPreset`; live preset changes and environment creation
+  now share the same mapping.
+- Gameplay passes the persisted graphics preset to
+  `WorldEnvironmentFactory.Build` before the first frame. This avoids
+  constructing an expensive high-quality environment and waiting for the
+  graphics system to disable effects on LOW/BALANCED.
+- Factory callers that omit a preset retain the previous high-quality defaults.
+  The menu backdrop keeps its intentional lightweight overrides, and its
+  exponential atmosphere remains separate from gameplay depth haze.
+- Added a six-preset regression matrix plus V7 legacy-fog and V11 modern-haze
+  compatibility assertions. No save format, persisted IDs, generator versions,
+  baked light channels, voxel mutation paths, shaders, greedy meshing or chunk
+  streaming changed.
+- The renderer cost/feature matrix and repeatable benchmark scenarios are in
+  `docs/RENDERER_QUALITY_MATRIX.md`. Cost percentages are relative pixel-load
+  estimates derived from render scale, not measured GPU frame-time claims.
+- Local GPU validation was not completed for this change; headless test/build
+  verification must be run on the project workstation before merge.
