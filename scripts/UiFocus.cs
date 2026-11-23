@@ -36,12 +36,13 @@ public static class UiFocus
 
     public static void RestoreFocus(Control? preferred, Control? fallback)
     {
-        if (CanReceiveFocus(preferred))
+        if (CanReceiveFocus(preferred) && preferred!.IsInsideTree() && preferred.IsVisibleInTree())
         {
-            preferred!.GrabFocus();
+            preferred.GrabFocus();
             return;
         }
-        if (fallback != null && GodotObject.IsInstanceValid(fallback))
+        if (fallback != null && GodotObject.IsInstanceValid(fallback)
+                && fallback.IsInsideTree() && fallback.IsVisibleInTree())
             FocusFirst(fallback);
     }
 
