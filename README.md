@@ -643,7 +643,8 @@ the V10 foliage-only delta, the V10-to-V11 shoreline-only delta,
 V8-to-V9 chunk-diff and chunk-order regressions,
 atmosphere/weather/water presentation, the performance runner, streaming memory
 accounting, the combined save round-trip (shapes + villagers + quests + boats),
-graphics-preset migration, render-only mesher collision checks, quest reward
+graphics-preset migration, shadow-filter/PCSS/contact-AO preset profiles,
+render-only mesher collision checks, quest reward
 wiring, fluid/shape boundaries, legacy saves, every pinned block/item ID and
 V1–V8 golden chunk hashes. The headless runner and a verbose real-scene soak both exit without
 leaked ObjectDB instances or RIDs. The project-specific reliability audit,
@@ -861,6 +862,52 @@ torch or block emitter, and no chunk is remeshed as the sun moves. LOW and
 BALANCED presets are unchanged; LOW retains its 0.80 render scale, 45 m /
 1024 px shadow budget and disabled SSAO/SSR/glow/volumetric fog. The new
 response adds no screen-space pass.
+
+### Shadow softness and contact shading
+
+The existing directional sun keeps its four blended PSSM cascades and the moon
+remains a single low-energy directional fill. Shadow filtering, angular source
+size and blur are now owned by the existing Gfx preset: Godot exposes
+directional soft-shadow filter quality as a renderer-global setting, so
+DayNight no longer hard-codes SoftHigh during setup. LOW and BALANCED use
+SoftLow filtering, the existing 1024 px atlas and 45 m / 65 m ranges, with
+zero sun angular size (no directional PCSS) and a restrained 0.35 blur. This
+keeps a soft filtered edge while avoiding the additional PCSS cost on the
+MX230 preset. HIGH moves to SoftMedium and a small 0.18-degree solar size;
+ULTRA and MAX progressively raise filter quality and softness.
+
+Baked four-corner voxel AO remains the baseline contact shading for every
+preset. HIGH and above additionally enable a smaller-radius SSAO pass for
+short-range object contacts. Its direct-light contribution and AO-texture
+contribution are zero, avoiding extra darkening of directly lit faces and
+AO textures. LOW/BALANCED keep SSAO, SSR, glow and volumetric fog disabled.
+No emitter light nodes, extra scene nodes, voxel-light channels, mesh rebuilds,
+per-frame scans or new world/save data are introduced.
+
+The material gallery accepts an optional final shadow-profile argument:
+-1 reproduces the previous LOW gameplay shadow setup, 0 applies the new
+LOW preset and 2 applies HIGH. To compare, use the same seed, scene, camera
+and greedy renderer each time:
+
+~~~bash
+GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64
+"$GODOT" --path . res://tests/MaterialGallery.tscn -- 1337 user://shadow-legacy-close.png user://shadow-legacy-far.png greedy -1
+"$GODOT" --path . res://tests/MaterialGallery.tscn -- 1337 user://shadow-low-close.png user://shadow-low-far.png greedy 0
+"$GODOT" --path . res://tests/MaterialGallery.tscn -- 1337 user://shadow-high-close.png user://shadow-high-far.png greedy 2
+~~~
+
+The runner logs the selected atlas size, shadow distance, global filter tier,
+angular source size, blur and SSAO profile with each matched capture. The
+legacy-to-LOW comparison isolates the global filter/PCSS reduction; LOW-to-HIGH
+shows the optional higher-quality softness and screen-space contact pass.
+
+The matched MX230 captures (seed 1337, 1280×720, 61 blocks, nine ready
+chunks) are committed here: [legacy LOW close](docs/visual/shadow-softness/legacy-close.png),
+[legacy LOW far](docs/visual/shadow-softness/legacy-far.png),
+[new LOW close](docs/visual/shadow-softness/low-close.png),
+[new LOW far](docs/visual/shadow-softness/low-far.png),
+[HIGH close](docs/visual/shadow-softness/high-close.png), and
+[HIGH far](docs/visual/shadow-softness/high-far.png).
 
 For a repeatable phase comparison, use the same V8 world and camera position
 and change only the clock value:

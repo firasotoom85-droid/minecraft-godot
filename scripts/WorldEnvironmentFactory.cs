@@ -16,6 +16,8 @@ public static class WorldEnvironmentFactory
     public const float DistanceHazeBegin = 96.0f;
     public const float DistanceHazeEnd = 330.0f;
     public const float DistanceHazeCurve = 2.2f;
+    public const float ContactSsaoRadius = 0.82f;
+    public const float ContactSsaoIntensity = 1.30f;
 
     internal static Godot.Environment.FogModeEnum FogModeFor(
             bool usesDistanceHaze, bool underground, bool underwater) =>
@@ -63,8 +65,12 @@ public static class WorldEnvironmentFactory
             FogHeight = 30.0f,
             FogHeightDensity = improvedWorldgenLighting ? 0.0015f : 0.012f,
             SsaoEnabled = true,
-            SsaoRadius = 1.2f,
-            SsaoIntensity = improvedWorldgenLighting ? 1.25f : 1.4f,
+            SsaoRadius = improvedWorldgenLighting ? ContactSsaoRadius : 1.2f,
+            SsaoIntensity = improvedWorldgenLighting ? ContactSsaoIntensity : 1.4f,
+            SsaoPower = improvedWorldgenLighting ? 1.25f : 1.5f,
+            SsaoSharpness = 1.0f,
+            SsaoLightAffect = 0.0f,
+            SsaoAOChannelAffect = 0.0f,
             SsrEnabled = true,
             SsrMaxSteps = 64,
             GlowEnabled = true,

@@ -47,6 +47,9 @@ public partial class MaterialGallery : Node3D
     private string _temporaryWorldDir = string.Empty;
     private string _previousWorldDir = string.Empty;
     private bool _previousGreedyMeshing;
+    // -2 keeps the gallery's original fixed profile; -1 reproduces the
+    // previous gameplay LOW shadow setup; 0..N applies a live Gfx preset.
+    private int _shadowProfileIndex = -2;
 
     public static int RegisteredBlockCount => Enum.GetValues<BlockId>().Length;
     public static int Rows => (RegisteredBlockCount + Columns - 1) / Columns;
@@ -86,6 +89,10 @@ public partial class MaterialGallery : Node3D
                     : string.Equals(args[3], "atlas", StringComparison.OrdinalIgnoreCase) ? false
                     : null
                     : null;
+            _shadowProfileIndex = ParseInt(args, 4, -2);
+            if (_shadowProfileIndex < -2 || _shadowProfileIndex >= Gfx.Presets.Count)
+                throw new ArgumentOutOfRangeException(nameof(args),
+                        "Shadow profile must be omitted, -1 (legacy), or a valid Gfx preset index.");
 
             DisplayServer.WindowSetSize(new Vector2I(CaptureWidth, CaptureHeight));
             Engine.MaxFps = 60;
@@ -129,7 +136,30 @@ public partial class MaterialGallery : Node3D
             _camera.LookAt(target, Vector3.Up);
             CreateGallery(centerX, centerZ, baseY);
             AddLegend();
-            GD.Print($"MATERIAL_GALLERY_PROFILE resolution={CaptureWidth}x{CaptureHeight} target={target} close_offset={CloseCameraOffset} distant_offset={DistantCameraOffset} fov={CameraFovDegrees:F1} far={CameraFarDistance:F1} stage={GalleryStageSize:F1} legend_height={LegendPanelHeight:F1} key_rotation={KeyLightRotationDegrees} key_color={KeyLightColor} key_energy={KeyLightEnergy:F2} key_shadows={KeyLightShadowsEnabled} shadow_distance={KeyLightShadowDistance:F1} shadow_bias={KeyLightShadowBias:F3} shadow_normal_bias={KeyLightShadowNormalBias:F2} ambient_energy={AmbientLightEnergy:F2} ssao={AmbientOcclusionEnabled} fog={FogEnabled} volumetric_fog={VolumetricFogEnabled} ssr={ScreenSpaceReflectionsEnabled} glow={GlowEnabled}");
+            string shadowProfile = _shadowProfileIndex switch
+            {
+                -2 => "gallery-default",
+                -1 => "legacy-low",
+                _ => Gfx.Presets[_shadowProfileIndex].Name,
+            };
+            Gfx.Preset capturePreset = Gfx.Presets[
+                    _shadowProfileIndex < 0 ? Gfx.DefaultPreset : _shadowProfileIndex];
+            bool captureSsaoEnabled = _shadowProfileIndex switch
+            {
+                -2 => AmbientOcclusionEnabled,
+                -1 => false,
+                _ => capturePreset.Ssao,
+            };
+            float captureShadowDistance = _shadowProfileIndex == -2
+                    ? KeyLightShadowDistance : capturePreset.ShadowDistance;
+            float captureShadowBlur = _shadowProfileIndex == -1
+                    ? 0.25f : capturePreset.ShadowBlur;
+            float captureAngularDistance = _shadowProfileIndex == -1
+                    ? 0.5f : capturePreset.SunAngularDistance;
+            RenderingServer.ShadowQuality captureFilter = _shadowProfileIndex == -1
+                    ? RenderingServer.ShadowQuality.SoftHigh
+                    : capturePreset.ShadowFilterQuality;
+            GD.Print($"MATERIAL_GALLERY_PROFILE resolution={CaptureWidth}x{CaptureHeight} target={target} close_offset={CloseCameraOffset} distant_offset={DistantCameraOffset} fov={CameraFovDegrees:F1} far={CameraFarDistance:F1} stage={GalleryStageSize:F1} legend_height={LegendPanelHeight:F1} key_rotation={KeyLightRotationDegrees} key_color={KeyLightColor} key_energy={KeyLightEnergy:F2} key_shadows={KeyLightShadowsEnabled} shadow_distance={captureShadowDistance:F1} shadow_atlas={capturePreset.ShadowSize} shadow_filter={captureFilter} angular_distance={captureAngularDistance:F2} shadow_blur={captureShadowBlur:F2} shadow_bias={KeyLightShadowBias:F3} shadow_normal_bias={KeyLightShadowNormalBias:F2} ambient_energy={AmbientLightEnergy:F2} shadow_profile={shadowProfile} ssao={captureSsaoEnabled} ssao_radius={capturePreset.SsaoRadius:F2} ssao_intensity={capturePreset.SsaoIntensity:F2} fog={FogEnabled} volumetric_fog={VolumetricFogEnabled} ssr={ScreenSpaceReflectionsEnabled} glow={GlowEnabled}");
             GD.Print($"MATERIAL_GALLERY_BUILD blocks={RegisteredBlockCount} rows={Rows} columns={Columns} baseY={baseY} greedy={Mesher.Greedy}");
 
             await WaitForMeshes();
@@ -230,6 +260,31 @@ public partial class MaterialGallery : Node3D
             ShadowBias = KeyLightShadowBias,
             ShadowNormalBias = KeyLightShadowNormalBias,
         };
+        if (_shadowProfileIndex >= -1)
+        {
+            keyLight.DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel4Splits;
+            keyLight.DirectionalShadowBlendSplits = true;
+            Gfx.Preset preset = Gfx.Presets[
+                    _shadowProfileIndex < 0 ? Gfx.DefaultPreset : _shadowProfileIndex];
+            keyLight.DirectionalShadowMaxDistance = preset.ShadowDistance;
+            RenderingServer.DirectionalShadowAtlasSetSize(preset.ShadowSize, false);
+
+            if (_shadowProfileIndex == -1)
+            {
+                // Reproduce the previous LOW gameplay shadow parameters
+                // exactly, including its global filter and disabled SSAO.
+                RenderingServer.DirectionalSoftShadowFilterSetQuality(
+                        RenderingServer.ShadowQuality.SoftHigh);
+                keyLight.LightAngularDistance = 0.5f;
+                keyLight.ShadowBlur = 0.25f;
+                worldEnvironment.Environment.SsaoEnabled = false;
+            }
+            else
+            {
+                Gfx.ApplyShadowProfile(preset, keyLight);
+                Gfx.ApplyContactShadingProfile(preset, worldEnvironment.Environment);
+            }
+        }
         AddChild(keyLight);
 
         _camera = new Camera3D

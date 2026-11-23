@@ -2627,3 +2627,48 @@ owners of their respective signals; no new global lighting system was added.
   This was not a controlled FPS benchmark, so no frame-time delta is claimed;
   structural review and the real MX230 captures confirm the path functions,
   while a sustained low-preset frame-time soak remains a separate validation.
+
+## 50. Shadow softness and contact shading — 2026-11-22
+
+- Audited the live main-scene Sun, DayNight.Setup, WorldEnvironmentFactory,
+  Gfx preset application, the existing baked vertex-AO mesher and the material
+  gallery. The sun already used four blended directional cascades; the gap was
+  that DayNight forced the renderer-global SoftHigh filter and 0.5-degree
+  directional PCSS for every preset, including LOW. Existing LOW/BALANCED
+  presets disabled SSAO but did not own the global shadow-filter setting.
+- Moved filter quality, angular source size and shadow blur into the existing
+  Gfx.Preset. LOW/BALANCED now use SoftLow, keep the existing 1024 px atlas,
+  preserve their 45 m / 65 m shadow distances, use a restrained 0.35 blur and
+  set sun angular distance to zero to avoid directional PCSS. HIGH uses
+  SoftMedium with a restrained 0.18-degree angular size; ULTRA/MAX progressively
+  increase filter tier and angular softness. The same profile is applied to
+  the existing sun when presets are changed; no light node is added.
+- Design boundary: Godot's directional filter-quality API is renderer-global,
+  not per-light or per-viewport. Gfx therefore owns it and applies it on
+  every preset change. DayNight retains four blended cascades and no longer
+  overwrites the selected sun profile; the low-energy moon uses filtered
+  shadows with zero angular PCSS. The baked four-corner voxel AO remains the
+  low-cost contact baseline. HIGH+ enables a tighter SSAO radius/intensity,
+  with direct-light and AO-texture channel contribution disabled. LOW/BALANCED
+  retain no SSAO/SSR/glow/volumetric-fog pass.
+- Extended the production material gallery with an optional profile argument:
+  -1 recreates the previous LOW shadow setup, 0 applies new LOW and 2 applies
+  HIGH. The runner fixes seed, camera, direction, material layout and greedy
+  meshing, and logs the applied filter, atlas, distance, angular size, blur
+  and SSAO profile for each image pair. The MX230 / Godot 4.7.2 Forward+ captures
+  use seed 1337, 1280×720, 61 blocks and nine ready chunks; committed close/far
+  pairs are in docs/visual/shadow-softness for legacy LOW, new LOW and HIGH.
+- Automated graphics regressions pin the low-end filter/PCSS choices, the
+  HIGH/ULTRA/MAX progression, per-profile light application, contact-AO
+  parameters, legacy graphics-preset migration and the factory defaults.
+  The existing lighting and block-shape suites continue to cover packed sky /
+  block light, greedy AO continuity and partial-shape contacts.
+- Performance boundary: LOW/BALANCED reduce directional filtering from
+  SoftHigh to SoftLow and remove the old PCSS angular-size cost. Their
+  screen-space effects remain disabled and the baked voxel/AO mesh path is
+  unchanged. HIGH+ opts into more expensive filtering/PCSS and local SSAO.
+  No controlled FPS delta is claimed; no new per-frame work, emitter nodes,
+  chunk rebuilds, physics work or persistent allocations are introduced.
+- Compatibility: no save fields, persisted block/item IDs, generation rules
+  or versions, baked-light channels, voxel mutation paths, greedy meshing or
+  chunk streaming changed. V1–V11 and save V4 remain untouched.
