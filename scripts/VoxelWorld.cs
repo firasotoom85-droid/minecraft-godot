@@ -1362,6 +1362,31 @@ public partial class VoxelWorld : Node3D
         }
     }
 
+    private bool IsV12NaturalStone(int x, int y, int z,
+            byte[] data, int strideY, int ox, int oz)
+    {
+        if (y < 0 || y >= Height
+                || !WorldGenV12.ContainsWorldPosition(x, z))
+        {
+            return false;
+        }
+
+        int localX = x - ox;
+        int localZ = z - oz;
+        if (localX >= 0 && localX < ChunkX && localZ >= 0 && localZ < ChunkZ)
+        {
+            int index = localX + localZ * ChunkX + y * strideY;
+            return (BlockId)data[index] == BlockId.Stone;
+        }
+
+        // The same path is replayed in each neighboring output chunk. For
+        // positions outside this chunk, classify the natural terrain directly
+        // so every chunk makes the same successful-placement decision.
+        WorldGenV7.SurfaceSample surface = GeneratorV8.SampleSurface(x, z, SeaLevel);
+        return BlockAt(x, y, z, surface.Height,
+                surface.Height <= SeaLevel + 1, surface.Biome) == BlockId.Stone;
+    }
+
     private void StampOre(int gx, int gy, int gz, BlockId ore, byte[] data, int strideY, int ox, int oz)
     {
         int lx = gx - ox;
