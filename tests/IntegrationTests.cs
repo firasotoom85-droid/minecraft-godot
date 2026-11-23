@@ -162,8 +162,11 @@ public static class IntegrationTests
                             Vector3.Right, 3.0f, out _, out _, out _, out _),
                     "voxel interaction does not select a block beyond the loaded chunk boundary");
 
-            TestAssert.Check(world.SetBlock(29, unloadedSolidY, 0, BlockId.Air),
-                    "loaded ray approach cell can be cleared");
+            if (world.GetBlock(29, unloadedSolidY, 0) != BlockId.Air)
+                TestAssert.Check(world.SetBlock(29, unloadedSolidY, 0, BlockId.Air),
+                        "solid loaded ray approach cell can be cleared");
+            TestAssert.Equal(BlockId.Air, world.GetBlock(29, unloadedSolidY, 0),
+                    "loaded ray approach cell is air before the target");
             TestAssert.Check(world.SetBlock(30, unloadedSolidY, 0, BlockId.Stone),
                     "loaded ray target cell can be prepared");
             TestAssert.Check(player.TryRaycastVoxels(
