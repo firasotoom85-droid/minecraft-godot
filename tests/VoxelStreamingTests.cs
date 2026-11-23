@@ -303,6 +303,33 @@ public static class VoxelStreamingTests
                 "discarding a stale payload releases its reserved capacity slot");
         tracker.Complete(staleCoordinate, withinRetention: false);
 
+        Vector2I publishRaceCoordinate = new(3, -3);
+        TestAssert.Check(tracker.TryBegin(publishRaceCoordinate),
+                "publish-race test claims its in-flight coordinate");
+        int publishRaceSlots = 1;
+        int publishRaceCalls = 0;
+        int publishRaceDiscards = 0;
+        ChunkWorkerExecutionResult rejectedPublish = ExecuteTestWorker(
+                () => true,
+                () => publishRaceSlots--,
+                () => new object(),
+                _ =>
+                {
+                    publishRaceCalls++;
+                    return false;
+                },
+                _ => publishRaceDiscards++,
+                () => publishRaceSlots++,
+                _ => false,
+                (_, _) => { });
+        TestAssert.Check(!rejectedPublish.Published && publishRaceCalls == 1,
+                "worker rejects a payload when the final locked publication check detects travel");
+        TestAssert.Equal(1, publishRaceDiscards,
+                "a payload rejected at publication is discarded exactly once");
+        TestAssert.Equal(1, publishRaceSlots,
+                "a payload rejected at publication releases its reserved capacity slot");
+        tracker.Complete(publishRaceCoordinate, withinRetention: false);
+
         Vector2I cancelledCoordinate = new(4, 4);
         TestAssert.Check(tracker.TryBegin(cancelledCoordinate),
                 "shutdown-cancellation test claims its coordinate");
