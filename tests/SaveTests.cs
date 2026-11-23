@@ -288,6 +288,15 @@ public static class SaveTests
         TestAssert.Check(System.IO.File.Exists(sourceMarker),
                 "failed duplication leaves all source files in place");
 
+        WorldStore.CopyFileWriteAllowedForTests = _ => false;
+        string? failedWriteCopy;
+        try { failedWriteCopy = WorldStore.Duplicate(duplicateFailureSource); }
+        finally { WorldStore.CopyFileWriteAllowedForTests = null; }
+        TestAssert.Check(failedWriteCopy is null,
+                "injected destination write failure aborts duplication");
+        TestAssert.Check(System.IO.File.Exists(sourceMarker),
+                "destination write failure leaves the original source bytes intact");
+
         // Directory and file links are never traversed during duplicate or
         // delete; their external targets must remain byte-identical.
         string externalDirectory = ProjectSettings.GlobalizePath(root) + "/external-target";
