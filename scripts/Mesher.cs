@@ -444,7 +444,9 @@ public static class Mesher
                             surf.Color.Add(new Color(litColor.R, litColor.G, litColor.B,
                                     MaterialResponse.VertexTag(family, wetFace,
                                             cornerBounce[t] / 15.0f)));
-                            surf.Uv.Add(BlockDb.UvLut[ui + t]);
+                            surf.Uv.Add(greedy && ReferenceEquals(surf, opaque)
+                                    ? BlockDb.FaceUvs[vi + t]
+                                    : BlockDb.UvLut[ui + t]);
                             if (greedy && ReferenceEquals(surf, opaque))
                                 surf.Uv2.Add(new Vector2(tile, 0.0f));
                         }
