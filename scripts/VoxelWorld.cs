@@ -2560,10 +2560,11 @@ public partial class VoxelWorld : Node3D
         c.Setup(this, cp);
         c.Generate();
         MeshPayload payload = Mesher.Build(this, cp);
+        bool hasCollider = payload.Collision.Count > 0;
         c.ApplyPayload(payload);
         PayloadPool.Release(payload);
         _chunks[cp] = c;
-        SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
+        SetChunkColliderAvailability(cp, hasCollider);
         return c;
     }
 
