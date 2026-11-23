@@ -72,8 +72,7 @@ public partial class GameSession : Node
             }
 
             if (worldRead.Status == WorldReadStatus.Missing && playerRead.Status == WorldReadStatus.Missing
-                    && (manifest.HasSavedData || manifest.PlaytimeSeconds > 0
-                    ))
+                    && (manifest.HasSavedData || manifest.PlaytimeSeconds > 0))
             {
                 WorldStore.RequireRecovery(WorldDir);
                 throw new System.IO.InvalidDataException(
