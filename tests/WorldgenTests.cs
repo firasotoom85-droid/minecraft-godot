@@ -66,15 +66,22 @@ public static class WorldgenTests
                 "normal-world spawn has support and a clear dry player capsule");
 
         bool noSafeSpawnReported = false;
+        int rejectedSpawnCandidates = 0;
         try
         {
-            _ = v5.FindSpawn(static _ => false);
+            _ = v5.FindSpawn(_ =>
+            {
+                rejectedSpawnCandidates++;
+                return false;
+            });
         }
         catch (InvalidOperationException error)
         {
             noSafeSpawnReported = error.Message.Contains(
                     "within 512 blocks", StringComparison.Ordinal);
         }
+        TestAssert.Check(rejectedSpawnCandidates > 0,
+                "the no-safe-spawn fixture evaluates actual generated candidates");
         TestAssert.Check(noSafeSpawnReported,
                 "rejecting every candidate reports a controlled no-safe-spawn failure instead of returning a fallback");
         int normalSpawnX = Mathf.FloorToInt(normalSpawn.X);
