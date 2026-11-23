@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a focused improvement with a clear use case.
+title: "[Feature]: "
+labels:
+  - type: feature
+  - status: needs-triage
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What limitation or user need does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful behavior from a player's or contributor's perspective.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility or performance considerations
+      description: Mention saves, world generation, persisted IDs, streaming, rendering or input where applicable.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked the current roadmap and searched for an existing request.
+          required: true
