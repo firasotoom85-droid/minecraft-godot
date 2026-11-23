@@ -73,6 +73,7 @@ public partial class Main : Node3D
 
         _daynight = AddSystem(new DayNight());
         _daynight.Setup(_world, _player, _sun, _worldEnv);
+        _gfx.SetMoonShadowLight(_daynight.Moon);
 
         _fx = AddSystem(new Fx());
         _fx.Setup(_player);

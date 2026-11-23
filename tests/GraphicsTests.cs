@@ -52,6 +52,7 @@ public static class GraphicsTests
                 Gfx.Presets[5].ShadowFilterQuality, "MAX FSR2 retains the same shadow profile");
 
         DirectionalLight3D profileLight = new();
+        DirectionalLight3D moonLight = new();
         Godot.Environment profileEnvironment = WorldEnvironmentFactory.Build();
         try
         {
@@ -80,10 +81,22 @@ public static class GraphicsTests
                     "contact AO stays out of direct light instead of dirtying lit surfaces");
             TestAssert.Equal(0.0f, profileEnvironment.SsaoAOChannelAffect,
                     "screen-space AO does not double-darken already baked AO channels");
+
+            foreach (Gfx.Preset preset in Gfx.Presets)
+            {
+                Gfx.ApplyMoonShadowDistance(preset, moonLight);
+                TestAssert.Equal(preset.ShadowDistance, moonLight.DirectionalShadowMaxDistance,
+                        $"{preset.Name} applies the same bounded shadow range to the night moon");
+            }
+
+            Gfx.ApplyMoonShadowDistance(low, null);
+            TestAssert.Equal(Gfx.Presets[^1].ShadowDistance, moonLight.DirectionalShadowMaxDistance,
+                    "missing moon reference is safe and leaves an existing light unchanged");
         }
         finally
         {
             profileLight.Free();
+            moonLight.Free();
         }
 
         Godot.Environment defaultEnvironment = WorldEnvironmentFactory.Build();

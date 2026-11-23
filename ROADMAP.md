@@ -2948,3 +2948,36 @@ SSAO, SSR, glow and volumetric fog.
 **Validation status:** automated and GPU verification pending on Godot 4.7.2
 .NET. Reproduce the matched pair with the README commands. No measured frame
 time or visual metric is claimed until those captures complete.
+
+## 57. Preset-bounded night shadow range — 2026-11-23
+
+- Audited the already-merged shadow softness/contact-shading implementation
+  and the five production lighting capture scenes. LOW/BALANCED already used
+  SoftLow directional filtering, zero angular PCSS on the sun, baked four-corner
+  AO and no screen-space/volumetric passes. The missing low-cost bound was the
+  existing moon: `DayNight.Setup` left its shadow distance at a fixed 120 m,
+  bypassing LOW's 45 m and BALANCED's 65 m renderer budget at night.
+- Kept ownership in the existing `Gfx` quality preset. The already-created
+  moon is exposed by `DayNight` and attached to `Gfx` after setup; preset
+  application now updates its shadow distance alongside the sun. The moon
+  remains one low-energy directional fill with zero angular size and the
+  existing filtered blur. No extra scene or per-emitter light node is added.
+- The five matched real-scene comparison captures now assert exactly two
+  `Light3D` nodes (the main-scene sun and moon, both directional) and zero
+  `OmniLight3D` nodes. This catches accidental point/spot emitter lights too.
+  They also verify both active shadow ranges match the selected preset
+  and log filter tier, atlas size, angular sizes and blur with each capture.
+  `GraphicsTests` covers the moon range for every preset and the null-light
+  edge case. Existing baked sky/block/AO channel and lighting tests remain
+  unchanged and continue to guard the mesh-light path.
+- GPU-cost boundary: LOW/BALANCED remain 1024 px / SoftLow / no PCSS / no
+  SSAO, SSR, glow or volumetric fog; the moon's nighttime range is reduced
+  from the prior fixed 120 m to the selected 45/65 m budget. HIGH/ULTRA/MAX
+  retain their higher atlas/filter/PCSS/post-processing tiers and 90/120/130 m
+  ranges. The range cap reduces night-time shadow coverage; no numeric GPU
+  frame-time gain is claimed because the portable engine counters do not
+  provide GPU frame time and no controlled FPS delta was measured.
+- Compatibility: no save/settings migration, persisted IDs, world-generation
+  rules or versions, baked-light channels, voxel mutation APIs, shaders, greedy
+  meshing, chunk streaming or physics behavior changed. All generator versions
+  and existing worlds remain untouched.
