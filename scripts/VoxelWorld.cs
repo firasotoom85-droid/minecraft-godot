@@ -2154,7 +2154,13 @@ public partial class VoxelWorld : Node3D
 
     public bool SetBlock(int x, int y, int z, BlockId id) => SetBlock(x, y, z, id, 0);
 
-    internal static bool IsMutationBlockIdDefined(BlockId id) => BlockDb.IsDefined(id);
+    internal static bool IsMutationBlockIdDefined(BlockId id)
+    {
+        // Unit tests and tools may call the mutation boundary before the world
+        // node enters the scene tree; ensure the shared lookup tables exist.
+        BlockDb.EnsureTables();
+        return BlockDb.IsDefined(id);
+    }
 
     /// <summary>All block and shape-state edits pass through this mutation seam.</summary>
     public bool SetBlock(int x, int y, int z, BlockId id, byte state)
