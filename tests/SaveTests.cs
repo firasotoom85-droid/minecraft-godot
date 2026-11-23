@@ -488,6 +488,36 @@ public static class SaveTests
             session.Manifest = previousSessionManifest;
         }
 
+        string legacyPlayedWorld = WorldStore.Create("Legacy Played World", 1204);
+        WorldManifest legacyPlayedManifest = WorldStore.ReadManifest(legacyPlayedWorld)! with
+        {
+            CreatedUtc = 1,
+            PlayedUtc = 2,
+            HasSavedData = false,
+        };
+        TestAssert.Check(WorldStore.WriteManifest(legacyPlayedWorld, legacyPlayedManifest),
+                "legacy timestamp-only manifest remains writable");
+        if (session is not null)
+        {
+            session.SelectWorld(legacyPlayedWorld);
+            bool legacyMissingHistoryRejected = false;
+            try { session.EnsureWorld(); }
+            catch (System.IO.InvalidDataException) { legacyMissingHistoryRejected = true; }
+            TestAssert.Check(legacyMissingHistoryRejected,
+                    "legacy manifests with a played timestamp are not mistaken for never-saved worlds");
+            session.WorldDir = previousWorldDirectory;
+            session.Manifest = previousSessionManifest;
+        }
+
+        string unsupportedPath = root + "/future-save.json";
+        WorldStore.WriteAtomic(unsupportedPath, v2);
+        System.IO.File.WriteAllText(ProjectSettings.GlobalizePath(unsupportedPath),
+                """{"version":999,"edits":{},"time":0.5}""");
+        WorldReadResult<WorldSave> unsupportedRead = WorldStore.ReadJsonResult<WorldSave>(
+                unsupportedPath, WorldStore.Json);
+        TestAssert.Equal(WorldReadStatus.Unsupported, unsupportedRead.Status,
+                "future save versions are reported as unsupported without falling back to older data");
+
         string emptyDefault = WorldStore.WorldsRoot + "/new-empty-default-" + testIdSuffix;
         TestAssert.Check(WorldStore.DefaultFor(emptyDefault) is not null,
                 "an empty new directory still receives legacy default metadata");
@@ -503,7 +533,7 @@ public static class SaveTests
                 {
                     collisionFirst, collisionSecond, duplicateFailureSource,
                     corruptManifestWorld, otherValidWorld, damagedWorld, savedHistoryWorld,
-                    populatedDefault, emptyDefault,
+                    legacyPlayedWorld, populatedDefault, emptyDefault,
                 })
             WorldStore.Delete(testWorld);
 
@@ -512,6 +542,7 @@ public static class SaveTests
         DirAccess.RemoveAbsolute(backupPath);
         DirAccess.RemoveAbsolute(corruptPath + ".bak");
         DirAccess.RemoveAbsolute(corruptPath);
+        DirAccess.RemoveAbsolute(unsupportedPath);
         DirAccess.RemoveAbsolute(path + ".bak2");
         DirAccess.RemoveAbsolute(path + ".bak");
         DirAccess.RemoveAbsolute(path);
