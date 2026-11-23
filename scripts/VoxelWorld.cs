@@ -2776,13 +2776,9 @@ public partial class VoxelWorld : Node3D
                 }
 
                 bool outsideRetention;
-                Vector2I streamCenter;
-                int cacheLimit;
                 lock (_queueLock)
                 {
                     bool rebuildRequested = _workTracker.Complete(cp);
-                    streamCenter = _streamCenter;
-                    cacheLimit = _streamRetentionLimit + 1;
                     outsideRetention = !ChunkStreamingPolicy.IsWithinRetention(
                             cp, _streamCenter, _streamRetentionLimit);
                     if (_alive && !outsideRetention)
@@ -2799,10 +2795,11 @@ public partial class VoxelWorld : Node3D
                 }
 
                 // A build can populate a halo cache after UnloadFar has
-                // already evicted it. Re-prune stale worker output on completion.
+                // already evicted it. Re-prune against the latest center while
+                // holding the queue lock so the center cannot change mid-prune.
                 if (_alive && outsideRetention)
                 {
-                    PruneWorldCaches(streamCenter, cacheLimit);
+                    PruneWorldCachesForCurrentRegion();
                 }
             }
         }
@@ -3361,6 +3358,14 @@ public partial class VoxelWorld : Node3D
     /// the retained region. Active snapshots/chunks retain their own array
     /// references, so removing a cache entry does not invalidate in-flight work.
     /// </summary>
+    private void PruneWorldCachesForCurrentRegion()
+    {
+        lock (_queueLock)
+        {
+            PruneWorldCaches(_streamCenter, _streamRetentionLimit + 1);
+        }
+    }
+
     private void PruneWorldCaches(Vector2I center, int limit)
     {
         lock (_mutex)
