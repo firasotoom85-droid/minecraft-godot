@@ -108,7 +108,7 @@ public static class MobContentTests
         foreach (BlockId plant in new[]
         {
             BlockId.TallGrass, BlockId.FlowerRed, BlockId.FlowerYellow, BlockId.Torch,
-            BlockId.Ladder, BlockId.Wheat0, BlockId.Wheat1, BlockId.Wheat2,
+            BlockId.Ladder, BlockId.Wheat0, BlockId.Wheat1, BlockId.Wheat2, BlockId.RiverReeds,
         })
             TestAssert.Check(!MobNavigationRules.IsGravityObstacle(plant),
                     $"{plant} remains traversable to gravity-driven mob steering");

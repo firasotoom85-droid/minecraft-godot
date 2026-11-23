@@ -27,7 +27,8 @@ public partial class MobProjectile : Area3D
         if (_terrainRay == null) return;
         _terrainRay.GlobalPosition = from;
         _terrainRay.TargetPosition = to - from;
-        _terrainRay.ForceRaycastUpdate();
+        if (_terrainRay.IsInsideTree())
+            _terrainRay.ForceRaycastUpdate();
     }
 
     public void Setup(Mobs manager, Vector3 origin, Vector3 target, float damage,
