@@ -306,7 +306,12 @@ the project's current V11, weather is fixed to clear, output is 1280×720, and
 LOW is the default renderer preset. Each profile pins its camera composition
 and time of day; choose the same seed and preset for a matched five-scene set.
 The runner logs the sampled sky/block-light nibbles, nearby emitter count,
-render settings and output path, and rejects any `OmniLight3D` in the scene.
+render settings and output path. It asserts that the production scene contains
+exactly two `Light3D` nodes (the existing sun and moon, both directional) and
+no per-emitter `OmniLight3D` lights. For every preset it records the effective
+sun/moon shadow ranges, atlas size, renderer-global filter tier, angular source
+sizes and blur; the capture fails if either directional light escapes the
+selected range.
 
 The cave scene constructs its chamber and open shaft in a disposable world.
 Every changed voxel is written through `VoxelWorld.SetBlock`; the other scenes
@@ -882,14 +887,31 @@ DayNight no longer hard-codes SoftHigh during setup. LOW and BALANCED use
 SoftLow filtering, the existing 1024 px atlas and 45 m / 65 m ranges, with
 zero sun angular size (no directional PCSS) and a restrained 0.35 blur. This
 keeps a soft filtered edge while avoiding the additional PCSS cost on the
-MX230 preset. HIGH moves to SoftMedium and a small 0.18-degree solar size;
-ULTRA and MAX progressively raise filter quality and softness.
+MX230 preset. The same preset-owned shadow distance now applies to the
+existing moon as well as the sun: 45 m (LOW), 65 m (BALANCED), 90 m (HIGH),
+120 m (ULTRA) and 130 m (MAX / MAX FSR2). The moon previously retained a fixed
+120 m range even on LOW, unnecessarily extending the night-time shadow
+frustum well beyond the selected low-end budget. Its zero angular size remains
+unchanged, so it shares the global filter without adding a second PCSS cost.
+HIGH moves to SoftMedium and a small 0.18-degree solar size; ULTRA and MAX
+progressively raise filter quality and softness.
 
 Baked four-corner voxel AO remains the baseline contact shading for every
 preset. HIGH and above additionally enable a smaller-radius SSAO pass for
 short-range object contacts. Its direct-light contribution and AO-texture
 contribution are zero, avoiding extra darkening of directly lit faces and
 AO textures. LOW/BALANCED keep SSAO, SSR, glow and volumetric fog disabled.
+The cost tiers are intentionally explicit: LOW/BALANCED use the 1024 px
+shadow atlas, SoftLow filtering, no PCSS and shorter 45/65 m sun+moon ranges;
+HIGH raises the atlas to 2048 px, uses SoftMedium + 0.18-degree PCSS and
+local SSAO; ULTRA/MAX use 4096 px, progressively higher filtering/PCSS and
+120/130 m ranges, with the higher-end post-processing already listed in the
+preset table in `scripts/Gfx.cs`. Larger shadow coverage, higher filter tiers,
+PCSS and screen-space/volumetric effects cost more GPU time and bandwidth; the
+exact frame-time delta is hardware/scene dependent. Godot's portable built-in
+performance counters do not expose GPU frame time, so no millisecond or FPS
+gain is claimed by this change. The measurable low-end change is that the
+night moon no longer renders shadows out to 120 m when LOW requests 45 m.
 No emitter light nodes, extra scene nodes, voxel-light channels, mesh rebuilds,
 per-frame scans or new world/save data are introduced.
 

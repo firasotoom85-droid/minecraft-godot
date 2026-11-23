@@ -307,6 +307,8 @@ public partial class DayNight : Node
     private const double CausticFrameTime = 0.1;
 
     private readonly DirectionalLight3D _moon = new();
+    /// <summary>The existing single directional moon light, configured by Gfx presets.</summary>
+    public DirectionalLight3D Moon => _moon;
     private MeshInstance3D _stars = null!;
     private MeshInstance3D _clouds = null!;
     private MeshInstance3D _cloudsHigh = null!;
@@ -365,7 +367,8 @@ public partial class DayNight : Node
         _moon.LightColor = new Color(0.55f, 0.65f, 1.0f);
         _moon.LightEnergy = 0.0f;
         _moon.ShadowEnabled = true;
-        _moon.DirectionalShadowMaxDistance = 120.0f;
+        // Gfx applies the selected preset's shadow distance when it attaches
+        // this existing moon after DayNight setup. Keep range ownership there.
         // Keep the existing four blended cascades for the moving sun. Filter
         // quality, sun angular size and sun blur are selected by Gfx so LOW
         // does not inherit an expensive global SoftHigh/PCSS configuration.

@@ -46,6 +46,7 @@ public partial class Gfx : Node
     public int Current = DefaultPreset;
     public VoxelWorld? World;
     public DirectionalLight3D? Sun;
+    public DirectionalLight3D? Moon;
     public WorldEnvironment? WorldEnv;
 
     // Dynamic quality governor: sustained-low fps steps the preset down and,
@@ -76,6 +77,29 @@ public partial class Gfx : Node
 
         light.LightAngularDistance = preset.SunAngularDistance;
         light.ShadowBlur = preset.ShadowBlur;
+    }
+
+    /// <summary>
+    /// Apply the small-radius contact AO profile without overriding the
+    /// existing mesh-baked vertex AO. LOW/BALANCED deliberately keep this
+    /// screen-space pass disabled and rely on the baked voxel corner stencil.
+    /// </summary>
+    /// <summary>
+    /// Keep the existing moon's shadow frustum inside the selected preset's
+    /// budget. The moon shares the renderer-global filtered shadow path but
+    /// must not retain a larger fixed range on LOW/BALANCED at night.
+    /// </summary>
+    internal static void ApplyMoonShadowDistance(Preset preset, DirectionalLight3D? moon)
+    {
+        if (moon != null)
+            moon.DirectionalShadowMaxDistance = preset.ShadowDistance;
+    }
+
+    /// <summary>Attach the existing DayNight moon and immediately apply the active preset.</summary>
+    public void SetMoonShadowLight(DirectionalLight3D moon)
+    {
+        Moon = moon;
+        ApplyMoonShadowDistance(CurrentPreset, Moon);
     }
 
     /// <summary>
@@ -195,6 +219,7 @@ public partial class Gfx : Node
         ApplyShadowProfile(p, Sun);
         if (Sun != null)
             Sun.DirectionalShadowMaxDistance = p.ShadowDistance;
+        ApplyMoonShadowDistance(p, Moon);
 
         // 32-bit depth: 16-bit quantises badly at 100+ m shadow distances and
         // shows up as crawling acne on large flat faces.

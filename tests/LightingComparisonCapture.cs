@@ -115,15 +115,32 @@ public partial class LightingComparisonCapture : Node
             camera.GlobalPosition = fixture.LookTarget + profile.CameraOffset;
             camera.LookAt(fixture.LookTarget, Vector3.Up);
 
+            DirectionalLight3D sun = game.GetNode<DirectionalLight3D>("Sun");
+            DirectionalLight3D moon = dayNight.Moon;
+            int lightNodes = CountNodes<Light3D>(game);
+            int directionalLights = CountNodes<DirectionalLight3D>(game);
             int omniLights = CountNodes<OmniLight3D>(game);
-            if (omniLights != 0)
+            if (lightNodes != 2 || directionalLights != 2 || omniLights != 0)
                 throw new InvalidOperationException(
-                        $"The comparison scene contains {omniLights} OmniLight3D nodes; emitters must use baked voxel light.");
+                        $"The comparison scene must contain only the existing sun and moon (lights={lightNodes}, " +
+                        $"directional={directionalLights}, omni={omniLights}); emitter lighting must remain baked.");
 
             Gfx.Preset preset = Gfx.Presets[presetIndex];
+            if (sun.DirectionalShadowMaxDistance != preset.ShadowDistance
+                    || moon.DirectionalShadowMaxDistance != preset.ShadowDistance)
+                throw new InvalidOperationException(
+                        $"The {preset.Name} comparison must apply its {preset.ShadowDistance:F1} m shadow range to both sun and moon.");
+
             GD.Print($"LIGHTING_COMPARISON_START scenario={Scenario} seed={seed} gen={world.WorldGenVersion} " +
                     $"preset={preset.Name} time={profile.TimeOfDay:F3} weather=Clear " +
-                    $"view={world.ViewDistance} render_scale={preset.Scale:F2} location={fixture.LocationDescription}");
+                    $"view={world.ViewDistance} render_scale={preset.Scale:F2} " +
+                    $"shadow_distance={preset.ShadowDistance:F1} shadow_atlas={preset.ShadowSize} " +
+                    $"shadow_filter={preset.ShadowFilterQuality} sun_shadow_distance={sun.DirectionalShadowMaxDistance:F1} " +
+                    $"moon_shadow_distance={moon.DirectionalShadowMaxDistance:F1} " +
+                    $"sun_angular_distance={sun.LightAngularDistance:F2} moon_angular_distance={moon.LightAngularDistance:F2} " +
+                    $"sun_blur={sun.ShadowBlur:F2} moon_blur={moon.ShadowBlur:F2} " +
+                    $"light_nodes={lightNodes} directional_lights={directionalLights} omni_lights={omniLights} " +
+                    $"location={fixture.LocationDescription}");
 
             for (int frame = 0; frame < LightingComparisonProfiles.WarmupFrames; frame++)
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
