@@ -31,7 +31,7 @@ public partial class VoxelWorld : Node3D
     /// <summary>World height in blocks: 64 for gen v1–v4 (byte-parity), 128 for v5+.</summary>
     public int Height { get; private set; } = 64;
 
-    private const int UnloadMargin = 2;
+    internal const int UnloadMargin = 2;
     private static readonly bool UseThreads = true;
 
     public int ViewDistance = 5;        // chunk radius streamed around the player (gfx presets)
