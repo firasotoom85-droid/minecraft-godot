@@ -52,8 +52,10 @@ public static class GlassTests
         string shader = ChunkMaterials.Lava.Shader?.Code ?? string.Empty;
         TestAssert.Check(shader.Contains("depth_draw_opaque"),
                 "emissive lava keeps depth writing for fully opaque texels");
-        TestAssert.Check(shader.Contains("ALPHA = tex.a;") && !shader.Contains("blend_mix"),
-                "lava remains on the opaque emissive surface rather than alpha sorting");
+        TestAssert.Check(!shader.Contains("ALPHA") && !shader.Contains("blend_mix"),
+                "lava does not write ALPHA or enter the transparent sorting pipeline");
+        TestAssert.Check(shader.Contains("EMISSION = tex.rgb * warm * lava_emission"),
+                "lava retains its block-light-driven emissive output");
     }
 
     private static void TestCutoutShaders()
@@ -76,6 +78,9 @@ public static class GlassTests
         TestAssert.Check(shader.Contains("ALPHA = tex.a;")
                         && shader.Contains("ALPHA_SCISSOR_THRESHOLD = 0.5;"),
                 $"{path} uses the same binary alpha threshold for leaves and cross-plants");
+        TestAssert.Check(shader.Contains("ALPHA_ANTIALIASING_EDGE = 0.4;")
+                        && 0.4f < 0.5f,
+                $"{path} defines an alpha antialiasing edge below its scissor threshold");
         TestAssert.Check(!shader.Contains("blend_mix"),
                 $"{path} cutouts do not enter the sorted alpha-blended pipeline");
     }
@@ -85,18 +90,64 @@ public static class GlassTests
         Chunk chunk = new();
         VoxelWorld world = new();
         chunk.Setup(world, Vector2I.Zero);
-        MeshInstance3D? glass = chunk.GetNodeOrNull<MeshInstance3D>("GlassMesh");
-        MeshInstance3D? water = chunk.GetNodeOrNull<MeshInstance3D>("WaterMesh");
-        TestAssert.Check(glass is not null, "chunk retains its dedicated glass surface");
-        TestAssert.Check(water is not null, "chunk retains its dedicated water surface");
-        if (glass is not null)
-            TestAssert.Check(glass.SortingUseAabbCenter,
-                    "glass sorts using its mesh bounds center instead of the chunk origin");
-        if (water is not null)
-            TestAssert.Check(water.SortingUseAabbCenter,
-                    "water sorts using its mesh bounds center instead of the chunk origin");
+
+        TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("OpaqueMesh") is not null,
+                "chunk creates the required opaque surface immediately");
+        TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("GlassMesh") is null
+                        && chunk.GetNodeOrNull<MeshInstance3D>("WaterMesh") is null
+                        && chunk.GetNodeOrNull<MeshInstance3D>("LavaMesh") is null,
+                "empty glass, water and lava surfaces do not allocate mesh nodes");
+        TestAssert.Check(chunk.GetNodeOrNull<CollisionShape3D>("Collision") is null,
+                "collision node is deferred until a payload contains collision geometry");
+
+        SurfaceData opaque = CreateTriangleSurface();
+        SurfaceData glassSurface = CreateTriangleSurface();
+        SurfaceData waterSurface = CreateTriangleSurface();
+        SurfaceData lavaSurface = CreateTriangleSurface();
+        List<Vector3> collision = [Vector3.Zero, Vector3.Right, Vector3.Up];
+        (bool greedy, long revision) = Mesher.CaptureConfiguration();
+        MeshPayload populated = new(opaque, glassSurface, waterSurface, lavaSurface,
+                collision, 0, revision, world.MissingColliderBoundaryMask(Vector2I.Zero));
+        chunk.ApplyPayload(populated);
+        TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("GlassMesh") is { SortingUseAabbCenter: true },
+                "first non-empty glass payload creates a bounds-sorted node");
+        TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("WaterMesh") is { SortingUseAabbCenter: true },
+                "first non-empty water payload creates a bounds-sorted node");
+        TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("LavaMesh") is { SortingUseAabbCenter: false },
+                "opaque lava does not enter transparent chunk sorting");
+        TestAssert.Check(chunk.GetNodeOrNull<CollisionShape3D>("Collision")?.Shape is ConcavePolygonShape3D,
+                "non-empty collision payload creates the collider node lazily");
+
+        PayloadPool.Release(populated);
+        SurfaceData emptyOpaque = new();
+        SurfaceData emptyGlass = new();
+        SurfaceData emptyWater = new();
+        SurfaceData emptyLava = new();
+        MeshPayload emptied = new(emptyOpaque, emptyGlass, emptyWater, emptyLava,
+                [], 0, revision, world.MissingColliderBoundaryMask(Vector2I.Zero));
+        chunk.ApplyPayload(emptied);
+        TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("GlassMesh") is { Mesh: null }
+                        && chunk.GetNodeOrNull<MeshInstance3D>("WaterMesh") is { Mesh: null }
+                        && chunk.GetNodeOrNull<MeshInstance3D>("LavaMesh") is { Mesh: null },
+                "rebuilds clear optional surfaces without deleting or recreating their nodes");
+        TestAssert.Check(chunk.GetNodeOrNull<CollisionShape3D>("Collision")?.Shape is null,
+                "empty collision rebuild clears the existing shape");
+        PayloadPool.Release(emptied);
+
+        TestAssert.Check(Mesher.CaptureConfiguration().Greedy == greedy,
+                "chunk surface setup does not mutate the active meshing configuration");
         chunk.Free();
         world.Free();
+    }
+
+    private static SurfaceData CreateTriangleSurface()
+    {
+        SurfaceData surface = new();
+        surface.Vertex.AddRange([Vector3.Zero, Vector3.Right, Vector3.Up]);
+        surface.Normal.AddRange([Vector3.Back, Vector3.Back, Vector3.Back]);
+        surface.Color.AddRange([Colors.White, Colors.White, Colors.White]);
+        surface.Uv.AddRange([Vector2.Zero, Vector2.Right, Vector2.Up]);
+        return surface;
     }
 
     private static void TestCutoutBlockClassification()
@@ -133,17 +184,21 @@ public static class GlassTests
             // cannot accidentally satisfy a surface-routing assertion.
             for (int y = 99; y <= 102; y++)
             for (int z = 1; z <= 3; z++)
-            for (int x = 1; x <= 9; x++)
+            for (int x = 1; x <= 12; x++)
                 world.SetBlock(x, y, z, BlockId.Air);
 
             TestAssert.Check(world.SetBlock(2, 100, 2, BlockId.TallGrass),
                     "cross-plant fixture is placed through VoxelWorld.SetBlock");
             TestAssert.Check(world.SetBlock(4, 100, 2, BlockId.Leaves),
                     "foliage fixture is placed through VoxelWorld.SetBlock");
-            TestAssert.Check(world.SetBlock(6, 100, 2, BlockId.Glass),
+            TestAssert.Check(world.SetBlock(5, 100, 2, BlockId.Stone),
+                    "opaque backing block is placed directly behind cutout foliage through SetBlock");
+            TestAssert.Check(world.SetBlock(7, 100, 2, BlockId.Glass),
                     "glass fixture is placed through VoxelWorld.SetBlock");
-            TestAssert.Check(world.SetBlock(8, 100, 2, BlockId.Water),
+            TestAssert.Check(world.SetBlock(9, 100, 2, BlockId.Water),
                     "water fixture is placed through VoxelWorld.SetBlock");
+            TestAssert.Check(world.SetBlock(11, 100, 2, BlockId.Ladder),
+                    "ladder fixture is placed through VoxelWorld.SetBlock");
 
             foreach (bool greedy in new[] { false, true })
             {
@@ -156,14 +211,44 @@ public static class GlassTests
                             $"{mode} meshing routes double-sided cross-plants to the opaque cutout surface");
                     TestAssert.Equal(12, CountTrianglesInCell(payload.Opaque.Vertex, 4, 100, 2),
                             $"{mode} meshing routes leaf cubes to the opaque cutout surface");
-                    TestAssert.Equal(12, CountTrianglesInCell(payload.Glass.Vertex, 6, 100, 2),
+                    TestAssert.Equal(12, CountTrianglesInCell(payload.Opaque.Vertex, 5, 100, 2),
+                            $"{mode} meshing retains the full opaque backing block behind foliage holes");
+                    TestAssert.Equal(2, CountTrianglesOnPlane(payload.Opaque.Vertex,
+                                    axis: 0, coordinate: 5.0f, y: 100, z: 2),
+                            $"{mode} emits the opaque backing face without a coincident foliage back face");
+                    TestAssert.Equal(12, CountTrianglesInCell(payload.Glass.Vertex, 7, 100, 2),
                             $"{mode} meshing routes glass faces to the blended glass surface");
-                    TestAssert.Equal(12, CountTrianglesInCell(payload.Water.Vertex, 8, 100, 2),
+                    TestAssert.Equal(12, CountTrianglesInCell(payload.Water.Vertex, 9, 100, 2),
                             $"{mode} meshing routes water faces to the blended water surface");
-                    TestAssert.Equal(0, CountTrianglesInCell(payload.Opaque.Vertex, 6, 100, 2),
+                    TestAssert.Equal(12, CountTrianglesInCell(payload.Opaque.Vertex, 11, 100, 2),
+                            $"{mode} meshing routes ladder texels to the opaque cutout surface");
+                    TestAssert.Equal(0, CountTrianglesInCell(payload.Glass.Vertex, 11, 100, 2),
+                            $"{mode} meshing does not route ladder pixels through blended glass");
+                    TestAssert.Equal(0, CountTrianglesInCell(payload.Opaque.Vertex, 7, 100, 2),
                             $"{mode} meshing does not duplicate glass into the opaque surface");
-                    TestAssert.Equal(0, CountTrianglesInCell(payload.Opaque.Vertex, 8, 100, 2),
+                    TestAssert.Equal(0, CountTrianglesInCell(payload.Opaque.Vertex, 9, 100, 2),
                             $"{mode} meshing does not duplicate water into the opaque surface");
+
+                    int crossTriangles = 0;
+                    int invertedCrossNormals = 0;
+                    for (int i = 0; i + 2 < payload.Opaque.Vertex.Count; i += 3)
+                    {
+                        Vector3 a = payload.Opaque.Vertex[i];
+                        Vector3 b = payload.Opaque.Vertex[i + 1];
+                        Vector3 c = payload.Opaque.Vertex[i + 2];
+                        if (a.X < 2.0f || a.X > 3.0f || a.Y < 100.0f || a.Y > 101.0f
+                                || a.Z < 2.0f || a.Z > 3.0f)
+                            continue;
+                        Vector3 geometric = (b - a).Cross(c - a);
+                        if (geometric.LengthSquared() <= 0.000001f) continue;
+                        crossTriangles++;
+                        if (geometric.Dot(payload.Opaque.Normal[i]) >= 0.0f)
+                            invertedCrossNormals++;
+                    }
+                    TestAssert.Equal(8, crossTriangles,
+                            $"{mode} cross-plants keep both diagonal planes and both windings");
+                    TestAssert.Equal(0, invertedCrossNormals,
+                            $"{mode} cross-plant shading normals oppose each triangle's clockwise front winding");
                 }
                 finally
                 {
@@ -200,6 +285,27 @@ public static class GlassTests
                         && point.Z >= min.Z - 0.0001f && point.Z <= max.Z + 0.0001f;
             }
             if (inside) count++;
+        }
+        return count;
+    }
+
+    private static int CountTrianglesOnPlane(
+            System.Collections.Generic.IReadOnlyList<Vector3> vertices,
+            int axis, float coordinate, int y, int z)
+    {
+        int count = 0;
+        for (int i = 0; i + 2 < vertices.Count; i += 3)
+        {
+            bool onPlane = true;
+            for (int vertex = 0; vertex < 3; vertex++)
+            {
+                Vector3 point = vertices[i + vertex];
+                float axisValue = point[axis];
+                onPlane &= Mathf.IsEqualApprox(axisValue, coordinate)
+                        && point.Y >= y && point.Y <= y + 1.0f
+                        && point.Z >= z && point.Z <= z + 1.0f;
+            }
+            if (onPlane) count++;
         }
         return count;
     }
