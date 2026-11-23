@@ -70,6 +70,9 @@ public partial class VoxelWorld : Node3D
     private readonly FastNoiseLite _islandNoise = new();   // gen v5 sky-island mask
 
     private readonly Dictionary<Vector2I, Chunk> _chunks = new();  // built nodes
+    // Worker-safe snapshot of chunks whose concave terrain collider is active.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Vector2I, byte>
+            _colliderReadyChunks = new();
     public Player? Player;
 
     /// <summary>Raised after a successful main-thread block mutation.</summary>
@@ -105,6 +108,40 @@ public partial class VoxelWorld : Node3D
     public int ChunkCount => _chunks.Count;
 
     public bool HasChunk(Vector2I cp) => _chunks.ContainsKey(cp);
+
+    /// <summary>
+    /// Bit mask for cardinal neighbors that do not currently provide an active
+    /// terrain collider. Mesher uses it only for collision boundary ownership.
+    /// </summary>
+    internal int MissingColliderBoundaryMask(Vector2I cp)
+    {
+        int mask = 0;
+        if (!_colliderReadyChunks.ContainsKey(cp + Vector2I.Right)) mask |= 1 << 2;
+        if (!_colliderReadyChunks.ContainsKey(cp + Vector2I.Left)) mask |= 1 << 3;
+        if (!_colliderReadyChunks.ContainsKey(cp + Vector2I.Down)) mask |= 1 << 4;
+        if (!_colliderReadyChunks.ContainsKey(cp + Vector2I.Up)) mask |= 1 << 5;
+        return mask;
+    }
+
+    private void SetChunkColliderAvailability(Vector2I cp, bool available)
+    {
+        bool changed = available
+                ? _colliderReadyChunks.TryAdd(cp, 1)
+                : _colliderReadyChunks.TryRemove(cp, out _);
+        if (!changed) return;
+
+        // Existing neighbors previously emitted (or omitted) frontier
+        // collision faces based on the opposite collider's presence.
+        foreach (Vector2I offset in new[]
+        {
+            Vector2I.Right, Vector2I.Left, Vector2I.Down, Vector2I.Up,
+        })
+        {
+            Vector2I neighbor = cp + offset;
+            if (_chunks.ContainsKey(neighbor))
+                EnqueueRebuild(neighbor);
+        }
+    }
 
     private readonly Dictionary<Vector2I, byte[]> _dataCache = new();
     private readonly Dictionary<Vector2I, Dictionary<int, BlockId>> _edits = new();  // persisted block IDs
@@ -2526,6 +2563,7 @@ public partial class VoxelWorld : Node3D
         c.ApplyPayload(payload);
         PayloadPool.Release(payload);
         _chunks[cp] = c;
+        SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
         return c;
     }
 
@@ -2624,7 +2662,8 @@ public partial class VoxelWorld : Node3D
             bool epochCurrent;
             lock (SnapshotLock)
                 epochCurrent = payload.Epoch == EditEpoch;
-            if (!epochCurrent || !Mesher.IsConfigurationCurrent(payload.MeshingRevision))
+            if (!epochCurrent || !Mesher.IsConfigurationCurrent(payload.MeshingRevision)
+                    || payload.BoundaryMask != MissingColliderBoundaryMask(cp))
             {
                 EnqueueRebuild(cp);
                 return;
@@ -2633,6 +2672,7 @@ public partial class VoxelWorld : Node3D
             if (_chunks.TryGetValue(cp, out Chunk? existing))
             {
                 existing.ApplyPayload(payload);   // player-edit remesh
+                SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
                 return;
             }
 
@@ -2643,6 +2683,7 @@ public partial class VoxelWorld : Node3D
             c.ApplyPayload(payload);
             c.FadeIn();
             _chunks[cp] = c;
+            SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
         }
         finally
         {
@@ -2954,6 +2995,7 @@ public partial class VoxelWorld : Node3D
             {
                 Chunk c = _chunks[cp];
                 _chunks.Remove(cp);
+                SetChunkColliderAvailability(cp, false);
                 c.QueueFree();
             }
         }
