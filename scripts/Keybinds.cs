@@ -80,7 +80,7 @@ public static class Keybinds
         if (stored.VariantType != Variant.Type.Int)
             return false;
         int code = (int)stored;
-        if (code == (int)Key.None || !Enum.IsDefined(typeof(Key), code))
+        if (code == (int)Key.None || !Enum.IsDefined(typeof(Key), (long)code))
             return false;
         key = (Key)code;
         return true;

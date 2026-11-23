@@ -64,7 +64,7 @@ public static class GamepadBindings
         if (stored.VariantType != Variant.Type.Int)
             return false;
         int raw = (int)stored;
-        if (raw < 0 || raw >= (int)JoyButton.Max || !System.Enum.IsDefined(typeof(JoyButton), raw))
+        if (raw < 0 || raw >= (int)JoyButton.Max || !System.Enum.IsDefined(typeof(JoyButton), (long)raw))
             return false;
         selected = (JoyButton)raw;
         return true;
@@ -73,7 +73,7 @@ public static class GamepadBindings
     public static Error SetButton(string action, JoyButton button)
     {
         if (!IsBindable(action) || (int)button < 0 || button >= JoyButton.Max
-                || !System.Enum.IsDefined(typeof(JoyButton), button))
+                || !System.Enum.IsDefined(typeof(JoyButton), (long)button))
             return Error.InvalidParameter;
         ApplyButton(action, button);
         return Save();

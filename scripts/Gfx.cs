@@ -154,6 +154,10 @@ public partial class Gfx : Node
 
     private void UpdateCameraFar()
     {
+        // Preset policy is also exercised by headless tests on an unattached Gfx node.
+        if (!IsInsideTree())
+            return;
+
         Camera3D? camera = GetViewport().GetCamera3D();
         if (camera == null)
             return;
