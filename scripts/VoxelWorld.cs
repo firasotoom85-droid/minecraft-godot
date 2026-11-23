@@ -1998,7 +1998,7 @@ public partial class VoxelWorld : Node3D
             {
                 // Rented arrays may contain data from an earlier use. States
                 // are sparse, so clear the complete active volume before copy.
-                Array.Clear(regionStates, 0, volume);
+                ChunkStreamingPolicy.ClearUsedBuffer(regionStates, volume);
             }
 
             for (int dz = -1; dz <= 1; dz++)
