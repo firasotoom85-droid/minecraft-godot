@@ -61,10 +61,43 @@ public static class WorldgenTests
             }
         }
 
+        Vector3 normalSpawn = v5.FindSpawn();
+        TestAssert.Check(v5.IsSafeSpawnPosition(normalSpawn),
+                "normal-world spawn has support and a clear dry player capsule");
+        int normalSpawnX = Mathf.FloorToInt(normalSpawn.X);
+        int normalSpawnZ = Mathf.FloorToInt(normalSpawn.Z);
+        int normalFloorY = Mathf.FloorToInt(normalSpawn.Y - 1.5f);
+        TestAssert.Check(BlockDb.IsSolid(v5.GetBlock(normalSpawnX, normalFloorY, normalSpawnZ)),
+                "normal-world spawn stands above a solid support block");
+        TestAssert.Check(VoxelWorld.CapsuleIntersectsVoxelAabb(
+                        new Vector3(0.5f, 0.0f, 0.5f), 0.35f, 1.8f,
+                        new Vector3(0.8f, 0.8f, 0.0f), new Vector3(1.3f, 1.8f, 1.0f)),
+                "spawn capsule detects a nearby occupied collision volume");
+        TestAssert.Check(!VoxelWorld.CapsuleIntersectsVoxelAabb(
+                        new Vector3(0.5f, 0.0f, 0.5f), 0.35f, 1.8f,
+                        new Vector3(0.86f, 0.8f, 0.0f), new Vector3(1.3f, 1.8f, 1.0f)),
+                "spawn capsule rejects non-overlapping adjacent collision volume");
+
         host.RemoveChild(v5);
         v5.QueueFree();
         DirAccess.RemoveAbsolute(v5Dir + "/manifest.json");
         DirAccess.RemoveAbsolute(v5Dir);
+
+        string skySpawnDir = $"user://tests/world-sky-spawn-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(skySpawnDir);
+        WorldStore.WriteManifest(skySpawnDir, new WorldManifest(
+                "Sky Spawn", 24681357, WorldGenV8.Version,
+                WorldStore.DeriveNoiseSeeds(24681357), 0, 0, "survival", "sky"));
+        GameSession.Instance.SelectWorld(skySpawnDir);
+        VoxelWorld skySpawnWorld = new();
+        host.AddChild(skySpawnWorld);
+        Vector3 skySpawn = skySpawnWorld.FindSpawn();
+        TestAssert.Check(skySpawnWorld.IsSafeSpawnPosition(skySpawn),
+                "sky-world spawn is on an island with a clear player capsule");
+        host.RemoveChild(skySpawnWorld);
+        skySpawnWorld.QueueFree();
+        DirAccess.RemoveAbsolute(skySpawnDir + "/manifest.json");
+        DirAccess.RemoveAbsolute(skySpawnDir);
 
         CheckLegacyGoldenHashes(host);
         CheckV7GoldenHashes(host);
