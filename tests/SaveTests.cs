@@ -278,6 +278,16 @@ public static class SaveTests
         string sourceMarker = ProjectSettings.GlobalizePath(duplicateFailureSource) + "/source.bin";
         System.IO.File.WriteAllText(sourceMarker, "source bytes");
         string sourceManifestBefore = FileAccess.GetFileAsString(WorldStore.ManifestPath(duplicateFailureSource));
+        string? successfulCopy = WorldStore.Duplicate(duplicateFailureSource);
+        TestAssert.Check(successfulCopy is not null, "ordinary nested source content duplicates successfully");
+        if (successfulCopy is not null)
+        {
+            string copiedMarker = ProjectSettings.GlobalizePath(successfulCopy) + "/source.bin";
+            TestAssert.Equal("source bytes", System.IO.File.ReadAllText(copiedMarker),
+                    "successful duplication preserves complete source file contents");
+            WorldStore.Delete(successfulCopy);
+        }
+
         WorldStore.CopyFileAllowedForTests = _ => false;
         string? failedCopy;
         try { failedCopy = WorldStore.Duplicate(duplicateFailureSource); }
@@ -306,13 +316,13 @@ public static class SaveTests
         string linkedWorld = WorldStore.Create("Linked World", 1102);
         string linkedWorldAbsolute = ProjectSettings.GlobalizePath(linkedWorld);
         bool directoryLinkCreated = false;
+        bool nestedLinkCreated = false;
+        bool fileLinkCreated = false;
         try
         {
             System.IO.Directory.CreateSymbolicLink(
                     System.IO.Path.Combine(linkedWorldAbsolute, "external-directory"), externalDirectory);
             directoryLinkCreated = true;
-            System.IO.File.CreateSymbolicLink(
-                    System.IO.Path.Combine(linkedWorldAbsolute, "external-file"), externalMarker);
         }
         catch (Exception e) when (e is System.IO.IOException
                 or UnauthorizedAccessException or PlatformNotSupportedException
@@ -320,18 +330,47 @@ public static class SaveTests
         {
             // Some Windows test runners require elevated symbolic-link privileges.
         }
-        if (directoryLinkCreated)
+
+        string nestedDirectory = System.IO.Path.Combine(linkedWorldAbsolute, "nested");
+        System.IO.Directory.CreateDirectory(nestedDirectory);
+        try
+        {
+            System.IO.Directory.CreateSymbolicLink(
+                    System.IO.Path.Combine(nestedDirectory, "external-nested"), externalDirectory);
+            nestedLinkCreated = true;
+        }
+        catch (Exception e) when (e is System.IO.IOException
+                or UnauthorizedAccessException or PlatformNotSupportedException
+                or System.Security.SecurityException)
+        {
+            // The top-level link case still covers platforms with restricted nested links.
+        }
+
+        try
+        {
+            System.IO.File.CreateSymbolicLink(
+                    System.IO.Path.Combine(linkedWorldAbsolute, "external-file"), externalMarker);
+            fileLinkCreated = true;
+        }
+        catch (Exception e) when (e is System.IO.IOException
+                or UnauthorizedAccessException or PlatformNotSupportedException
+                or System.Security.SecurityException)
+        {
+            // File links can be restricted independently from directory links.
+        }
+
+        if (directoryLinkCreated || nestedLinkCreated || fileLinkCreated)
         {
             TestAssert.Check(WorldStore.Duplicate(linkedWorld) is null,
-                    "world duplication rejects reparse-point entries");
+                    "world duplication rejects top-level, nested-directory, and file reparse points");
             TestAssert.Check(WorldStore.Delete(linkedWorld),
-                    "world deletion removes links without descending into their targets");
+                    "world deletion removes links at every depth without descending into their targets");
             TestAssert.Equal("external data", System.IO.File.ReadAllText(externalMarker),
                     "external target contents survive linked-world duplication and deletion");
         }
         else
         {
-            TestAssert.Check(true, "directory symlink creation is unavailable on this test platform");
+            TestAssert.Check(true, "symbolic-link creation is unavailable on this test platform");
             WorldStore.Delete(linkedWorld);
         }
 
