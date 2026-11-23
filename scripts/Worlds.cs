@@ -248,13 +248,14 @@ public static class WorldStore
                             or WorldReadStatus.Unsupported or WorldReadStatus.Inaccessible;
                     bool incompletePair = (worldSave.Status == WorldReadStatus.Missing)
                             != (playerSave.Status == WorldReadStatus.Missing);
+                    bool knownSavedHistory = value.HasSavedData || value.PlaytimeSeconds > 0
+                            || value.PlayedUtc > value.CreatedUtc;
                     bool missingHistory = worldSave.Status == WorldReadStatus.Missing
-                            && playerSave.Status == WorldReadStatus.Missing
-                            && (value.HasSavedData || value.PlaytimeSeconds > 0
-                            || value.PlayedUtc > value.CreatedUtc);
-                    if (worldUnavailable || playerUnavailable || incompletePair || missingHistory)
+                            && playerSave.Status == WorldReadStatus.Missing && knownSavedHistory;
+                    bool unexplainedIncompletePair = incompletePair && knownSavedHistory;
+                    if (worldUnavailable || playerUnavailable || unexplainedIncompletePair || missingHistory)
                     {
-                        if (incompletePair || missingHistory)
+                        if (unexplainedIncompletePair || missingHistory)
                             RequireRecovery(dir);
                         UnreadableWorldDirectories.Add(dir);
                         continue;
@@ -1018,6 +1019,7 @@ public static class WorldStore
             case PlayerSave player:
                 if (!ValidVector(player.Pos) || player.Selected < 0
                         || player.Selected >= Inventory.HotbarSize
+                        || (player.Pos is not { Length: 0 } && !ValidVector(player.Pos))
                         || (player.Items is not null && !ValidStacks(player.Items, Inventory.SaveSlotCount))
                         || (player.Mode is not null && player.Mode is not ("survival" or "creative"))
                         || !float.IsFinite(player.Health) || player.Health < 0
