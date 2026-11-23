@@ -11,6 +11,7 @@ public static class BlockShapeTests
     {
         Run();
         CheckChunkGeometryAndPersistence(host);
+        CheckStreamingColliderBoundary(host);
     }
 
     public static void Run()
@@ -166,6 +167,123 @@ public static class BlockShapeTests
         })
             TestAssert.Check(Recipes.All.Any(recipe => recipe.Result == item),
                     $"{item} has a crafting recipe");
+    }
+
+    private static void CheckStreamingColliderBoundary(Node host)
+    {
+        string dir = $"user://tests/collider-frontier-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(dir);
+        WorldStore.WriteManifest(dir, new WorldManifest(
+                "Collider frontier", 314159, WorldStore.CurrentGenVersion,
+                WorldStore.DeriveNoiseSeeds(314159), 0, 0, "survival", "normal"));
+        GameSession.Instance.SelectWorld(dir);
+
+        VoxelWorld world = new() { BuildCollision = true };
+        host.AddChild(world);
+        bool previousGreedy = Mesher.Greedy;
+        Mesher.Greedy = false;
+        try
+        {
+            world.BuildPreview(Vector3.Zero, 1);
+
+            TestAssert.Check((world.MissingColliderBoundaryMask(new Vector2I(1, 0))
+                            & (1 << 2)) != 0,
+                    "east frontier recognizes the generated but unbuilt +X neighbor");
+            TestAssert.Check((world.MissingColliderBoundaryMask(new Vector2I(-1, 0))
+                            & (1 << 3)) != 0,
+                    "west frontier recognizes the generated but unbuilt -X neighbor at negative coordinates");
+            TestAssert.Check((world.MissingColliderBoundaryMask(new Vector2I(0, 1))
+                            & (1 << 4)) != 0,
+                    "south frontier recognizes the generated but unbuilt +Z neighbor");
+            TestAssert.Check((world.MissingColliderBoundaryMask(new Vector2I(0, -1))
+                            & (1 << 5)) != 0,
+                    "north frontier recognizes the generated but unbuilt -Z neighbor");
+
+            Vector2I frontier = new(1, 0);
+            int surfaceY = world.SurfaceHeight(32, 8);
+            int solidY = -1;
+            for (int y = surfaceY; y >= 1; y--)
+            {
+                BlockId candidate = world.GetBlock(32, y, 8);
+                if (BlockDb.IsSolid(candidate) && !BlockDb.IsTransparent(candidate))
+                {
+                    solidY = y;
+                    break;
+                }
+            }
+
+            TestAssert.Check(solidY > 0,
+                    "frontier fixture finds a generated solid block in the unloaded neighbor");
+            if (solidY > 0)
+            {
+                TestAssert.Check(world.SetBlock(31, solidY, 8, BlockId.Stone),
+                        "frontier fixture places its loaded-side block through SetBlock");
+
+                MeshPayload frontierPayload = Mesher.Build(world, frontier);
+                try
+                {
+                    TestAssert.Equal(2, CountTrianglesOnPlane(
+                                    frontierPayload.Collision, 0, 16.0f, solidY - 1, 8),
+                            "loaded chunk emits its collision backing face against an unbuilt solid neighbor");
+                    TestAssert.Equal(0, CountTrianglesOnPlane(
+                                    frontierPayload.Opaque.Vertex, 0, 16.0f, solidY - 1, 8),
+                            "collision frontier face does not add duplicate render geometry");
+                }
+                finally
+                {
+                    PayloadPool.Release(frontierPayload);
+                }
+
+                // Loading the neighbor supplies the opposite active collider.
+                // The same boundary face must then disappear from this chunk.
+                world.BuildPreview(new Vector3(32.0f, 100.0f, 0.0f), 1);
+                TestAssert.Equal(0,
+                        world.MissingColliderBoundaryMask(frontier) & (1 << 2),
+                        "loading the neighboring chunk clears the +X missing-collider bit");
+
+                MeshPayload connectedPayload = Mesher.Build(world, frontier);
+                try
+                {
+                    TestAssert.Equal(0, CountTrianglesOnPlane(
+                                    connectedPayload.Collision, 0, 16.0f, solidY - 1, 8),
+                            "connected chunk colliders do not retain a redundant internal boundary wall");
+                }
+                finally
+                {
+                    PayloadPool.Release(connectedPayload);
+                }
+            }
+        }
+        finally
+        {
+            Mesher.Greedy = previousGreedy;
+            host.RemoveChild(world);
+            world.QueueFree();
+            DirAccess.RemoveAbsolute(WorldStore.WorldSavePath(dir));
+            DirAccess.RemoveAbsolute(WorldStore.PlayerSavePath(dir));
+            DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+            DirAccess.RemoveAbsolute(dir);
+        }
+    }
+
+    private static int CountTrianglesOnPlane(
+            System.Collections.Generic.IReadOnlyList<Vector3> vertices,
+            int axis, float coordinate, int y, int z)
+    {
+        int count = 0;
+        for (int i = 0; i + 2 < vertices.Count; i += 3)
+        {
+            bool onPlane = true;
+            for (int vertex = 0; vertex < 3; vertex++)
+            {
+                Vector3 point = vertices[i + vertex];
+                onPlane &= Mathf.IsEqualApprox(point[axis], coordinate)
+                        && point.Y >= y && point.Y <= y + 1.0f
+                        && point.Z >= z && point.Z <= z + 1.0f;
+            }
+            if (onPlane) count++;
+        }
+        return count;
     }
 
     private static void CheckChunkGeometryAndPersistence(Node host)
