@@ -484,9 +484,12 @@ public partial class DayNight : Node
             }
         }
 
+        // One continuous immersion value drives both the camera adaptation and
+        // the shared-environment water fog, so both agree at the waterline.
+        float waterBlend = PlayerRef?.WaterViewBlend ?? 0.0f;
+
         if (_cameraAttributes != null && GodotObject.IsInstanceValid(_cameraAttributes))
         {
-            float waterBlend = PlayerRef?.WaterViewBlend ?? 0.0f;
             ExposureLimits limits = EvaluateExposureLimits(caveDarkness, waterBlend,
                     _snowExposureWeight, _forestExposureWeight);
             if (Mathf.Abs(limits.MinimumSensitivity - _lastAutoExposureMinSensitivity) >= 0.5f)
@@ -536,7 +539,6 @@ public partial class DayNight : Node
             env.AmbientLightEnergy *= EvaluateCaveAmbientScale(caveDarkness);
         }
 
-        float waterBlend = PlayerRef?.WaterViewBlend ?? 0.0f;
         WaterFogProfile waterFog = EvaluateWaterFog(fogColor, (float)fogDensity, waterBlend);
         fogColor = waterFog.Color;
         fogDensity = waterFog.Density;
