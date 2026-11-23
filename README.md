@@ -341,6 +341,23 @@ Committed Godot 4.7.2 / MX230 Forward+ reference frames (seed 1337, LOW):
 Measured probe values, exact locations and the visual-scope notes are in
 [the capture report](docs/visual/LIGHTING_COMPARISON_REPORT_2026-11-22.md).
 
+Each run also samples a deterministic **3×3×3 voxel-light probe grid** (27
+positions at two-voxel spacing around the scene anchor) and writes a companion
+`.lighting.json` file beside the PNG. The report includes packed sky/block
+values, block types, reference coverage, mean/maximum 4-bit channel drift,
+normalized shader-vertex RGB drift, luminance-weighted intensity drift and
+samples outside the one-level tolerance. Comparisons use the same production
+`VoxelLightData` maps read by the chunk renderer.
+
+The versioned baseline is
+[`lighting-probe-reference-v1.json`](docs/visual/lighting-probe-reference-v1.json).
+It deliberately contains only the five centre-probe values already measured
+in the original capture report. Therefore each 27-point run currently has
+**1/27 (3.7%) reference coverage**; the remaining positions are reported as
+unreferenced and are not treated as zero or included in drift averages. A full
+spatial baseline must be promoted from reviewed real-renderer captures, not
+invented from interpolated values.
+
 The optional final argument selects `LOW`, `BALANCED`, `HIGH` or `ULTRA`
 (`LOW` by default). Use the same preset for every scene; LOW keeps the
 existing 0.80 render scale and disables SSAO, SSR, glow and volumetric fog for
