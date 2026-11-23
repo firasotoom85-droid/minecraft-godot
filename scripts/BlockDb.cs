@@ -513,7 +513,7 @@ public static class BlockDb
         // Cutout foliage writes depth where its texels survive, but its alpha
         // holes must reveal the opaque surface behind it.
         if (IsFoliage(neighborId))
-            return !IsFoliage(selfId);
+            return !IsFoliage(selfId) && !IsTransparent(selfId);
 
         if (IsTransparent(neighborId))
         {
