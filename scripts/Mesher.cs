@@ -330,8 +330,14 @@ public static class Mesher
                     bool fullCube = BlockShapes.IsFullCube(id, state);
                     // Skip only when every adjacent cell completely covers the
                     // corresponding face; partial shapes cannot hide a whole face.
+                    bool missingColliderFrontier = buildCollision
+                            && (IsMissingColliderBoundary(boundaryMask, x - 1, z - 1, 2)
+                                    || IsMissingColliderBoundary(boundaryMask, x - 1, z - 1, 3)
+                                    || IsMissingColliderBoundary(boundaryMask, x - 1, z - 1, 4)
+                                    || IsMissingColliderBoundary(boundaryMask, x - 1, z - 1, 5));
                     if (fullCube && BlockDb.Occl[(int)id] == 1
-                            && FullyEnclosedByFullCubes(pad, statePad, i))
+                            && FullyEnclosedByFullCubes(pad, statePad, i)
+                            && !missingColliderFrontier)
                         continue;
 
                     // Shape geometry is deliberately separate from the cube
