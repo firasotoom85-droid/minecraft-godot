@@ -3026,7 +3026,24 @@ public partial class VoxelWorld : Node3D
     /// capsule, including partial block shapes and fluid hazards.
     /// Player.tscn uses a 0.35 m radius / 1.8 m capsule whose base is the root.
     /// </summary>
-    internal bool IsSafeSpawnCandidate(SpawnCandidate candidate)
+    internal bool IsSafeSpawnPosition(Vector3 position)
+    {
+        if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z))
+        {
+            return false;
+        }
+
+        int x = Mathf.FloorToInt(position.X);
+        int z = Mathf.FloorToInt(position.Z);
+        int surfaceY = Mathf.FloorToInt(position.Y - 1.5f);
+        return Mathf.Abs(position.X - (x + 0.5f)) < 0.0001f
+                && Mathf.Abs(position.Z - (z + 0.5f)) < 0.0001f
+                && Mathf.Abs(position.Y - (surfaceY + 1.5f)) < 0.0001f
+                && IsSafeSpawnCandidate(new SpawnCandidate(
+                        x, z, surfaceY, (long)x * x + (long)z * z));
+    }
+
+    private bool IsSafeSpawnCandidate(SpawnCandidate candidate)
     {
         if (candidate.SurfaceY < 0 || candidate.SurfaceY >= Height - 2)
         {
