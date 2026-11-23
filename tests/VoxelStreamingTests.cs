@@ -23,6 +23,7 @@ public static class VoxelStreamingTests
         TestChunkGenerationReservation();
         TestMutationBlockIds();
         TestWorldCompatibilityPolicies();
+        TestPlayerPersistenceNotifications();
         TestPooledScratchBufferClearing();
         TestStreamingPolicies();
 
@@ -203,6 +204,46 @@ public static class VoxelStreamingTests
                 "a manifest-less folder with player data is not assumed to be V1");
     }
 
+
+
+    private static void TestPlayerPersistenceNotifications()
+    {
+        VoxelWorld statsWorld = new();
+        Player statsPlayer = new();
+        try
+        {
+            statsWorld.Player = statsPlayer;
+            statsWorld.EnsurePlayerPersistenceEventsWired();
+            statsWorld.EnsurePlayerPersistenceEventsWired();
+            TestAssert.Check(!statsWorld.IsDirty,
+                    "loading a player before event wiring does not dirty a clean world");
+            statsPlayer.Stats.AddHunger(-1.0f);
+            TestAssert.Check(statsWorld.IsDirty,
+                    "stationary hunger changes mark the world dirty");
+        }
+        finally
+        {
+            statsWorld.Free();
+            statsPlayer.Free();
+        }
+
+        VoxelWorld campfireWorld = new();
+        Player campfirePlayer = new();
+        try
+        {
+            campfireWorld.Player = campfirePlayer;
+            campfireWorld.EnsurePlayerPersistenceEventsWired();
+            campfirePlayer.EmitSignal(Player.SignalName.CampfireUsed,
+                    "Rested — respawn point set, healed");
+            TestAssert.Check(campfireWorld.IsDirty,
+                    "campfire rest notifications persist respawn-anchor changes");
+        }
+        finally
+        {
+            campfireWorld.Free();
+            campfirePlayer.Free();
+        }
+    }
 
     private static void TestPooledScratchBufferClearing()
     {
