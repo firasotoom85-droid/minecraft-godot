@@ -1330,12 +1330,12 @@ public static class WorldgenTests
 
         Span<Vector3I> visited = stackalloc Vector3I[2];
         int visitedCount = 0;
-        Vector3I first = new(7, 24, -3);
+        Vector3I firstPosition = new(7, 24, -3);
         TestAssert.Check(WorldGenV12.TryRecordUniqueOrePosition(
-                        visited, ref visitedCount, first),
+                        visited, ref visitedCount, firstPosition),
                 "V12 ore walk records its first candidate");
         TestAssert.Check(!WorldGenV12.TryRecordUniqueOrePosition(
-                        visited, ref visitedCount, first),
+                        visited, ref visitedCount, firstPosition),
                 "V12 ore walk rejects a revisited candidate");
         TestAssert.Check(WorldGenV12.TryRecordUniqueOrePosition(
                         visited, ref visitedCount, new Vector3I(8, 24, -3)),
