@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Collections.Generic;
+using System.Text.Json;
 using Godot;
 
 namespace Minecraft;
@@ -128,6 +130,8 @@ public partial class LightingComparisonCapture : Node
             for (int frame = 0; frame < LightingComparisonProfiles.WarmupFrames; frame++)
                 await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 
+            List<LightingProbeComparison.Sample> probeGrid =
+                    CaptureProbeGrid(world, fixture.LightProbe);
             LightSample probe = ReadLight(world, fixture.LightProbe);
             BlockId probeBlock = world.GetBlock(
                     fixture.LightProbe.X, fixture.LightProbe.Y, fixture.LightProbe.Z);
@@ -136,20 +140,54 @@ public partial class LightingComparisonCapture : Node
                     fixture.LightProbe.X + VoxelLighting.BlockLightRadius,
                     fixture.LightProbe.Z - VoxelLighting.BlockLightRadius,
                     fixture.LightProbe.Z + VoxelLighting.BlockLightRadius).Count;
+            IReadOnlyList<LightingProbeComparison.ReferenceSample> reference =
+                    LightingProbeComparison.LoadReference(Scenario);
+            LightingProbeComparison.Drift drift = LightingProbeComparison.Compare(
+                    probeGrid, reference);
             Image image = GetViewport().GetTexture().GetImage();
 
             string absoluteOutput = ProjectSettings.GlobalizePath(output);
             string? directory = Path.GetDirectoryName(absoluteOutput);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
             Error saveResult = image.SavePng(absoluteOutput);
+            if (saveResult != Error.Ok)
+                throw new IOException($"Could not save screenshot: {saveResult}.");
+
+            string metricsOutput = Path.ChangeExtension(absoluteOutput, ".lighting.json");
+            var metrics = new
+            {
+                schema_version = 1,
+                scenario = Scenario,
+                seed,
+                generator_version = world.WorldGenVersion,
+                preset = preset.Name,
+                reference_version = LightingProbeComparison.ReferenceVersion,
+                reference_file = LightingProbeComparison.ReferencePath,
+                samples = probeGrid,
+                reference_samples = reference,
+                drift,
+            };
+            File.WriteAllText(metricsOutput, JsonSerializer.Serialize(metrics,
+                    new JsonSerializerOptions { WriteIndented = true }));
+
             GD.Print($"LIGHTING_COMPARISON_SAMPLE scenario={Scenario} probe=({fixture.LightProbe.X}," +
                     $"{fixture.LightProbe.Y},{fixture.LightProbe.Z}) block={probeBlock} " +
                     $"sky={probe.Sky} block_light={probe.Block} nearby_emitters={sources} omni_lights={omniLights}");
+            GD.Print($"LIGHTING_COMPARISON_PROBE_GRID scenario={Scenario} " +
+                    $"captured={drift.CapturedSamples} reference={drift.ReferenceSamples} " +
+                    $"compared={drift.ComparedSamples} unreferenced={drift.UnreferencedSamples} " +
+                    $"missing={drift.MissingSamples} coverage={drift.ReferenceCoverage:P1} " +
+                    $"json={metricsOutput}");
+            GD.Print($"LIGHTING_COMPARISON_DRIFT scenario={Scenario} " +
+                    $"mean_channel={drift.MeanAbsoluteChannelDrift:F3} " +
+                    $"max_channel={drift.MaxChannelDrift:F0} " +
+                    $"mean_rgb={drift.MeanAbsoluteColorDrift:F5} max_rgb={drift.MaxColorDrift:F5} " +
+                    $"mean_intensity={drift.MeanAbsoluteIntensityDrift:F5} " +
+                    $"max_intensity={drift.MaxIntensityDrift:F5} " +
+                    $"outside_tolerance={drift.OutsideToleranceSamples} tolerance={drift.Tolerance:F5}");
             GD.Print($"LIGHTING_COMPARISON_RENDER scenario={Scenario} size={image.GetWidth()}x{image.GetHeight()} " +
                     $"ssao={preset.Ssao} ssr={preset.Ssr} glow={preset.Glow} volumetric_fog={preset.VolFog} " +
                     $"shadows={preset.ShadowSize} path={absoluteOutput} success={saveResult == Error.Ok}");
-            if (saveResult != Error.Ok)
-                throw new IOException($"Could not save screenshot: {saveResult}.");
         }
         catch (Exception exception)
         {
@@ -443,6 +481,30 @@ public partial class LightingComparisonCapture : Node
             return;
         if (!world.SetBlock(x, y, z, block))
             throw new InvalidOperationException($"SetBlock rejected fixture edit ({x},{y},{z}) -> {block}.");
+    }
+
+    private static List<LightingProbeComparison.Sample> CaptureProbeGrid(
+            VoxelWorld world, Vector3I centre)
+    {
+        List<LightingProbeComparison.Sample> samples =
+                new(LightingProbeComparison.GridOffsets.Count);
+        foreach (Vector3I offset in LightingProbeComparison.GridOffsets)
+        {
+            Vector3I position = centre + offset;
+            if (position.Y < 0 || position.Y >= world.Height)
+                throw new InvalidOperationException(
+                        $"Probe grid sample {LightingProbeComparison.IdForOffset(offset)} " +
+                        $"is outside world height at Y={position.Y}.");
+
+            LightSample light = ReadLight(world, position);
+            BlockId block = world.GetBlock(position.X, position.Y, position.Z);
+            samples.Add(new LightingProbeComparison.Sample(
+                    LightingProbeComparison.IdForOffset(offset),
+                    position.X, position.Y, position.Z,
+                    light.Sky, light.Block, block.ToString()));
+        }
+
+        return samples;
     }
 
     private static LightSample ReadLight(VoxelWorld world, Vector3I position)
