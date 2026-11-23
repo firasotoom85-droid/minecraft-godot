@@ -3143,12 +3143,12 @@ public partial class VoxelWorld : Node3D
             {
                 if (Player!.GlobalPosition.DistanceTo(_lastSavedPos) > 8.0f)
                 {
-                    _dirty = true;
+                    MarkDirty();
                 }
 
                 if (_dirty || _unsavedPlaytimeSeconds >= AutosaveInterval)
                 {
-                    SaveNow();
+                    QueueBackgroundSave();
                 }
             }
         }
