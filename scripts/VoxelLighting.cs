@@ -59,6 +59,16 @@ public static class VoxelLighting
     [ThreadStatic]
     private static Queue<(int Index, byte Level)>? _removalQueueScratch;
 
+    [ThreadStatic]
+    private static byte[]? _directSkyScratch;
+
+    private static byte[] RentDirectSkyScratch(int length)
+    {
+        if (_directSkyScratch is null || _directSkyScratch.Length < length)
+            _directSkyScratch = new byte[length];
+        return _directSkyScratch;
+    }
+
     private static Queue<int> RentQueue()
     {
         _queueScratch ??= new Queue<int>(4096);
@@ -189,7 +199,9 @@ public static class VoxelLighting
             }
         }
 
-        directSky = captureDirectSky ? (byte[])sky.Clone() : Array.Empty<byte>();
+        directSky = captureDirectSky ? RentDirectSkyScratch(sky.Length) : Array.Empty<byte>();
+        if (captureDirectSky)
+            System.Array.Copy(sky, directSky, sky.Length);
         Queue<int> queue = RentQueue();
         // Only darker neighbours are enqueued, so open columns do not flood
         // the queue with duplicate level-15 cells. Shape boundaries are checked
