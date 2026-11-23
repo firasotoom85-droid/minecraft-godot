@@ -38,6 +38,8 @@ public partial class DayNight : Node
 
     internal readonly record struct ExposureLimits(
             float MinimumSensitivity, float MaximumSensitivity);
+    internal readonly record struct WaterFogProfile(
+            Color Color, float Density, float DepthBegin, float DepthEnd);
     internal readonly record struct BiomeLightingProfile(
             Color FogTint, float SnowWeight, float ForestWeight);
 
@@ -292,6 +294,25 @@ public partial class DayNight : Node
         return Mathf.Clamp(1.0f - (float)System.Math.Exp(-delta * rate), 0.0f, 1.0f);
     }
 
+    /// <summary>
+    /// Blends immersion fog on the shared world environment. Modern worlds keep
+    /// camera-depth fog active and shorten its range; legacy worlds retain their
+    /// exponential profile and blend its density. This avoids swapping camera
+    /// environments at the waterline.
+    /// </summary>
+    internal static WaterFogProfile EvaluateWaterFog(
+            Color airColor, float airDensity, float waterBlend)
+    {
+        float blend = float.IsFinite(waterBlend)
+                ? Mathf.Clamp(waterBlend, 0.0f, 1.0f) : 0.0f;
+        Color waterColor = new(0.018f, 0.105f, 0.205f);
+        return new WaterFogProfile(
+                airColor.Lerp(waterColor, blend),
+                Mathf.Lerp(airDensity, UnderwaterFogDensity, blend),
+                Mathf.Lerp(WorldEnvironmentFactory.DistanceHazeBegin, 0.0f, blend),
+                Mathf.Lerp(WorldEnvironmentFactory.DistanceHazeEnd, 14.0f, blend));
+    }
+
     internal static BiomeLightingProfile EvaluateBiomeLightingProfile(Biome biome) => biome switch
     {
         Biome.Desert => new(new Color(1.06f, 0.98f, 0.82f), 0.0f, 0.0f),
@@ -317,7 +338,7 @@ public partial class DayNight : Node
     private ProceduralSkyMaterial _skyMat = null!;
     private float _fogDensityAir = WorldEnvironmentFactory.LegacyAirFogDensity;
     private bool _usesDistanceHaze;
-    private readonly float _fogDensityUnderwater = 0.07f;
+    internal const float UnderwaterFogDensity = 0.07f;
     public double Cloudiness;      // 0..1 driven by Weather (clear -> storm)
     public double SkyFlash;        // 0..1 lightning flash driven by Weather
     public bool Paused;            // photo mode freezes the clock (time still scrubs)
@@ -466,9 +487,12 @@ public partial class DayNight : Node
             }
         }
 
+        // One continuous immersion value drives both the camera adaptation and
+        // the shared-environment water fog, so both agree at the waterline.
+        float waterBlend = PlayerRef?.WaterViewBlend ?? 0.0f;
+
         if (_cameraAttributes != null && GodotObject.IsInstanceValid(_cameraAttributes))
         {
-            float waterBlend = PlayerRef?.WaterViewBlend ?? 0.0f;
             ExposureLimits limits = EvaluateExposureLimits(caveDarkness, waterBlend,
                     _snowExposureWeight, _forestExposureWeight);
             if (Mathf.Abs(limits.MinimumSensitivity - _lastAutoExposureMinSensitivity) >= 0.5f)
@@ -518,12 +542,9 @@ public partial class DayNight : Node
             env.AmbientLightEnergy *= EvaluateCaveAmbientScale(caveDarkness);
         }
 
-        bool underwater = PlayerRef is { Underwater: true };
-        if (underwater)
-        {
-            fogColor = new Color(0.04f, 0.18f, 0.38f);
-            fogDensity = _fogDensityUnderwater;
-        }
+        WaterFogProfile waterFog = EvaluateWaterFog(fogColor, (float)fogDensity, waterBlend);
+        fogColor = waterFog.Color;
+        fogDensity = waterFog.Density;
 
         if (flash > 0.001)
         {
@@ -539,16 +560,20 @@ public partial class DayNight : Node
         // Keep close-quarters cave and immersion fog exponential so those
         // established high-density profiles still close in around the player.
         Godot.Environment.FogModeEnum fogMode = WorldEnvironmentFactory.FogModeFor(
-                _usesDistanceHaze, sheltered, underwater);
+                _usesDistanceHaze, sheltered);
         if (env.FogMode != fogMode)
         {
             env.FogMode = fogMode;
         }
 
-        if (_usesDistanceHaze && !sheltered && !underwater)
+        if (_usesDistanceHaze && !sheltered)
         {
             fogDensity = System.Math.Clamp(fogDensity,
                     0.0, WorldEnvironmentFactory.MaxDistanceHazeDensity);
+            // Keep the shared depth-fog mode while its range contracts from
+            // outdoor haze to the close underwater profile.
+            env.FogDepthBegin = waterFog.DepthBegin;
+            env.FogDepthEnd = Mathf.Max(waterFog.DepthBegin + 1.0f, waterFog.DepthEnd);
         }
 
         float blend = (float)System.Math.Clamp(delta * 5.0, 0.0, 1.0);

@@ -2981,3 +2981,27 @@ time or visual metric is claimed until those captures complete.
   rules or versions, baked-light channels, voxel mutation APIs, shaders, greedy
   meshing, chunk streaming or physics behavior changed. All generator versions
   and existing worlds remain untouched.
+
+## 58. Continuous air-to-water fog blending — 2026-11-23
+
+- Audited the existing water camera path. Player previously duplicated the
+  startup environment, then switched `Camera.Environment` on/off at a tiny
+  blend threshold. That copy became stale as DayNight changed sky, weather and
+  biome fog, so surfacing could expose a visibly different full-screen colour
+  in one frame.
+- Removed the underwater camera-environment override. The existing smoothed
+  `Player.WaterViewBlend` now feeds `DayNight`'s shared `WorldEnvironment`
+  presentation. Water colour and density interpolate from the live air fog
+  values; V8+ depth fog keeps its mode and smoothly contracts its range to a
+  14 m underwater profile. V1–V7 preserve their exponential mode and blend
+  density. Lava retains its separate camera override and close-range profile.
+- Added deterministic regression coverage for air/half/full immersion, colour
+  and density interpolation, depth-range contraction, invalid blend inputs,
+  and 30/60 FPS convergence. No block/item IDs, save fields, generator rules,
+  baked channels, light propagation, meshing, chunk streaming or graphics
+  preset costs changed.
+- **Verification pending:** this change was prepared through the connected
+  GitHub repository interface after the workstation's monthly remote-terminal
+  allowance was exhausted. Local `dotnet build`, `scripts/verify.sh` and GPU
+  scene captures could not be run in this session; CI and a Godot 4.7.2 .NET
+  MX230 waterline capture remain required before merge.

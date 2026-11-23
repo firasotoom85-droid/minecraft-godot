@@ -903,8 +903,9 @@ near terrain stays clear, while distant mountain slopes and tree lines gently
 blend toward the current sky/horizon colour. The fog is evaluated by the
 existing scene environment, not independently by each chunk, so streamed
 chunk edges and far-LOD surfaces share the same distance field. V1–V7 retain
-their original exponential fog; caves and underwater/lava views return to their
-close-range exponential profiles. LOW and BALANCED keep depth haze while the
+their original exponential fog; caves and lava retain their close-range exponential profiles. Water immersion
+blends on the shared world environment: modern depth haze contracts smoothly
+toward a close underwater range while legacy exponential fog blends density. LOW and BALANCED keep depth haze while the
 existing graphics presets disable volumetric fog. No fog volumes or per-emitter
 light nodes are created.
 
@@ -1472,7 +1473,7 @@ licenses; see [`addons/godot_ai/LICENSE`](addons/godot_ai/LICENSE).
 
 ## Fluid simulation internals
 
-Water uses a deduplicated active-cell queue with bounded per-tick work rather than rescanning the local volume every tick. Unloaded chunk neighbours are treated as unknown rather than air; source blocks are periodically rescheduled, and successful world block edits wake nearby fluid cells. Two horizontal sources over a solid floor can regenerate a source. All fluid changes still pass through `VoxelWorld.SetBlock`. Swimming buoyancy respects floor/ceiling contacts. Underwater and lava fog use separate blended environments, and underwater low-pass filtering is limited to SFX/ambient buses so master/UI audio remains clear.
+Water uses a deduplicated active-cell queue with bounded per-tick work rather than rescanning the local volume every tick. Unloaded chunk neighbours are treated as unknown rather than air; source blocks are periodically rescheduled, and successful world block edits wake nearby fluid cells. Two horizontal sources over a solid floor can regenerate a source. All fluid changes still pass through `VoxelWorld.SetBlock`. Swimming buoyancy respects floor/ceiling contacts. Underwater fog blends through the shared world environment without swapping a camera override; lava retains its separate blended environment. Underwater low-pass filtering is limited to SFX/ambient buses so master/UI audio remains clear.
 
 ## Creature perception and cave stealth
 
@@ -1531,3 +1532,14 @@ or touch save/world-generation data. The visible tradeoff is a quieter, flatter
 water surface and removal of subtle material micro-variation only at LOW. This
 keeps the low-end path lean without changing gameplay lighting rules or
 disabling baked torch/campfire/lava illumination.
+
+### Continuous air-to-water fog
+
+The player's smoothed immersion weight now drives fog on the existing shared
+`WorldEnvironment`. Its live sky/biome tint is blended toward the underwater
+colour, rather than copied into a stale per-player environment. V8+ worlds keep
+camera-depth fog active and smoothly contract its start/end range; V1–V7 retain
+their original exponential mode and blend density. The camera environment is
+not switched at the waterline, eliminating the end-of-transition full-screen
+colour snap. Lava keeps its existing camera override. No extra nodes, lights,
+shader passes, voxel edits or persisted data are introduced.

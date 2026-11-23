@@ -12,6 +12,7 @@ public static class AtmosphereTests
         TestWeatherSkyCloudPalette();
         TestCaveExposure();
         TestWaterAndBiomeExposure();
+        TestWaterFogTransition();
         TestSunlightDirectionAndBakedChannels();
         TestDistanceHazeProfile();
         TestWeatherPrecipitationSelection();
@@ -360,6 +361,69 @@ public static class AtmosphereTests
                 "a disabled transition rate remains stable");
     }
 
+    private static void TestWaterFogTransition()
+    {
+        Color airColor = new(0.42f, 0.58f, 0.76f);
+        const float airDensity = 0.42f;
+        DayNight.WaterFogProfile air = DayNight.EvaluateWaterFog(airColor, airDensity, 0.0f);
+        DayNight.WaterFogProfile halfway = DayNight.EvaluateWaterFog(airColor, airDensity, 0.5f);
+        DayNight.WaterFogProfile water = DayNight.EvaluateWaterFog(airColor, airDensity, 1.0f);
+
+        TestAssert.Equal(airColor.R, air.Color.R, "air fog starts with the live world red channel");
+        TestAssert.Equal(airColor.G, air.Color.G, "air fog starts with the live world green channel");
+        TestAssert.Equal(airColor.B, air.Color.B, "air fog starts with the live world blue channel");
+        TestAssert.Equal(airDensity, air.Density, "air fog starts with the current weather density");
+        TestAssert.Equal(WorldEnvironmentFactory.DistanceHazeBegin, air.DepthBegin,
+                "air profile retains the full outdoor haze start");
+        TestAssert.Equal(WorldEnvironmentFactory.DistanceHazeEnd, air.DepthEnd,
+                "air profile retains the full outdoor haze range");
+
+        TestAssert.Check(halfway.Color.R < air.Color.R && halfway.Color.B < air.Color.B,
+                "partial immersion blends the live air tint toward underwater blue");
+        // Interpolation results are float32, so an endpoint can land one ULP
+        // away from the declared constant; compare with the house tolerance.
+        TestAssert.Check(Mathf.IsEqualApprox(
+                        (airDensity + DayNight.UnderwaterFogDensity) * 0.5f, halfway.Density),
+                "partial immersion interpolates fog density without a threshold");
+        TestAssert.Check(Mathf.IsEqualApprox(
+                        WorldEnvironmentFactory.DistanceHazeBegin * 0.5f, halfway.DepthBegin),
+                "partial immersion contracts the depth-fog start smoothly");
+        TestAssert.Check(Mathf.IsEqualApprox(
+                        (WorldEnvironmentFactory.DistanceHazeEnd + 14.0f) * 0.5f, halfway.DepthEnd),
+                "partial immersion contracts the depth-fog end smoothly");
+
+        TestAssert.Check(Mathf.IsEqualApprox(0.018f, water.Color.R),
+                "full immersion reaches the underwater red tint");
+        TestAssert.Check(Mathf.IsEqualApprox(0.105f, water.Color.G),
+                "full immersion reaches the underwater green tint");
+        TestAssert.Check(Mathf.IsEqualApprox(0.205f, water.Color.B),
+                "full immersion reaches the underwater blue tint");
+        TestAssert.Check(Mathf.IsEqualApprox(DayNight.UnderwaterFogDensity, water.Density),
+                "full immersion reaches the underwater density");
+        TestAssert.Check(Mathf.IsEqualApprox(0.0f, water.DepthBegin),
+                "full immersion begins depth fog at the camera");
+        TestAssert.Check(Mathf.IsEqualApprox(14.0f, water.DepthEnd),
+                "full immersion reaches the close underwater depth range");
+
+        DayNight.WaterFogProfile clampedLow = DayNight.EvaluateWaterFog(airColor, airDensity, -1.0f);
+        DayNight.WaterFogProfile clampedHigh = DayNight.EvaluateWaterFog(airColor, airDensity, 2.0f);
+        DayNight.WaterFogProfile invalid = DayNight.EvaluateWaterFog(airColor, airDensity, float.NaN);
+        TestAssert.Equal(air.Density, clampedLow.Density, "negative immersion clamps to the air profile");
+        TestAssert.Equal(water.Density, clampedHigh.Density, "over-range immersion clamps to the water profile");
+        TestAssert.Equal(air.Density, invalid.Density, "non-finite immersion safely falls back to air");
+
+        float blend60 = DayNight.EvaluateTransitionBlend(1.0 / 60.0, 2.2f);
+        float blend30 = DayNight.EvaluateTransitionBlend(1.0 / 30.0, 2.2f);
+        float value60 = 0.0f;
+        float value30 = 0.0f;
+        for (int frame = 0; frame < 60; frame++)
+            value60 = Mathf.Lerp(value60, 1.0f, blend60);
+        for (int frame = 0; frame < 30; frame++)
+            value30 = Mathf.Lerp(value30, 1.0f, blend30);
+        TestAssert.Check(Mathf.Abs(value60 - value30) < 0.0001f,
+                "underwater fog target interpolation remains frame-rate independent");
+    }
+
     private static void TestSunlightDirectionAndBakedChannels()
     {
         Vector3 dawnDirection = DayNight.EvaluateSunDirection(0.25);
@@ -540,17 +604,17 @@ public static class AtmosphereTests
         }
 
         TestAssert.Equal(Godot.Environment.FogModeEnum.Depth,
-                WorldEnvironmentFactory.FogModeFor(true, underground: false, underwater: false),
+                WorldEnvironmentFactory.FogModeFor(true, underground: false),
                 "outdoor V8+ views use depth haze");
         TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential,
-                WorldEnvironmentFactory.FogModeFor(false, underground: false, underwater: false),
+                WorldEnvironmentFactory.FogModeFor(false, underground: false),
                 "legacy outdoor worlds keep exponential fog");
         TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential,
-                WorldEnvironmentFactory.FogModeFor(true, underground: true, underwater: false),
+                WorldEnvironmentFactory.FogModeFor(true, underground: true),
                 "cave darkness retains close-range exponential fog");
-        TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential,
-                WorldEnvironmentFactory.FogModeFor(true, underground: false, underwater: true),
-                "underwater immersion retains close-range exponential fog");
+        TestAssert.Equal(Godot.Environment.FogModeEnum.Depth,
+                WorldEnvironmentFactory.FogModeFor(true, underground: false),
+                "modern underwater transitions retain depth fog while its range contracts");
 
         foreach (int presetIndex in new[] { 0, 1 })
         {
