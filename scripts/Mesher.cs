@@ -786,25 +786,25 @@ public static class Mesher
 
         if (BlockDb.TransMask[(int)id] == 1 || BlockDb.IsWater(id) || id == BlockId.Lava)
         {
-            return 0L;   // non-opaque surfaces keep the per-face path
+            return default;   // non-opaque surfaces keep the per-face path
         }
 
         int adjacentIndex = i + FaceOff[f];
         BlockId adjacentId = (BlockId)pad[adjacentIndex];
         if (BlockShapes.IsShape(adjacentId)
                 && !BlockShapes.IsFullCube(adjacentId, statePad[adjacentIndex]))
-            return 0L;
+            return default;
 
         int tile = BlockDb.Tiles[(int)id * 6 + f];
         if (tile < 0)
         {
-            return 0L;
+            return default;
         }
 
         int nb = pad[i + FaceOff[f]];
         if (BlockDb.Render[(int)id * BlockDb.BlockCount + nb] == 0)
         {
-            return 0L;
+            return default;
         }
 
         long key = (uint)id | ((long)tile << 8);
