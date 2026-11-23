@@ -1,6 +1,12 @@
 name: Sync issue labels
 
 on:
+  push:
+    branches:
+      - chore/repository-professionalization
+    paths:
+      - ".github/workflows/sync-labels.yml"
+      - "scripts/sync-issue-labels.sh"
   workflow_dispatch:
 
 permissions:
@@ -14,6 +20,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Create or update repository labels
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          GH_REPOSITORY: \${{ github.repository }}
         run: bash scripts/sync-issue-labels.sh
