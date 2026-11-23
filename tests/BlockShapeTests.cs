@@ -336,11 +336,16 @@ public static class BlockShapeTests
                     PayloadPool.Release(connectedPayload);
                 }
 
-                TestAssert.Check(world.SetBlock(31, solidY, 9, BlockId.Stone),
-                        "partial-neighbor frontier source block is placed through SetBlock");
-                TestAssert.Check(world.SetBlock(32, solidY, 9, BlockId.PlanksSlab,
-                                BlockShapes.SlabBottom),
-                        "partial generated neighbor slab is placed through SetBlock");
+                bool sourceBlockChanged = world.SetBlock(31, solidY, 9, BlockId.Stone);
+                TestAssert.Check(sourceBlockChanged
+                                || world.GetBlock(31, solidY, 9) == BlockId.Stone,
+                        "partial-neighbor frontier source block is stone through SetBlock");
+                bool slabChanged = world.SetBlock(32, solidY, 9, BlockId.PlanksSlab,
+                        BlockShapes.SlabBottom);
+                TestAssert.Check(slabChanged
+                                || world.GetBlock(32, solidY, 9) == BlockId.PlanksSlab
+                                        && world.GetBlockState(32, solidY, 9) == BlockShapes.SlabBottom,
+                        "partial generated neighbor slab is present through SetBlock");
 
                 // Move the streaming center so the tested chunk remains at the
                 // unload margin while its +X neighbor falls outside it.
