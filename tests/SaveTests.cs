@@ -90,6 +90,63 @@ public static class SaveTests
         TestAssert.Equal("two", FileAccess.GetFileAsString(backupPath + ".bak"), "first backup is previous save");
         TestAssert.Equal("one", FileAccess.GetFileAsString(backupPath + ".bak2"), "second backup is oldest save");
 
+        string rotationRoot = Path.Combine(Path.GetTempPath(),
+                $"minecraft-save-rotation-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(rotationRoot);
+        try
+        {
+            string rotationPath = Path.Combine(rotationRoot, "rotation.json");
+            TestAssert.Check(WorldSaveWorker.WriteAtomic(rotationPath, "generation-1", out _),
+                    "backup-rotation fixture writes its first generation");
+            TestAssert.Check(WorldSaveWorker.WriteAtomic(rotationPath, "generation-2", out _),
+                    "backup-rotation fixture writes its second generation");
+            TestAssert.Check(WorldSaveWorker.WriteAtomic(rotationPath, "generation-3", out _),
+                    "backup-rotation fixture establishes primary and two backups");
+
+            string primaryBeforeFailure = Convert.ToHexString(File.ReadAllBytes(rotationPath));
+            string backupBeforeFailure = Convert.ToHexString(File.ReadAllBytes(rotationPath + ".bak"));
+            string oldestBeforeFailure = Convert.ToHexString(File.ReadAllBytes(rotationPath + ".bak2"));
+            bool failedPublish = WorldSaveWorker.WriteAtomic(
+                    rotationPath,
+                    "generation-4",
+                    out string? publishError,
+                    beforePublish: () => throw new System.IO.IOException(
+                            "injected final temp-to-primary publish failure"));
+
+            TestAssert.Check(!failedPublish && !string.IsNullOrEmpty(publishError),
+                    "atomic writer reports an injected failure at the final publish boundary");
+            TestAssert.Equal(primaryBeforeFailure,
+                    Convert.ToHexString(File.ReadAllBytes(rotationPath)),
+                    "final publish failure restores the previous primary byte-for-byte");
+            TestAssert.Equal(backupBeforeFailure,
+                    Convert.ToHexString(File.ReadAllBytes(rotationPath + ".bak")),
+                    "final publish failure restores the previous backup byte-for-byte");
+            TestAssert.Equal(oldestBeforeFailure,
+                    Convert.ToHexString(File.ReadAllBytes(rotationPath + ".bak2")),
+                    "final publish failure restores the oldest backup byte-for-byte");
+            TestAssert.Check(!File.Exists(rotationPath + ".tmp"),
+                    "failed final publish removes its temporary file");
+            TestAssert.Equal(0,
+                    Directory.GetFiles(rotationRoot, "rotation.json.bak2.stage-*").Length,
+                    "successful rollback leaves no staged oldest-backup file");
+
+            TestAssert.Check(WorldSaveWorker.WriteAtomic(rotationPath, "generation-4", out _),
+                    "backup rotation succeeds after the injected publish failure");
+            TestAssert.Equal("generation-4", File.ReadAllText(rotationPath),
+                    "successful rotation publishes the new primary");
+            TestAssert.Equal("generation-3", File.ReadAllText(rotationPath + ".bak"),
+                    "successful rotation moves the previous primary to .bak");
+            TestAssert.Equal("generation-2", File.ReadAllText(rotationPath + ".bak2"),
+                    "successful rotation advances the previous .bak to .bak2");
+            TestAssert.Equal(0,
+                    Directory.GetFiles(rotationRoot, "rotation.json.bak2.stage-*").Length,
+                    "successful commit removes the staged oldest-backup file");
+        }
+        finally
+        {
+            Directory.Delete(rotationRoot, recursive: true);
+        }
+
         string workerRoot = Path.Combine(Path.GetTempPath(),
                 $"minecraft-save-worker-{Guid.NewGuid():N}");
         Directory.CreateDirectory(workerRoot);
