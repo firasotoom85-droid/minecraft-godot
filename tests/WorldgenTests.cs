@@ -828,20 +828,20 @@ public static class WorldgenTests
                 int ox = cx * VoxelWorld.ChunkX;
                 int oz = cz * VoxelWorld.ChunkZ;
                 for (int z = oz; z < oz + VoxelWorld.ChunkZ; z++)
-                for (int x = ox; x < ox + VoxelWorld.ChunkX; x++)
-                for (int y = Math.Max(1, village.Y - 2); y <= Math.Min(first.Height - 1, village.Y + 8); y++)
-                {
-                    BlockId id = first.GetBlock(x, y, z);
-                    switch (id)
+                    for (int x = ox; x < ox + VoxelWorld.ChunkX; x++)
+                    for (int y = Math.Max(1, village.Y - 2); y <= Math.Min(first.Height - 1, village.Y + 8); y++)
                     {
-                        case BlockId.Bed: bedCount++; chunkVillageBlocks++; break;
-                        case BlockId.Chest: chestCount++; chunkVillageBlocks++; break;
-                        case BlockId.Furnace: furnaceCount++; chunkVillageBlocks++; break;
-                        case BlockId.CraftingTable: tableCount++; chunkVillageBlocks++; break;
-                        case BlockId.Farmland: farmCount++; chunkVillageBlocks++; break;
-                        case BlockId.Torch: torchCount++; chunkVillageBlocks++; break;
+                        BlockId id = first.GetBlock(x, y, z);
+                        switch (id)
+                        {
+                            case BlockId.Bed: bedCount++; chunkVillageBlocks++; break;
+                            case BlockId.Chest: chestCount++; chunkVillageBlocks++; break;
+                            case BlockId.Furnace: furnaceCount++; chunkVillageBlocks++; break;
+                            case BlockId.CraftingTable: tableCount++; chunkVillageBlocks++; break;
+                            case BlockId.Farmland: farmCount++; chunkVillageBlocks++; break;
+                            case BlockId.Torch: torchCount++; chunkVillageBlocks++; break;
+                        }
                     }
-                }
                 if (chunkVillageBlocks > 0) chunksWithVillageBlocks++;
             }
 
