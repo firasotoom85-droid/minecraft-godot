@@ -808,7 +808,15 @@ public partial class Player : CharacterBody3D, IDamageable
 
         Stats.ResetForRespawn();
         Vector3 target = RespawnPoint ?? (World?.FindSpawn() ?? GlobalPosition) + new Vector3(0, 1.0f, 0);
-        GlobalPosition = target;
+        if (IsInsideTree())
+        {
+            GlobalPosition = target;
+        }
+        else
+        {
+            Position = target;
+        }
+
         Velocity = Vector3.Zero;
         _fallStartY = null;
         EmitSignal(SignalName.Respawned);
