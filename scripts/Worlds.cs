@@ -231,6 +231,25 @@ public static class WorldStore
                 WorldReadResult<WorldManifest> manifest = ReadManifestResult(dir);
                 if (manifest.Value is { } value)
                 {
+                    WorldReadResult<WorldSave> worldSave = ReadJsonResult<WorldSave>(WorldSavePath(dir), Json);
+                    WorldReadResult<PlayerSave> playerSave = ReadJsonResult<PlayerSave>(PlayerSavePath(dir), Json);
+                    bool worldUnavailable = worldSave.Status is WorldReadStatus.Corrupt
+                            or WorldReadStatus.Unsupported or WorldReadStatus.Inaccessible;
+                    bool playerUnavailable = playerSave.Status is WorldReadStatus.Corrupt
+                            or WorldReadStatus.Unsupported or WorldReadStatus.Inaccessible;
+                    bool incompletePair = (worldSave.Status == WorldReadStatus.Missing)
+                            != (playerSave.Status == WorldReadStatus.Missing);
+                    bool missingHistory = worldSave.Status == WorldReadStatus.Missing
+                            && playerSave.Status == WorldReadStatus.Missing
+                            && (value.HasSavedData || value.PlaytimeSeconds > 0);
+                    if (worldUnavailable || playerUnavailable || incompletePair || missingHistory)
+                    {
+                        if (incompletePair || missingHistory)
+                            RequireRecovery(dir);
+                        UnreadableWorldDirectories.Add(dir);
+                        continue;
+                    }
+
                     result.Add((dir, value));
                     continue;
                 }
