@@ -2565,6 +2565,11 @@ public partial class VoxelWorld : Node3D
                 Mathf.FloorToInt(center.X / ChunkX),
                 Mathf.FloorToInt(center.Z / ChunkZ));
         int r = Mathf.Clamp(radius, 1, 5);
+
+        // Keep the preview's focal chunk immediately available for callers
+        // that sample/edit its voxels; the surrounding 24 preview chunks stream.
+        BuildNow(pcp);
+
         _lastPlayerChunk = pcp;
         _lastPlayerPos = center;
         _velocityDir = Vector3.Zero;
