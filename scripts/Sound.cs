@@ -224,7 +224,7 @@ public partial class Sound : Node
     }
 
     /// <summary>Material family for dig and step sounds.</summary>
-    private static string FamilyFor(BlockId id) => id switch
+    internal static string FamilyFor(BlockId id) => id switch
     {
         BlockId.Glass => "dig_glass",
         BlockId.Leaves or BlockId.BirchLeaves or BlockId.SpruceLeaves or BlockId.JungleLeaves
@@ -244,7 +244,7 @@ public partial class Sound : Node
         _ => "dig_dirt",
     };
 
-    private static string PlaceFamilyFor(BlockId id) => id switch
+    internal static string PlaceFamilyFor(BlockId id) => id switch
     {
         BlockId.Glass => "place_glass",
         BlockId.Leaves or BlockId.BirchLeaves or BlockId.SpruceLeaves or BlockId.JungleLeaves
@@ -358,7 +358,7 @@ public partial class Sound : Node
         v.Play();
     }
 
-    private static float PitchFor(BlockId id) => id switch
+    internal static float PitchFor(BlockId id) => id switch
     {
         BlockId.Dirt or BlockId.Grass or BlockId.Sand or BlockId.Gravel
                 or BlockId.Snow or BlockId.SnowGrass or BlockId.Ash => 1.25f,

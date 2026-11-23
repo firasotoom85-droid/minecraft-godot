@@ -47,7 +47,7 @@ public partial class PhotoMode : Node
 
         if (@event is InputEventKey key && key.Pressed && !key.Echo && key.IsActionPressed("photo_mode"))
         {
-            if (Active || (!GetTree().Paused && !player.InputLocked && !player.Stats.Dead))
+            if (CanTogglePhotoMode(Active, player.InputLocked, player.Stats.Dead, GetTree().Paused))
             {
                 Toggle();
                 GetViewport().SetInputAsHandled();
@@ -66,6 +66,9 @@ public partial class PhotoMode : Node
             _pitch = Mathf.Clamp(_pitch - motion.Relative.Y * sens, -1.5f, 1.5f);
         }
     }
+
+    internal static bool CanTogglePhotoMode(bool active, bool inputLocked, bool dead, bool treePaused) =>
+            active || (!inputLocked && !dead && !treePaused);
 
     private void Toggle()
     {
