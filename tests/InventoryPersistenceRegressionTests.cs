@@ -172,6 +172,14 @@ public static class InventoryPersistenceRegressionTests
                         s => s.Slot == 0 && s.Id == 110 && s.Count == 5),
                 "future item fields survive serialized player save/load unchanged");
 
+        Inventory opaqueArmor = new();
+        opaqueArmor.LoadFrom([new ItemStackSave(Inventory.SlotCount + 1, 110, 1)]);
+        TestAssert.Check(opaqueArmor.HasUnrecognizedArmorSlot(),
+                "unknown future armor record blocks debug armor replacement");
+        TestAssert.Check(opaqueArmor.ToSave().Exists(
+                        s => s.Slot == Inventory.SlotCount + 1 && s.Id == 110 && s.Count == 1),
+                "debug armor replacement guard leaves the original opaque armor record intact");
+
         Inventory opaqueTransientSlots = new();
         opaqueTransientSlots.LoadFrom([
             new ItemStackSave(Inventory.CraftingGridSaveSlot + 2, 110, 2),

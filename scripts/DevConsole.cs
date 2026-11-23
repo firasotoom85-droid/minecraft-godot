@@ -332,9 +332,15 @@ public partial class DevConsole : CanvasLayer
                     return "usage: /armor iron|diamond|off";
                 }
 
+                if (_player.Inventory.HasUnrecognizedArmorSlot())
+                {
+                    return "armor slots contain items from a different content version";
+                }
+
                 for (int i = 0; i < _player.Inventory.Armor.Length; i++)
                 {
-                    _player.Inventory.Armor[i] = i < set.Length ? ItemDb.New(set[i], 1) : ItemStack.Empty;
+                    _player.Inventory.Set(Inventory.SlotCount + i,
+                            i < set.Length ? ItemDb.New(set[i], 1) : ItemStack.Empty);
                 }
 
                 _player.Inventory.RaiseChanged();

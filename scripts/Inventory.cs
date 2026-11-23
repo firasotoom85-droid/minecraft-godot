@@ -48,6 +48,19 @@ public sealed class Inventory
     public bool HasUnrecognizedSaveSlot(int slot) =>
             (uint)slot < _unrecognizedSavedSlots.Length && _unrecognizedSavedSlots[slot] != null;
 
+    public bool HasUnrecognizedArmorSlot()
+    {
+        for (int i = 0; i < ArmorSlots; i++)
+        {
+            if (HasUnrecognizedSaveSlot(SlotCount + i))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public bool HasUnrecognizedCraftingGridItem()
     {
         for (int i = 0; i < CraftingGridSize; i++)
