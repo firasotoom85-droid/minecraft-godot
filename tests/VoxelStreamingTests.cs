@@ -24,7 +24,36 @@ public static class VoxelStreamingTests
                 StreamingMemoryBudget.EstimateVoxelArrayBudgetBytes(0, 2, 16, 128, 16),
                 "voxel cache budget clamps unsupported view distances to the runtime minimum");
 
+        TestMeshingConfigurationRevision();
         TestPayloadPoolCapacityBudget();
+    }
+
+    private static void TestMeshingConfigurationRevision()
+    {
+        bool original = Mesher.Greedy;
+        try
+        {
+            (bool greedy, long revision) = Mesher.CaptureConfiguration();
+            TestAssert.Equal(original, greedy,
+                    "meshing configuration capture returns the current greedy mode");
+            TestAssert.Check(Mesher.IsConfigurationCurrent(revision),
+                    "the current meshing configuration revision is accepted");
+
+            Mesher.Greedy = !greedy;
+            (bool nextGreedy, long nextRevision) = Mesher.CaptureConfiguration();
+            TestAssert.Equal(!greedy, nextGreedy,
+                    "changing greedy mode publishes the new immutable build mode");
+            TestAssert.Check(nextRevision > revision,
+                    "a meshing mode change advances the configuration revision");
+            TestAssert.Check(!Mesher.IsConfigurationCurrent(revision),
+                    "payloads captured before a mode change are identified as stale");
+            TestAssert.Check(Mesher.IsConfigurationCurrent(nextRevision),
+                    "payloads captured after a mode change use the active revision");
+        }
+        finally
+        {
+            Mesher.Greedy = original;
+        }
     }
 
     private static void TestPayloadPoolCapacityBudget()
