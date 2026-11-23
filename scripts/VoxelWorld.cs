@@ -168,6 +168,10 @@ public partial class VoxelWorld : Node3D
     private bool _dirty;
     private double _autosaveTimer;
     private double _unsavedPlaytimeSeconds;
+    private long _saveRevision;
+    private bool _saveRequested;
+    private Task<WorldSaveWorkerResult>? _pendingSave;
+    private WorldSaveSnapshot? _pendingSaveSnapshot;
     private Player? _persistenceEventsPlayer;
     private string? _worldReadOnlyReason;
     private bool _readOnlyWarningShown;
