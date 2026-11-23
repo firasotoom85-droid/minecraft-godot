@@ -79,12 +79,20 @@ public static class WaterAdjacentTests
         TestAssert.Equal((float)SurfaceFamily.Foliage + 8.0f,
                 MaterialResponse.VertexTag(SurfaceFamily.Foliage, true),
                 "wet shoreline foliage preserves its base response family");
+        float bouncedWetTag = MaterialResponse.VertexTag(
+                SurfaceFamily.Foliage, true, 0.75f);
+        TestAssert.Equal((float)SurfaceFamily.Foliage + 8.0f,
+                Mathf.Floor(bouncedWetTag + 0.001f),
+                "fractional cave spill does not change a wet foliage material tag");
+        TestAssert.Equal(0.75f, (bouncedWetTag
+                - Mathf.Floor(bouncedWetTag + 0.001f)) * 16.0f,
+                "wet foliage retains its four-bit cave-spill payload");
 
         string atlas = BlockDb.MakeOpaqueMaterial().Shader?.Code ?? string.Empty;
         string array = BlockDb.MakeArrayOpaqueMaterial().Shader?.Code ?? string.Empty;
         foreach ((string name, string shader) in new[] { ("atlas", atlas), ("greedy array", array) })
         {
-            TestAssert.Check(shader.Contains("float encoded_family = floor(COLOR.a + 0.5)", StringComparison.Ordinal),
+            TestAssert.Check(shader.Contains("float encoded_family = floor(COLOR.a + 0.001)", StringComparison.Ordinal),
                     $"{name} shader decodes the compact wet material tag");
             TestAssert.Check(shader.Contains("mod(encoded_family, 8.0)", StringComparison.Ordinal)
                     && shader.Contains("step(7.5, encoded_family)", StringComparison.Ordinal),
@@ -291,7 +299,7 @@ public static class WaterAdjacentTests
     {
         foreach (Color color in surface.Color)
         {
-            if (Mathf.IsEqualApprox(color.A, tag)) return true;
+            if (Mathf.IsEqualApprox(Mathf.Floor(color.A + 0.001f), tag)) return true;
         }
         return false;
     }
