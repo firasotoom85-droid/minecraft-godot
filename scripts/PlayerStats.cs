@@ -247,7 +247,7 @@ public sealed class PlayerStats
                 : health > 0.0f ? Mathf.Clamp(health, 1.0f, MaxHealth) : MaxHealth;
         Hunger = hunger >= 0.0f ? Mathf.Clamp(hunger, 0.0f, MaxHunger) : MaxHunger;
         Breath = MaxBreath;
-        Dead = false;
+        Dead = dead;
         Experience = Math.Clamp(experience, 0, 1_000_000);
         Changed?.Invoke();
     }
