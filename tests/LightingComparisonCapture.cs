@@ -170,6 +170,29 @@ public partial class LightingComparisonCapture : Node
             string? directory = Path.GetDirectoryName(absoluteOutput);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
             Error saveResult = image.SavePng(absoluteOutput);
+            if (saveResult != Error.Ok)
+                throw new IOException($"Could not save screenshot: {saveResult}.");
+
+            if (profile.ReferenceScreenshot is { } reference)
+            {
+                Image referenceImage = Image.LoadFromFile(ProjectSettings.GlobalizePath(reference));
+                LightingScreenshotAudit.Result audit =
+                        LightingScreenshotAudit.Compare(image, referenceImage);
+                GD.Print($"LIGHTING_COMPARISON_AUDIT scenario={Scenario} " +
+                        $"tiles={audit.ComparedTiles} regressed={audit.RegressedTiles} " +
+                        $"worst_drop={audit.WorstTileDrop * 255.0f:F1}/255 passed={audit.Passed} " +
+                        $"details=\"{audit.Details}\"");
+                if (!audit.Passed)
+                    throw new InvalidOperationException(
+                            $"Screenshot lighting audit failed for '{Scenario}': {audit.Details}. " +
+                            $"Captured frame retained at {absoluteOutput}.");
+            }
+            else
+            {
+                GD.Print($"LIGHTING_COMPARISON_AUDIT scenario={Scenario} passed=skipped " +
+                        $"details=\"no committed reference; frame saved for manual review\"");
+            }
+
             GD.Print($"LIGHTING_COMPARISON_SAMPLE scenario={Scenario} probe=({fixture.LightProbe.X}," +
                     $"{fixture.LightProbe.Y},{fixture.LightProbe.Z}) block={probeBlock} " +
                     $"sky={probe.Sky} direct_sky={probe.DirectSky} cave_bounce={probe.SkyBounce} " +
@@ -178,8 +201,6 @@ public partial class LightingComparisonCapture : Node
                     $"pale_mode={contrastMode} pale_contrast={captureContrast:F2} " +
                     $"ssao={preset.Ssao} ssr={preset.Ssr} glow={preset.Glow} volumetric_fog={preset.VolFog} " +
                     $"shadows={preset.ShadowSize} path={absoluteOutput} success={saveResult == Error.Ok}");
-            if (saveResult != Error.Ok)
-                throw new IOException($"Could not save screenshot: {saveResult}.");
         }
         catch (Exception exception)
         {

@@ -461,7 +461,37 @@ MX230-class GPUs. The runner creates and removes a temporary world and does
 not modify existing saves, generation rules, persisted IDs or settings.
 `LightingComparisonTests` verifies all five scene/profile bindings, fixed
 capture dimensions and streaming bounds, the shared environment, the
-direct-sky/block/AO RGB channels, and the fractional cave-spill material tag.
+direct-sky/block/AO RGB channels, the fractional cave-spill material tag, the
+sky/block/AO vertex-channel contract, and each decoded reference PNG.
+`LightingScreenshotAudit` now compares every real capture to its own committed
+scene reference using a fixed 8×6 image grid. It flags a tile when its mean
+luminance collapses below 55% of the reference by at least 18/255, or when at
+least 20% of sampled pixels inside that tile lose at least 65% of their
+reference luminance with the same absolute floor. Pixels and tiles already
+dark in the reference are excluded, preserving the legitimate dark cave and
+night arena. Captures are saved before the audit, so a failed frame remains
+available for inspection. Synthetic tests cover local dark patches, full-tile
+loss, small tolerated shifts, missing/empty references and mismatched sizes.
+
+Run all five GPU-backed comparisons with Godot 4.7.2 .NET on a desktop session:
+
+```bash
+export DISPLAY=:0 # use the active desktop display for your session
+export PATH=/path/to/dotnet:$PATH DOTNET_ROOT=/path/to/dotnet
+GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 \
+  scripts/verify-lighting-screenshots.sh
+```
+
+The runner defaults to seed 1337 and LOW, and writes captures to
+`/tmp/minecraft-godot-lighting-screenshots`. Set `SEED`, `PRESET` or `OUT_DIR`
+to override those values. LOW retains the existing 0.80 render scale, 1024
+shadow atlas and disabled SSAO/SSR/glow/volumetric fog for MX230-class GPUs.
+This GPU command is separate from `scripts/verify.sh`: the latter runs the
+synthetic image-audit regressions headlessly, but does not claim to validate
+renderer output or FPS. The capture path reuses the five existing production
+scenes, their baked voxel channels and shared environment; it adds no runtime
+lights or gameplay processing.
+
 The real-scene captures remain the visual check; headless tests do not claim
 to judge image quality or FPS.
 
