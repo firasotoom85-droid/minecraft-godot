@@ -147,7 +147,7 @@ internal static class WorldSaveWorker
                 {
                     // Leave the uniquely named staged backup for recovery.
                 }
-                catch (UnauthorizedAccessException)
+                catch (Exception)
                 {
                     // Leave the uniquely named staged backup for recovery.
                 }
