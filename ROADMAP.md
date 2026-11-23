@@ -2841,8 +2841,9 @@ sky value.
   ownership, greedy topology and chunk streaming are retained. Opacity and
   emitter edits continue to invalidate/update the same cache neighbourhoods;
   direct sky is regenerated only with the existing region solve. The cache
-  adds a compact half-byte-per-voxel direct-sky map and a reused mesher scratch
-  pad. Existing `COLOR`/UV2 attribute counts are unchanged; LOW/BALANCED
+  adds a compact half-byte-per-voxel direct-sky map. The pre-flood region
+  snapshot uses a reusable thread-local buffer; mesher pads are also thread-local
+  scratch. Existing `COLOR`/UV2 attribute counts are unchanged; LOW/BALANCED
   renderer settings are untouched.
 - **Validation added:** synthetic shaft/tunnel coverage pins zero direct sky
   under an opaque roof while the combined sky still spills laterally, guards
