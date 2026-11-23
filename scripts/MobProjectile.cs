@@ -16,13 +16,26 @@ public partial class MobProjectile : Area3D
     private Vector3 _source;
     private float _life = 4.0f;
     private Mobs? _manager;
+    private PhysicsRayQueryParameters3D? _terrainQuery;
     private string _sound = "mobcrystal";
     private Color _color = Colors.White;
+
+    internal PhysicsRayQueryParameters3D? TerrainQueryForTests => _terrainQuery;
+
+    internal void ConfigureTerrainQueryForTests(Vector3 from, Vector3 to)
+    {
+        if (_terrainQuery == null) return;
+        _terrainQuery.From = from;
+        _terrainQuery.To = to;
+    }
 
     public void Setup(Mobs manager, Vector3 origin, Vector3 target, float damage,
             Color color, float speed, string sound)
     {
         _manager = manager;
+        _terrainQuery = PhysicsRayQueryParameters3D.Create(
+                origin, origin, (uint)PhysicsLayer.Terrain);
+        _terrainQuery.CollideWithAreas = false;
         _damage = damage;
         _source = origin;
         _sound = sound;
@@ -74,10 +87,14 @@ public partial class MobProjectile : Area3D
         }
 
         Vector3 nextPosition = GlobalPosition + _velocity * (float)delta;
-        PhysicsRayQueryParameters3D query = PhysicsRayQueryParameters3D.Create(
-                GlobalPosition, nextPosition, (uint)PhysicsLayer.Terrain);
-        query.CollideWithAreas = false;
-        bool terrainHit = GetWorld3D().DirectSpaceState.IntersectRay(query).Count > 0;
+        if (_terrainQuery == null)
+        {
+            QueueFree();
+            return;
+        }
+        _terrainQuery.From = GlobalPosition;
+        _terrainQuery.To = nextPosition;
+        bool terrainHit = GetWorld3D().DirectSpaceState.IntersectRay(_terrainQuery).Count > 0;
         if (MobProjectileRules.ShouldStopOnTerrain(terrainHit))
         {
             _manager?.Puff(nextPosition, _color);

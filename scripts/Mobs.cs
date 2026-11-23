@@ -176,6 +176,8 @@ public partial class Mobs : Node
         {
             _maintenanceTimer = 0.5;
             Vector3 playerPosition = PlayerRef.GlobalPosition;
+            foreach (Mob mob in _passive) mob.RefreshTerrainSimulation();
+            foreach (Mob mob in _hostiles) mob.RefreshTerrainSimulation();
             _passive.RemoveAll(mob => DespawnFar(mob, playerPosition, PassiveDespawn));
             _hostiles.RemoveAll(mob => DespawnFar(mob, playerPosition, HostileDespawn));
         }
