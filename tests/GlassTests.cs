@@ -250,6 +250,25 @@ public static class GlassTests
                             $"{mode} cross-plants keep both diagonal planes and both windings");
                     TestAssert.Equal(0, invertedCrossNormals,
                             $"{mode} cross-plant shading normals oppose each triangle's clockwise front winding");
+
+                    // Rebuild after deliberately flipping the global setting
+                    // between the greedy pre-pass and the per-face stage. The
+                    // result must remain identical to the captured mode, while
+                    // its old revision must be rejected at payload application.
+                    MeshPayload interleaved = Mesher.BuildWithAfterGreedyPrepass(
+                            world, Vector2I.Zero, () => Mesher.Greedy = !greedy);
+                    try
+                    {
+                        TestAssert.Check(!Mesher.IsConfigurationCurrent(interleaved.MeshingRevision),
+                                $"{mode} payload captured before a mid-build setting change is stale");
+                        TestAssert.Check(SamePayloadGeometry(payload, interleaved),
+                                $"{mode} build uses one immutable greedy configuration through payload creation");
+                    }
+                    finally
+                    {
+                        PayloadPool.Release(interleaved);
+                        Mesher.Greedy = greedy;
+                    }
                 }
                 finally
                 {
@@ -267,6 +286,32 @@ public static class GlassTests
             DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
             DirAccess.RemoveAbsolute(dir);
         }
+    }
+
+    private static bool SamePayloadGeometry(MeshPayload left, MeshPayload right) =>
+            SameItems(left.Opaque.Vertex, right.Opaque.Vertex)
+            && SameItems(left.Opaque.Normal, right.Opaque.Normal)
+            && SameItems(left.Opaque.Color, right.Opaque.Color)
+            && SameItems(left.Opaque.Uv, right.Opaque.Uv)
+            && SameItems(left.Opaque.Uv2, right.Opaque.Uv2)
+            && SameItems(left.Glass.Vertex, right.Glass.Vertex)
+            && SameItems(left.Glass.Normal, right.Glass.Normal)
+            && SameItems(left.Glass.Uv, right.Glass.Uv)
+            && SameItems(left.Water.Vertex, right.Water.Vertex)
+            && SameItems(left.Lava.Vertex, right.Lava.Vertex)
+            && SameItems(left.Collision, right.Collision);
+
+    private static bool SameItems<T>(
+            System.Collections.Generic.IReadOnlyList<T> left,
+            System.Collections.Generic.IReadOnlyList<T> right)
+    {
+        if (left.Count != right.Count) return false;
+        for (int i = 0; i < left.Count; i++)
+        {
+            if (!System.Collections.Generic.EqualityComparer<T>.Default.Equals(left[i], right[i]))
+                return false;
+        }
+        return true;
     }
 
     private static int CountTrianglesInCell(
