@@ -165,8 +165,11 @@ public static class WorldStore
     {
         string prefix = WorldsRoot + "/";
         if (!path.StartsWith(prefix, StringComparison.Ordinal)) return null;
-        int separator = path.LastIndexOf('/');
-        return separator > prefix.Length ? path[..separator] : null;
+        string[] segments = path[prefix.Length..].Split('/');
+        if (segments.Length < 2 || segments.Any(segment =>
+                string.IsNullOrWhiteSpace(segment) || segment is "." or ".."))
+            return null;
+        return $"{prefix}{segments[0]}";
     }
 
     public static bool WriteManifest(string dir, WorldManifest manifest)
@@ -602,7 +605,35 @@ public static class WorldStore
     /// </summary>
     public static bool WriteAtomic(string path, string text, bool allowRecovery = false)
     {
+        bool isWorldPath = path.StartsWith(WorldsRoot + "/", StringComparison.Ordinal);
         string? worldDirectory = ParentWorldDirectory(path);
+        if (isWorldPath && worldDirectory is null)
+        {
+            GD.PushWarning($"minecraft: refusing an invalid world save path: {path}");
+            return false;
+        }
+        if (worldDirectory is not null)
+        {
+            try
+            {
+                string absoluteRoot = System.IO.Path.GetFullPath(ProjectSettings.GlobalizePath(WorldsRoot));
+                string absoluteWorld = System.IO.Path.GetFullPath(ProjectSettings.GlobalizePath(worldDirectory));
+                string rootPrefix = absoluteRoot.TrimEnd(System.IO.Path.DirectorySeparatorChar,
+                        System.IO.Path.AltDirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
+                if (!absoluteWorld.StartsWith(rootPrefix, OperatingSystem.IsWindows()
+                        ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                        || (System.IO.File.GetAttributes(absoluteWorld)
+                        & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint))
+                        != System.IO.FileAttributes.Directory)
+                    return false;
+            }
+            catch (Exception e) when (e is System.IO.IOException
+                    or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                GD.PushWarning($"minecraft: refusing to write through an unavailable world directory {worldDirectory}: {e.Message}");
+                return false;
+            }
+        }
         if (!allowRecovery && worldDirectory is not null && IsRecoveryRequired(worldDirectory))
         {
             GD.PushWarning($"minecraft: refusing to overwrite recovery-required world data at {path}");
