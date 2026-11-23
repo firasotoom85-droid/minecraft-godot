@@ -1346,6 +1346,33 @@ public static class WorldgenTests
                         visited, occupied, new Vector3I(9, 24, -3)),
                 "V12 ore walk stops recording when its fixed visit table is full");
 
+        Span<Vector3I> solidVisited = stackalloc Vector3I[8];
+        Span<byte> solidOccupied = stackalloc byte[8];
+        solidOccupied.Clear();
+        Vector3I[] solidPath =
+        [
+            new(1, 32, 1), new(2, 32, 1), new(1, 32, 1),
+            new(3, 32, 1), new(4, 32, 1), new(2, 32, 1),
+        ];
+        int solidPlaced = 0;
+        foreach (Vector3I position in solidPath)
+        {
+            if (WorldGenV12.TryRecordUniqueOrePosition(
+                            solidVisited, solidOccupied, position))
+            {
+                WorldGenV12.TryCountOrePlacement(isNaturalStone: true, ref solidPlaced);
+            }
+        }
+        TestAssert.Equal(4, solidPlaced,
+                "V12 solid-stone vein size counts distinct placements rather than walk steps");
+
+        int blockedPlaced = 0;
+        TestAssert.Check(!WorldGenV12.TryCountOrePlacement(
+                        isNaturalStone: false, ref blockedPlaced),
+                "V12 ore walk does not count a cave or existing non-stone candidate");
+        TestAssert.Equal(0, blockedPlaced,
+                "V12 non-stone candidates do not consume a vein placement slot");
+
         TestAssert.Equal(BlockId.Leaves,
                 WorldGenV12.MergeTreeBlock(BlockId.Air, BlockId.Leaves),
                 "V12 tree canopy still fills air");
