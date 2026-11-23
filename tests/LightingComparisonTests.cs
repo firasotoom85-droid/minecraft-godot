@@ -77,5 +77,126 @@ public static class LightingComparisonTests
                 "the scene probe keeps baked warm block light in the shader green channel");
         TestAssert.Equal(0.75f, channels.B,
                 "the scene probe keeps ambient occlusion/face shade in the shader blue channel");
+
+        TestSpatialProbeGrid();
+        TestProbeDriftMetrics();
+        TestHistoricalReferenceAnchors();
+    }
+
+    private static void TestSpatialProbeGrid()
+    {
+        IReadOnlyList<Vector3I> offsets = LightingProbeComparison.GridOffsets;
+        TestAssert.Equal(27, offsets.Count,
+                "spatial comparison samples a bounded 3x3x3 voxel grid");
+        bool containsCentre = false;
+        HashSet<string> ids = [];
+        foreach (Vector3I offset in offsets)
+        {
+            containsCentre |= offset == Vector3I.Zero;
+            TestAssert.Check(ids.Add(LightingProbeComparison.IdForOffset(offset)),
+                    "every spatial probe offset has a unique stable id");
+        }
+        TestAssert.Check(containsCentre,
+                "spatial comparison grid includes its historical centre anchor");
+        TestAssert.Equal("center", LightingProbeComparison.IdForOffset(Vector3I.Zero),
+                "the zero offset maps to the stable reference id");
+        TestAssert.Equal("x-2_y0_z2",
+                LightingProbeComparison.IdForOffset(new Vector3I(-2, 0, 2)),
+                "spatial probe ids encode their signed voxel offsets deterministically");
+    }
+
+    private static void TestProbeDriftMetrics()
+    {
+        LightingProbeComparison.ReferenceSample[] reference =
+        [
+            new("center", 8, 7),
+            new("east", 6, 3),
+            new("north", 4, 2),
+        ];
+        LightingProbeComparison.Sample[] captured =
+        [
+            new("center", 0, 30, 0, 10, 7, "Stone"),
+            new("east", 2, 30, 0, 5, 4, "Air"),
+            new("orphan", 4, 30, 0, 1, 0, "Air"),
+        ];
+
+        LightingProbeComparison.Drift drift = LightingProbeComparison.Compare(
+                captured, reference, 1.0f / 15.0f);
+        TestAssert.Equal(3, drift.CapturedSamples,
+                "drift report retains all captured grid samples");
+        TestAssert.Equal(3, drift.ReferenceSamples,
+                "drift report retains the complete reference sample count");
+        TestAssert.Equal(2, drift.ComparedSamples,
+                "drift metrics compare matching stable probe ids only");
+        TestAssert.Equal(1, drift.UnreferencedSamples,
+                "new grid points without a baseline are counted rather than treated as zero");
+        TestAssert.Equal(1, drift.MissingSamples,
+                "reference points absent from a capture are reported as missing");
+        TestAssert.Check(Math.Abs(drift.ReferenceCoverage - (2.0 / 3.0)) < 0.000001,
+                "reference coverage reports the compared fraction");
+        TestAssert.Check(Math.Abs(drift.MeanAbsoluteChannelDrift - 1.0) < 0.000001,
+                "mean channel drift is averaged in 4-bit light levels");
+        TestAssert.Check(Math.Abs(drift.MaxChannelDrift - 2.0) < 0.000001,
+                "maximum channel drift exposes the worst nibble difference");
+        TestAssert.Check(Math.Abs(drift.MaxColorDrift - (2.0 / 15.0)) < 0.000001,
+                "RGB drift uses the actual packed shader vertex channels");
+        TestAssert.Check(drift.OutsideToleranceSamples == 1,
+                "one-level nibble changes remain within tolerance and larger drift is flagged");
+        TestAssert.Check(drift.MaxIntensityDrift > 0.0
+                && drift.MeanAbsoluteIntensityDrift > 0.0,
+                "drift report includes luminance-weighted intensity differences");
+
+        bool duplicateRejected = false;
+        try
+        {
+            LightingProbeComparison.Compare(
+                    [captured[0], captured[0]], reference, 0.1f);
+        }
+        catch (ArgumentException)
+        {
+            duplicateRejected = true;
+        }
+        TestAssert.Check(duplicateRejected,
+                "duplicate captured probe ids are rejected instead of double-counted");
+
+        bool invalidToleranceRejected = false;
+        try
+        {
+            LightingProbeComparison.Compare(captured, reference, float.NaN);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            invalidToleranceRejected = true;
+        }
+        TestAssert.Check(invalidToleranceRejected,
+                "non-finite comparison tolerances are rejected");
+    }
+
+    private static void TestHistoricalReferenceAnchors()
+    {
+        Dictionary<string, (byte Sky, byte Block)> expected = new()
+        {
+            ["forest-canopy"] = (0, 0),
+            ["torch-cave"] = (10, 14),
+            ["river-valley"] = (13, 0),
+            ["village-street"] = (11, 14),
+            ["dungeon-arena"] = (6, 14),
+        };
+
+        foreach (LightingComparisonProfiles.Profile profile in LightingComparisonProfiles.All)
+        {
+            IReadOnlyList<LightingProbeComparison.ReferenceSample> reference =
+                    LightingProbeComparison.LoadReference(profile.Id);
+            TestAssert.Equal(1, reference.Count,
+                    $"{profile.DisplayName} retains its one historically measured anchor");
+            if (reference.Count == 0)
+                continue;
+            TestAssert.Equal("center", reference[0].Id,
+                    $"{profile.DisplayName} reference uses the stable centre probe id");
+            TestAssert.Equal(expected[profile.Id].Sky, reference[0].Sky,
+                    $"{profile.DisplayName} reference skylight matches the original capture report");
+            TestAssert.Equal(expected[profile.Id].Block, reference[0].Block,
+                    $"{profile.DisplayName} reference block light matches the original capture report");
+        }
     }
 }
