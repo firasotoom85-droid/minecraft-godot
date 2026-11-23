@@ -158,6 +158,36 @@ public static class SaveTests
                     "failed background atomic write preserves the current save");
             TestAssert.Check(!File.Exists(protectedPath + ".tmp"),
                     "failed background atomic write removes its temporary file");
+
+            string incompleteWorldPath = Path.Combine(workerRoot, "incomplete-world.json");
+            string incompletePlayerPath = Path.Combine(workerRoot, "incomplete-player.json");
+            string incompleteManifestPath = Path.Combine(workerRoot, "incomplete-manifest.json");
+            Directory.CreateDirectory(incompleteWorldPath);
+            WorldManifest previousManifest = workerManifest with
+            {
+                HasSavedData = false,
+                PlaytimeSeconds = 1,
+            };
+            File.WriteAllText(incompleteManifestPath,
+                    JsonSerializer.Serialize(previousManifest, WorldStore.ManifestJson));
+            WorldSaveSnapshot incompletePair = workerSnapshot with
+            {
+                WorldPath = incompleteWorldPath,
+                PlayerPath = incompletePlayerPath,
+                ManifestPath = incompleteManifestPath,
+                Manifest = workerManifest with { HasSavedData = true },
+            };
+            WorldSaveWorkerResult incompleteResult =
+                    WorldSaveWorker.WriteSynchronously(incompletePair);
+            TestAssert.Check(!incompleteResult.Success,
+                    "background worker reports a failed world/player save pair");
+            WorldManifest? unchangedManifest = JsonSerializer.Deserialize<WorldManifest>(
+                    File.ReadAllText(incompleteManifestPath), WorldStore.ManifestJson);
+            TestAssert.Check(unchangedManifest is { HasSavedData: false, PlaytimeSeconds: 1 },
+                    "failed save pair does not advance save-history metadata");
+            TestAssert.Check(File.Exists(incompletePlayerPath),
+                    "background worker still attempts the player half after world-write failure");
+
         }
         finally
         {
