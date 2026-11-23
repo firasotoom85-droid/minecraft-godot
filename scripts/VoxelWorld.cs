@@ -2891,9 +2891,22 @@ public partial class VoxelWorld : Node3D
             return true;
         }
 
-        return CachedStructureSite(Mathf.FloorToInt(x / (float)StructureCell),
+        if (CachedStructureSite(Mathf.FloorToInt(x / (float)StructureCell),
                 Mathf.FloorToInt(z / (float)StructureCell)) is { } site
-                && Mathf.Abs(site.X - x) <= 6 && Mathf.Abs(site.Z - z) <= 6;
+                && Mathf.Abs(site.X - x) <= 6 && Mathf.Abs(site.Z - z) <= 6)
+        {
+            return true;
+        }
+
+        if (_genVersion >= 8
+                && GetVillageSite(Mathf.FloorToInt(x / (float)VillageCell),
+                        Mathf.FloorToInt(z / (float)VillageCell)) is { } village
+                && Mathf.Abs(village.X - x) <= 52 && Mathf.Abs(village.Z - z) <= 52)
+        {
+            return true;
+        }
+
+        return false;
     }
 
     public Vector2I PlayerChunk()
@@ -3017,7 +3030,7 @@ public partial class VoxelWorld : Node3D
                 _dirty = true;
             }
 
-            if (_dirty)
+            if (_dirty || _unsavedPlaytimeSeconds >= AutosaveInterval)
             {
                 SaveNow();
             }
@@ -3415,7 +3428,7 @@ public partial class VoxelWorld : Node3D
     /// <summary>Focus-loss hook: write only when something actually changed.</summary>
     public void SaveIfDirty()
     {
-        if (_dirty)
+        if (_dirty || _unsavedPlaytimeSeconds > 0.0)
         {
             SaveNow();
         }
