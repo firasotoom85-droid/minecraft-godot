@@ -1,0 +1,81 @@
+using System.Collections.Generic;
+using Godot;
+
+namespace Minecraft;
+
+/// <summary>
+/// Guards the repeatable scenario resources and the shared low-cost renderer
+/// contract. GPU output is checked by running each real-scene capture.
+/// </summary>
+public static class LightingComparisonTests
+{
+    public static void Run()
+    {
+        TestAssert.Equal(5, LightingComparisonProfiles.All.Count,
+                "lighting comparison suite exposes all five requested environments");
+        TestAssert.Equal(1280, LightingComparisonProfiles.CaptureWidth,
+                "all lighting comparisons use a fixed 1280-pixel width");
+        TestAssert.Equal(720, LightingComparisonProfiles.CaptureHeight,
+                "all lighting comparisons use a fixed 720-pixel height");
+        TestAssert.Equal(3, LightingComparisonProfiles.ReferenceViewDistance,
+                "all lighting comparisons use the same bounded chunk streaming radius");
+        TestAssert.Equal(2, LightingComparisonProfiles.ChunkBuildRadius,
+                "all lighting comparisons build the same 5x5 preview chunk footprint");
+        TestAssert.Equal(180, LightingComparisonProfiles.WarmupFrames,
+                "all lighting comparisons wait for the same render warm-up");
+
+        HashSet<string> ids = [];
+        foreach (LightingComparisonProfiles.Profile profile in LightingComparisonProfiles.All)
+        {
+            TestAssert.Check(ids.Add(profile.Id),
+                    $"lighting profile id '{profile.Id}' is unique");
+            TestAssert.Check(profile.TimeOfDay >= 0.0 && profile.TimeOfDay < 1.0,
+                    $"{profile.DisplayName} uses a valid fixed time of day");
+            TestAssert.Check(profile.FieldOfView is >= 45.0f and <= 90.0f,
+                    $"{profile.DisplayName} uses a controlled camera field of view");
+            TestAssert.Check(profile.CameraOffset.LengthSquared() > 0.0f,
+                    $"{profile.DisplayName} camera is offset from its look target");
+
+            TestAssert.Check(LightingComparisonProfiles.TryGet(profile.Id, out _),
+                    $"{profile.DisplayName} can be selected by its stable id");
+            PackedScene scene = GD.Load<PackedScene>($"res://tests/{profile.SceneFile}")
+                    ?? throw new System.InvalidOperationException(
+                            $"Could not load comparison scene {profile.SceneFile}.");
+            Node root = scene.Instantiate();
+            TestAssert.Check(root is LightingComparisonCapture,
+                    $"{profile.SceneFile} uses the shared real-scene capture runner");
+            if (root is LightingComparisonCapture capture)
+                TestAssert.Equal(profile.Id, capture.Scenario,
+                        $"{profile.SceneFile} selects its matching scenario profile");
+            TestAssert.Equal(0, root.GetChildCount(),
+                    $"{profile.SceneFile} adds no fixture-specific light or emitter nodes");
+            TestAssert.FreeAll(root);
+        }
+
+        TestAssert.Check(!LightingComparisonProfiles.TryGet("not-a-scenario", out _),
+                "unknown lighting scenarios are rejected rather than mapped to a different fixture");
+
+        Gfx.Preset low = Gfx.Presets[Gfx.DefaultPreset];
+        TestAssert.Equal("LOW", low.Name,
+                "comparison captures default to the production MX230-friendly preset");
+        TestAssert.Check(!low.Ssao && !low.Ssr && !low.Glow && !low.VolFog,
+                "the low-end comparison path leaves expensive screen-space and volumetric effects disabled");
+
+        Godot.Environment environment = WorldEnvironmentFactory.Build();
+        TestAssert.Equal(Godot.Environment.ToneMapper.Filmic, environment.TonemapMode,
+                "comparison scenes inherit the shared Filmic world response");
+        TestAssert.Equal(1.0f, environment.AmbientLightEnergy,
+                "comparison scenes preserve neutral shared sky ambient");
+        TestAssert.Equal(Godot.Environment.FogModeEnum.Depth, environment.FogMode,
+                "current-generation comparison scenes retain camera-depth distance haze");
+
+        byte packed = VoxelLighting.Pack(11, 7);
+        Color channels = VoxelLighting.VertexColor(packed, 0.75f);
+        TestAssert.Equal(11.0f / 15.0f, channels.R,
+                "the scene probe keeps baked skylight in the shader red channel");
+        TestAssert.Equal(7.0f / 15.0f, channels.G,
+                "the scene probe keeps baked warm block light in the shader green channel");
+        TestAssert.Equal(0.75f, channels.B,
+                "the scene probe keeps ambient occlusion/face shade in the shader blue channel");
+    }
+}

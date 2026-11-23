@@ -2317,3 +2317,43 @@ commit ancestry traceable.
   the packed atlas and texture-array contracts, and the `SetBlock`/`ApplyEdit`
   mutation seam are unchanged. No world generation version was introduced by
   this batch because no generator rule changed.
+
+
+## 42. Controlled voxel-light comparison scenes — 2026-11-22
+
+- **Audit result.** Baked sky/block channels, incremental emitter mutation,
+  warm torch/campfire propagation, transparent-shader response, camera-driven
+  cave exposure, directional atmosphere, the Filmic WorldEnvironment and the
+  LOW/BALANCED renderer options were already integrated in the main branch.
+  The missing piece was a repeatable real-world comparison for forest canopy,
+  torch cave, river valley, village street and dungeon arena; production
+  lighting did not need another implementation.
+- **Fixtures.** Added five standalone scenes backed by one
+  `LightingComparisonCapture` runner and five immutable camera/time profiles.
+  Each runner loads `scenes/main.tscn`, uses the current V11 generator, a fixed
+  seed, clear weather, 1280×720 output and one explicitly selected Gfx preset.
+  The forest/river/village/dungeon positions are selected deterministically
+  from generated terrain and structures. The cave builds a small stone chamber
+  and open skylight shaft in a disposable world.
+- **Ownership and design.** Every cave block edit uses `VoxelWorld.SetBlock`,
+  so existing edit epochs, source registration and cache invalidation remain
+  authoritative. All emitters continue to use the existing packed voxel-light
+  caches and shared shaders; the runner asserts that no `OmniLight3D` nodes
+  appear. The 5×5 render-only preview bounds capture cost, while LOW stays the
+  default at its existing 0.80 scale with expensive post effects disabled.
+- **Validation.** LightingComparisonTests pins all five scene/profile
+  bindings, common output dimensions and view/chunk bounds, low-end preset
+  settings, shared Filmic/ambient/fog environment properties, and the baked
+  sky/block/AO vertex-channel layout. Godot 4.7.2 Debug build: 0 warnings /
+  0 errors. scripts/verify.sh: **198,773 checks, 0 failures**. Five real
+  1280×720 Forward+ captures completed on the MX230 at LOW; all reported
+  OmniLight3D=0. The torch cave probe read sky/block 10/14, the village torch
+  11/14, the dungeon torch 6/14 and river water 13/0. The forest image covers
+  canopy shading; its probe is on opaque trunk wood (0/0). Full locations and
+  capture files are indexed in
+  docs/visual/LIGHTING_COMPARISON_REPORT_2026-11-22.md.
+- **Compatibility and performance.** No production lighting, renderer
+  settings, shader code, greedy meshing, chunk streaming, saved fields,
+  BlockId/ItemId, atlas IDs or generator V1–V11 rules were changed. The
+  location scans run once at capture startup and are not part of gameplay.
+  No gameplay frame, physics or per-emitter node cost is added.
