@@ -709,3 +709,23 @@ this shader-only change.
 - No block/item IDs, save fields, generator rules, shader channels, light solver,
   mesher, streaming or renderer preset settings changed. No scene nodes, light
   emitters, per-frame scans, physics work or new gameplay allocations added.
+
+
+## Lightning flash terrain response — 2026-11-23
+
+- Connected the existing storm SkyFlash envelope to the shared
+  SkyPalette.SkyLightEnergy value consumed by all chunk material families.
+  The flash adds a bounded 0.95 maximum contribution under the existing 1.25
+  energy ceiling; the shader still multiplies it by each vertex's packed
+  skylight, so zero-skylight cave interiors are not globally illuminated.
+- Kept the existing max-combined secondary flash and 4.5-per-second linear
+  decay, extracting deterministic helpers so overlap, decay and recovery have
+  direct regression coverage.
+- Added atmosphere checks for flash bounds and recovery, storm terrain response,
+  propagation to atlas / greedy-array / glass / water / lava materials, and
+  zero-skylight cave attenuation. No IDs, saves, generator versions, voxel
+  mutations, shader passes, mesh layouts, streaming rules or quality presets
+  changed.
+- Build, scripts/verify.sh, GPU captures and frame-time comparisons are not
+  claimed here; they require a local Godot 4.7.2 .NET runtime and renderer and
+  remain required before treating this change as fully verified.

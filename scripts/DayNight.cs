@@ -26,6 +26,8 @@ public partial class DayNight : Node
     internal const float OutdoorAutoExposureMaxSensitivity = 140.0f;
     internal const float CaveAutoExposureMaxSensitivity = MinimumAutoExposureSensitivity;
     internal const float CaveAmbientScale = 0.08f;
+    internal const float MaximumSkyLightEnergy = 1.25f;
+    internal const float LightningSkyLightBoost = 0.95f;
     internal const float WaterAutoExposureMinSensitivity = 36.0f;
     internal const float WaterAutoExposureMaxSensitivity = 108.0f;
     internal const float SnowAutoExposureMinSensitivity = 32.0f;
@@ -112,7 +114,8 @@ public partial class DayNight : Node
         // gain a small light-dependent rim response rather than raising global
         // ambient and washing every terrain surface out of the dark.
         float skyLight = (float)System.Math.Clamp(
-                day * (1.0 - cover * 0.65) + night * 0.065, 0.0, 1.25);
+                day * (1.0 - cover * 0.65) + night * 0.065, 0.0, MaximumSkyLightEnergy);
+        skyLight = EvaluateLightningSkyEnergy(skyLight, lightning);
         float ambient = (float)((0.065 + day * 0.935) * (1.0 - cover * 0.30)
                 + lightning * 2.0);
         float sunEnergy = (float)(day * 1.15 * (1.0 - cover * 0.60));
@@ -195,6 +198,21 @@ public partial class DayNight : Node
     {
         double distance = (value - center) / width;
         return System.Math.Exp(-distance * distance);
+    }
+
+    /// <summary>
+    /// Adds the transient storm flash to the shared baked-skylight response.
+    /// The shader still multiplies this scalar by each vertex's packed skylight,
+    /// so a sealed cave with a zero sky channel remains unaffected.
+    /// </summary>
+    internal static float EvaluateLightningSkyEnergy(float baseSkyEnergy, double flash)
+    {
+        float safeBase = float.IsFinite(baseSkyEnergy)
+                ? Mathf.Clamp(baseSkyEnergy, 0.0f, MaximumSkyLightEnergy) : 0.0f;
+        float strength = double.IsFinite(flash)
+                ? (float)System.Math.Clamp(flash, 0.0, 1.0) : 0.0f;
+        return Mathf.Clamp(safeBase + strength * LightningSkyLightBoost,
+                0.0f, MaximumSkyLightEnergy);
     }
 
     /// <summary>
