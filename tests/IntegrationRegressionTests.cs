@@ -488,10 +488,16 @@ public static class IntegrationRegressionTests
 
     private static bool EqualPackedLight(VoxelLightData first, VoxelLightData second)
     {
-        if (first.Packed.Length != second.Packed.Length) return false;
+        if (first.Packed.Length != second.Packed.Length
+                || first.DirectSkyPacked.Length != second.DirectSkyPacked.Length)
+            return false;
         for (int i = 0; i < first.Packed.Length; i++)
         {
             if (first.Packed[i] != second.Packed[i]) return false;
+        }
+        for (int i = 0; i < first.DirectSkyPacked.Length; i++)
+        {
+            if (first.DirectSkyPacked[i] != second.DirectSkyPacked[i]) return false;
         }
         return true;
     }
