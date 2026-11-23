@@ -380,20 +380,30 @@ public static class AtmosphereTests
 
         TestAssert.Check(halfway.Color.R < air.Color.R && halfway.Color.B < air.Color.B,
                 "partial immersion blends the live air tint toward underwater blue");
-        TestAssert.Equal((airDensity + DayNight.UnderwaterFogDensity) * 0.5f,
-                halfway.Density, "partial immersion interpolates fog density without a threshold");
-        TestAssert.Equal(WorldEnvironmentFactory.DistanceHazeBegin * 0.5f,
-                halfway.DepthBegin, "partial immersion contracts the depth-fog start smoothly");
-        TestAssert.Equal((WorldEnvironmentFactory.DistanceHazeEnd + 14.0f) * 0.5f,
-                halfway.DepthEnd, "partial immersion contracts the depth-fog end smoothly");
+        // Interpolation results are float32, so an endpoint can land one ULP
+        // away from the declared constant; compare with the house tolerance.
+        TestAssert.Check(Mathf.IsEqualApprox(
+                        (airDensity + DayNight.UnderwaterFogDensity) * 0.5f, halfway.Density),
+                "partial immersion interpolates fog density without a threshold");
+        TestAssert.Check(Mathf.IsEqualApprox(
+                        WorldEnvironmentFactory.DistanceHazeBegin * 0.5f, halfway.DepthBegin),
+                "partial immersion contracts the depth-fog start smoothly");
+        TestAssert.Check(Mathf.IsEqualApprox(
+                        (WorldEnvironmentFactory.DistanceHazeEnd + 14.0f) * 0.5f, halfway.DepthEnd),
+                "partial immersion contracts the depth-fog end smoothly");
 
-        TestAssert.Equal(0.018f, water.Color.R, "full immersion reaches the underwater red tint");
-        TestAssert.Equal(0.105f, water.Color.G, "full immersion reaches the underwater green tint");
-        TestAssert.Equal(0.205f, water.Color.B, "full immersion reaches the underwater blue tint");
-        TestAssert.Equal(DayNight.UnderwaterFogDensity, water.Density,
+        TestAssert.Check(Mathf.IsEqualApprox(0.018f, water.Color.R),
+                "full immersion reaches the underwater red tint");
+        TestAssert.Check(Mathf.IsEqualApprox(0.105f, water.Color.G),
+                "full immersion reaches the underwater green tint");
+        TestAssert.Check(Mathf.IsEqualApprox(0.205f, water.Color.B),
+                "full immersion reaches the underwater blue tint");
+        TestAssert.Check(Mathf.IsEqualApprox(DayNight.UnderwaterFogDensity, water.Density),
                 "full immersion reaches the underwater density");
-        TestAssert.Equal(0.0f, water.DepthBegin, "full immersion begins depth fog at the camera");
-        TestAssert.Equal(14.0f, water.DepthEnd, "full immersion reaches the close underwater depth range");
+        TestAssert.Check(Mathf.IsEqualApprox(0.0f, water.DepthBegin),
+                "full immersion begins depth fog at the camera");
+        TestAssert.Check(Mathf.IsEqualApprox(14.0f, water.DepthEnd),
+                "full immersion reaches the close underwater depth range");
 
         DayNight.WaterFogProfile clampedLow = DayNight.EvaluateWaterFog(airColor, airDensity, -1.0f);
         DayNight.WaterFogProfile clampedHigh = DayNight.EvaluateWaterFog(airColor, airDensity, 2.0f);
