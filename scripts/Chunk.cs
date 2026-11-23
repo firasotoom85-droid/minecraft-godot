@@ -224,6 +224,12 @@ public static class ChunkMaterials
         return material;
     }
 
+    private static ShaderMaterial ApplyPaleSurfaceContrast(ShaderMaterial material)
+    {
+        MaterialResponse.ApplyPaleSurfaceContrast(material, _paleSurfaceContrastStrength);
+        return material;
+    }
+
     // Pale-surface contrast is a uniform-level response, so it composes with
     // the LOW-quality shader variant instead of replacing it.
     private static ShaderMaterial CreateOpaqueMaterial() => ApplyQualityVariant(

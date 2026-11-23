@@ -3134,3 +3134,35 @@ time or visual metric is claimed until those captures complete.
   mutation path, production light solver, shader, renderer preset, greedy
   meshing or chunk-streaming behavior was changed. Probe sampling runs only in
   the standalone comparison capture scenes.
+
+## 63. Consolidated integration of PRs #81–#91 — 2026-11-23
+
+Ten open pull requests landed together on `integration/pr81-91`; the order,
+conflict resolutions and verification are recorded in
+[`docs/INTEGRATION_PR81_91.md`](docs/INTEGRATION_PR81_91.md).
+
+- **Order.** #81 (test-only seam validation) → #91 (direct-sky/cave-spill
+  channel model) → #83 (LOW shader cost) → #89 (pale-surface contrast) → #82
+  (shadow budgets) → #86 (water fog) → #87 (lightning) → #85 (preset parity) →
+  #84 (reference gates) → #88 (probe drift). Each PR is merged only after the
+  PRs whose files or semantics it rewrites.
+- **Repaired blockers.** #86 failed to compile (`CS0136`, a duplicated
+  `waterBlend` local) and then failed four endpoint assertions that compared
+  `Lerp` results for exact equality; #89 referenced a non-existent
+  `BlockId.SnowBlock` (`CS0117`). Both are fixed on their own branches and both
+  now pass the full suite.
+- **Semantic merges.** `BlockDb` and `water.gdshader` carry one composed shader
+  body: the channel split, the LOW-quality `directional_response` substitution,
+  the tone-jitter `#ifndef` guard and the pale-surface gain term. `Chunk`
+  composes the quality variant with the pale-contrast wrapper. The capture
+  runner carries the reference audit, the shadow audit fields, the
+  pale-surface mode and the 3x3x3 probe grid with its drift JSON.
+- **Verification.** Debug and Release builds: 0 warnings, 0 errors. Headless
+  suite: **200,141 checks, 0 failures**, covering the frozen V1–V11 golden
+  hashes, save round-trips, both meshing paths, streaming/memory budgets,
+  lighting, atmosphere, graphics and the comparison suites.
+- **CI.** Both build steps now run with `-warnaserror`, so a new warning fails
+  the build instead of being tolerated.
+- **Still unmeasured.** No real-renderer capture or frame-time comparison was
+  produced here. The MX230 PASS/FAIL and the GPU-quantised cave-spill response
+  remain open visual checks; the capture commands are committed.

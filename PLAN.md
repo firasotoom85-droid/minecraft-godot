@@ -11,13 +11,36 @@ Aspect tags: `WG` worldgen · `CT` content/items · `SV` survival · `MG` manage
 
 ## 0. Current state (one paragraph)
 
-Working sandbox: infinite-streaming 16×64×16 chunks (seeded noise, 4 biomes,
-threshold caves, 4 ores, trees/cacti, campfires) with worker-thread meshing and
-far-LOD; player with instant break/place, 9-slot hotbar, always-available flight;
-6 wandering sheep, one-punch kills; day/night, weather, particles, fully
-procedural textures and 22 kHz audio; code-built HUD; single JSON save
-(`user://minecraft_save.json`: edits + player + time), no menus, no items, no
-health, no crafting, unrebindable input.
+**Rewritten 2026-11-23.** The 2026-10-13 audit snapshot it replaced is kept
+verbatim at the end of this section as a historical record.
+
+Voxel survival sandbox on Godot 4.7.2 (.NET / C#): infinite streaming
+16×64×16 chunks across eleven frozen generator versions (V1–V11, V11 current),
+worker-thread meshing with both the greedy and per-face paths, far LOD and an
+enforced streaming-memory budget; append-only `BlockId`/`ItemId` registries
+(128 block ids, `Ash` appended as 60) over a fully procedural atlas with no
+proprietary assets. Survival loop with health, hunger, equipment and durability,
+crafting, containers and furnaces, farming, fishing, boats and buckets;
+passive and hostile mobs with baked-light perception; villages, traders,
+quests, dungeons and generated structures. Day/night, weather with storm
+lightning, an adaptive procedural soundscape and continuous air-to-water fog.
+Multi-world saves under `user://worlds/<id>/` with append-only extensions;
+code-built HUD, minimap, pause/settings/keybind screens, achievements and an
+onboarding guide, plus a live 3D main menu and photo mode. Rendering shares one
+material-response table across the atlas, greedy texture-array, glass, water and
+lava shaders with LOW/BALANCED/HIGH presets and baked voxel lighting that
+separates direct sunlight, lateral cave spill and warm block emission. One
+headless runner covers 52 registered suites and **200,141 checks**.
+
+Historical record — 2026-10-13 audit snapshot, unchanged:
+
+> Working sandbox: infinite-streaming 16×64×16 chunks (seeded noise, 4 biomes,
+> threshold caves, 4 ores, trees/cacti, campfires) with worker-thread meshing and
+> far-LOD; player with instant break/place, 9-slot hotbar, always-available flight;
+> 6 wandering sheep, one-punch kills; day/night, weather, particles, fully
+> procedural textures and 22 kHz audio; code-built HUD; single JSON save
+> (`user://minecraft_save.json`: edits + player + time), no menus, no items, no
+> health, no crafting, unrebindable input.
 
 ## 1. Decisions (LOCKED 2026-10-13)
 

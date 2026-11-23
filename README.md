@@ -17,7 +17,10 @@ compatibility checks and measured validation are in
 integrated on `integration/pr70-79` from `c5093cc`; #73 was closed as
 superseded by #74. Their dispositions, semantic resolutions, visual
 comparisons and LOW-preset measurements are in
-[`docs/INTEGRATION_PR70_79.md`](docs/INTEGRATION_PR70_79.md). The earlier record
+[`docs/INTEGRATION_PR70_79.md`](docs/INTEGRATION_PR70_79.md). PRs #81–#91 are
+integrated on `integration/pr81-91` with their dependency order, conflict
+resolutions and measured validation in
+[`docs/INTEGRATION_PR81_91.md`](docs/INTEGRATION_PR81_91.md). The earlier record
 remains in [`docs/INTEGRATION_PR49_57.md`](docs/INTEGRATION_PR49_57.md).
 
 ## Renderer quality matrix
