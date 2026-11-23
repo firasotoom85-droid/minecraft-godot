@@ -367,19 +367,24 @@ public static class WorldArchive
             if (!File.Exists(path)) continue;
             try
             {
-                WorldManifest? value = JsonSerializer.Deserialize<WorldManifest>(File.ReadAllText(path), WorldStore.Json);
+                if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                    continue;
+                string json = File.ReadAllText(path);
+                if (!WorldStore.IsValidBackupModel("manifest.json", json))
+                    continue;
+                WorldManifest? value = JsonSerializer.Deserialize<WorldManifest>(json, WorldStore.ManifestJson);
                 if (value is not null) return value;
             }
             catch (JsonException) { }
+            catch (UnauthorizedAccessException) { }
         }
         return null;
     }
 
     private static void ValidateManifestMetadata(WorldManifest manifest)
     {
-        if (string.IsNullOrWhiteSpace(manifest.Name) || manifest.Name.Length > 128
-                || manifest.GenVersion < 1 || manifest.GenVersion > WorldStore.CurrentGenVersion
-                || manifest.NoiseSeeds is not { Length: 5 })
+        string json = JsonSerializer.Serialize(manifest, WorldStore.ManifestJson);
+        if (!WorldStore.IsValidBackupModel("manifest.json", json))
             throw new InvalidDataException("The world manifest has invalid metadata or an unsupported generator version.");
     }
 
@@ -424,22 +429,19 @@ public static class WorldArchive
             found = true;
             try
             {
+                if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                    continue;
                 string json = File.ReadAllText(path);
-                if (isWorldSave)
-                {
-                    WorldSave? save = JsonSerializer.Deserialize<WorldSave>(json, WorldStore.Json);
-                    if (save is null) continue;
-                    if (save.Version < 1 || save.Version > WorldStore.WorldFormatVersion)
-                        throw new InvalidDataException($"This world uses unsupported save version {save.Version}.");
-                }
-                else
-                {
-                    PlayerSave? save = JsonSerializer.Deserialize<PlayerSave>(json, WorldStore.Json);
-                    if (save?.Pos is null) continue;
-                }
+                string baseName = isWorldSave ? "world.json" : "player.json";
+                if (!WorldStore.IsValidBackupModel(baseName, json))
+                    continue;
                 return i > 0;
             }
             catch (JsonException) { }
+            catch (UnauthorizedAccessException e)
+            {
+                throw new InvalidDataException($"The imported {fileName} candidate cannot be read.", e);
+            }
         }
 
         if (found)
