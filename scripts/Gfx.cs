@@ -18,7 +18,7 @@ public partial class Gfx : Node
         bool Ssao, bool Ssr, bool Glow, bool VolFog, float Scale, int Msaa,
         bool Taa, bool Fxaa, float Lod, bool Fsr2,
         RenderingServer.ShadowQuality ShadowFilterQuality, float SunAngularDistance,
-        float ShadowBlur, float SsaoRadius, float SsaoIntensity);
+        float ShadowBlur, float SsaoRadius, float SsaoIntensity, bool LowCostVoxelShaders);
 
     // Ordered from the MX230-friendly baseline to high-end options. LOW and
     // BALANCED use filtered shadow maps without PCSS; Godot documents any
@@ -28,17 +28,17 @@ public partial class Gfx : Node
     public static readonly IReadOnlyList<Preset> Presets =
     [
         new("LOW", 5, 3, 45.0f, 1024, false, false, false, false, 0.80f, 0, false, true, 0.0f, false,
-                RenderingServer.ShadowQuality.SoftLow, 0.0f, 0.35f, 0.80f, 1.30f),
+                RenderingServer.ShadowQuality.SoftLow, 0.0f, 0.35f, 0.80f, 1.30f, true),
         new("BALANCED", 7, 4, 65.0f, 1024, false, false, false, false, 0.90f, 0, false, true, 256.0f, false,
-                RenderingServer.ShadowQuality.SoftLow, 0.0f, 0.35f, 0.80f, 1.30f),
+                RenderingServer.ShadowQuality.SoftLow, 0.0f, 0.35f, 0.80f, 1.30f, false),
         new("HIGH", 9, 5, 90.0f, 2048, true, false, true, false, 1.0f, 0, true, false, 384.0f, false,
-                RenderingServer.ShadowQuality.SoftMedium, 0.18f, 0.28f, 0.68f, 1.35f),
+                RenderingServer.ShadowQuality.SoftMedium, 0.18f, 0.28f, 0.68f, 1.35f, false),
         new("ULTRA", 12, 6, 120.0f, 4096, true, true, true, false, 1.0f, 0, true, false, 512.0f, false,
-                RenderingServer.ShadowQuality.SoftHigh, 0.32f, 0.25f, 0.76f, 1.40f),
+                RenderingServer.ShadowQuality.SoftHigh, 0.32f, 0.25f, 0.76f, 1.40f, false),
         new("MAX", 12, 6, 130.0f, 4096, true, true, true, true, 1.25f, 0, true, false, 640.0f, false,
-                RenderingServer.ShadowQuality.SoftUltra, 0.45f, 0.25f, 0.82f, 1.45f),
+                RenderingServer.ShadowQuality.SoftUltra, 0.45f, 0.25f, 0.82f, 1.45f, false),
         new("MAX · FSR2", 12, 6, 130.0f, 4096, true, true, true, true, 0.7f, 0, false, false, 640.0f, true,
-                RenderingServer.ShadowQuality.SoftUltra, 0.45f, 0.25f, 0.82f, 1.45f),
+                RenderingServer.ShadowQuality.SoftUltra, 0.45f, 0.25f, 0.82f, 1.45f, false),
     ];
 
     public const int DefaultPreset = 0;  // LOW is the reference-laptop default
@@ -183,6 +183,7 @@ public partial class Gfx : Node
     {
         Current = Mathf.Clamp(index, 0, Presets.Count - 1);
         Preset p = CurrentPreset;
+        ChunkMaterials.SetLowQualityShaderVariant(p.LowCostVoxelShaders);
         if (World != null)
         {
             World.MaxInFlight = p.Inflight;
