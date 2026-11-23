@@ -970,22 +970,26 @@ void vertex() {
 " + WarmBlockLightingShader + @"
 void fragment() {
     vec4 tex = texture(tiles, vec3(fract(tile_uv), tile_layer));
-    if (COLOR.a < 0.5) {
+    if (mod(floor(COLOR.a + 0.001), 8.0) < 0.5) {
         ivec3 cell = ivec3(floor(surface_world_position - surface_world_normal * 0.01));
         float tone = float(surface_cell_hash(cell) & 65535u) / 65535.0 * 2.0 - 1.0;
         tex.rgb *= 1.0 + tone * 0.035;
     }
-    float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+    float direct_sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+    float bounce = clamp(fract(COLOR.a) * 16.0 * sky_light_energy, 0.0, 1.0);
+    float sky = clamp(direct_sky + bounce, 0.0, 1.0);
     float block = clamp(COLOR.g, 0.0, 1.0);
     float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
-    vec3 illumination = vec3(0.035) + directional_sky_light(surface_world_normal, sky, COLOR.r)
+    vec3 illumination = vec3(0.035)
+            + directional_sky_light(surface_world_normal, direct_sky, COLOR.r)
+            + cave_bounce_illumination(bounce)
             + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
     EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
-    float encoded_family = floor(COLOR.a + 0.5);
+    float encoded_family = floor(COLOR.a + 0.001);
     float wet = step(7.5, encoded_family);
     float family = mod(encoded_family, 8.0);
     vec3 response = surface_response(family);
