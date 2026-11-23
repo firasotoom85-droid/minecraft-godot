@@ -438,6 +438,13 @@ generation or save data.
   trilinearly and blended through the entrance rather than switching at a fixed
   terrain-depth threshold. Cache misses use a smooth terrain-depth fallback;
   the frame path performs only eight cache reads and no chunk generation.
+
+  The existing moon direction and cool-blue tint also feed the shared atlas,
+  greedy-array, glass, water and lava materials through packed sky exposure.
+  Outdoor faces receive a restrained directional contribution while sealed
+  caves remain dark; global night ambient and baked skylight stay at 0.065.
+  The procedural starfield retains one sphere/texture and gains deterministic
+  colour/size variety plus cloud-aware visibility.
   Repeatable GPU comparison (same seed/site/camera): run
   `res://tests/WarmLightingVisualCapture.tscn` with arguments `1337 11 0 0
   torch`, `1337 11 0 0 campfire`, `1337 11 0 0 overlap`, or
@@ -827,6 +834,12 @@ camera and weather remain matched. The mean frame luminance was 0.389 at dawn,
 [noon](docs/visual/screenshots/sunlight-noon-clear.png) ·
 [sunset](docs/visual/screenshots/sunlight-sunset-clear.png) ·
 [night](docs/visual/screenshots/sunlight-night-clear.png).
+
+The moonlit terrain/starfield pass reuses the production atmosphere capture.
+Run it at midnight with Clear weather, then repeat with Rain to compare cloud
+occlusion. The focused moonlight suite checks moon direction, night-fill
+limits, cloud attenuation, star visibility monotonicity, and all five shared
+shader/material paths.
 
 ### Water-adjacent visual validation
 

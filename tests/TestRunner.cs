@@ -34,6 +34,7 @@ public partial class TestRunner : Node
         RunSuite("lighting-comparisons", LightingComparisonTests.Run);
         RunSuite("transparent-materials", () => GlassTests.Run(this));
         RunSuite("atmosphere", AtmosphereTests.Run);
+        RunSuite("moonlight", MoonlightTests.Run);
         RunSuite("mining", MiningTests.Run);
         RunSuite("inventory", InventoryTests.Run);
         RunSuite("containers", ContainerTests.Run);

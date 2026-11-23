@@ -2503,3 +2503,34 @@ commit ancestry traceable.
 - No voxel IDs, save fields, generator rules, baked-light packing, propagation, greedy meshing, chunk streaming, scene light-node count, or LOW/BALANCED renderer budgets changed.
 
 **Validation:** Godot 4.7.2 .NET / .NET 9 Debug build (0 warnings, 0 errors); `scripts/verify.sh` exits 0; focused lighting and atmosphere suites pass; the full runner reports **198,728 checks, 0 failures**. The matched clear-midnight capture uses seed 1337 / V11 / `(512, -372)` on the NVIDIA MX230. Its mean frame luminance changes 26.29 → 25.96, sky 20.37 → 19.96, and unlit stage 10.01 → 6.77. Capture artifacts are stored under `docs/visual/screenshots/night-hostiles-*.png`.
+
+
+## Moonlit voxel surfaces and cloud-aware stars — 2026-11-22
+
+- Reused the existing DayNight moon DirectionalLight3D; its normalized
+  direction remains opposite the sun and its blue-white tint/energy are sent
+  through the existing shared material owner. Atlas, greedy texture-array,
+  glass, water and lava shaders now receive moon direction, colour and energy.
+- Moon fill is gated by packed sky exposure separately from the low global
+  sky-energy scalar. Exposed surfaces receive a visible directional
+  contribution while cave faces with zero sky exposure receive none. The
+  existing 0.065 night ambient / baked-skylight floor and 0.18 moon key remain
+  unchanged; cloud cover continues to attenuate moon energy.
+- The procedural starfield retains its one sphere and one texture. Its
+  deterministic image gains restrained colour/size variation and low-energy
+  emission; visibility fades through twilight and monotonically decreases as
+  cloud cover increases. No per-star objects or texture updates occur in the
+  frame loop.
+- Added a focused moonlight suite for sun/moon opposition, normalized
+  directions, low night-fill invariants, cloud attenuation, bounded star
+  visibility, and the shared atlas/greedy/glass/water/lava shader uniforms.
+- Save format, persisted IDs, V1–V11 world generation, block-light propagation,
+  voxel mutation ownership, mesh channels, greedy meshing, chunk streaming and
+  LOW/BALANCED renderer budgets are unchanged. No light nodes, shadow passes,
+  mesh rebuilds, per-frame scans, physics work or new GPU effects are added.
+- Verification: Godot 4.7.2 .NET Debug build completed with 0 warnings and
+  0 errors. scripts/verify.sh passed 199,065 checks with 0 failures across
+  the complete registered suite. Automated shader/material regressions pass.
+  A matched real-scene MX230 visual capture was attempted but did not complete
+  in this environment; pixel-level review and a sustained FPS soak remain
+  outstanding before marking this change fully visually verified.

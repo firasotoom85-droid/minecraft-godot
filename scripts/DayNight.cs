@@ -33,7 +33,9 @@ public partial class DayNight : Node
             double FogDensityMultiplier,
             Vector3 SunDirection,
             Color SunColor,
-            Color SkyLightColor);
+            Color SkyLightColor,
+            Vector3 MoonDirection,
+            Color MoonColor);
 
     /// <summary>
     /// Deterministic atmosphere palette shared by gameplay and visual tests.
@@ -105,7 +107,8 @@ public partial class DayNight : Node
 
         return new SkyPalette(day, night, twilight, top, horizon, ground,
                 skyLight, ambient, sunEnergy, moonEnergy, 1.0 + cover * 1.6,
-                EvaluateSunDirection(t), sunColor, skyLightColor);
+                EvaluateSunDirection(t), sunColor, skyLightColor,
+                EvaluateMoonDirection(t), new Color(0.62f, 0.74f, 1.0f));
     }
 
     /// <summary>
@@ -125,6 +128,22 @@ public partial class DayNight : Node
                 Mathf.Sin(azimuthRadians) * horizontal,
                 (float)System.Math.Sin(angle),
                 Mathf.Cos(azimuthRadians) * horizontal).Normalized();
+    }
+
+    /// <summary>Direction from a shaded surface toward the moon, opposite the sun.</summary>
+    internal static Vector3 EvaluateMoonDirection(double timeOfDay) =>
+            -EvaluateSunDirection(timeOfDay);
+
+    /// <summary>
+    /// Star visibility after twilight and cloud occlusion. Clouds obscure the
+    /// existing procedural star layer without lifting terrain or cave ambient.
+    /// </summary>
+    internal static float EvaluateStarVisibility(double night, double cloudiness)
+    {
+        double darknessFade = System.Math.Clamp(night * 1.4 - 0.3, 0.0, 1.0);
+        double cloudCover = System.Math.Clamp(cloudiness, 0.0, 1.0);
+        double cloudOcclusion = SmoothStep(0.25, 0.95, cloudCover);
+        return (float)System.Math.Clamp(darknessFade * (1.0 - cloudOcclusion * 0.92), 0.0, 1.0);
     }
 
     private static double SmoothStep(double edge0, double edge1, double value)
@@ -248,6 +267,7 @@ public partial class DayNight : Node
         Sun.LightEnergy = palette.SunEnergy;
         Sun.Visible = sinA > -0.15;
         _moon.RotationDegrees = new Vector3(-Mathf.RadToDeg((float)(a + System.Math.PI)), -35.0f, 0.0f);
+        _moon.LightColor = palette.MoonColor;
         _moon.LightEnergy = palette.MoonEnergy;
         _moon.Visible = night > 0.02;
 
@@ -258,7 +278,8 @@ public partial class DayNight : Node
 
         Godot.Environment env = WorldEnv!.Environment;
         ChunkMaterials.SetSkyLighting(palette.SkyLightEnergy, palette.SunDirection,
-                palette.SunColor, palette.SkyLightColor, palette.SunEnergy);
+                palette.SunColor, palette.SkyLightColor, palette.SunEnergy,
+                palette.MoonDirection, palette.MoonColor, palette.MoonEnergy);
         env.AmbientLightEnergy = palette.AmbientLightEnergy;
         Color fogColor = palette.Horizon;
         double fogDensity = _fogDensityAir * palette.FogDensityMultiplier;
@@ -341,7 +362,7 @@ public partial class DayNight : Node
         env.FogDensity = Mathf.Lerp(env.FogDensity, (float)fogDensity, blend);
 
         _starMaterial.AlbedoColor = _starMaterial.AlbedoColor.WithAlpha(
-                (float)System.Math.Clamp(night * 1.4 - 0.3, 0.0, 1.0));
+                EvaluateStarVisibility(night, Cloudiness));
         UpdateCaustics(delta);
         Camera3D? cam = GetViewport().GetCamera3D();
         if (cam != null)
@@ -418,6 +439,9 @@ public partial class DayNight : Node
             CullMode = BaseMaterial3D.CullModeEnum.Disabled,
             DisableReceiveShadows = true,
             TextureFilter = BaseMaterial3D.TextureFilterEnum.Linear,
+            EmissionEnabled = true,
+            Emission = new Color(0.72f, 0.82f, 1.0f),
+            EmissionEnergyMultiplier = 0.55f,
         };
         SphereMesh sphere = new()
         {
@@ -447,23 +471,38 @@ public partial class DayNight : Node
         {
             Seed = 424242,
         };
-        for (int i = 0; i < 700; i++)
+        // Deterministic colour/size variation adds visible points and depth
+        // while retaining the single texture, sphere and material.
+        for (int i = 0; i < 960; i++)
         {
-            float b = rng.RandfRange(0.35f, 1.0f);
-            img.SetPixel(rng.RandiRange(0, w - 1), rng.RandiRange(0, h - 1), new Color(b, b, b * 1.05f, b));
+            float brightness = rng.RandfRange(0.32f, 0.90f);
+            Color tint = rng.Randf() < 0.72f
+                    ? new Color(0.82f, 0.89f, 1.0f)
+                    : new Color(1.0f, 0.88f, 0.72f);
+            Color star = new(tint.R * brightness, tint.G * brightness,
+                    tint.B * brightness, brightness);
+            img.SetPixel(rng.RandiRange(0, w - 1), rng.RandiRange(0, h - 1), star);
         }
 
-        for (int i = 0; i < 40; i++)
+        for (int i = 0; i < 52; i++)
         {
             int x = rng.RandiRange(0, w - 2);
             int y = rng.RandiRange(0, h - 2);
+            float brightness = rng.RandfRange(0.72f, 1.0f);
+            Color star = new(brightness * 0.90f, brightness * 0.94f,
+                    brightness, 0.88f);
             for (int dy = 0; dy < 2; dy++)
-            {
-                for (int dx = 0; dx < 2; dx++)
-                {
-                    img.SetPixel(x + dx, y + dy, new Color(1, 1, 1, 0.9f));
-                }
-            }
+            for (int dx = 0; dx < 2; dx++)
+                img.SetPixel(x + dx, y + dy, star);
+        }
+
+        for (int i = 0; i < 10; i++)
+        {
+            int x = rng.RandiRange(1, w - 3);
+            int y = rng.RandiRange(1, h - 3);
+            for (int dy = 0; dy < 3; dy++)
+            for (int dx = 0; dx < 3; dx++)
+                img.SetPixel(x + dx, y + dy, new Color(0.86f, 0.92f, 1.0f, 0.78f));
         }
 
         return img;
