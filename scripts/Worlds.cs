@@ -53,7 +53,8 @@ public sealed record PlayerSave(
     float[]? Respawn = null,
     int Experience = 0,
     float? Yaw = null,
-    float? Pitch = null);
+    float? Pitch = null,
+    bool Dead = false);
 
 /// <summary>One saved inventory slot (0-8 hotbar, 9-35 backpack, 36-39 armor).</summary>
 public sealed record ItemStackSave(int Slot, int Id, int Count, int Durability = 0,
