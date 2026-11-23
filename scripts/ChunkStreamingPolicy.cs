@@ -74,6 +74,21 @@ internal sealed class ChunkGenerationReservations
 }
 
 /// <summary>Small, deterministic rules shared by world streaming and regression tests.</summary>
+internal static class WorldCompatibilityPolicy
+{
+    public static bool IsSupportedGeneratorVersion(int version, int currentVersion) =>
+            version >= 1 && version <= currentVersion;
+
+    public static bool HasValidNoiseSeeds(int[]? seeds) => seeds is { Length: 5 };
+
+    public static bool IsSupportedSaveVersion(int version, int currentVersion) =>
+            version >= 1 && version <= currentVersion;
+
+    public static bool MustRejectMissingManifest(bool manifestCandidateExists,
+            bool worldSaveExists, bool playerSaveExists) =>
+            manifestCandidateExists || worldSaveExists || playerSaveExists;
+}
+
 internal static class ChunkStreamingPolicy
 {
     public static bool IsWithinRetention(Vector2I cp, Vector2I center, int limit) =>
