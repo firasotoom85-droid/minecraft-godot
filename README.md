@@ -351,12 +351,12 @@ samples outside the one-level tolerance. Comparisons use the same production
 
 The versioned baseline is
 [`lighting-probe-reference-v1.json`](docs/visual/lighting-probe-reference-v1.json).
-It deliberately contains only the five centre-probe values already measured
-in the original capture report. Therefore each 27-point run currently has
-**1/27 (3.7%) reference coverage**; the remaining positions are reported as
-unreferenced and are not treated as zero or included in drift averages. A full
-spatial baseline must be promoted from reviewed real-renderer captures, not
-invented from interpolated values.
+It contains the full **27/27 measured samples for each of the five scenes**,
+captured by the Godot 4.7.2 .NET GitHub Actions headless probe-only job with
+seed 1337, generator V11, LOW preset and clear weather. The five centre samples
+match the exact historical values in the original capture report. All spatial
+positions now participate in the comparison; no expected values are
+interpolated or guessed.
 
 The runner also supports a data-only mode for machines without a desktop
 renderer: append `--probe-only` after the preset argument. It skips window
