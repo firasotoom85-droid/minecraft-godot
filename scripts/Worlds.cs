@@ -699,7 +699,6 @@ public static class WorldStore
     {
         bool found = false;
         bool inaccessible = false;
-        bool unsupported = false;
         string? lastError = null;
         foreach (string candidate in new[] { path, path + ".bak", path + ".bak2" })
         {
@@ -728,8 +727,13 @@ public static class WorldStore
                 if (value is null) { lastError = $"{candidate} contains a null JSON value"; continue; }
                 if (!ValidateModel(value, out WorldReadStatus validationStatus, out string validationError))
                 {
-                    unsupported |= validationStatus == WorldReadStatus.Unsupported;
                     lastError = $"{candidate}: {validationError}";
+                    if (validationStatus == WorldReadStatus.Unsupported)
+                    {
+                        // Never downgrade a newer primary save to an older backup.
+                        MarkRecoveryRequired(path);
+                        return new WorldReadResult<T>(null, WorldReadStatus.Unsupported, lastError);
+                    }
                     continue;
                 }
 
@@ -749,8 +753,7 @@ public static class WorldStore
 
         if (!found) return new WorldReadResult<T>(null, WorldReadStatus.Missing, null);
         MarkRecoveryRequired(path);
-        WorldReadStatus status = inaccessible ? WorldReadStatus.Inaccessible
-                : unsupported ? WorldReadStatus.Unsupported : WorldReadStatus.Corrupt;
+        WorldReadStatus status = inaccessible ? WorldReadStatus.Inaccessible : WorldReadStatus.Corrupt;
         return new WorldReadResult<T>(null, status,
                 lastError ?? "No readable and structurally valid save candidate was found.");
     }
@@ -905,9 +908,18 @@ public static class WorldStore
         WorldReadResult<WorldManifest> manifest = ReadManifestResult(dir);
         WorldReadResult<WorldSave> world = ReadJsonResult<WorldSave>(WorldSavePath(dir), Json);
         WorldReadResult<PlayerSave> player = ReadJsonResult<PlayerSave>(PlayerSavePath(dir), Json);
-        if (manifest.Value is not null
-                && (world.Status is WorldReadStatus.Valid or WorldReadStatus.Recovered or WorldReadStatus.Missing)
-                && (player.Status is WorldReadStatus.Valid or WorldReadStatus.Recovered or WorldReadStatus.Missing))
+        if (manifest.Value is null
+                || (world.Status is not (WorldReadStatus.Valid or WorldReadStatus.Recovered or WorldReadStatus.Missing))
+                || (player.Status is not (WorldReadStatus.Valid or WorldReadStatus.Recovered or WorldReadStatus.Missing)))
+            return;
+
+        bool bothMissing = world.Status == WorldReadStatus.Missing
+                && player.Status == WorldReadStatus.Missing;
+        bool bothPresent = world.Value is not null && player.Value is not null;
+        bool knownPreviouslySaved = manifest.Value.HasSavedData
+                || manifest.Value.PlaytimeSeconds > 0
+                || manifest.Value.PlayedUtc > manifest.Value.CreatedUtc;
+        if ((bothMissing && !knownPreviouslySaved) || bothPresent)
             ClearRecoveryRequired(dir);
     }
 
