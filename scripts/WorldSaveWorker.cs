@@ -32,6 +32,9 @@ internal static class WorldSaveWorker
     public static Task<WorldSaveWorkerResult> WriteAsync(WorldSaveSnapshot snapshot) =>
             Task.Run(() => Write(snapshot));
 
+    public static WorldSaveWorkerResult WriteSynchronously(WorldSaveSnapshot snapshot) =>
+            Write(snapshot);
+
     private static WorldSaveWorkerResult Write(WorldSaveSnapshot snapshot)
     {
         try
