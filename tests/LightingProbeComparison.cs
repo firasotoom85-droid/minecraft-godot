@@ -38,6 +38,16 @@ public static class LightingProbeComparison
             double ReferenceCoverage,
             double MeanAbsoluteChannelDrift,
             double MaxChannelDrift,
+            double MeanAbsoluteSkyDrift,
+            double MaxSkyDrift,
+            double MeanAbsoluteBlockDrift,
+            double MaxBlockDrift,
+            double MeanAbsoluteRedDrift,
+            double MeanAbsoluteGreenDrift,
+            double MeanAbsoluteBlueDrift,
+            double MaxRedDrift,
+            double MaxGreenDrift,
+            double MaxBlueDrift,
             double MeanAbsoluteColorDrift,
             double MaxColorDrift,
             double MeanAbsoluteIntensityDrift,
@@ -130,6 +140,16 @@ public static class LightingProbeComparison
 
         double channelTotal = 0.0;
         double maxChannel = 0.0;
+        double skyTotal = 0.0;
+        double maxSky = 0.0;
+        double blockTotal = 0.0;
+        double maxBlock = 0.0;
+        double redTotal = 0.0;
+        double greenTotal = 0.0;
+        double blueTotal = 0.0;
+        double maxRed = 0.0;
+        double maxGreen = 0.0;
+        double maxBlue = 0.0;
         double colorTotal = 0.0;
         double maxColor = 0.0;
         double intensityTotal = 0.0;
@@ -151,6 +171,10 @@ public static class LightingProbeComparison
             int blockDelta = Math.Abs(actual.Block - expected.Block);
             channelTotal += skyDelta + blockDelta;
             maxChannel = Math.Max(maxChannel, Math.Max(skyDelta, blockDelta));
+            skyTotal += skyDelta;
+            maxSky = Math.Max(maxSky, skyDelta);
+            blockTotal += blockDelta;
+            maxBlock = Math.Max(maxBlock, blockDelta);
 
             Color expectedColor = VoxelLighting.VertexColor(
                     VoxelLighting.Pack(expected.Sky, expected.Block), 1.0f);
@@ -161,6 +185,12 @@ public static class LightingProbeComparison
             double blue = Math.Abs(actualColor.B - expectedColor.B);
             colorTotal += red + green + blue;
             maxColor = Math.Max(maxColor, Math.Max(red, Math.Max(green, blue)));
+            redTotal += red;
+            greenTotal += green;
+            blueTotal += blue;
+            maxRed = Math.Max(maxRed, red);
+            maxGreen = Math.Max(maxGreen, green);
+            maxBlue = Math.Max(maxBlue, blue);
 
             double intensity = Math.Abs(Luminance(actualColor) - Luminance(expectedColor));
             intensityTotal += intensity;
@@ -180,6 +210,16 @@ public static class LightingProbeComparison
                 reference.Count == 0 ? 0.0 : (double)compared / reference.Count,
                 compared == 0 ? 0.0 : channelTotal / (compared * 2),
                 maxChannel,
+                compared == 0 ? 0.0 : skyTotal / compared,
+                maxSky,
+                compared == 0 ? 0.0 : blockTotal / compared,
+                maxBlock,
+                compared == 0 ? 0.0 : redTotal / compared,
+                compared == 0 ? 0.0 : greenTotal / compared,
+                compared == 0 ? 0.0 : blueTotal / compared,
+                maxRed,
+                maxGreen,
+                maxBlue,
                 compared == 0 ? 0.0 : colorTotal / (compared * 3),
                 maxColor,
                 compared == 0 ? 0.0 : intensityTotal / compared,
