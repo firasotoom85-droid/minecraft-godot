@@ -203,7 +203,6 @@ public static class WorldArchive
             long totalBytes = 0;
             foreach (WorldArchiveFile record in archiveManifest.Files)
             {
-                ValidateRelativePath(record.Path, allowWorldPrefix: true);
                 if (record is null || record.Path is not { Length: > 0 }
                         || record.Sha256 is not { Length: 64 } sha256)
                     throw new InvalidDataException("The archive manifest contains a file record with missing path or SHA-256 metadata.");
@@ -389,6 +388,7 @@ public static class WorldArchive
         WorldManifest? stagedManifest = ReadBestManifest(worldDirectory);
         if (stagedManifest is null)
             throw new InvalidDataException("The imported world manifest is corrupt and has no valid backup.");
+        ValidateManifestMetadata(stagedManifest);
         if (!ManifestsMatch(stagedManifest, archivedManifest))
             throw new InvalidDataException("The world manifest does not match the archive metadata.");
 
