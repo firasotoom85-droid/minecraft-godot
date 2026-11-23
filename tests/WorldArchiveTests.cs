@@ -159,6 +159,47 @@ public static class WorldArchiveTests
             TestAssert.Equal(worldsBeforeNullHash, Directory.GetDirectories(worldsRoot).Length,
                     "invalid null-hash metadata does not publish an import destination");
 
+            // An unsupported primary world save must not be replaced by an
+            // older compatible backup during staged archive validation.
+            string futureArchive = Path.Combine(absoluteRoot, "future-save.zip");
+            Dictionary<string, byte[]> futureEntries = new()
+            {
+                ["world/manifest.json"] = System.Text.Encoding.UTF8.GetBytes(
+                        JsonSerializer.Serialize(sourceManifest, WorldStore.ManifestJson)),
+                ["world/world.json"] = System.Text.Encoding.UTF8.GetBytes(
+                        """{"version":999,"edits":{},"time":0.5}"""),
+                ["world/world.json.bak"] = System.Text.Encoding.UTF8.GetBytes(
+                        JsonSerializer.Serialize(new WorldSave(2, null, 0.125), WorldStore.Json)),
+            };
+            List<WorldArchiveFile> futureRecords = [];
+            foreach ((string entryPath, byte[] bytes) in futureEntries)
+                futureRecords.Add(new WorldArchiveFile(entryPath, bytes.LongLength,
+                        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant()));
+            WorldArchiveManifest futureMetadata = new(
+                    WorldArchive.ArchiveVersion, DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    sourceManifest, futureRecords);
+            using (FileStream stream = new(futureArchive, FileMode.CreateNew))
+            using (ZipArchive zip = new(stream, ZipArchiveMode.Create))
+            {
+                foreach ((string entryPath, byte[] bytes) in futureEntries)
+                {
+                    ZipArchiveEntry entry = zip.CreateEntry(entryPath);
+                    using Stream output = entry.Open();
+                    output.Write(bytes, 0, bytes.Length);
+                }
+                ZipArchiveEntry metadata = zip.CreateEntry(WorldArchive.ArchiveManifestName);
+                using (StreamWriter writer = new(metadata.Open()))
+                    writer.Write(JsonSerializer.Serialize(futureMetadata, WorldStore.Json));
+            }
+            int worldsBeforeFutureSave = Directory.GetDirectories(worldsRoot).Length;
+            bool futureSaveRejected = false;
+            try { WorldArchive.Import(futureArchive, worldsRoot); }
+            catch (InvalidDataException) { futureSaveRejected = true; }
+            TestAssert.Check(futureSaveRejected,
+                    "archive import rejects a future primary save rather than downgrading to its v2 backup");
+            TestAssert.Equal(worldsBeforeFutureSave, Directory.GetDirectories(worldsRoot).Length,
+                    "unsupported archive saves are rejected before world publication");
+
             // One unreadable restore point must not hide valid neighboring files.
             WorldBackupStore.ReadBackupTextForTests = path =>
             {
