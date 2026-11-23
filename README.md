@@ -13,7 +13,11 @@ The project is a long-running solo build with an extensive design log in
 and merged into `main` through PR #58. PRs #59–#68 are integrated on
 `integration/pr59-68`; their contribution map, conflict resolutions,
 compatibility checks and measured validation are in
-[`docs/INTEGRATION_PR59_68.md`](docs/INTEGRATION_PR59_68.md). The earlier record
+[`docs/INTEGRATION_PR59_68.md`](docs/INTEGRATION_PR59_68.md). PRs #70–#79 are
+integrated on `integration/pr70-79` from `c5093cc`; #73 was closed as
+superseded by #74. Their dispositions, semantic resolutions, visual
+comparisons and LOW-preset measurements are in
+[`docs/INTEGRATION_PR70_79.md`](docs/INTEGRATION_PR70_79.md). The earlier record
 remains in [`docs/INTEGRATION_PR49_57.md`](docs/INTEGRATION_PR49_57.md).
 
 ## Unified voxel material response
@@ -471,15 +475,18 @@ generation or save data.
   cached biome column is sampled; no additional terrain query or per-frame scan
   is introduced. Dark/bright adaptation speeds are held for one second after a
   lighting transition, then return to the neutral speed so a single crossing
-  signal is long enough for the renderer to adapt. The capture runner shares the
-  production camera attributes and logs biome, water blend, ISO limits and
-  adaptation speed for comparison. Capture water entry/emergence and a generated
-  snow/shaded-biome pair with the same fixed world and view profile:
+  signal is long enough for the renderer to adapt. Exposure and cave captures
+  share the production camera attributes and log biome, water blend, ISO limits
+  and adaptation speed for comparison. Capture water entry/emergence and a
+  generated snow/shaded-biome pair with the same fixed world and view profile:
 
   ```bash
-  godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 11 512 -372 0.50 Clear res://docs/visual/screenshots/exposure-water-exit.png false 3 none water-exit
-  godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 11 512 -372 0.50 Clear res://docs/visual/screenshots/exposure-biome-pair.png false 3 none biome-pair
+  godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 11 512 -372 0.50 Clear res://docs/visual/screenshots/exposure-water-exit.png 4 3 false none water-exit false
+  godot --path . res://tests/AtmosphereVisualCapture.tscn -- 1337 11 512 -372 0.50 Clear res://docs/visual/screenshots/exposure-biome-pair.png 4 3 false none biome-pair false
   ```
+
+  These committed references use MAX (preset index 4); a bare capture now
+  defaults to LOW so visual comparisons do not depend on the saved user preset.
 
   The water run writes matched underwater/emerged frames. The biome run writes
   matched snow and shaded-canopy frames and prints the selected biome IDs plus
@@ -617,7 +624,7 @@ control and shows common through legendary gear, plain and enchanted examples,
 and full / 74% / 49% / 24% durability states. The PNG is written to
 `user://equipment-durability-visual-validation.png`.
 
-The current headless suite reports **198,736 checks, 0 failures across 48
+The current headless suite reports **199,417 checks, 0 failures across 48
 suites**, with 0 Debug and Release build warnings or errors. The added
 `item-visual-quality` suite pins rarity bands, cached enchantment variants,
 wear/enchantment composition, first-person visual-state signatures and block

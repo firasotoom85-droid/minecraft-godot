@@ -49,8 +49,22 @@ generation is byte-identical. The contribution map, conflict resolutions and
 measured validation are in
 [`docs/INTEGRATION_PR59_68.md`](docs/INTEGRATION_PR59_68.md).
 
-**Validation:** Debug and Release builds report 0 warnings and 0 errors; the
-headless suite reports **198,718 checks, 0 failures across 48 suites**. V9, V10
+**PRs #70–#79 integration:** nine branches are merged on
+`integration/pr70-79` from `main` at `c5093cc`; #73 was closed as superseded by
+#74. The batch adds controlled lighting fixtures (#77), chunk-stream light
+continuity (#78), shape-aware baked light (#79), packed emissive presentation
+(#70), dark-night silhouettes (#71), directional moonlight and stars (#72),
+bounded cave and exposure adaptation (#74), preset shadow softness (#75) and
+unified weather/cloud presentation (#76). Save format V4 and generator V1–V11
+remain unchanged. Dispositions, conflict resolutions, real-scene comparisons
+and MX230 measurements are in
+[`docs/INTEGRATION_PR70_79.md`](docs/INTEGRATION_PR70_79.md). Debug and
+Release builds report 0 warnings and 0 errors, and `scripts/verify.sh` passes
+**199,417 checks, 0 failures across 48 suites** with both meshing paths and
+the V1–V11/save compatibility checks included.
+
+**Validation (#59–#68):** Debug and Release builds report 0 warnings and 0 errors; the
+headless suite reported **198,718 checks, 0 failures across 48 suites**. V9, V10
 and V11 golden hashes match the pre-integration baseline, and the V1–V8 legacy
 anchors are unchanged. Matched headless measurements from the #49–#57 batch put
 greedy meshing at about 7.9 ms/chunk versus 6.9 ms on main (roughly 15% more CPU
@@ -2505,7 +2519,7 @@ commit ancestry traceable.
 **Validation:** Godot 4.7.2 .NET / .NET 9 Debug build (0 warnings, 0 errors); `scripts/verify.sh` exits 0; focused lighting and atmosphere suites pass; the full runner reports **198,728 checks, 0 failures**. The matched clear-midnight capture uses seed 1337 / V11 / `(512, -372)` on the NVIDIA MX230. Its mean frame luminance changes 26.29 → 25.96, sky 20.37 → 19.96, and unlit stage 10.01 → 6.77. Capture artifacts are stored under `docs/visual/screenshots/night-hostiles-*.png`.
 
 
-## Moonlit voxel surfaces and cloud-aware stars — 2026-11-22
+## 47. Moonlit voxel surfaces and cloud-aware stars — 2026-11-22
 
 - Reused the existing DayNight moon DirectionalLight3D; its normalized
   direction remains opposite the sun and its blue-white tint/energy are sent
@@ -2739,3 +2753,54 @@ one fixture.
   per-frame world scans, voxel work or physics work. No FPS delta is claimed;
   the capture matrix is a visual compatibility check, not a controlled
   frame-time benchmark.
+
+## 52. Consolidated integration of PRs #70–#79 — 2026-11-23
+
+The nine live branches in this batch were merged into `integration/pr70-79`
+from `main` at `c5093cc`, in dependency order: #77 → #78 → #79 → #70 → #71 →
+#72 → #74 → #75 → #76. Every branch landed as a real merge commit. #73 was
+closed as superseded by #74 because the two implemented the same cave
+adaptation in parallel; #74 also adds water, snow and forest exposure contexts,
+and merging both would have duplicated camera logic. #72 contains #71's head,
+so merging #71 first applied only its moonlight/starfield contribution.
+
+- **Semantic merges.** The water shader keeps #70's warm response and the #72
+  moon term in one pass. Lava keeps packed-channel emission plus the same moon
+  term. `SkyPalette` is one record containing sky, sun, moon and cloud fields,
+  consumed by #76's weather presentation. The atmosphere capture harness now
+  has one parser for legacy and preset-first arguments, cave modes, exposure
+  modes, hostiles and weather.
+- **Validation fixes.** #74's shared adaptive camera attributes were scoped to
+  cave and exposure captures; using them for every capture made #71's night and
+  #76's weather references depend on adaptation time. Captures default to LOW
+  rather than the saved preset. The hostile fixture waits for the mesh queue
+  and eye adaptation before sampling. The moon shader contribution is scaled by
+  0.12 so directional moonlight remains visible without undoing #71's dark
+  night; the silhouette capture then measures 25.51 mean luminance against the
+  25.96 reference (MAE 2.94).
+- **Real-scene validation.** On the MX230 / Vulkan Forward+, warm captures
+  reported torch/campfire/overlap 14→13 and lava 12→11; sealed, entrance and
+  sealed-torch caves matched at MAE 0.49 / 3.14 / 1.39 with room skylight 0,
+  ISO max 40 and torch 14/13; water and snow/taiga at MAX matched at MAE
+  0.54–2.11; shadow profiles matched at 0.34–3.21; five controlled lighting
+  scenes at 0.02–1.24; partial-shape light 6/5/6/6 and foliage 13 vs 15; chunk
+  seam atlas/greedy at 1.53–2.13 and cross-path at 1.51–1.95. Weather luminance
+  fell monotonically from 130.11 (Clear) to 101.40 (Storm).
+- **Performance.** Release / LOW / 1280×720 / view distance 5 / seed 1337,
+  three matched 30-second runs after a 10-second warm-up: median 9.72 ms p50,
+  11.11 ms p95 and 21.71 ms p99 (99.2 mean FPS), versus 12.96 / 16.67 / 49.87
+  ms on `main` `c5093cc` under the same harness. Heavy rain measured 10.00 ms
+  p50 and 17.59 ms p95. The difference is a whole-branch measurement and was
+  not bisected; it establishes no regression rather than a single-cause win.
+- **Compatibility.** `BlockId`/`ItemId`, save V4, V1–V11 generation, golden
+  hashes, greedy meshing, chunk streaming, packed light channels and the
+  `SetBlock`/`ApplyEdit` seam are unchanged. Debug and Release builds report
+  0 warnings / 0 errors; `scripts/verify.sh` passes **199,417 checks, 0
+  failures across 48 suites**; the atlas validator reports 0 errors and
+  `git diff --check` is clean.
+- **Remaining limitations.** The committed exposure references use MAX, so
+  they are reproduced with preset index 4 while a bare capture defaults to
+  LOW. The sealed cave's bright blue fog is pre-existing reference behaviour.
+  Weather captures are terrain-facing, so cloud planes are verified by palette
+  values and tests rather than framed pixels. Interactive playtesting and GPU
+  frame-time capture remain manual.
