@@ -840,7 +840,7 @@ public partial class Player : CharacterBody3D, IDamageable
             Mode = GameMode.Creative;
         }
 
-        Stats.Load(health, hunger, experience);
+        Stats.Load(health, hunger, experience, dead && Mode == GameMode.Survival);
         RespawnPoint = respawn;
     }
 
