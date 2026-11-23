@@ -312,6 +312,7 @@ public partial class MainMenu : Control
         _newWorldPanel.Visible = false;
         _settingsPanel.Visible = false;
         _managePanel.Visible = true;
+        UiFocus.FocusFirst(_managePanel);
     }
 
     private void RenameWorld()

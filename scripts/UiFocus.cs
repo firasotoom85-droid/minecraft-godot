@@ -34,19 +34,39 @@ public static class UiFocus
         target?.GrabFocus();
     }
 
-    private static Control? FindFocusable(Node node)
+    public static void RestoreFocus(Control? preferred, Control? fallback)
+    {
+        if (CanReceiveFocus(preferred))
+        {
+            preferred!.GrabFocus();
+            return;
+        }
+        if (fallback != null && GodotObject.IsInstanceValid(fallback))
+            FocusFirst(fallback);
+    }
+
+    internal static Control? FindFocusable(Node node)
     {
         if (node is CanvasItem item && !item.Visible)
             return null;
-        if (node is Control self && self.FocusMode != Control.FocusModeEnum.None)
+        if (node is Control self && CanReceiveFocus(self))
             return self;
-
         foreach (Node child in node.GetChildren())
         {
             Control? nested = FindFocusable(child);
             if (nested != null) return nested;
         }
         return null;
+    }
+
+    private static bool CanReceiveFocus(Control? control)
+    {
+        if (control == null || !GodotObject.IsInstanceValid(control)
+                || control.FocusMode == Control.FocusModeEnum.None)
+            return false;
+        if (control is BaseButton button && button.Disabled)
+            return false;
+        return true;
     }
 
     /// <summary>Close every open modal; used when the death screen takes over.</summary>
