@@ -35,7 +35,8 @@ public static class SurfaceVariationTests
 
         foreach ((string shader, string label) in new[]
         {
-            (atlasShader, "atlas"), (arrayShader, "greedy array"), (glassShader, "glass"),
+            (atlasShader, "atlas"), (arrayShader, "greedy array"),
+            (glassShader, "glass"), (waterShader, "water"),
         })
         {
             TestAssert.Check(shader.Contains("clamp(COLOR.r * sky_light_energy, 0.0, 1.0)"),
@@ -55,12 +56,10 @@ public static class SurfaceVariationTests
                     $"{label} does not double-count full block light as strong emission");
         }
 
-        TestAssert.Check(waterShader.Contains("float shadowed_block = block * (1.0 - sky);"),
-                "water retains its separate sky-headroom block-light blend");
-        TestAssert.Check(waterShader.Contains("shadowed_block * 0.08"),
-                "water retains its restrained residual torch glow");
-        TestAssert.Check(waterShader.Contains("clamp(COLOR.r * sky_light_energy, 0.0, 1.0)"),
-                "water bounds sky contribution before blending light channels");
+        TestAssert.Check(waterShader.Contains("float warm_response = warm_block_response(sky, block);")
+                        && waterShader.Contains("EMISSION = tex.rgb * warm_block_emission(warm_response);")
+                        && !waterShader.Contains("shadowed_block"),
+                "water uses the same sky-headroom response and residual emission as opaque voxel materials");
 
         TestAssert.Equal(SurfaceFamily.Wood, MaterialResponse.ForTile(49), "plank top grain keeps the wood response");
         TestAssert.Equal(SurfaceFamily.Wood, MaterialResponse.ForTile(50), "plank side grain keeps the wood response");

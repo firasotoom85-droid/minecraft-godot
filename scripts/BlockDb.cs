@@ -1038,6 +1038,8 @@ vec3 directional_sky_light(vec3 world_normal, float sky) {
     return sky * sky_tint * directional_gain;
 }
 
+uniform float lava_source_level = 0.8;
+
 varying vec3 surface_world_normal;
 
 void vertex() {
@@ -1046,13 +1048,16 @@ void vertex() {
 
 void fragment() {
     vec4 tex = texture(atlas, UV);
-    float sky = COLOR.r * sky_light_energy;
-    float block = COLOR.g;
+    float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+    float block = clamp(COLOR.g, 0.0, 1.0);
     float shade = COLOR.b;
     vec3 warm = vec3(1.0, 0.48, 0.12);
     vec3 illumination = vec3(0.03) + directional_sky_light(surface_world_normal, sky) + warm * block * 0.35;
+    float lava_emission = clamp(block / max(lava_source_level, 0.0666667), 0.0, 1.0);
     ALBEDO = tex.rgb * illumination * shade;
-    EMISSION = tex.rgb * (warm * 0.9 + warm * block * 0.7);
+    // Preserve the distinct lava core, but derive its strength exclusively
+    // from the packed block-light nibble baked into COLOR.g.
+    EMISSION = tex.rgb * warm * lava_emission * 0.9;
     ALPHA = tex.a;
     ROUGHNESS = 1.0;
 }
@@ -1060,9 +1065,12 @@ void fragment() {
 
     public static ShaderMaterial MakeLavaMaterial()
     {
+        EnsureTables();
         ShaderMaterial material = new() { Shader = new Shader { Code = LitLavaShader } };
         material.SetShaderParameter("atlas", AtlasTexture());
         material.SetShaderParameter("sky_light_energy", 1.0f);
+        material.SetShaderParameter("lava_source_level",
+                LightEmission[(int)BlockId.Lava] / (float)VoxelLighting.MaxLevel);
         return material;
     }
 

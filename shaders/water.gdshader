@@ -30,6 +30,20 @@ vec3 directional_sky_light(vec3 normal, float sky) {
     return sky * sky_tint * directional_gain;
 }
 
+uniform vec3 warm_block_light_color = vec3(1.0, 0.68, 0.42);
+
+float warm_block_response(float sky, float block) {
+    return (1.0 - exp(-block * 1.25)) * (1.0 - sky);
+}
+
+vec3 warm_block_illumination(float response) {
+    return warm_block_light_color * response * 0.34;
+}
+
+vec3 warm_block_emission(float response) {
+    return warm_block_light_color * response * 0.025;
+}
+
 void vertex() {
 	vec3 base_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	float swell = sin(base_world_pos.x * 1.1 + TIME * wave_speed)
@@ -58,10 +72,10 @@ void fragment() {
 	vec4 tex = texture(atlas_texture, UV);
 	float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
 	float block = clamp(COLOR.g, 0.0, 1.0);
-	float shadowed_block = block * (1.0 - sky);
+	float warm_response = warm_block_response(sky, block);
 	float shade = COLOR.b;
-	vec3 warm = vec3(1.0, 0.68, 0.38);
-	vec3 illumination = vec3(0.04) + directional_sky_light(world_normal, sky) + warm * shadowed_block * 0.35;
+	vec3 illumination = vec3(0.04) + directional_sky_light(world_normal, sky)
+		+ warm_block_illumination(warm_response);
 	vec3 base = tex.rgb * illumination * shade;
 	// Shoreline fade: how much water sits between this fragment and the
 	// opaque scene behind it.
@@ -79,7 +93,7 @@ void fragment() {
 	float foam_wave = 0.5 + 0.5 * sin(world_pos.x * 1.9 + world_pos.z * 1.4 + TIME * 0.55);
 	float foam = shoreline * smoothstep(0.58, 0.88, foam_wave) * 0.20;
 	ALBEDO = mix(base * dim, vec3(0.78, 0.89, 0.94), foam);
-	EMISSION += tex.rgb * warm * shadowed_block * 0.08;
+	EMISSION = tex.rgb * warm_block_emission(warm_response);
 	ALPHA = clamp(tex.a * alpha_base * depth_alpha + fresnel * 0.2, 0.0, 1.0);
 	ROUGHNESS = mix(0.12, 0.5, smoothstep(40.0, 120.0, view_depth) + foam * 0.4);
 	// Caustic light webs on the underside of the surface (diver's view).

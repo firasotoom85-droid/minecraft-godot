@@ -2452,3 +2452,42 @@ commit ancestry traceable.
   The production main scene reported pre-existing stale external-resource UID
   warnings and loaded each affected script using its text path; the capture
   completed successfully. No controlled FPS delta was measured.
+
+## 45. Emissive surface / packed-channel audit — 2026-11-22
+
+- Closed a renderer contract gap left by the unified torch/campfire pass:
+  animated water had retained its earlier amber blend, instead of using the
+  same sky-headroom response, hue and bounded residual emission as the atlas,
+  greedy texture-array and glass surfaces. Water now calls the shared
+  `warm_block_response`, `warm_block_illumination` and `warm_block_emission`
+  functions once per fragment; wave motion, shore fade, transparency and
+  underwater caustics are unchanged.
+- Lava remains a dedicated opaque, depth-writing emissive surface so its
+  recognizable orange molten core does not inherit the torch/campfire hue.
+  Its emissive intensity now follows the baked low nibble in `COLOR.g`, scaled
+  against the registered lava source level (`LightEmission[Lava] / 15`, 12/15).
+  The material reads this source level from the existing block table; it no
+  longer adds a constant glow when packed block light is absent.
+- Extended the warm-light comparison fixture with a lava-only mode and added
+  regressions for the nibble-to-vertex-channel mapping, the lava material's
+  source-level uniform, zero-channel emissive suppression contract, and exact
+  water/shared-shader response parity.
+- Compatibility: no BlockId/ItemId values, save fields, generator V1–V11
+  outputs, block-light propagation, voxel mutation routes, mesh vertex layout,
+  greedy merge keys, chunk streaming, world environment, or graphics presets
+  changed. No per-emitter light nodes or scene nodes were added.
+- Performance: the water fragment path adds the same single exponential
+  response evaluation already used by terrain/glass; lava replaces its
+  unconditional glow with a bounded packed-channel normalization. No CPU
+  per-frame work, memory allocation, physics, mesh rebuild or stream work was
+  added. LOW/BALANCED continue to disable glow, SSAO, SSR and volumetric fog.
+- **Repeatable visual fixture:** the existing real-main-scene capture now
+  supports fixed seed 1337 / generator V11 / campfire site `(0,0)` and the
+  same camera for `torch`, `campfire`, `overlap` and `lava` modes. Each pass
+  logs its packed source and adjacent nibble levels and writes a PNG.
+- **Current manual-check status:** the fixture launched under Godot 4.7.2
+  Vulkan Forward+ on the MX230, but this attempt reached its 90-second timeout
+  before writing a screenshot/result while other Godot render/test processes
+  were active. No new pixel-level visual comparison or FPS delta is claimed.
+  Re-run on an idle desktop for screenshot verification and a sustained
+  frame-time soak.
