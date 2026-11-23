@@ -25,7 +25,7 @@ public partial class MobProjectile : Area3D
     internal void ConfigureTerrainRayForTests(Vector3 from, Vector3 to)
     {
         if (_terrainRay == null) return;
-        _terrainRay.Position = Vector3.Zero;
+        _terrainRay.Position = from;
         _terrainRay.TargetPosition = to - from;
         if (_terrainRay.IsInsideTree())
             _terrainRay.ForceRaycastUpdate();
