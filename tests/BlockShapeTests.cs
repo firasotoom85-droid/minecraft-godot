@@ -106,6 +106,45 @@ public static class BlockShapeTests
                     Vector3.Zero, new Vector3(0.1f, 0.1f, 0.1f), new Vector3(0.9f, 0.4f, 0.9f)),
                 "stair base is collidable");
 
+        TestAssert.Equal(0.35f, Player.CollisionRadius,
+                "player capsule radius matches the main scene collider");
+        TestAssert.Equal(1.8f, Player.CollisionHeight,
+                "player capsule height matches the main scene collider");
+        string mainScene = FileAccess.GetFileAsString("res://scenes/main.tscn");
+        TestAssert.Check(mainScene.Contains("radius = 0.35")
+                        && mainScene.Contains("height = 1.8"),
+                "capsule overlap constants stay aligned with the player scene resource");
+
+        TestAssert.Check(Player.BlockIntersectsPlayerCapsule(BlockId.Stone, 0,
+                    new Vector3(1, 0, 0), new Vector3(0.66f, 0, 0.5f),
+                    Player.CollisionRadius, Player.CollisionHeight),
+                "full-cube placement is rejected at 0.34 m from the capsule center");
+        TestAssert.Check(!Player.BlockIntersectsPlayerCapsule(BlockId.Stone, 0,
+                    new Vector3(1, 0, 0), new Vector3(0.65f, 0, 0.5f),
+                    Player.CollisionRadius, Player.CollisionHeight),
+                "capsule contact at exactly its radius is not treated as penetration");
+        foreach (Vector3 basePosition in new[]
+        {
+            new Vector3(-0.34f, 0, 0.5f), new Vector3(1.34f, 0, 0.5f),
+            new Vector3(0.5f, 0, -0.34f), new Vector3(0.5f, 0, 1.34f),
+        })
+            TestAssert.Check(Player.BlockIntersectsPlayerCapsule(BlockId.Stone, 0,
+                        Vector3.Zero, basePosition, Player.CollisionRadius, Player.CollisionHeight),
+                    "capsule overlap is detected on each horizontal side");
+
+        TestAssert.Check(!Player.BlockIntersectsPlayerCapsule(BlockId.PlanksSlab,
+                    BlockShapes.SlabBottom, Vector3.Zero, new Vector3(0.5f, 0.6f, 0.5f),
+                    Player.CollisionRadius, Player.CollisionHeight),
+                "capsule above a bottom slab does not falsely overlap the empty lower shape");
+        TestAssert.Check(Player.BlockIntersectsPlayerCapsule(BlockId.PlanksSlab,
+                    BlockShapes.SlabTop, Vector3.Zero, new Vector3(0.5f, 0.6f, 0.5f),
+                    Player.CollisionRadius, Player.CollisionHeight),
+                "capsule intersects the occupied upper half of a top slab");
+        TestAssert.Check(!Player.BlockIntersectsPlayerCapsule(BlockId.PlanksStairs,
+                    0, Vector3.Zero, new Vector3(0.9f, 0.6f, 0.1f),
+                    Player.CollisionRadius, Player.CollisionHeight),
+                "capsule in the unoccupied upper stair corner remains placeable");
+
         TestAssert.Check(BlockShapes.Raycast(new Vector3(0.25f, 0.75f, 0.25f), Vector3.Down,
                     Vector3I.Zero, slab, BlockShapes.SlabBottom, 0.0f, 2.0f,
                     out float slabHit, out Vector3 slabNormal),

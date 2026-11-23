@@ -88,6 +88,42 @@ public static class EquipmentTests
         TestAssert.Check(fallingArrow.Y < 10.0f, "arrow gravity reduces upward velocity");
         TestAssert.Check(ArrowProjectile.AdvanceVelocity(Godot.Vector3.Zero, 0.5f).Y < 0.0f, "arrow accelerates downward from rest");
 
+        Player unarmoredFall = new() { Mode = GameMode.Survival };
+        unarmoredFall.Stats.InvulnUntil = 0.0;
+        TestAssert.Check(unarmoredFall.ApplyFallDamage(8.0f),
+                "fall damage enters the central player damage pipeline");
+        TestAssert.Equal(12.0f, unarmoredFall.Stats.Health,
+                "unarmored fall damage retains its incoming amount");
 
+        Player armoredFall = new() { Mode = GameMode.Survival };
+        armoredFall.Stats.InvulnUntil = 0.0;
+        int armorSlot = Inventory.SlotCount;
+        armoredFall.Inventory.Set(armorSlot, ItemDb.New(ItemId.IronChestplate, 1));
+        int durabilityBeforeFall = armoredFall.Inventory.Get(armorSlot).Durability;
+        TestAssert.Check(armoredFall.ApplyFallDamage(8.0f),
+                "armored fall damage is accepted");
+        TestAssert.Check(armoredFall.Stats.Health > unarmoredFall.Stats.Health,
+                "equipped armor reduces fall damage");
+        TestAssert.Check(armoredFall.Inventory.Get(armorSlot).Durability < durabilityBeforeFall,
+                "fall damage wears equipped armor");
+
+        Player creativeFall = new() { Mode = GameMode.Creative };
+        creativeFall.Stats.InvulnUntil = 0.0;
+        TestAssert.Check(!creativeFall.ApplyFallDamage(8.0f),
+                "creative mode still refuses fall damage");
+        TestAssert.Equal(PlayerStats.MaxHealth, creativeFall.Stats.Health,
+                "creative fall leaves health unchanged");
+
+        Player protectedFall = new() { Mode = GameMode.Survival };
+        protectedFall.Stats.InvulnUntil = Godot.Time.GetTicksMsec() / 1000.0 + 10.0;
+        TestAssert.Check(!protectedFall.ApplyFallDamage(8.0f),
+                "respawn invulnerability still refuses fall damage");
+        TestAssert.Equal(PlayerStats.MaxHealth, protectedFall.Stats.Health,
+                "invulnerable fall leaves health unchanged");
+
+        unarmoredFall.Free();
+        armoredFall.Free();
+        creativeFall.Free();
+        protectedFall.Free();
     }
 }

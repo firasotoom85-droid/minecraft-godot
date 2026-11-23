@@ -78,6 +78,8 @@ public partial class VoxelWorld : Node3D
     public event Action? BeforeSave;
 
     public Vector3? SavedPlayerPos;      // from the save file
+    public float? SavedPlayerYaw;
+    public float? SavedPlayerPitch;
     public List<ItemStackSave>? SavedInventory;   // null = pre-items save, gets the starter kit
     public int SavedSelected;
     public string? SavedMode;            // "survival"/"creative"; null = world default
@@ -151,6 +153,8 @@ public partial class VoxelWorld : Node3D
     private Vector3 _lastPlayerPos;
     private Vector2I _lastPlayerChunk = new(999999, 999999);
     private Vector3 _lastSavedPos = Vector3.Zero;
+    private float _lastSavedYaw;
+    private float _lastSavedPitch;
     private volatile bool _alive = true;
     private bool _dirty;
     private double _autosaveTimer;
@@ -2768,7 +2772,7 @@ public partial class VoxelWorld : Node3D
         if (_autosaveTimer >= AutosaveInterval)
         {
             _autosaveTimer = 0.0;
-            if (Player.GlobalPosition.DistanceTo(_lastSavedPos) > 8.0f)
+            if (HasUnsavedPlayerChanges(includeSmallPositionChanges: false))
             {
                 _dirty = true;
             }
@@ -2778,6 +2782,24 @@ public partial class VoxelWorld : Node3D
                 SaveNow();
             }
         }
+    }
+
+    private bool HasUnsavedPlayerChanges(bool includeSmallPositionChanges)
+    {
+        if (Player == null) return false;
+
+        float positionThresholdSquared = includeSmallPositionChanges ? 0.00000001f : 64.0f;
+        if (Player.GlobalPosition.DistanceSquaredTo(_lastSavedPos) > positionThresholdSquared)
+            return true;
+
+        float tau = Mathf.Pi * 2.0f;
+        float yawDelta = (Player.Rotation.Y - _lastSavedYaw) % tau;
+        if (yawDelta > Mathf.Pi) yawDelta -= tau;
+        else if (yawDelta < -Mathf.Pi) yawDelta += tau;
+        if (Mathf.Abs(yawDelta) > 0.001f) return true;
+
+        return Player.Camera != null
+                && Mathf.Abs(Player.Camera.Rotation.X - _lastSavedPitch) > 0.001f;
     }
 
     /// <summary>Queue every missing chunk inside the streamed square, nearest-first.</summary>
@@ -3025,7 +3047,9 @@ public partial class VoxelWorld : Node3D
                                 Player?.Stats.Health ?? 0.0f,
                                 Player?.Stats.Hunger ?? 0.0f,
                                 respawn,
-                                Player?.Stats.Experience ?? 0),
+                                Player?.Stats.Experience ?? 0,
+                                Player?.Rotation.Y,
+                                Player?.Camera?.Rotation.X),
                         WorldStore.Json));
 
         long elapsedPlaytime = (long)_unsavedPlaytimeSeconds;
@@ -3043,6 +3067,8 @@ public partial class VoxelWorld : Node3D
             if (Player != null)
             {
                 _lastSavedPos = Player.GlobalPosition;
+                _lastSavedYaw = Player.Rotation.Y;
+                _lastSavedPitch = Player.Camera?.Rotation.X ?? 0.0f;
             }
         }
         else
@@ -3055,10 +3081,11 @@ public partial class VoxelWorld : Node3D
     /// <summary>Focus-loss hook: write only when something actually changed.</summary>
     public void SaveIfDirty()
     {
+        if (HasUnsavedPlayerChanges(includeSmallPositionChanges: true))
+            _dirty = true;
+
         if (_dirty)
-        {
             SaveNow();
-        }
     }
 
     public void MarkDirty()
@@ -3246,6 +3273,13 @@ public partial class VoxelWorld : Node3D
         {
             SavedPlayerPos = new Vector3(p[0], p[1], p[2]);
         }
+        SavedPlayerYaw = player?.Yaw is float yaw && float.IsFinite(yaw)
+                ? NormalizeSavedYaw(yaw) : null;
+        SavedPlayerPitch = player?.Pitch is float pitch && float.IsFinite(pitch)
+                ? Mathf.Clamp(pitch, -1.55f, 1.55f) : null;
+        _lastSavedPos = SavedPlayerPos ?? Vector3.Zero;
+        _lastSavedYaw = SavedPlayerYaw ?? 0.0f;
+        _lastSavedPitch = SavedPlayerPitch ?? 0.0f;
 
         if (player != null)
         {
@@ -3260,6 +3294,15 @@ public partial class VoxelWorld : Node3D
                 SavedRespawn = new Vector3(r[0], r[1], r[2]);
             }
         }
+    }
+
+    private static float NormalizeSavedYaw(float yaw)
+    {
+        float tau = Mathf.Pi * 2.0f;
+        float normalized = yaw % tau;
+        if (normalized > Mathf.Pi) normalized -= tau;
+        else if (normalized < -Mathf.Pi) normalized += tau;
+        return normalized;
     }
 
     // -----------------------------------------------------------------------

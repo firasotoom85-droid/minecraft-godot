@@ -40,6 +40,32 @@ public static class SaveTests
         PlayerSave? legacyPlayer = JsonSerializer.Deserialize<PlayerSave>("{\"pos\":[0,0,0]}", WorldStore.Json);
         TestAssert.Check(legacyPlayer?.Hunger is null,
                 "old player saves distinguish a missing hunger field");
+        TestAssert.Check(legacyPlayer?.Yaw is null && legacyPlayer?.Pitch is null,
+                "legacy player saves without orientation fields remain valid");
+        PlayerSave orientationSave = new([2.0f, 64.0f, -3.0f],
+                Yaw: 1.25f, Pitch: -0.45f);
+        PlayerSave? orientationReload = JsonSerializer.Deserialize<PlayerSave>(
+                JsonSerializer.Serialize(orientationSave, WorldStore.Json), WorldStore.Json);
+        TestAssert.Equal(1.25f, orientationReload?.Yaw ?? float.NaN,
+                "player yaw survives optional save serialization");
+        TestAssert.Equal(-0.45f, orientationReload?.Pitch ?? float.NaN,
+                "camera pitch survives optional save serialization");
+
+        Player orientedPlayer = new();
+        Camera3D orientationCamera = new();
+        orientedPlayer.Camera = orientationCamera;
+        orientedPlayer.RestoreOrientation(orientationReload?.Yaw, orientationReload?.Pitch);
+        TestAssert.Equal(1.25f, orientedPlayer.Rotation.Y,
+                "saved yaw restores onto the player body");
+        TestAssert.Equal(-0.45f, orientedPlayer.Camera.Rotation.X,
+                "saved pitch restores onto the camera");
+        orientedPlayer.RestoreOrientation(float.NaN, float.PositiveInfinity);
+        TestAssert.Equal(1.25f, orientedPlayer.Rotation.Y,
+                "non-finite saved yaw is ignored");
+        TestAssert.Equal(-0.45f, orientedPlayer.Camera.Rotation.X,
+                "non-finite saved pitch is ignored");
+        orientedPlayer.Free();
+        orientationCamera.Free();
 
         WorldSave boatSave = new(WorldStore.WorldFormatVersion, [], 0.5,
                 Boats: [new BoatSave([12.5f, 49.7f, -3.5f], 0.75f, [1.0f, 0.0f, -2.0f], true)]);
