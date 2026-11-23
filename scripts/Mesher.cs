@@ -436,9 +436,17 @@ public static class Mesher
 
                         if (partialNeighbor && fullCube && !isTrans)
                         {
+                            bool missingNeighborCollider = buildCollision
+                                    && IsMissingColliderBoundary(boundaryMask, x - 1, z - 1, f);
                             EmitCubeFaceAgainstPartial(pad, statePad, lightPad, directLightPad,
                                     i, neighborIndex, f, tile, id, state, b, opaque,
-                                    buildCollision ? collision : null, greedy, kk, cornerLight, cornerBounce);
+                                    buildCollision && !missingNeighborCollider ? collision : null,
+                                    greedy, kk, cornerLight, cornerBounce);
+                            // The partial neighbor's generated voxels still hide
+                            // part of the render face, but with no active adjacent
+                            // collider this chunk must own the entire physics wall.
+                            if (missingNeighborCollider)
+                                AppendCollisionFace(collision, b, f);
                             continue;
                         }
 
