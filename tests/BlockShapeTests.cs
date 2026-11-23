@@ -306,10 +306,10 @@ public static class BlockShapeTests
                 try
                 {
                     TestAssert.Equal(2, CountTrianglesOnPlane(
-                                    frontierPayload.Collision, 0, 16.0f, solidY - 1, 8),
+                                    frontierPayload.Collision, 0, 16.0f, solidY, 8),
                             "loaded chunk emits its collision backing face against an unbuilt solid neighbor");
                     TestAssert.Equal(0, CountTrianglesOnPlane(
-                                    frontierPayload.Opaque.Vertex, 0, 16.0f, solidY - 1, 8),
+                                    frontierPayload.Opaque.Vertex, 0, 16.0f, solidY, 8),
                             "collision frontier face does not add duplicate render geometry");
                 }
                 finally
@@ -328,7 +328,7 @@ public static class BlockShapeTests
                 try
                 {
                     TestAssert.Equal(0, CountTrianglesOnPlane(
-                                    connectedPayload.Collision, 0, 16.0f, solidY - 1, 8),
+                                    connectedPayload.Collision, 0, 16.0f, solidY, 8),
                             "connected chunk colliders do not retain a redundant internal boundary wall");
                 }
                 finally
@@ -361,16 +361,16 @@ public static class BlockShapeTests
                 try
                 {
                     TestAssert.Equal(2, CountTrianglesOnPlane(
-                                    unloadedPayload.Collision, 0, 16.0f, solidY - 1, 8),
+                                    unloadedPayload.Collision, 0, 16.0f, solidY, 8),
                             "remaining chunk restores its collision wall when the neighbor unloads");
                     TestAssert.Equal(0, CountTrianglesOnPlane(
-                                    unloadedPayload.Opaque.Vertex, 0, 16.0f, solidY - 1, 8),
+                                    unloadedPayload.Opaque.Vertex, 0, 16.0f, solidY, 8),
                             "unloading a neighbor restores collision without duplicating render geometry");
                     TestAssert.Equal(2, CountTrianglesOnPlane(
-                                    unloadedPayload.Collision, 0, 16.0f, solidY - 1, 9),
+                                    unloadedPayload.Collision, 0, 16.0f, solidY, 9),
                             "unbuilt partial-shape neighbor does not leave a half-height collision opening");
                     TestAssert.Check(CountTrianglesOnPlane(
-                                    unloadedPayload.Opaque.Vertex, 0, 16.0f, solidY - 1, 9) > 0,
+                                    unloadedPayload.Opaque.Vertex, 0, 16.0f, solidY, 9) > 0,
                             "render geometry still clips to the exposed half beside an unbuilt slab");
                 }
                 finally
