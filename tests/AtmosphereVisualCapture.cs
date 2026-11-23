@@ -180,8 +180,7 @@ public partial class AtmosphereVisualCapture : Node
 
             world.TimeOfDay = timeOfDay - Math.Floor(timeOfDay);
             dayNight.Paused = true;
-            weather.Current = weatherState;
-            weather.Cloudiness = Weather.TargetCloudinessFor(weatherState);
+            weather.ConfigureVisualCapture(weatherState);
             world.SetViewDistance(captureViewDistance);
             world.SetLodRadius(0.0f);
 
@@ -523,6 +522,16 @@ public partial class AtmosphereVisualCapture : Node
                         $"iso_max={exposureAttributes.AutoExposureMaxSensitivity:F1} " +
                         $"adapt_speed={exposureAttributes.AutoExposureSpeed:F2}");
             }
+
+            DayNight.SkyPalette capturePalette = DayNight.EvaluatePalette(
+                    world.TimeOfDay, weather.Cloudiness, dayNight.SkyFlash);
+            Godot.Environment activeEnvironment = worldEnvironment.Environment;
+            GD.Print($"ATMOSPHERE_CAPTURE_PROFILE preset={Gfx.Presets[presetIndex].Name} " +
+                    $"ssao={activeEnvironment.SsaoEnabled} ssr={activeEnvironment.SsrEnabled} " +
+                    $"glow={activeEnvironment.GlowEnabled} volfog={activeEnvironment.VolumetricFogEnabled} " +
+                    $"fog_mode={activeEnvironment.FogMode} " +
+                    $"sky_top={capturePalette.Top} sky_horizon={capturePalette.Horizon} " +
+                    $"cloud={capturePalette.CloudColor} cloud_opacity={capturePalette.CloudOpacity:F3}");
 
             string absoluteOutput = ProjectSettings.GlobalizePath(output);
             string? outputDirectory = Path.GetDirectoryName(absoluteOutput);

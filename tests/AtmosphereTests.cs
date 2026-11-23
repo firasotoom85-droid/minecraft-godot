@@ -9,6 +9,7 @@ public static class AtmosphereTests
     public static void Run()
     {
         TestDayNightPalette();
+        TestWeatherSkyCloudPalette();
         TestCaveExposure();
         TestWaterAndBiomeExposure();
         TestSunlightDirectionAndBakedChannels();
@@ -77,6 +78,131 @@ public static class AtmosphereTests
                     $"atmosphere palette remains finite and bounded at time {time:F2}");
         }
     }
+
+    private static void TestWeatherSkyCloudPalette()
+    {
+        Weather.State[] states =
+        [
+            Weather.State.Clear,
+            Weather.State.Cloudy,
+            Weather.State.Rain,
+            Weather.State.Storm,
+        ];
+        double previousCloudBrightness = double.MaxValue;
+        double previousSkyBrightness = double.MaxValue;
+        float previousOpacity = 0.0f;
+
+        foreach (Weather.State state in states)
+        {
+            double cover = Weather.TargetCloudinessFor(state);
+            DayNight.SkyPalette palette = DayNight.EvaluatePalette(0.5, cover, 0.0);
+            double cloudBrightness = Luminance(palette.CloudColor);
+            double skyBrightness = Luminance(palette.Top);
+
+            TestAssert.Check(double.IsFinite(cloudBrightness)
+                    && palette.CloudOpacity >= 0.0f && palette.CloudOpacity <= 1.0f,
+                    $"{state} cloud tint and opacity remain finite and bounded");
+            TestAssert.Check(palette.CloudOpacity > previousOpacity,
+                    $"{state} increases cloud coverage over the previous weather state");
+            TestAssert.Check(cloudBrightness < previousCloudBrightness,
+                    $"{state} clouds darken progressively with heavier weather");
+            TestAssert.Check(skyBrightness < previousSkyBrightness,
+                    $"{state} upper sky dims progressively with heavier weather");
+            TestAssert.Check(Luminance(palette.Horizon) <= Luminance(
+                            DayNight.EvaluatePalette(0.5, 0.05, 0.0).Horizon) + 0.00001,
+                    $"{state} horizon is no brighter than clear noon");
+
+            TestAssert.Check(IsFinite(palette.Top) && IsFinite(palette.Horizon)
+                    && IsFinite(palette.GroundHorizon) && IsFinite(palette.CloudColor),
+                    $"{state} sky, horizon and cloud colours are finite");
+
+            previousCloudBrightness = cloudBrightness;
+            previousSkyBrightness = skyBrightness;
+            previousOpacity = palette.CloudOpacity;
+        }
+
+        DayNight.SkyPalette clearNoon = DayNight.EvaluatePalette(
+                0.5, Weather.TargetCloudinessFor(Weather.State.Clear), 0.0);
+        DayNight.SkyPalette clearNight = DayNight.EvaluatePalette(
+                0.0, Weather.TargetCloudinessFor(Weather.State.Clear), 0.0);
+        DayNight.SkyPalette storm = DayNight.EvaluatePalette(
+                0.5, Weather.TargetCloudinessFor(Weather.State.Storm), 0.0);
+        DayNight.SkyPalette stormFlash = DayNight.EvaluatePalette(
+                0.5, Weather.TargetCloudinessFor(Weather.State.Storm), 0.8);
+
+        TestAssert.Check(Luminance(clearNoon.CloudColor) > Luminance(clearNight.CloudColor),
+                "clear clouds retain daylight brightness and cool down at night");
+        TestAssert.Check(Luminance(stormFlash.CloudColor) > Luminance(storm.CloudColor)
+                && Luminance(stormFlash.Horizon) > Luminance(storm.Horizon),
+                "lightning briefly lifts storm cloud and horizon brightness");
+
+        DayNight.SkyPalette nonFinite = DayNight.EvaluatePalette(
+                double.NaN, double.NaN, double.PositiveInfinity);
+        TestAssert.Equal(clearNoon.Top, nonFinite.Top,
+                "non-finite time, cloudiness and flash use a stable clear-noon fallback");
+        TestAssert.Equal(clearNoon.CloudColor, nonFinite.CloudColor,
+                "non-finite weather inputs do not poison cloud material colour");
+
+        foreach (string weatherName in Weather.StateNames)
+        {
+            TestAssert.Check(AtmosphereVisualCapture.TryParseWeather(
+                            weatherName, out Weather.State parsed)
+                    && Enum.IsDefined(typeof(Weather.State), parsed),
+                    $"visual capture accepts {weatherName} weather");
+        }
+
+        TestAssert.Check(AtmosphereVisualCapture.TryParseWeather("sToRm", out Weather.State stormState)
+                && stormState == Weather.State.Storm,
+                "visual capture weather parsing is case-insensitive and includes storms");
+        TestAssert.Check(!AtmosphereVisualCapture.TryParseWeather("snowstorm", out _)
+                && !AtmosphereVisualCapture.TryParseWeather("42", out _),
+                "visual capture rejects unknown and undefined weather values");
+        TestAssert.Equal(8.0, AtmosphereVisualCapture.SettleSecondsForPreset(Gfx.Presets[0]),
+                "standard temporal/non-temporal presets use the normal capture warm-up");
+        TestAssert.Equal(16.0, AtmosphereVisualCapture.SettleSecondsForPreset(Gfx.Presets[5]),
+                "FSR2 gets a longer temporal-history warm-up before visual sampling");
+
+        DayNight.SkyPalette reference = default;
+        for (int presetIndex = 0; presetIndex < Gfx.Presets.Count; presetIndex++)
+        {
+            Gfx.Preset preset = Gfx.Presets[presetIndex];
+            bool lowCost = presetIndex <= 1;
+            TestAssert.Check(!lowCost || (!preset.Ssao && !preset.Ssr
+                            && !preset.Glow && !preset.VolFog),
+                    $"{preset.Name} keeps expensive atmosphere post-effects disabled");
+            TestAssert.Check(preset.Scale > 0.0f && preset.Scale <= 1.25f,
+                    $"{preset.Name} retains a supported render scale");
+
+            foreach (Weather.State state in states)
+            {
+                DayNight.SkyPalette palette = DayNight.EvaluatePalette(
+                        0.5, Weather.TargetCloudinessFor(state), 0.0);
+                TestAssert.Check(IsFinite(palette.Top) && IsFinite(palette.Horizon)
+                        && IsFinite(palette.CloudColor)
+                        && float.IsFinite(palette.CloudOpacity),
+                        $"{preset.Name} / {state} atmosphere remains finite");
+                if (presetIndex == 0 && state == Weather.State.Clear)
+                {
+                    reference = palette;
+                }
+                else if (state == Weather.State.Clear)
+                {
+                    TestAssert.Equal(reference.Top, palette.Top,
+                            $"{preset.Name} keeps the same clear-sky palette as LOW");
+                    TestAssert.Equal(reference.CloudColor, palette.CloudColor,
+                            $"{preset.Name} keeps the same clear-cloud tint as LOW");
+                }
+            }
+        }
+
+        Godot.Environment sharedEnvironment = WorldEnvironmentFactory.Build();
+        TestAssert.Check(sharedEnvironment.FogEnabled,
+                "all quality presets retain the shared inexpensive base fog path");
+    }
+
+    private static bool IsFinite(Color color) =>
+            float.IsFinite(color.R) && float.IsFinite(color.G)
+            && float.IsFinite(color.B) && float.IsFinite(color.A);
 
     private static void TestCaveExposure()
     {
@@ -447,11 +573,22 @@ public static class AtmosphereTests
                 "precipitation resamples after movement across the X cell boundary");
         TestAssert.Check(Weather.NeedsBiomeSample(true, 12, 24, 12, 25),
                 "precipitation resamples after movement across the Z cell boundary");
+        float previousCloudiness = 0.0f;
+        foreach (Weather.State state in Enum.GetValues<Weather.State>())
+        {
+            float target = Weather.TargetCloudinessFor(state);
+            TestAssert.Check(target > previousCloudiness && target <= 1.0f,
+                    $"{state} has an ordered, bounded cloudiness target");
+            previousCloudiness = target;
+        }
         TestAssert.Equal(0.05f, Weather.TargetCloudinessFor(Weather.State.Clear),
                 "clear weather keeps its configured low cloud target");
-        TestAssert.Check(Weather.TargetCloudinessFor(Weather.State.Storm)
-                > Weather.TargetCloudinessFor(Weather.State.Rain),
-                "storm retains a heavier cloud target than rain");
+        TestAssert.Equal(0.55f, Weather.TargetCloudinessFor(Weather.State.Cloudy),
+                "cloudy weather keeps its configured mid cloud target");
+        TestAssert.Equal(0.78f, Weather.TargetCloudinessFor(Weather.State.Rain),
+                "rain keeps its configured heavy cloud target");
+        TestAssert.Equal(0.95f, Weather.TargetCloudinessFor(Weather.State.Storm),
+                "storm keeps its configured maximum cloud target");
     }
 
     private static void TestWaterDepthSpace()

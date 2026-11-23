@@ -816,12 +816,14 @@ Run a fixed real-scene Forward+ mountain capture with:
 godot --path . res://tests/AtmosphereVisualCapture.tscn -- 777 11 -424 760 0.50 Clear res://docs/visual/screenshots/distance-haze-v11-mountain-after.png false 5
 ```
 
-Arguments are seed, generator version (1–11 on current main), world X/Z, time of
-day, weather (`Clear`, `Cloudy` or `Rain`), output PNG path, optional torch
-(`true`/`false`), and optional capture view distance (3–5 chunks). The
-capture waits for the full requested square of chunks before saving, making
-wide inspection views comparable without a streamed-square cutoff. The runner
-creates and removes a disposable world. The V11 MX230 before/after comparison
+Arguments are seed, generator version, world X/Z, time of day, weather
+(`Clear`, `Cloudy`, `Rain` or `Storm`), output PNG path, optional graphics
+preset index (0–5), view distance (3–5 chunks), and optional torch flag. The
+older `[include-torch] [view-distance]` form remains accepted. The runner
+applies the requested preset through the live `Gfx.ApplyPreset` owner without
+persisting settings, waits for the full requested chunk square, prints the
+active fog/post-effect profile and evaluated sky/horizon/cloud colours, then
+creates and removes its disposable world. The V11 MX230 before/after comparison
 uses the same seed, mountain coordinate, noon weather, camera, and view
 distance:
 
@@ -940,6 +942,49 @@ Run it at midnight with Clear weather, then repeat with Rain to compare cloud
 occlusion. The focused moonlight suite checks moon direction, night-fill
 limits, cloud attenuation, star visibility monotonicity, and all five shared
 shader/material paths.
+
+### Weather sky, horizon and cloud quality matrix
+
+The four weather targets (clear, cloudy, rain and storm) now share one
+`DayNight.SkyPalette` for sky-top colour, horizon gradient, cloud tint and
+cloud opacity. Clouds darken as cover increases; their opacity follows the
+weather coverage rather than staying almost fully visible in clear weather.
+Dawn/dusk tint and lightning flash are composed in that same palette. This is
+presentation-only: the two existing drifting cloud planes and their materials
+are reused, with no additional nodes, texture samples, shader passes or
+per-emitter lights.
+
+Cloud presentation is intentionally independent of the six graphics presets.
+LOW and BALANCED keep SSAO, SSR, glow and volumetric fog disabled; the cheap
+base fog, the two existing clouds and the same weather palette remain active.
+The capture accepts a preset index and reports the effective environment flags
+so matched comparisons do not rely on the saved user setting.
+
+Capture all four weather states at noon for every preset (24 matched frames):
+
+```bash
+GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64
+export DISPLAY=:0 DOTNET_ROOT=/path/to/dotnet PATH="/path/to/dotnet:$PATH"
+
+for preset in 0 1 2 3 4 5; do
+  for weather in Clear Cloudy Rain Storm; do
+    "$GODOT" --path . res://tests/AtmosphereVisualCapture.tscn -- \
+      1337 11 512 -372 0.50 "$weather" \
+      "/tmp/atmosphere-preset-${preset}-${weather}.png" "$preset" 3 false
+  done
+done
+```
+
+The weather parser accepts all four named states and rejects unknown or
+undefined enum values rather than silently converting a storm request into
+clear weather. Captures freeze the random state timer and lightning trigger so
+the weather/quality comparison is repeatable; lightning brightness remains
+covered separately by deterministic palette tests. Standard presets settle
+for at least 8 seconds; MAX · FSR2 settles for 16 seconds so temporal history
+does not contaminate the saved comparison. All 24 production captures passed
+on the GeForce MX230 at 1600×900 with 49 streamed chunks. The capture still
+uses the existing environment, renderer and `WorldEnvironment` ownership
+paths.
 
 ### Water-adjacent visual validation
 

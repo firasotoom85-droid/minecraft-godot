@@ -217,6 +217,24 @@ public partial class Weather : Node
         UpdatePrecipitationBiome();
     }
 
+    internal void ConfigureVisualCapture(State state)
+    {
+        Current = state;
+        Cloudiness = TargetCloudiness[state];
+        _timer = double.MaxValue;
+        _lightningTimer = double.MaxValue;
+        _flash = 0.0;
+        _flashAgain = -1.0;
+        if (DayNightRef != null)
+        {
+            DayNightRef.Cloudiness = Cloudiness;
+            DayNightRef.SkyFlash = 0.0;
+        }
+
+        _hasBiomeSample = false;
+        UpdatePrecipitationBiome();
+    }
+
     internal static float TargetCloudinessFor(State state) => TargetCloudiness[state];
 
     internal static bool UsesSnowPrecipitation(Biome biome) => biome == Biome.Snow;
