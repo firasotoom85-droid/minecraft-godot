@@ -3722,6 +3722,7 @@ public partial class VoxelWorld : Node3D
     public void MarkDirty()
     {
         _dirty = true;
+        _saveRevision++;
     }
 
     /// <summary>
