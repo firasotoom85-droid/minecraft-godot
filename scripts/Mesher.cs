@@ -22,7 +22,31 @@ public static class Mesher
     public const int PLANE = PX * PZ;
 
     /// <summary>Greedy meshing flag (set from Settings; read by workers).</summary>
-    public static volatile bool Greedy;
+    private static bool _greedy;
+    private static long _configurationRevision;
+    private static readonly Lock ConfigurationLock = new();
+
+    public static bool Greedy
+    {
+        get => Volatile.Read(ref _greedy);
+        set
+        {
+            lock (ConfigurationLock)
+            {
+                if (_greedy == value) return;
+                Volatile.Write(ref _greedy, value);
+                Interlocked.Increment(ref _configurationRevision);
+            }
+        }
+    }
+
+    internal static (bool Greedy, long Revision) CaptureConfiguration()
+    {
+        lock (ConfigurationLock) return (_greedy, _configurationRevision);
+    }
+
+    internal static bool IsConfigurationCurrent(long revision) =>
+            Interlocked.Read(ref _configurationRevision) == revision;
 
     // Two triangles per quad, preserving the clockwise winding of the face verts.
     public static readonly int[] TriOrder = [0, 1, 2, 0, 2, 3];
@@ -230,6 +254,7 @@ public static class Mesher
     public static MeshPayload Build(VoxelWorld world, Vector2I cp)
     {
         EnsureTables();
+        (bool greedy, long meshingRevision) = CaptureConfiguration();
         long epoch;
         byte[] pad;
         byte[] statePad;
@@ -243,8 +268,9 @@ public static class Mesher
             byte[] states = world.ChunkBlockStates(cp);
             pad = BuildPadded(world, cp, data, sy);
             statePad = BuildPaddedStates(world, cp, states, sy);
-            lightPad = BuildLightPadded(world, cp, sy, out directLightPad);
         }
+        // Derived lighting is solved outside the world snapshot critical section.
+        lightPad = BuildLightPadded(world, cp, sy, out directLightPad);
 
         SurfaceData opaque = PayloadPool.RentSurface();
         SurfaceData glass = PayloadPool.RentSurface();
@@ -261,7 +287,7 @@ public static class Mesher
         // Greedy mode: merged coplanar quads for the opaque surface (using the
         // texture-array material). The per-face loop below then only emits the
         // remaining surfaces and the collision for opaque blocks.
-        if (Greedy)
+        if (greedy)
         {
             BuildOpaqueGreedy(pad, statePad, lightPad, directLightPad, sy, opaque);
         }
@@ -292,7 +318,7 @@ public static class Mesher
                         Color directColor = VoxelLighting.VertexColor(
                                 VoxelLighting.Pack(directSky, (byte)(combinedLight & 0x0F)), 1.0f);
                         AddCross(opaque, new Vector3(x - 1, y - 1, z - 1),
-                                BlockDb.IconTile(id), directColor, bouncedSky / 15.0f, wetPlant);
+                                BlockDb.IconTile(id), directColor, bouncedSky / 15.0f, wetPlant, greedy);
                         continue;
                     }
 
@@ -310,15 +336,17 @@ public static class Mesher
                     {
                         AddShapeGeometry(pad, statePad, lightPad, directLightPad, i,
                                 new Vector3(x - 1, y - 1, z - 1), id, state, opaque,
-                                buildCollision ? collision : null, kk, cornerLight, cornerBounce);
+                                buildCollision ? collision : null, greedy, kk, cornerLight, cornerBounce);
                         continue;
                     }
 
                     int baseIdx = (int)id * 6;
                     bool isTrans = BlockDb.TransMask[(int)id] == 1;
                     bool isWater = BlockDb.IsWater(id);
-                    bool greedyBase = Greedy && !isTrans && !isWater && id != BlockId.Lava && fullCube;
-                    SurfaceData surf = isWater ? water : id == BlockId.Lava ? lava : isTrans ? glass : opaque;
+                    bool greedyBase = greedy && !isTrans && !isWater && id != BlockId.Lava && fullCube;
+                    // Ladder atlas transparency is a cutout mask, not blended glass.
+                    bool blended = isTrans && id != BlockId.Ladder;
+                    SurfaceData surf = isWater ? water : id == BlockId.Lava ? lava : blended ? glass : opaque;
                     float waterTop = isWater ? BlockDb.WaterHeight(id) : 1.0f;
                     if (isWater && BlockDb.IsWater((BlockId)pad[i + FaceOff[0]]))
                         waterTop = 1.0f;
@@ -376,7 +404,7 @@ public static class Mesher
                         {
                             EmitCubeFaceAgainstPartial(pad, statePad, lightPad, directLightPad,
                                     i, neighborIndex, f, tile, id, state, b, opaque,
-                                    buildCollision ? collision : null, kk, cornerLight, cornerBounce);
+                                    buildCollision ? collision : null, greedy, kk, cornerLight, cornerBounce);
                             continue;
                         }
 
@@ -406,7 +434,7 @@ public static class Mesher
                                     MaterialResponse.VertexTag(family, wetFace,
                                             cornerBounce[t] / 15.0f)));
                             surf.Uv.Add(BlockDb.UvLut[ui + t]);
-                            if (Greedy && ReferenceEquals(surf, opaque))
+                            if (greedy && ReferenceEquals(surf, opaque))
                                 surf.Uv2.Add(new Vector2(tile, 0.0f));
                         }
 
@@ -424,7 +452,7 @@ public static class Mesher
             }
         }
 
-        return new MeshPayload(opaque, glass, water, lava, collision, epoch);
+        return new MeshPayload(opaque, glass, water, lava, collision, epoch, meshingRevision);
     }
 
 
@@ -459,7 +487,7 @@ public static class Mesher
             byte[] pad, byte[] statePad, byte[] lightPad, byte[] directLightPad,
             int sourceIndex, int neighborIndex, int face, int tile,
             BlockId blockId, byte blockState, Vector3 blockOrigin,
-            SurfaceData surf, List<Vector3>? collision,
+            SurfaceData surf, List<Vector3>? collision, bool greedy,
             Span<float> kk, Span<byte> cornerLight, Span<byte> cornerBounce)
     {
         int vi = face * 4;
@@ -487,14 +515,14 @@ public static class Mesher
             EmitLitFace(pad, statePad, lightPad, directLightPad, sourceIndex, face, tile,
                     blockId, blockState, blockOrigin, points, surf, collision,
                     microCell[0], microCell[1], microCell[2], false, true,
-                    kk, cornerLight, cornerBounce, wetFace);
+                    kk, cornerLight, cornerBounce, wetFace, greedy);
         }
     }
 
     private static void AddShapeGeometry(
             byte[] pad, byte[] statePad, byte[] lightPad, byte[] directLightPad,
             int index, Vector3 blockOrigin, BlockId id, byte state,
-            SurfaceData surf, List<Vector3>? collision,
+            SurfaceData surf, List<Vector3>? collision, bool greedy,
             Span<float> kk, Span<byte> cornerLight, Span<byte> cornerBounce)
     {
         Span<Vector3> points = stackalloc Vector3[4];
@@ -530,7 +558,7 @@ public static class Mesher
                         && BlockDb.IsWater(neighbor);
                 EmitLitFace(pad, statePad, lightPad, directLightPad, index, face, tile, id, state,
                         blockOrigin, points, surf, collision,
-                        cx, cy, cz, false, true, kk, cornerLight, cornerBounce, wetFace);
+                        cx, cy, cz, false, true, kk, cornerLight, cornerBounce, wetFace, greedy);
             }
         }
     }
@@ -540,7 +568,7 @@ public static class Mesher
             int sourceIndex, int face, int textureTile, BlockId blockId, byte blockState,
             Vector3 blockOrigin, Span<Vector3> points, SurfaceData surf, List<Vector3>? collision,
             int cellX, int cellY, int cellZ, bool deriveCellFromVertex, bool applyAo,
-            Span<float> kk, Span<byte> cornerLight, Span<byte> cornerBounce, bool wet)
+            Span<float> kk, Span<byte> cornerLight, Span<byte> cornerBounce, bool wet, bool greedy)
     {
         float shade = BlockDb.FaceColors[face].R;
         for (int vertex = 0; vertex < 4; vertex++)
@@ -568,10 +596,10 @@ public static class Mesher
                             cornerBounce[tri] / 15.0f)));
             Vector2 localUv = BlockDb.BlockFaceUvAt(blockId, blockState, face,
                     points[tri] - blockOrigin);
-            surf.Uv.Add(Greedy
+            surf.Uv.Add(greedy
                     ? localUv
                     : BlockDb.MapUv(BlockDb.TileUvRect(textureTile), localUv));
-            if (Greedy)
+            if (greedy)
                 surf.Uv2.Add(new Vector2(textureTile, 0.0f));
         }
 
@@ -882,10 +910,11 @@ public static class Mesher
     /// the texture-array material.
     /// </summary>
     private static void AddCross(
-            SurfaceData surf, Vector3 b, int tile, Color lightColor, float bouncedSky, bool wet)
+            SurfaceData surf, Vector3 b, int tile, Color lightColor, float bouncedSky, bool wet,
+            bool greedy)
     {
         Vector2[] uv;
-        if (Greedy)
+        if (greedy)
         {
             uv = [new(0, 1), new(1, 1), new(1, 0), new(0, 0)];
         }
@@ -906,13 +935,13 @@ public static class Mesher
         [
             b + new Vector3(1, 0, 0), b + new Vector3(0, 0, 1), b + new Vector3(0, 1, 1), b + new Vector3(1, 1, 0),
         ];
-        EmitDoubleSided(surf, planeA, uv, tile, lightColor, bouncedSky, wet);
-        EmitDoubleSided(surf, planeB, uv, tile, lightColor, bouncedSky, wet);
+        EmitDoubleSided(surf, planeA, uv, tile, lightColor, bouncedSky, wet, greedy);
+        EmitDoubleSided(surf, planeB, uv, tile, lightColor, bouncedSky, wet, greedy);
     }
 
     private static void EmitDoubleSided(
             SurfaceData surf, Vector3[] p, Vector2[] uv, int tile,
-            Color lightColor, float bouncedSky, bool wet)
+            Color lightColor, float bouncedSky, bool wet, bool greedy)
     {
         Vector3 n = (p[1] - p[0]).Cross(p[3] - p[0]).Normalized();
         SurfaceFamily family = MaterialResponse.ForTile(tile);
@@ -920,7 +949,9 @@ public static class Mesher
                 MaterialResponse.VertexTag(family, wet, bouncedSky));
         for (int pass = 0; pass < 2; pass++)
         {
-            Vector3 normal = pass == 0 ? n : -n;
+            // Godot uses clockwise front-face winding; reverse the geometric
+            // cross product for the canonical pass and invert it on the back pass.
+            Vector3 normal = pass == 0 ? -n : n;
             for (int t = 0; t < 6; t++)
             {
                 int idx = pass == 0 ? TriOrder[t] : TriOrder[5 - t];
@@ -928,7 +959,7 @@ public static class Mesher
                 surf.Normal.Add(normal);
                 surf.Color.Add(white);
                 surf.Uv.Add(uv[idx]);
-                if (Greedy)
+                if (greedy)
                     surf.Uv2.Add(new Vector2(tile, 0.0f));
             }
         }
@@ -1184,7 +1215,8 @@ public sealed class MeshPayload(
         SurfaceData water,
         SurfaceData lava,
         List<Vector3> collision,
-        long epoch)
+        long epoch,
+        long meshingRevision)
 {
     public readonly SurfaceData Opaque = opaque;
     public readonly SurfaceData Glass = glass;
@@ -1192,6 +1224,7 @@ public sealed class MeshPayload(
     public readonly SurfaceData Lava = lava;
     public readonly List<Vector3> Collision = collision;
     public readonly long Epoch = epoch;
+    public readonly long MeshingRevision = meshingRevision;
     public bool Released;
 
     public long EstimatedBufferBytes => Opaque.EstimatedBufferBytes + Glass.EstimatedBufferBytes
