@@ -112,9 +112,16 @@ public static class WorldArchiveTests
                     JsonSerializer.Serialize(before, WorldStore.Json)), "initial restore point writes");
             TestAssert.Check(WorldStore.WriteAtomic(backupSavePath,
                     JsonSerializer.Serialize(after, WorldStore.Json)), "newer save rotates the previous version");
-            TestAssert.Check(WorldStore.WriteAtomic(WorldStore.PlayerSavePath(backupWorld),
+            string backupPlayerPath = WorldStore.PlayerSavePath(backupWorld);
+            TestAssert.Check(WorldStore.WriteAtomic(backupPlayerPath,
+                    JsonSerializer.Serialize(new PlayerSave([1.0f, 2.0f, 3.0f]), WorldStore.Json)),
+                    "initial player state writes for the complete recovery fixture");
+            TestAssert.Check(WorldStore.WriteAtomic(backupPlayerPath,
                     JsonSerializer.Serialize(new PlayerSave([4.0f, 5.0f, 6.0f]), WorldStore.Json)),
-                    "matching player state is written for a complete recovery fixture");
+                    "second player state rotates the first backup");
+            TestAssert.Check(WorldStore.WriteAtomic(backupPlayerPath,
+                    JsonSerializer.Serialize(new PlayerSave([7.0f, 8.0f, 9.0f]), WorldStore.Json)),
+                    "third player state creates the oldest backup used by access-denial tests");
             TestAssert.Check(WorldStore.WriteManifest(backupWorld, WorldStore.ReadManifest(backupWorld)!),
                     "complete recovery fixture records its save history");
             List<WorldBackupInfo> backups = WorldBackupStore.List(backupWorld);
@@ -155,7 +162,7 @@ public static class WorldArchiveTests
             // One unreadable restore point must not hide valid neighboring files.
             WorldBackupStore.ReadBackupTextForTests = path =>
             {
-                if (path.EndsWith("world.json.bak2", StringComparison.Ordinal))
+                if (path.EndsWith("player.json.bak2", StringComparison.Ordinal))
                     throw new UnauthorizedAccessException("simulated backup read denial");
                 return File.ReadAllText(path);
             };
@@ -164,7 +171,7 @@ public static class WorldArchiveTests
             finally { WorldBackupStore.ReadBackupTextForTests = null; }
             TestAssert.Check(partialBackups.Exists(item => item.FileName == "world.json.bak" && item.IsValid),
                     "an inaccessible backup does not hide other valid restore points");
-            TestAssert.Check(partialBackups.Exists(item => item.FileName == "world.json.bak2"
+            TestAssert.Check(partialBackups.Exists(item => item.FileName == "player.json.bak2"
                     && !item.IsValid && item.Status.StartsWith("Unavailable:", StringComparison.Ordinal)),
                     "an unreadable backup is displayed as unavailable instead of aborting the list");
 
