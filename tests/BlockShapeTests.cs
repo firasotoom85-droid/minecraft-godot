@@ -335,6 +335,31 @@ public static class BlockShapeTests
                 {
                     PayloadPool.Release(connectedPayload);
                 }
+
+                // Move the streaming center so the tested chunk remains at the
+                // unload margin while its +X neighbor falls outside it.
+                world.ViewDistance = 0;
+                world.UnloadFar(new Vector2I(-1, 0));
+                TestAssert.Check(world.HasChunk(frontier)
+                                && !world.HasChunk(frontier + Vector2I.Right),
+                        "unloading the adjacent chunk keeps the tested frontier chunk active");
+                TestAssert.Check((world.MissingColliderBoundaryMask(frontier) & (1 << 2)) != 0,
+                        "unloading the neighbor restores the +X missing-collider boundary bit");
+
+                MeshPayload unloadedPayload = Mesher.Build(world, frontier);
+                try
+                {
+                    TestAssert.Equal(2, CountTrianglesOnPlane(
+                                    unloadedPayload.Collision, 0, 16.0f, solidY - 1, 8),
+                            "remaining chunk restores its collision wall when the neighbor unloads");
+                    TestAssert.Equal(0, CountTrianglesOnPlane(
+                                    unloadedPayload.Opaque.Vertex, 0, 16.0f, solidY - 1, 8),
+                            "unloading a neighbor restores collision without duplicating render geometry");
+                }
+                finally
+                {
+                    PayloadPool.Release(unloadedPayload);
+                }
             }
         }
         finally
