@@ -2538,13 +2538,11 @@ public partial class VoxelWorld : Node3D
     public void SetupInitial()
     {
         Vector2I pcp = PlayerChunk();
-        for (int dz = -1; dz <= 1; dz++)
-        {
-            for (int dx = -1; dx <= 1; dx++)
-            {
-                BuildNow(pcp + new Vector2I(dx, dz));
-            }
-        }
+
+        // Only the player's current chunk is required before the first physics
+        // step. Its floor/collider is ready synchronously; surrounding chunks
+        // enter the existing bounded worker pipeline immediately afterwards.
+        BuildNow(pcp);
 
         _lastPlayerChunk = pcp;
         _lastPlayerPos = Player?.GlobalPosition ?? Vector3.Zero;
@@ -2561,16 +2559,29 @@ public partial class VoxelWorld : Node3D
                 Mathf.FloorToInt(center.X / ChunkX),
                 Mathf.FloorToInt(center.Z / ChunkZ));
         int r = Mathf.Clamp(radius, 1, 5);
-        for (int dz = -r; dz <= r; dz++)
-        {
-            for (int dx = -r; dx <= r; dx++)
-            {
-                BuildNow(pcp + new Vector2I(dx, dz));
-            }
-        }
-
         _lastPlayerChunk = pcp;
         _lastPlayerPos = center;
+        _velocityDir = Vector3.Zero;
+        _lastPriorityDirection = Vector3.Zero;
+
+        lock (_queueLock)
+        {
+            _streamCenter = pcp;
+            _streamRetentionLimit = r + UnloadMargin;
+            _queue.Clear();
+            _queued.Clear();
+            for (int dz = -r; dz <= r; dz++)
+            {
+                for (int dx = -r; dx <= r; dx++)
+                {
+                    Vector2I cp = pcp + new Vector2I(dx, dz);
+                    if (!_chunks.ContainsKey(cp))
+                    {
+                        QueueFreshLocked(cp, pcp);
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>Change the streamed radius (gfx presets / F7-F8) and re-evaluate the queue.</summary>
@@ -2853,9 +2864,9 @@ public partial class VoxelWorld : Node3D
         {
             if (!_alive) return;
 
-            Vector2I pcp = PlayerChunk();
-            int limit = ViewDistance + UnloadMargin;
-            if (Mathf.Abs(cp.X - pcp.X) > limit || Mathf.Abs(cp.Y - pcp.Y) > limit)
+            Vector2I pcp = Player != null ? PlayerChunk() : _streamCenter;
+            int limit = Player != null ? ViewDistance + UnloadMargin : _streamRetentionLimit;
+            if (!ChunkStreamingPolicy.IsWithinRetention(cp, pcp, limit))
                 return;
 
             if (payload.Epoch != EditEpoch)
@@ -2985,31 +2996,31 @@ public partial class VoxelWorld : Node3D
 
     public override void _Process(double delta)
     {
-        _unsavedPlaytimeSeconds += Math.Max(0.0, delta);
-        if (Player == null)
+        bool hasPlayer = Player != null;
+        if (hasPlayer)
         {
-            return;
+            _unsavedPlaytimeSeconds += Math.Max(0.0, delta);
+
+            // Smoothed velocity drives the prefetch bias: chunks ahead of a moving
+            // player jump the queue, so flying toward new terrain streams faster.
+            Vector3 pos = Player!.GlobalPosition;
+            if (delta > 0.0)
+            {
+                Vector3 displacement = pos - _lastPlayerPos;
+                displacement.Y = 0.0f;
+                Vector3 vel = displacement / (float)delta;
+                // A discontinuous relocation is not movement intent. Normal
+                // walking/sprinting/flying remains well below this threshold.
+                _velocityDir = displacement.LengthSquared() > 256.0f
+                        || vel.LengthSquared() > 400.0f
+                        ? Vector3.Zero
+                        : vel.LengthSquared() > 1.0f ? vel.Normalized() : Vector3.Zero;
+            }
+
+            _lastPlayerPos = pos;
         }
 
-        // Smoothed velocity drives the prefetch bias: chunks ahead of a moving
-        // player jump the queue, so flying toward new terrain streams faster.
-        Vector3 pos = Player.GlobalPosition;
-        if (delta > 0.0)
-        {
-            Vector3 displacement = pos - _lastPlayerPos;
-            displacement.Y = 0.0f;
-            Vector3 vel = displacement / (float)delta;
-            // A discontinuous relocation is not movement intent. Normal
-            // walking/sprinting/flying remains well below this threshold.
-            _velocityDir = displacement.LengthSquared() > 256.0f
-                    || vel.LengthSquared() > 400.0f
-                    ? Vector3.Zero
-                    : vel.LengthSquared() > 1.0f ? vel.Normalized() : Vector3.Zero;
-        }
-
-        _lastPlayerPos = pos;
-
-        Vector2I pcp = PlayerChunk();
+        Vector2I pcp = hasPlayer ? PlayerChunk() : _lastPlayerChunk;
         bool centerChanged = pcp != _lastPlayerChunk;
         bool priorityChanged = ChunkStreamingPolicy.DirectionChanged(
                 _lastPriorityDirection, _velocityDir);
@@ -3087,14 +3098,17 @@ public partial class VoxelWorld : Node3D
         if (_autosaveTimer >= AutosaveInterval)
         {
             _autosaveTimer = 0.0;
-            if (Player.GlobalPosition.DistanceTo(_lastSavedPos) > 8.0f)
+            if (hasPlayer)
             {
-                _dirty = true;
-            }
+                if (Player!.GlobalPosition.DistanceTo(_lastSavedPos) > 8.0f)
+                {
+                    _dirty = true;
+                }
 
-            if (_dirty || _unsavedPlaytimeSeconds >= AutosaveInterval)
-            {
-                SaveNow();
+                if (_dirty || _unsavedPlaytimeSeconds >= AutosaveInterval)
+                {
+                    SaveNow();
+                }
             }
         }
     }
