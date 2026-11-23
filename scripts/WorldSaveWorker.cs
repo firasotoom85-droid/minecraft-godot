@@ -209,18 +209,8 @@ internal static class WorldSaveWorker
                 }
             }
 
-            if (!committed && File.Exists(stagedOldestBackup)
-                    && File.Exists(oldestBackup))
-            {
-                try
-                {
-                    File.Delete(stagedOldestBackup);
-                }
-                catch (Exception cleanupFailure)
-                {
-                    recoveryErrors.Add($"could not remove staged oldest backup: {cleanupFailure.Message}");
-                }
-            }
+            // If restoration itself failed, keep the uniquely named staged
+            // generation on disk; it is the only remaining copy of that backup.
 
             error = recoveryErrors.Count == 0
                     ? writeFailure.Message
