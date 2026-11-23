@@ -510,6 +510,11 @@ public static class BlockDb
             return true;
         }
 
+        // Cutout foliage writes depth where its texels survive, but its alpha
+        // holes must reveal the opaque surface behind it.
+        if (IsFoliage(neighborId))
+            return !IsFoliage(selfId);
+
         if (IsTransparent(neighborId))
         {
             return selfId != neighborId;
@@ -834,6 +839,7 @@ void fragment() {
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
     EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a;
+    ALPHA_ANTIALIASING_EDGE = 0.4;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
     vec3 response = surface_response(family);
     ALBEDO *= wet_tint;
@@ -1262,7 +1268,8 @@ void fragment() {
     // Preserve the distinct lava core, but derive its strength exclusively
     // from the packed block-light nibble baked into COLOR.g.
     EMISSION = tex.rgb * warm * lava_emission * 0.9;
-    ALPHA = tex.a;
+    // Do not write ALPHA: an ALPHA output routes this fully opaque atlas tile
+    // through Godot's transparent pipeline and prevents opaque depth writes.
     ROUGHNESS = 1.0;
 }
 ";
