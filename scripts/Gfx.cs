@@ -79,6 +79,19 @@ public partial class Gfx : Node
     }
 
     /// <summary>
+    /// Apply the environment effects owned by a renderer preset. Keeping this
+    /// mapping in one place makes gameplay startup and preset changes agree.
+    /// </summary>
+    internal static void ApplyEnvironmentPreset(Godot.Environment environment, int presetIndex)
+    {
+        Preset preset = Presets[Mathf.Clamp(presetIndex, 0, Presets.Count - 1)];
+        ApplyContactShadingProfile(preset, environment);
+        environment.SsrEnabled = preset.Ssr;
+        environment.GlowEnabled = preset.Glow;
+        environment.VolumetricFogEnabled = preset.VolFog;
+    }
+
+    /// <summary>
     /// Apply the small-radius contact AO profile without overriding the
     /// existing mesh-baked vertex AO. LOW/BALANCED deliberately keep this
     /// screen-space pass disabled and rely on the baked voxel corner stencil.
@@ -202,10 +215,7 @@ public partial class Gfx : Node
         if (WorldEnv is { Environment: not null })
         {
             Godot.Environment env = WorldEnv.Environment;
-            ApplyContactShadingProfile(p, env);
-            env.SsrEnabled = p.Ssr;
-            env.GlowEnabled = p.Glow;
-            env.VolumetricFogEnabled = p.VolFog;
+            ApplyEnvironmentPreset(env, Current);
         }
 
         Viewport? vp = GetViewport();
