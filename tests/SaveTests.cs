@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
 using Godot;
 
@@ -85,6 +86,76 @@ public static class SaveTests
         TestAssert.Equal("three", FileAccess.GetFileAsString(backupPath), "newest save is current");
         TestAssert.Equal("two", FileAccess.GetFileAsString(backupPath + ".bak"), "first backup is previous save");
         TestAssert.Equal("one", FileAccess.GetFileAsString(backupPath + ".bak2"), "second backup is oldest save");
+
+        string workerRoot = Path.Combine(Path.GetTempPath(),
+                $"minecraft-save-worker-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workerRoot);
+        try
+        {
+            string workerWorldPath = Path.Combine(workerRoot, "world.json");
+            string workerPlayerPath = Path.Combine(workerRoot, "player.json");
+            string workerManifestPath = Path.Combine(workerRoot, "manifest.json");
+            WorldManifest workerManifest = new(
+                    "Background Save Test", 24680, WorldStore.CurrentGenVersion,
+                    WorldStore.DeriveNoiseSeeds(24680), 1, 1);
+            WorldSaveSnapshot workerSnapshot = new(
+                    new WorldSave(WorldStore.WorldFormatVersion, [], 0.25),
+                    new PlayerSave([1.0f, 2.0f, 3.0f], Health: 16.0f),
+                    workerManifest,
+                    workerWorldPath,
+                    workerPlayerPath,
+                    workerManifestPath,
+                    DirtyRevision: 1,
+                    ElapsedPlaytimeSeconds: 5.0);
+            WorldSaveWorkerResult firstWorkerSave =
+                    WorldSaveWorker.WriteAsync(workerSnapshot).GetAwaiter().GetResult();
+            TestAssert.Check(firstWorkerSave.Success,
+                    "background worker writes world, player and manifest snapshots");
+            WorldSave? firstWorkerWorld =
+                    JsonSerializer.Deserialize<WorldSave>(File.ReadAllText(workerWorldPath), WorldStore.Json);
+            TestAssert.Equal(0.25, firstWorkerWorld?.Time ?? -1.0,
+                    "background worker serializes world data before the atomic write");
+
+            WorldSaveSnapshot nextWorkerSnapshot = workerSnapshot with
+            {
+                World = workerSnapshot.World with { Time = 0.75 },
+                Player = workerSnapshot.Player with { Health = 11.0f },
+                Manifest = workerSnapshot.Manifest with { PlaytimeSeconds = 10 },
+                DirtyRevision = 2,
+                ElapsedPlaytimeSeconds = 5.0,
+            };
+            WorldSaveWorkerResult secondWorkerSave =
+                    WorldSaveWorker.WriteAsync(nextWorkerSnapshot).GetAwaiter().GetResult();
+            TestAssert.Check(secondWorkerSave.Success,
+                    "ordered background worker accepts the next world snapshot");
+            WorldSave? currentWorkerWorld =
+                    JsonSerializer.Deserialize<WorldSave>(File.ReadAllText(workerWorldPath), WorldStore.Json);
+            WorldSave? backupWorkerWorld =
+                    JsonSerializer.Deserialize<WorldSave>(File.ReadAllText(workerWorldPath + ".bak"), WorldStore.Json);
+            TestAssert.Equal(0.75, currentWorkerWorld?.Time ?? -1.0,
+                    "newest background snapshot is committed as current");
+            TestAssert.Equal(0.25, backupWorkerWorld?.Time ?? -1.0,
+                    "background atomic writes retain the previous valid world snapshot");
+            PlayerSave? currentWorkerPlayer =
+                    JsonSerializer.Deserialize<PlayerSave>(File.ReadAllText(workerPlayerPath), WorldStore.Json);
+            TestAssert.Equal(11.0f, currentWorkerPlayer?.Health ?? -1.0f,
+                    "background worker commits the matching player snapshot");
+
+            string protectedPath = Path.Combine(workerRoot, "protected.json");
+            File.WriteAllText(protectedPath, "preserve-current");
+            Directory.CreateDirectory(protectedPath + ".bak");
+            bool protectedWrite = WorldSaveWorker.WriteAtomic(protectedPath, "must-not-replace", out string? protectedError);
+            TestAssert.Check(!protectedWrite && !string.IsNullOrEmpty(protectedError),
+                    "background atomic writer reports an occupied backup directory");
+            TestAssert.Equal("preserve-current", File.ReadAllText(protectedPath),
+                    "failed background atomic write preserves the current save");
+            TestAssert.Check(!File.Exists(protectedPath + ".tmp"),
+                    "failed background atomic write removes its temporary file");
+        }
+        finally
+        {
+            Directory.Delete(workerRoot, recursive: true);
+        }
 
         string corruptPath = root + "/corrupt.json";
         WorldStore.WriteAtomic(corruptPath, JsonSerializer.Serialize(save, WorldStore.Json));
