@@ -163,6 +163,10 @@ public static class WorldArchive
         if (!File.Exists(archiveFile))
             throw new FileNotFoundException("The selected world archive does not exist.", archiveFile);
         Directory.CreateDirectory(root);
+        FileAttributes rootAttributes = File.GetAttributes(root);
+        if ((rootAttributes & FileAttributes.Directory) == 0
+                || (rootAttributes & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidDataException("The destination worlds root must be a regular directory, not a filesystem link.");
 
         string stagingRoot = Path.Combine(root, ".import-" + Guid.NewGuid().ToString("N"));
         string stagingWorld = Path.Combine(stagingRoot, "world");
@@ -412,10 +416,12 @@ public static class WorldArchive
         if (!File.Exists(path)) return false;
         try
         {
-            WorldManifest? value = JsonSerializer.Deserialize<WorldManifest>(File.ReadAllText(path), WorldStore.Json);
-            return value is not null;
+            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                return false;
+            return WorldStore.IsValidBackupModel("manifest.json", File.ReadAllText(path));
         }
         catch (JsonException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
     }
 
     private static bool ValidateSaveCandidates(string directory, string fileName, bool isWorldSave)
@@ -466,11 +472,18 @@ public static class WorldArchive
             if (!File.Exists(path)) continue;
             try
             {
-                WorldManifest? manifest = JsonSerializer.Deserialize<WorldManifest>(File.ReadAllText(path), WorldStore.Json);
+                if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0
+                        || (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                    continue;
+                string json = File.ReadAllText(path);
+                if (!WorldStore.IsValidBackupModel("manifest.json", json))
+                    continue;
+                WorldManifest? manifest = JsonSerializer.Deserialize<WorldManifest>(json, WorldStore.ManifestJson);
                 if (!string.IsNullOrWhiteSpace(manifest?.Name))
                     names.Add(manifest.Name);
             }
             catch (JsonException) { }
+            catch (UnauthorizedAccessException) { }
         }
 
         if (!names.Contains(requested)) return requested;
@@ -517,6 +530,10 @@ public static class WorldBackupStore
                 catch (DirectoryNotFoundException) { return result; }
                 catch (FileNotFoundException) { return result; }
             }
+            FileAttributes directoryAttributes = File.GetAttributes(absolute);
+            if ((directoryAttributes & FileAttributes.Directory) == 0
+                    || (directoryAttributes & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("The selected world directory is not a regular directory.");
             paths = EnumerateBackupPathsForTests?.Invoke(absolute)
                     ?? Directory.EnumerateFiles(absolute, "*.bak*").ToArray();
         }
@@ -595,6 +612,12 @@ public static class WorldBackupStore
     {
         try
         {
+            FileAttributes attributes = File.GetAttributes(path);
+            if ((attributes & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
+            {
+                status = "Unavailable: directories and filesystem links are not backup files";
+                return false;
+            }
             string json = ReadBackupTextForTests?.Invoke(path)
                     ?? File.ReadAllText(path);
             bool valid = WorldStore.IsValidBackupModel(baseName, json);
