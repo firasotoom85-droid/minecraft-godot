@@ -282,6 +282,23 @@ public static class BlockShapeTests
                             & (1 << 5)) != 0,
                     "north frontier recognizes the generated but unbuilt -Z neighbor");
 
+            CheckMissingColliderEdge(world, new Vector2I(1, 0),
+                    sourceX: 31, sourceZ: 8, neighborX: 32, neighborZ: 8,
+                    face: 2, axis: 0, plane: 16.0f, cellX: 15, cellZ: 8,
+                    "positive X edge");
+            CheckMissingColliderEdge(world, new Vector2I(-1, 0),
+                    sourceX: -16, sourceZ: 8, neighborX: -17, neighborZ: 8,
+                    face: 3, axis: 0, plane: 0.0f, cellX: 0, cellZ: 8,
+                    "negative X edge");
+            CheckMissingColliderEdge(world, new Vector2I(0, 1),
+                    sourceX: 8, sourceZ: 31, neighborX: 8, neighborZ: 32,
+                    face: 4, axis: 2, plane: 16.0f, cellX: 8, cellZ: 15,
+                    "positive Z edge");
+            CheckMissingColliderEdge(world, new Vector2I(0, -1),
+                    sourceX: 8, sourceZ: -16, neighborX: 8, neighborZ: -17,
+                    face: 5, axis: 2, plane: 0.0f, cellX: 8, cellZ: 0,
+                    "negative Z edge");
+
             Vector2I frontier = new(1, 0);
             int surfaceY = world.SurfaceHeight(32, 8);
             int solidY = -1;
@@ -389,6 +406,70 @@ public static class BlockShapeTests
             DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
             DirAccess.RemoveAbsolute(dir);
         }
+    }
+
+    private static void CheckMissingColliderEdge(
+            VoxelWorld world, Vector2I sourceChunk,
+            int sourceX, int sourceZ, int neighborX, int neighborZ,
+            int face, int axis, float plane, int cellX, int cellZ, string label)
+    {
+        TestAssert.Check((world.MissingColliderBoundaryMask(sourceChunk) & (1 << face)) != 0,
+                $"{label} reports a missing adjacent collider");
+
+        int surfaceY = world.SurfaceHeight(neighborX, neighborZ);
+        int solidY = -1;
+        for (int y = surfaceY; y >= 1; y--)
+        {
+            BlockId neighbor = world.GetBlock(neighborX, y, neighborZ);
+            if (BlockDb.IsSolid(neighbor) && !BlockDb.IsTransparent(neighbor))
+            {
+                solidY = y;
+                break;
+            }
+        }
+        TestAssert.Check(solidY > 0,
+                $"{label} fixture finds a generated solid neighbor block");
+        if (solidY <= 0) return;
+
+        bool changed = world.SetBlock(sourceX, solidY, sourceZ, BlockId.Stone);
+        TestAssert.Check(changed || world.GetBlock(sourceX, solidY, sourceZ) == BlockId.Stone,
+                $"{label} source block is stone through SetBlock");
+
+        MeshPayload payload = Mesher.Build(world, sourceChunk);
+        try
+        {
+            TestAssert.Equal(2, CountTrianglesOnCellPlane(
+                            payload.Collision, axis, plane, cellX, solidY, cellZ),
+                    $"{label} emits a full collision boundary face against an unbuilt neighbor");
+            TestAssert.Equal(0, CountTrianglesOnCellPlane(
+                            payload.Opaque.Vertex, axis, plane, cellX, solidY, cellZ),
+                    $"{label} frontier face remains collision-only without duplicate render geometry");
+        }
+        finally
+        {
+            PayloadPool.Release(payload);
+        }
+    }
+
+    private static int CountTrianglesOnCellPlane(
+            System.Collections.Generic.IReadOnlyList<Vector3> vertices,
+            int axis, float coordinate, int x, int y, int z)
+    {
+        int count = 0;
+        for (int i = 0; i + 2 < vertices.Count; i += 3)
+        {
+            bool onPlane = true;
+            for (int vertex = 0; vertex < 3; vertex++)
+            {
+                Vector3 point = vertices[i + vertex];
+                onPlane &= Mathf.IsEqualApprox(point[axis], coordinate)
+                        && point.X >= x && point.X <= x + 1.0f
+                        && point.Y >= y && point.Y <= y + 1.0f
+                        && point.Z >= z && point.Z <= z + 1.0f;
+            }
+            if (onPlane) count++;
+        }
+        return count;
     }
 
     private static int CountTrianglesOnPlane(
