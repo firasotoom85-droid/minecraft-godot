@@ -2294,7 +2294,7 @@ public partial class VoxelWorld : Node3D
             }
         }
 
-        _dirty = true;
+        MarkDirty();
         BlockChanged?.Invoke(new Vector3I(x, y, z));
 
         // The edited chunk always changes. Geometry-only dependencies are
