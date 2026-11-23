@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "\${GH_REPOSITORY:?GH_REPOSITORY must be set (owner/repo)}"
+: "${GH_REPOSITORY:?GH_REPOSITORY must be set (owner/repo)}"
 
 create_label() {
   local name="$1"
