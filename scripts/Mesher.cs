@@ -256,6 +256,7 @@ public static class Mesher
         EnsureTables();
         (bool greedy, long meshingRevision) = CaptureConfiguration();
         long epoch;
+        int boundaryMask;
         byte[] pad;
         byte[] statePad;
         byte[] lightPad;
@@ -269,6 +270,9 @@ public static class Mesher
             pad = BuildPadded(world, cp, data, sy);
             statePad = BuildPaddedStates(world, cp, states, sy);
         }
+        // Collider availability is independent of the voxel snapshot and is
+        // revalidated when the payload is applied.
+        boundaryMask = world.MissingColliderBoundaryMask(cp);
         // Derived lighting is solved outside the world snapshot critical section.
         lightPad = BuildLightPadded(world, cp, sy, out directLightPad);
 
@@ -335,8 +339,9 @@ public static class Mesher
                     if (BlockShapes.IsShape(id) && !fullCube)
                     {
                         AddShapeGeometry(pad, statePad, lightPad, directLightPad, i,
-                                new Vector3(x - 1, y - 1, z - 1), id, state, opaque,
-                                buildCollision ? collision : null, greedy, kk, cornerLight, cornerBounce);
+                                new Vector3(x - 1, y - 1, z - 1), x - 1, z - 1,
+                                id, state, opaque, buildCollision ? collision : null,
+                                boundaryMask, greedy, kk, cornerLight, cornerBounce);
                         continue;
                     }
 
@@ -379,7 +384,13 @@ public static class Mesher
                                 renderFace = waterTop > waterBase;
                             }
                         }
-                        if (!renderFace) continue;
+                        if (!renderFace)
+                        {
+                            if (buildCollision && BlockDb.SolidMask[(int)id] == 1
+                                    && IsMissingColliderBoundary(boundaryMask, x - 1, z - 1, f))
+                                AppendCollisionFace(collision, b, f);
+                            continue;
+                        }
 
                         int vi = f * 4;
                         bool greedyFace = greedyBase && !partialNeighbor;
@@ -452,9 +463,41 @@ public static class Mesher
             }
         }
 
-        return new MeshPayload(opaque, glass, water, lava, collision, epoch, meshingRevision);
+        return new MeshPayload(opaque, glass, water, lava, collision, epoch,
+                meshingRevision, boundaryMask);
     }
 
+
+    private static bool IsMissingColliderBoundary(
+            int boundaryMask, int localX, int localZ, int face) => face switch
+    {
+        2 => localX == SX - 1 && (boundaryMask & (1 << 2)) != 0,
+        3 => localX == 0 && (boundaryMask & (1 << 3)) != 0,
+        4 => localZ == SZ - 1 && (boundaryMask & (1 << 4)) != 0,
+        5 => localZ == 0 && (boundaryMask & (1 << 5)) != 0,
+        _ => false,
+    };
+
+    private static void AppendCollisionFace(List<Vector3> collision, Vector3 origin, int face)
+    {
+        int vi = face * 4;
+        collision.Add(origin + BlockDb.FaceVerts[vi]);
+        collision.Add(origin + BlockDb.FaceVerts[vi + 1]);
+        collision.Add(origin + BlockDb.FaceVerts[vi + 2]);
+        collision.Add(origin + BlockDb.FaceVerts[vi]);
+        collision.Add(origin + BlockDb.FaceVerts[vi + 2]);
+        collision.Add(origin + BlockDb.FaceVerts[vi + 3]);
+    }
+
+    private static void AppendCollisionFace(List<Vector3> collision, Span<Vector3> points)
+    {
+        collision.Add(points[0]);
+        collision.Add(points[1]);
+        collision.Add(points[2]);
+        collision.Add(points[0]);
+        collision.Add(points[2]);
+        collision.Add(points[3]);
+    }
 
     private static bool FullyEnclosedByFullCubes(byte[] pad, byte[] statePad, int index)
     {
@@ -521,8 +564,9 @@ public static class Mesher
 
     private static void AddShapeGeometry(
             byte[] pad, byte[] statePad, byte[] lightPad, byte[] directLightPad,
-            int index, Vector3 blockOrigin, BlockId id, byte state,
-            SurfaceData surf, List<Vector3>? collision, bool greedy,
+            int index, Vector3 blockOrigin, int localX, int localZ,
+            BlockId id, byte state, SurfaceData surf, List<Vector3>? collision,
+            int boundaryMask, bool greedy,
             Span<float> kk, Span<byte> cornerLight, Span<byte> cornerBounce)
     {
         Span<Vector3> points = stackalloc Vector3[4];
@@ -545,8 +589,11 @@ public static class Mesher
                 int neighborIndex = externalFace ? index + FaceOff[face] : index;
                 BlockId neighbor = externalFace ? (BlockId)pad[neighborIndex] : BlockId.Air;
                 byte neighborState = externalFace ? statePad[neighborIndex] : (byte)0;
-                if (!BlockShapes.FaceExposed(id, state, cx, cy, cz, face, neighbor, neighborState))
-                    continue;
+                bool faceExposed = BlockShapes.FaceExposed(
+                        id, state, cx, cy, cz, face, neighbor, neighborState);
+                bool collisionOnly = !faceExposed && collision != null && externalFace
+                        && IsMissingColliderBoundary(boundaryMask, localX, localZ, face);
+                if (!faceExposed && !collisionOnly) continue;
 
                 int tile = BlockDb.ShapeFaceTile(id, state, face);
                 if (tile < 0) continue;
@@ -554,6 +601,12 @@ public static class Mesher
                 int vi = face * 4;
                 for (int vertex = 0; vertex < 4; vertex++)
                     points[vertex] = cellOrigin + BlockDb.FaceVerts[vi + vertex] * 0.5f;
+                if (collisionOnly)
+                {
+                    AppendCollisionFace(collision!, points);
+                    continue;
+                }
+
                 bool wetFace = externalFace && BlockDb.IsWettable(id)
                         && BlockDb.IsWater(neighbor);
                 EmitLitFace(pad, statePad, lightPad, directLightPad, index, face, tile, id, state,
@@ -1216,7 +1269,8 @@ public sealed class MeshPayload(
         SurfaceData lava,
         List<Vector3> collision,
         long epoch,
-        long meshingRevision)
+        long meshingRevision,
+        int boundaryMask)
 {
     public readonly SurfaceData Opaque = opaque;
     public readonly SurfaceData Glass = glass;
@@ -1225,6 +1279,7 @@ public sealed class MeshPayload(
     public readonly List<Vector3> Collision = collision;
     public readonly long Epoch = epoch;
     public readonly long MeshingRevision = meshingRevision;
+    public readonly int BoundaryMask = boundaryMask;
     public bool Released;
 
     public long EstimatedBufferBytes => Opaque.EstimatedBufferBytes + Glass.EstimatedBufferBytes
