@@ -606,4 +606,4 @@ public static class WorldBackupStore
             return false;
         }
     }
-}\n
+}
