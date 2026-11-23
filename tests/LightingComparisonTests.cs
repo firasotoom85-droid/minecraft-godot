@@ -139,6 +139,16 @@ public static class LightingComparisonTests
                 "mean channel drift is averaged in 4-bit light levels");
         TestAssert.Check(Math.Abs(drift.MaxChannelDrift - 2.0) < 0.000001,
                 "maximum channel drift exposes the worst nibble difference");
+        TestAssert.Check(Math.Abs(drift.MeanAbsoluteSkyDrift - 1.5) < 0.000001
+                && Math.Abs(drift.MaxSkyDrift - 2.0) < 0.000001,
+                "skylight mean and maximum drift are reported independently");
+        TestAssert.Check(Math.Abs(drift.MeanAbsoluteBlockDrift - 0.5) < 0.000001
+                && Math.Abs(drift.MaxBlockDrift - 1.0) < 0.000001,
+                "block-light mean and maximum drift are reported independently");
+        TestAssert.Check(Math.Abs(drift.MeanAbsoluteRedDrift - (1.5 / 15.0)) < 0.000001
+                && Math.Abs(drift.MeanAbsoluteGreenDrift - (0.5 / 15.0)) < 0.000001
+                && drift.MaxBlueDrift == 0.0,
+                "red, green and neutral-blue shader input drift are reported per channel");
         TestAssert.Check(Math.Abs(drift.MaxColorDrift - (2.0 / 15.0)) < 0.000001,
                 "RGB drift uses the actual packed shader vertex channels");
         TestAssert.Check(drift.OutsideToleranceSamples == 1,
