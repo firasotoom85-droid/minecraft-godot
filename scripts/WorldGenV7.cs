@@ -678,13 +678,18 @@ public partial class VoxelWorld
                 int cellOz = nz * ChunkZ;
                 Biome biome = BiomeAt(cellOx + ChunkX / 2, cellOz + ChunkZ / 2);
                 TryVersionedOreVein(ref rng, BlockId.CoalOre, cellOx, cellOz,
-                        18, 112, 9, 4, 11, data, strideY, ox, oz, claimedOrePositions, rejectedOrePositions, oreColumnCache);
+                        18, 112, 9, 4, 11, data, strideY, ox, oz,
+                        claimedOrePositions, rejectedOrePositions, oreColumnCache);
                 TryVersionedOreVein(ref rng, BlockId.IronOre, cellOx, cellOz,
-                        6, 88, 6, 3, 8, data, strideY, ox, oz, claimedOrePositions, rejectedOrePositions, oreColumnCache);
+                        6, 88, 6, 3, 8, data, strideY, ox, oz,
+                        claimedOrePositions, rejectedOrePositions, oreColumnCache);
                 TryVersionedOreVein(ref rng, BlockId.GoldOre, cellOx, cellOz,
-                        5, 48, biome == Biome.Mountain ? 4 : 2, 2, 6, data, strideY, ox, oz, claimedOrePositions, rejectedOrePositions, oreColumnCache);
+                        5, 48, biome == Biome.Mountain ? 4 : 2, 2, 6,
+                        data, strideY, ox, oz, claimedOrePositions,
+                        rejectedOrePositions, oreColumnCache);
                 TryVersionedOreVein(ref rng, BlockId.DiamondOre, cellOx, cellOz,
-                        4, 24, 1, 2, 4, data, strideY, ox, oz, claimedOrePositions, rejectedOrePositions, oreColumnCache);
+                        4, 24, 1, 2, 4, data, strideY, ox, oz,
+                        claimedOrePositions, rejectedOrePositions, oreColumnCache);
             }
         }
     }
@@ -727,7 +732,8 @@ public partial class VoxelWorld
     {
         if (_genVersion >= WorldGenV12.Version)
         {
-            if (claimedOrePositions is null || rejectedOrePositions is null || oreColumnCache is null)
+            if (claimedOrePositions is null || rejectedOrePositions is null
+                    || oreColumnCache is null)
             {
                 throw new InvalidOperationException("V12 ore placement state was not initialized.");
             }
