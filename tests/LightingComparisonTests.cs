@@ -81,6 +81,7 @@ public static class LightingComparisonTests
 
         TestSpatialProbeGrid();
         TestProbeDriftMetrics();
+        TestPartialReferenceCoverage();
         TestHistoricalReferenceAnchors();
     }
 
@@ -181,6 +182,26 @@ public static class LightingComparisonTests
         }
         TestAssert.Check(invalidToleranceRejected,
                 "non-finite comparison tolerances are rejected");
+    }
+
+    private static void TestPartialReferenceCoverage()
+    {
+        List<LightingProbeComparison.Sample> captured = new(27);
+        foreach (Vector3I offset in LightingProbeComparison.GridOffsets)
+        {
+            captured.Add(new LightingProbeComparison.Sample(
+                    LightingProbeComparison.IdForOffset(offset),
+                    offset.X, offset.Y, offset.Z, 8, 4, "Air"));
+        }
+
+        LightingProbeComparison.Drift drift = LightingProbeComparison.Compare(
+                captured, [new LightingProbeComparison.ReferenceSample("center", 8, 4)]);
+        TestAssert.Equal(1, drift.ComparedSamples,
+                "a centre-only historical baseline compares exactly one spatial sample");
+        TestAssert.Equal(26, drift.UnreferencedSamples,
+                "the other 26 spatial samples remain explicitly unreferenced");
+        TestAssert.Check(Math.Abs(drift.ReferenceCoverage - (1.0 / 27.0)) < 0.000001,
+                "reference coverage is measured against all captured spatial probes");
     }
 
     private static void TestHistoricalReferenceAnchors()
