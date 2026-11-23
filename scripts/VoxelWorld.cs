@@ -1637,7 +1637,7 @@ public partial class VoxelWorld : Node3D
         {
             if (_skyLightCache.TryGetValue(cp, out byte[]? cached)) return cached;
         }
-        byte[] built = VoxelLighting.BuildSkyLight(ChunkData(cp), ChunkX, Height, ChunkZ);
+        byte[] built = VoxelLighting.BuildSkyLight(ChunkData(cp), ChunkX, Height, ChunkZ, ChunkBlockStates(cp));
         lock (_mutex)
         {
             if (_skyLightCache.TryGetValue(cp, out byte[]? existing)) return existing;
@@ -1694,11 +1694,24 @@ public partial class VoxelWorld : Node3D
             int originZ = center.Y * ChunkZ - halo - ChunkZ;
 
             byte[][] chunks = new byte[25][];
+            byte[][]? stateChunks = null;
+            bool hasNonDefaultStates = false;
             for (int dz = -2; dz <= 2; dz++)
             for (int dx = -2; dx <= 2; dx++)
-                chunks[(dz + 2) * 5 + dx + 2] = ChunkData(center + new Vector2I(dx, dz));
+            {
+                int slot = (dz + 2) * 5 + dx + 2;
+                Vector2I cp = center + new Vector2I(dx, dz);
+                chunks[slot] = ChunkData(cp);
+                byte[] states = ChunkBlockStates(cp);
+                if (states.Length > 0)
+                {
+                    (stateChunks ??= new byte[25][])[slot] = states;
+                    hasNonDefaultStates = true;
+                }
+            }
 
             byte[] region = new byte[width * Height * depth];
+            byte[]? regionStates = hasNonDefaultStates ? new byte[region.Length] : null;
             for (int z = 0; z < depth; z++)
             {
                 int wz = originZ + z;
@@ -1709,15 +1722,23 @@ public partial class VoxelWorld : Node3D
                     int wx = originX + x;
                     int cx = Mathf.FloorToInt(wx / (float)ChunkX);
                     int lx = wx - cx * ChunkX;
-                    byte[] source = chunks[(cz - center.Y + 2) * 5 + cx - center.X + 2];
+                    int slot = (cz - center.Y + 2) * 5 + cx - center.X + 2;
+                    byte[] source = chunks[slot];
+                    byte[]? sourceStates = stateChunks?[slot];
                     int srcColumn = lx + lz * ChunkX;
                     int dstColumn = x + z * width;
                     for (int y = 0; y < Height; y++)
-                        region[dstColumn + y * width * depth] = source[srcColumn + y * ChunkX * ChunkZ];
+                    {
+                        int sourceIndex = srcColumn + y * ChunkX * ChunkZ;
+                        int destinationIndex = dstColumn + y * width * depth;
+                        region[destinationIndex] = source[sourceIndex];
+                        if (regionStates != null && sourceStates != null)
+                            regionStates[destinationIndex] = sourceStates[sourceIndex];
+                    }
                 }
             }
 
-            byte[] sky = VoxelLighting.BuildSkyLight(region, width, Height, depth);
+            byte[] sky = VoxelLighting.BuildSkyLight(region, width, Height, depth, regionStates);
             int plane = width * depth;
             List<VoxelLightSource> sources = NearbyLightSources(
                     originX, originX + width - 1, originZ, originZ + depth - 1);
@@ -1730,7 +1751,7 @@ public partial class VoxelWorld : Node3D
                         source.Level);
             }
 
-            byte[] block = VoxelLighting.PropagateBlockLight(region, width, Height, depth, sources);
+            byte[] block = VoxelLighting.PropagateBlockLight(region, width, Height, depth, sources, regionStates);
 
             for (int dz = -1; dz <= 1; dz++)
             for (int dx = -1; dx <= 1; dx++)
@@ -1855,6 +1876,8 @@ public partial class VoxelWorld : Node3D
         int volume = plane * Height;
         VoxelLightData[] maps = new VoxelLightData[9];
         byte[][] chunks = new byte[9][];
+        byte[][]? stateChunks = null;
+        bool hasNonDefaultStates = false;
 
         for (int dz = -1; dz <= 1; dz++)
         for (int dx = -1; dx <= 1; dx++)
@@ -1866,10 +1889,17 @@ public partial class VoxelWorld : Node3D
                 return false;
             maps[slot] = map;
             chunks[slot] = blocks;
+            byte[] states = ChunkBlockStates(cp);
+            if (states.Length > 0)
+            {
+                (stateChunks ??= new byte[9][])[slot] = states;
+                hasNonDefaultStates = true;
+            }
         }
 
         byte[] regionBlocks = ArrayPool<byte>.Shared.Rent(volume);
         byte[] regionLight = ArrayPool<byte>.Shared.Rent(volume);
+        byte[]? regionStates = hasNonDefaultStates ? new byte[volume] : null;
         try
         {
             for (int dz = -1; dz <= 1; dz++)
@@ -1887,6 +1917,8 @@ public partial class VoxelWorld : Node3D
                             + zLocal * width
                             + (dx + 1) * ChunkX;
                     Array.Copy(chunkBlocks, source, regionBlocks, target, ChunkX);
+                    if (regionStates != null && stateChunks?[slot] is { Length: > 0 } chunkStates)
+                        Array.Copy(chunkStates, source, regionStates, target, ChunkX);
                     for (int xLocal = 0; xLocal < ChunkX; xLocal++)
                         regionLight[target + xLocal] = (byte)(packed[source + xLocal] & 0x0F);
                 }
@@ -1896,7 +1928,7 @@ public partial class VoxelWorld : Node3D
             int localZ = worldZ - (center.Y - 1) * ChunkZ;
             int changedIndex = localX + localZ * width + y * plane;
             VoxelLighting.ApplyIncrementalBlockLight(
-                    regionBlocks, width, Height, depth, regionLight, changedIndex, emission);
+                    regionBlocks, width, Height, depth, regionLight, changedIndex, emission, regionStates);
 
             for (int dz = -1; dz <= 1; dz++)
             for (int dx = -1; dx <= 1; dx++)
@@ -2048,6 +2080,7 @@ public partial class VoxelWorld : Node3D
             // Chunk.Blocks is also read by worker meshing. Mutate it while
             // holding the snapshot lock so payload data and EditEpoch agree.
             byte oldBlock = c.Blocks[i];
+            byte oldState = c.BlockStates.Length > 0 ? c.BlockStates[i] : (byte)0;
             if (!c.SetBlockLocal(lx, y, lz, id, state))
             {
                 return false;
@@ -2083,10 +2116,11 @@ public partial class VoxelWorld : Node3D
                 _blockStateCache[cp] = c.BlockStates;
                 UpdateEditTop(cp, lx, lz, c.Blocks);
 
-                byte oldOpacity = oldBlock < BlockDb.LightOpacity.Length
-                        ? BlockDb.LightOpacity[oldBlock] : (byte)VoxelLighting.MaxLevel;
-                byte newOpacity = BlockDb.IsDefined(id)
-                        ? BlockDb.LightOpacity[(int)id] : (byte)VoxelLighting.MaxLevel;
+                BlockId oldId = (BlockId)oldBlock;
+                byte oldOpacity = VoxelLighting.EffectiveOpacity(oldId, oldState);
+                byte newOpacity = VoxelLighting.EffectiveOpacity(id, state);
+                uint oldLightFaces = VoxelLighting.LightPassageMask(oldId, oldState);
+                uint newLightFaces = VoxelLighting.LightPassageMask(id, state);
                 bool oldCampfireEmitter = isCampfireCell && oldBlock == (byte)BlockId.Log;
                 bool newCampfireEmitter = isCampfireCell && id == BlockId.Log;
                 byte oldEmission = oldBlock < BlockDb.LightEmission.Length
@@ -2102,7 +2136,7 @@ public partial class VoxelWorld : Node3D
                         ? new Vector3I(x, y + (oldCampfireEmitter ? 1 : 0), z)
                         : new Vector3I(x, y + (newCampfireEmitter ? 1 : 0), z);
 
-                if (oldOpacity != newOpacity)
+                if (oldOpacity != newOpacity || oldLightFaces != newLightFaces)
                 {
                     // Opacity changes affect direct sun and cave spill. Drop
                     // the packed maps so the next snapshot rebuilds skylight
