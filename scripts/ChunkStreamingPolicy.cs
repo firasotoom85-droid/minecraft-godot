@@ -13,6 +13,7 @@ internal sealed class ChunkWorkTracker
 {
     private readonly HashSet<Vector2I> _inFlight = [];
     private readonly HashSet<Vector2I> _rebuildAfterFlight = [];
+    private readonly Dictionary<Vector2I, int> _failureAttempts = [];
 
     public bool TryBegin(Vector2I cp) => _inFlight.Add(cp);
 
@@ -27,16 +28,53 @@ internal sealed class ChunkWorkTracker
         }
     }
 
-    /// <returns>True when a single follow-up rebuild was requested during the work.</returns>
-    public bool Complete(Vector2I cp)
+    /// <summary>
+    /// Records a bounded retry only while the world and coordinate are still
+    /// active. A departed coordinate never leaves an unreachable retry entry.
+    /// </summary>
+    public bool TryRecordFailure(
+            Vector2I cp, bool alive, bool withinRetention, int maximumAttempts, out int attempts)
+    {
+        attempts = 0;
+        if (!alive || !withinRetention)
+        {
+            _failureAttempts.Remove(cp);
+            return false;
+        }
+
+        attempts = _failureAttempts.TryGetValue(cp, out int previous) ? previous + 1 : 1;
+        if (!ChunkStreamingPolicy.ShouldRetry(attempts, maximumAttempts))
+        {
+            _failureAttempts.Remove(cp);
+            return false;
+        }
+
+        _failureAttempts[cp] = attempts;
+        return true;
+    }
+
+    public void ForgetFailure(Vector2I cp) => _failureAttempts.Remove(cp);
+
+    /// <returns>True when one follow-up rebuild was requested during the work.</returns>
+    public bool Complete(Vector2I cp, bool withinRetention = true)
     {
         _inFlight.Remove(cp);
+        if (!withinRetention)
+        {
+            _failureAttempts.Remove(cp);
+        }
+
         return _rebuildAfterFlight.Remove(cp);
     }
 
     public void ForgetFollowUp(Vector2I cp) => _rebuildAfterFlight.Remove(cp);
 
+    /// <summary>A rebuild request always upgrades a fresh retry to rebuild work.</summary>
+    public static bool ShouldQueueAsRebuild(bool currentRebuild, bool rebuildRequested) =>
+            currentRebuild || rebuildRequested;
+
     public int InFlightCount => _inFlight.Count;
+    public int FailureCount => _failureAttempts.Count;
 }
 
 
@@ -164,5 +202,84 @@ internal static class ChunkStreamingPolicy
 
     /// <summary>Maximum total attempts, including the initial build.</summary>
     public static bool ShouldRetry(int failedAttempts, int maximumAttempts) =>
-            failedAttempts > 0 && failedAttempts < maximumAttempts;
+            maximumAttempts > 0 && failedAttempts > 0 && failedAttempts < maximumAttempts;
+}
+
+/// <summary>Result of one actual chunk worker build/publish attempt.</summary>
+internal readonly record struct ChunkWorkerExecutionResult(
+        bool Published, bool RetryRequested, bool Cancelled);
+
+/// <summary>
+/// Shared worker execution path used by VoxelWorld.WorkerLoop and deterministic
+/// regression tests. Capacity and payload ownership are balanced on every exit.
+/// </summary>
+internal static class ChunkWorkerLifecycle
+{
+    public static ChunkWorkerExecutionResult Execute<TPayload>(
+            Func<bool> canContinue,
+            Action reservePayloadSlot,
+            Func<TPayload> build,
+            Func<TPayload, bool> publish,
+            Action<TPayload> discardPayload,
+            Action releasePayloadSlot,
+            Func<Exception, bool> requestRetry,
+            Action<Exception, bool> reportFailure)
+            where TPayload : class
+    {
+        bool reserved = false;
+        bool published = false;
+        bool cancelled = false;
+        bool retryRequested = false;
+        TPayload? payload = null;
+
+        try
+        {
+            if (!canContinue())
+            {
+                return new ChunkWorkerExecutionResult(false, false, false);
+            }
+
+            reservePayloadSlot();
+            reserved = true;
+            if (!canContinue())
+            {
+                return new ChunkWorkerExecutionResult(false, false, false);
+            }
+
+            payload = build();
+            if (!canContinue())
+            {
+                return new ChunkWorkerExecutionResult(false, false, false);
+            }
+
+            if (publish(payload))
+            {
+                published = true;
+                payload = null;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            cancelled = true;
+        }
+        catch (Exception error)
+        {
+            retryRequested = requestRetry(error);
+            reportFailure(error, retryRequested);
+        }
+        finally
+        {
+            if (payload != null)
+            {
+                discardPayload(payload);
+            }
+
+            if (reserved && !published)
+            {
+                releasePayloadSlot();
+            }
+        }
+
+        return new ChunkWorkerExecutionResult(published, retryRequested, cancelled);
+    }
 }
