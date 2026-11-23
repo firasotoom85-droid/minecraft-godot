@@ -702,6 +702,12 @@ vec3 warm_block_illumination(float response) {
 vec3 warm_block_emission(float response) {
     return warm_block_light_color * response * 0.025;
 }
+
+uniform vec3 cave_bounce_light_color = vec3(0.62, 0.75, 0.96);
+
+vec3 cave_bounce_illumination(float bounce) {
+    return cave_bounce_light_color * bounce * 0.22;
+}
 ";
 
     private const string LitAtlasShader = @"
@@ -767,22 +773,26 @@ void vertex() {
 " + WarmBlockLightingShader + @"
 void fragment() {
     vec4 tex = texture(atlas, UV);
-    if (COLOR.a < 0.5) {
+    if (mod(floor(COLOR.a + 0.001), 8.0) < 0.5) {
         ivec3 cell = ivec3(floor(surface_world_position - surface_world_normal * 0.01));
         float tone = float(surface_cell_hash(cell) & 65535u) / 65535.0 * 2.0 - 1.0;
         tex.rgb *= 1.0 + tone * 0.035;
     }
-    float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+    float direct_sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+    float bounce = clamp(fract(COLOR.a) * 16.0 * sky_light_energy, 0.0, 1.0);
+    float sky = clamp(direct_sky + bounce, 0.0, 1.0);
     float block = clamp(COLOR.g, 0.0, 1.0);
     float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
-    vec3 illumination = vec3(0.035) + directional_sky_light(surface_world_normal, sky, COLOR.r)
+    vec3 illumination = vec3(0.035)
+            + directional_sky_light(surface_world_normal, direct_sky, COLOR.r)
+            + cave_bounce_illumination(bounce)
             + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
     EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
-    float encoded_family = floor(COLOR.a + 0.5);
+    float encoded_family = floor(COLOR.a + 0.001);
     float wet = step(7.5, encoded_family);
     float family = mod(encoded_family, 8.0);
     vec3 response = surface_response(family);
@@ -845,16 +855,20 @@ void vertex() {
 " + WarmBlockLightingShader + @"
 void fragment() {
     vec4 tex = texture(atlas, UV);
-    float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+    float direct_sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+    float bounce = clamp(fract(COLOR.a) * 16.0 * sky_light_energy, 0.0, 1.0);
+    float sky = clamp(direct_sky + bounce, 0.0, 1.0);
     float block = clamp(COLOR.g, 0.0, 1.0);
     float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
-    vec3 illumination = vec3(0.05) + directional_sky_light(surface_world_normal, sky, COLOR.r)
+    vec3 illumination = vec3(0.05)
+            + directional_sky_light(surface_world_normal, direct_sky, COLOR.r)
+            + cave_bounce_illumination(bounce)
             + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade;
     EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a * 0.58;
-    vec3 response = surface_response(COLOR.a);
+    vec3 response = surface_response(floor(COLOR.a + 0.001));
     ROUGHNESS = response.x;
     METALLIC = response.y;
     SPECULAR = response.z;
@@ -1072,11 +1086,16 @@ void vertex() {
 
 void fragment() {
     vec4 tex = texture(atlas, UV);
-    float sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+    float direct_sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
+    float bounce = clamp(fract(COLOR.a) * 16.0 * sky_light_energy, 0.0, 1.0);
+    float sky = clamp(direct_sky + bounce, 0.0, 1.0);
     float block = clamp(COLOR.g, 0.0, 1.0);
     float shade = COLOR.b;
     vec3 warm = vec3(1.0, 0.48, 0.12);
-    vec3 illumination = vec3(0.03) + directional_sky_light(surface_world_normal, sky, COLOR.r) + warm * block * 0.35;
+    vec3 illumination = vec3(0.03)
+            + directional_sky_light(surface_world_normal, direct_sky, COLOR.r)
+            + vec3(0.62, 0.75, 0.96) * bounce * 0.22
+            + warm * block * 0.35;
     float lava_emission = clamp(block / max(lava_source_level, 0.0666667), 0.0, 1.0);
     ALBEDO = tex.rgb * illumination * shade;
     // Preserve the distinct lava core, but derive its strength exclusively
