@@ -724,15 +724,20 @@ uniform float sunlight_energy = 1.0;
 uniform vec3 moon_direction = vec3(0.0, -1.0, 0.0);
 uniform vec3 moon_color = vec3(0.62, 0.74, 1.0);
 uniform float moonlight_energy = 0.0;
+uniform vec2 pale_surface_luminance_range = vec2(0.36, 0.72);
+uniform float pale_surface_contrast_strength = 0.18;
 
-vec3 directional_sky_light(vec3 world_normal, float sky, float sky_exposure) {
+vec3 directional_sky_light(vec3 world_normal, float sky, float sky_exposure,
+        float pale_surface) {
 #ifdef MINECRAFT_LOW_QUALITY
     float sun_facing = world_normal.x;
 #else
     float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
 #endif
     float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
-    float directional_gain = 0.88 + direct_sun * 0.12;
+    float directional_gain = 0.88 + direct_sun * 0.12
+            - pale_surface * pale_surface_contrast_strength
+            * clamp(sunlight_energy, 0.0, 1.0) * (1.0 - direct_sun);
 #ifdef MINECRAFT_LOW_QUALITY
     float moon_facing = world_normal.y;
 #else
@@ -801,6 +806,16 @@ void fragment() {
         tex.rgb *= 1.0 + tone * 0.035;
     }
 #endif
+    float encoded_family = floor(COLOR.a + 0.001);
+    float wet = step(7.5, encoded_family);
+    float family = mod(encoded_family, 8.0);
+    vec3 wet_tint = mix(vec3(1.0), vec3(0.80, 0.86, 0.88), wet);
+    vec3 contrast_albedo = tex.rgb * tint.rgb * wet_tint;
+    float pale_family = (1.0 - step(0.5, family))
+            + step(1.5, family) * (1.0 - step(2.5, family));
+    float pale_luminance = dot(contrast_albedo, vec3(0.2126, 0.7152, 0.0722));
+    float pale_surface = pale_family * smoothstep(
+            pale_surface_luminance_range.x, pale_surface_luminance_range.y, pale_luminance);
     float direct_sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
     float bounce = clamp(fract(COLOR.a) * 16.0 * sky_light_energy, 0.0, 1.0);
     float sky = clamp(direct_sky + bounce, 0.0, 1.0);
@@ -813,18 +828,15 @@ void fragment() {
     vec3 directional_response = surface_world_normal;
 #endif
     vec3 illumination = vec3(0.035)
-            + directional_sky_light(directional_response, direct_sky, COLOR.r)
+            + directional_sky_light(directional_response, direct_sky, COLOR.r, pale_surface)
             + cave_bounce_illumination(bounce)
             + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
     EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
-    float encoded_family = floor(COLOR.a + 0.001);
-    float wet = step(7.5, encoded_family);
-    float family = mod(encoded_family, 8.0);
     vec3 response = surface_response(family);
-    ALBEDO *= mix(vec3(1.0), vec3(0.80, 0.86, 0.88), wet);
+    ALBEDO *= wet_tint;
     ROUGHNESS = mix(response.x, 0.64, wet * 0.70);
     METALLIC = response.y;
     SPECULAR = mix(response.z, 0.34, wet * 0.70);
@@ -962,6 +974,7 @@ void fragment() {
         material.SetShaderParameter("sky_light_energy", 1.0f);
         material.SetShaderParameter("tint", Colors.White);
         MaterialResponse.ApplyTo(material);
+        MaterialResponse.ApplyPaleSurfaceContrast(material, MaterialResponse.PaleSurfaceDirectionalContrast);
         return material;
     }
 
@@ -996,15 +1009,20 @@ uniform float sunlight_energy = 1.0;
 uniform vec3 moon_direction = vec3(0.0, -1.0, 0.0);
 uniform vec3 moon_color = vec3(0.62, 0.74, 1.0);
 uniform float moonlight_energy = 0.0;
+uniform vec2 pale_surface_luminance_range = vec2(0.36, 0.72);
+uniform float pale_surface_contrast_strength = 0.18;
 
-vec3 directional_sky_light(vec3 world_normal, float sky, float sky_exposure) {
+vec3 directional_sky_light(vec3 world_normal, float sky, float sky_exposure,
+        float pale_surface) {
 #ifdef MINECRAFT_LOW_QUALITY
     float sun_facing = world_normal.x;
 #else
     float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
 #endif
     float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
-    float directional_gain = 0.88 + direct_sun * 0.12;
+    float directional_gain = 0.88 + direct_sun * 0.12
+            - pale_surface * pale_surface_contrast_strength
+            * clamp(sunlight_energy, 0.0, 1.0) * (1.0 - direct_sun);
 #ifdef MINECRAFT_LOW_QUALITY
     float moon_facing = world_normal.y;
 #else
@@ -1077,6 +1095,16 @@ void fragment() {
         tex.rgb *= 1.0 + tone * 0.035;
     }
 #endif
+    float encoded_family = floor(COLOR.a + 0.001);
+    float wet = step(7.5, encoded_family);
+    float family = mod(encoded_family, 8.0);
+    vec3 wet_tint = mix(vec3(1.0), vec3(0.80, 0.86, 0.88), wet);
+    vec3 contrast_albedo = tex.rgb * tint.rgb * wet_tint;
+    float pale_family = (1.0 - step(0.5, family))
+            + step(1.5, family) * (1.0 - step(2.5, family));
+    float pale_luminance = dot(contrast_albedo, vec3(0.2126, 0.7152, 0.0722));
+    float pale_surface = pale_family * smoothstep(
+            pale_surface_luminance_range.x, pale_surface_luminance_range.y, pale_luminance);
     float direct_sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
     float bounce = clamp(fract(COLOR.a) * 16.0 * sky_light_energy, 0.0, 1.0);
     float sky = clamp(direct_sky + bounce, 0.0, 1.0);
@@ -1089,18 +1117,15 @@ void fragment() {
     vec3 directional_response = surface_world_normal;
 #endif
     vec3 illumination = vec3(0.035)
-            + directional_sky_light(directional_response, direct_sky, COLOR.r)
+            + directional_sky_light(directional_response, direct_sky, COLOR.r, pale_surface)
             + cave_bounce_illumination(bounce)
             + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
     EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
-    float encoded_family = floor(COLOR.a + 0.001);
-    float wet = step(7.5, encoded_family);
-    float family = mod(encoded_family, 8.0);
     vec3 response = surface_response(family);
-    ALBEDO *= mix(vec3(1.0), vec3(0.80, 0.86, 0.88), wet);
+    ALBEDO *= wet_tint;
     ROUGHNESS = mix(response.x, 0.64, wet * 0.70);
     METALLIC = response.y;
     SPECULAR = mix(response.z, 0.34, wet * 0.70);
@@ -1126,6 +1151,7 @@ void fragment() {
         };
         m.SetShaderParameter("tiles", TileArrayTexture());
         MaterialResponse.ApplyTo(m);
+        MaterialResponse.ApplyPaleSurfaceContrast(m, MaterialResponse.PaleSurfaceDirectionalContrast);
         return m;
     }
 

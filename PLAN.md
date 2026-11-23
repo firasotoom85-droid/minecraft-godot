@@ -709,3 +709,41 @@ this shader-only change.
 - No block/item IDs, save fields, generator rules, shader channels, light solver,
   mesher, streaming or renderer preset settings changed. No scene nodes, light
   emitters, per-frame scans, physics work or new gameplay allocations added.
+
+
+## 14. Pale-surface directional contrast — 2026-11-23
+
+- Audit result: baked voxel-light channels, directional sky, warm block light,
+  shared material families, LOW/BALANCED render budgets and deterministic
+  multi-scene lighting captures were already present. The remaining readability
+  gap was bright Stone/Soil albedo: all faces used the same narrow directional
+  sky-gain range, so snow, sand and pale stone read too uniformly when turned
+  away from the sun.
+- The opaque atlas and greedy-array shaders now derive a soft weight from
+  sampled albedo luminance, gated to the existing Stone and Soil families. The
+  weight modestly reduces indirect sky gain on sun-turned-away faces, while
+  full sun-facing gain remains unchanged. Dark soil, wood, foliage, ore, glass,
+  water and lava do not opt into this response.
+- The C# MaterialResponse evaluator owns the thresholds and default strength;
+  both opaque shader materials receive the same uniforms. The shared
+  ChunkMaterials owner exposes a temporary zero-strength baseline for the
+  comparison runner and restores the previous value after capture.
+- Added a sixth deterministic real-main-scene fixture. It builds snow, sand and
+  stone swatches at fixed relative positions over cobblestone, all through
+  VoxelWorld.SetBlock, then supports paired baseline/contrast captures at the
+  same seed, noon, clear weather, camera, resolution and LOW preset.
+- Compatibility: no packed sky/block value, VoxelLightData, AO channel,
+  BlockId/ItemId, save schema, V1–V11 generator output, environment,
+  transparent shader, emitter registry, greedy merge key, chunk-streaming
+  behavior or mutation ownership changed.
+- Performance boundary: no additional nodes, lights, vertex attributes,
+  texture lookups beyond the existing albedo sample, physics work or per-frame
+  CPU scans. Opaque fragments add one luminance dot/smoothstep and one bounded
+  gain adjustment; LOW/BALANCED continue to avoid screen-space/volumetric
+  post-effects.
+- Focused tests cover bright/dark family gating, sun-facing and indirect gain,
+  no-sun/night neutrality, unchanged dry/wet tags, unchanged sky/block/AO
+  vertex channels, shader/material uniform parity, and baseline override.
+- Runtime verification status: build, full test runner and paired GPU captures
+  are pending execution on Godot 4.7.2 .NET. The capture commands are committed
+  in README; no screenshot or FPS result is claimed before those runs.

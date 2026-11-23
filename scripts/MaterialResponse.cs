@@ -23,6 +23,13 @@ public readonly record struct SurfaceResponse(
 
 public static class MaterialResponse
 {
+    // Presentation-only response for high-albedo stone/soil pixels. These
+    // constants shape directional sky contribution without changing packed
+    // voxel light or any vertex colour channel.
+    public const float PaleSurfaceLuminanceMin = 0.36f;
+    public const float PaleSurfaceLuminanceMax = 0.72f;
+    public const float PaleSurfaceDirectionalContrast = 0.18f;
+
     private static readonly SurfaceResponse[] Responses =
     [
         new(0.88f, 0.02f, 0.22f), // stone: dry, subdued
@@ -47,6 +54,37 @@ public static class MaterialResponse
 
     public static Color WetTint(Color color) =>
             new(color.R * 0.80f, color.G * 0.86f, color.B * 0.88f, color.A);
+
+    /// <summary>Soft albedo mask for bright Stone and Soil pixels.</summary>
+    public static float PaleSurfaceWeight(Color albedo, SurfaceFamily family)
+    {
+        if (family is not (SurfaceFamily.Stone or SurfaceFamily.Soil))
+            return 0.0f;
+        float luminance = albedo.R * 0.2126f + albedo.G * 0.7152f + albedo.B * 0.0722f;
+        float range = PaleSurfaceLuminanceMax - PaleSurfaceLuminanceMin;
+        float t = Mathf.Clamp((luminance - PaleSurfaceLuminanceMin) / range, 0.0f, 1.0f);
+        return t * t * (3.0f - 2.0f * t);
+    }
+
+    /// <summary>Reference directional gain shared by the opaque shader tests.</summary>
+    public static float DirectionalSkyGain(float directSun, float sunlightEnergy,
+            float paleSurfaceWeight, float contrastStrength = PaleSurfaceDirectionalContrast)
+    {
+        float direct = Mathf.Clamp(directSun, 0.0f, 1.0f);
+        float sun = Mathf.Clamp(sunlightEnergy, 0.0f, 1.0f);
+        float pale = Mathf.Clamp(paleSurfaceWeight, 0.0f, 1.0f);
+        float strength = Mathf.Clamp(contrastStrength, 0.0f, PaleSurfaceDirectionalContrast);
+        return 0.88f + direct * 0.12f - pale * strength * sun * (1.0f - direct);
+    }
+
+    /// <summary>Configure the pale-surface uniforms on an opaque material.</summary>
+    public static void ApplyPaleSurfaceContrast(ShaderMaterial material, float strength)
+    {
+        material.SetShaderParameter("pale_surface_luminance_range",
+                new Vector2(PaleSurfaceLuminanceMin, PaleSurfaceLuminanceMax));
+        material.SetShaderParameter("pale_surface_contrast_strength",
+                Mathf.Clamp(strength, 0.0f, PaleSurfaceDirectionalContrast));
+    }
 
     private static Vector3 ToVector3(SurfaceResponse response) =>
         new(response.Roughness, response.Metallic, response.Specular);

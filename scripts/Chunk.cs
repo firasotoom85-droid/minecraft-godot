@@ -194,6 +194,7 @@ public static class ChunkMaterials
     private static Color _moonColor = new(0.62f, 0.74f, 1.0f);
     private static float _moonlightEnergy;
     private static bool _lowQualityShaderVariantEnabled;
+    private static float _paleSurfaceContrastStrength = MaterialResponse.PaleSurfaceDirectionalContrast;
 
     private static readonly Lazy<ShaderMaterial> OpaqueLazy = new(CreateOpaqueMaterial);
     private static readonly Lazy<ShaderMaterial> OpaqueArrayLazy = new(CreateArrayOpaqueMaterial);
@@ -223,10 +224,16 @@ public static class ChunkMaterials
         return material;
     }
 
-    private static ShaderMaterial CreateOpaqueMaterial() => ApplyQualityVariant(ApplyLighting(BlockDb.MakeOpaqueMaterial()));
-    private static ShaderMaterial CreateArrayOpaqueMaterial() => ApplyQualityVariant(ApplyLighting(BlockDb.MakeArrayOpaqueMaterial()));
-    private static ShaderMaterial CreateGlassMaterial() => ApplyQualityVariant(ApplyLighting(BlockDb.MakeGlassMaterial()));
-    private static ShaderMaterial CreateLavaMaterial() => ApplyQualityVariant(ApplyLighting(BlockDb.MakeLavaMaterial()));
+    // Pale-surface contrast is a uniform-level response, so it composes with
+    // the LOW-quality shader variant instead of replacing it.
+    private static ShaderMaterial CreateOpaqueMaterial() => ApplyQualityVariant(
+            ApplyPaleSurfaceContrast(ApplyLighting(BlockDb.MakeOpaqueMaterial())));
+    private static ShaderMaterial CreateArrayOpaqueMaterial() => ApplyQualityVariant(
+            ApplyPaleSurfaceContrast(ApplyLighting(BlockDb.MakeArrayOpaqueMaterial())));
+    private static ShaderMaterial CreateGlassMaterial() =>
+            ApplyQualityVariant(ApplyLighting(BlockDb.MakeGlassMaterial()));
+    private static ShaderMaterial CreateLavaMaterial() =>
+            ApplyQualityVariant(ApplyLighting(BlockDb.MakeLavaMaterial()));
 
     private static Material CreateWaterMaterial()
     {
@@ -238,6 +245,18 @@ public static class ChunkMaterials
 
     /// <summary>Opaque terrain material for the active meshing mode.</summary>
     public static Material Opaque => Mesher.Greedy ? OpaqueArrayLazy.Value : OpaqueLazy.Value;
+
+    /// <summary>Current opaque contrast strength, used by deterministic visual captures.</summary>
+    public static float PaleSurfaceContrastStrength => _paleSurfaceContrastStrength;
+
+    /// <summary>Changes only opaque presentation; packed light and vertices are untouched.</summary>
+    public static void SetPaleSurfaceContrast(float strength)
+    {
+        _paleSurfaceContrastStrength = Mathf.Clamp(
+                strength, 0.0f, MaterialResponse.PaleSurfaceDirectionalContrast);
+        if (OpaqueLazy.IsValueCreated) ApplyPaleSurfaceContrast(OpaqueLazy.Value);
+        if (OpaqueArrayLazy.IsValueCreated) ApplyPaleSurfaceContrast(OpaqueArrayLazy.Value);
+    }
 
     public static ShaderMaterial Glass => GlassLazy.Value;
 

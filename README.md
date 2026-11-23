@@ -71,6 +71,41 @@ inventory, hotbar, cursor and first-person presentation. Block-backed items
 still return the original AtlasTexture; their rarity is shown by a compact
 marker drawn by the slot panel that already owns durability feedback.
 
+## Pale-surface directional contrast
+
+Bright snow, sand and pale stone now receive an albedo-aware directional sky
+response in the opaque atlas and greedy texture-array shaders. The effect
+softly weights only bright pixels belonging to the existing Stone and Soil
+material families, then deepens the indirect side of a face that turns away
+from the sun. Fully sun-facing pixels keep their previous gain; dark
+materials, wood, foliage, glass, water, lava and block-light emission are
+unchanged. Wet/dry material tags, packed sky/block nibbles, AO and all vertex
+channels remain unchanged.
+
+This is presentation-only shading: no block/item IDs, save fields, generator
+versions, environment settings, light nodes, mesh attributes, greedy merge keys
+or chunk-streaming rules are added. The extra work is a small luminance mask and
+one scalar adjustment per opaque fragment. LOW/BALANCED keep their existing
+screen-space and volumetric effects disabled.
+
+A fixed clear-noon scene uses the real main scene and production voxel meshes,
+with equal-size snow, sand and stone swatches over a dark cobblestone base. To
+capture a matched baseline and contrast image, run both commands with the same
+seed, renderer preset and output size; only the pale-response strength differs:
+
+```bash
+godot --path . res://tests/PaleSurfaceLighting.tscn -- 1337 \
+  docs/visual/screenshots/pale-surfaces-baseline.png LOW baseline
+
+godot --path . res://tests/PaleSurfaceLighting.tscn -- 1337 \
+  docs/visual/screenshots/pale-surfaces-contrast.png LOW contrast
+```
+
+The runner logs the sampled packed sky/block levels and verifies that no
+`OmniLight3D` emitters were created. Its disposable platform edits use
+`VoxelWorld.SetBlock`; the capture restores the shared material setting and
+removes its temporary world on exit.
+
 ## Transparency and cutout rendering
 
 Foliage and crossed plants use the opaque atlas/texture-array shader with a

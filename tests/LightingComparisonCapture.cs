@@ -31,6 +31,7 @@ public partial class LightingComparisonCapture : Node
         WorldManifest? previousManifest = GameSession.Instance.Manifest;
         bool previousAutoQuality = Settings.AutoQuality;
         int previousMaxFps = Engine.MaxFps;
+        float previousPaleSurfaceContrast = ChunkMaterials.PaleSurfaceContrastStrength;
         Node3D? game = null;
         try
         {
@@ -43,6 +44,15 @@ public partial class LightingComparisonCapture : Node
             string output = args.Length > 1
                     ? args[1]
                     : $"user://tests/lighting-comparisons/{Scenario}-seed-{seed}.png";
+
+            string contrastMode = args.Length > 3
+                    ? args[3].Trim().ToLowerInvariant() : "contrast";
+            if (contrastMode is not ("baseline" or "contrast"))
+                throw new ArgumentException(
+                        $"Unknown pale-surface capture mode '{contrastMode}'; use baseline or contrast.");
+            float captureContrast = contrastMode == "baseline"
+                    ? 0.0f : MaterialResponse.PaleSurfaceDirectionalContrast;
+            ChunkMaterials.SetPaleSurfaceContrast(captureContrast);
 
             DisplayServer.WindowSetSize(new Vector2I(
                     LightingComparisonProfiles.CaptureWidth,
@@ -123,6 +133,7 @@ public partial class LightingComparisonCapture : Node
             Gfx.Preset preset = Gfx.Presets[presetIndex];
             GD.Print($"LIGHTING_COMPARISON_START scenario={Scenario} seed={seed} gen={world.WorldGenVersion} " +
                     $"preset={preset.Name} time={profile.TimeOfDay:F3} weather=Clear " +
+                    $"pale_mode={contrastMode} pale_contrast={captureContrast:F2} " +
                     $"view={world.ViewDistance} render_scale={preset.Scale:F2} location={fixture.LocationDescription}");
 
             for (int frame = 0; frame < LightingComparisonProfiles.WarmupFrames; frame++)
@@ -147,6 +158,7 @@ public partial class LightingComparisonCapture : Node
                     $"sky={probe.Sky} direct_sky={probe.DirectSky} cave_bounce={probe.SkyBounce} " +
                     $"block_light={probe.Block} nearby_emitters={sources} omni_lights={omniLights}");
             GD.Print($"LIGHTING_COMPARISON_RENDER scenario={Scenario} size={image.GetWidth()}x{image.GetHeight()} " +
+                    $"pale_mode={contrastMode} pale_contrast={captureContrast:F2} " +
                     $"ssao={preset.Ssao} ssr={preset.Ssr} glow={preset.Glow} volumetric_fog={preset.VolFog} " +
                     $"shadows={preset.ShadowSize} path={absoluteOutput} success={saveResult == Error.Ok}");
             if (saveResult != Error.Ok)
@@ -171,6 +183,7 @@ public partial class LightingComparisonCapture : Node
             GameSession.Instance.Manifest = previousManifest;
             Settings.AutoQuality = previousAutoQuality;
             Engine.MaxFps = previousMaxFps;
+            ChunkMaterials.SetPaleSurfaceContrast(previousPaleSurfaceContrast);
             if (!string.IsNullOrEmpty(worldDir))
             {
                 string absoluteWorldDir = ProjectSettings.GlobalizePath(worldDir);
@@ -198,6 +211,7 @@ public partial class LightingComparisonCapture : Node
             "river-valley" => BuildRiverFixture(profile, world),
             "village-street" => BuildVillageFixture(profile, world),
             "dungeon-arena" => BuildDungeonFixture(profile, world),
+            "pale-surfaces" => BuildPaleSurfaceFixture(world),
             _ => throw new ArgumentOutOfRangeException(nameof(profile.Id), profile.Id,
                     "No fixture builder exists for this comparison profile."),
         };
@@ -391,6 +405,47 @@ public partial class LightingComparisonCapture : Node
                 ?? throw new InvalidOperationException("The selected village has no generated torch for its light probe.");
         return new Fixture(player, target, probe,
                 $"theme={site.Theme} centre=({site.X},{site.Y},{site.Z}) torch=({probe.X},{probe.Y},{probe.Z})");
+    }
+
+    private static Fixture BuildPaleSurfaceFixture(VoxelWorld world)
+    {
+        Vector3 spawn = world.FindSpawn();
+        int centerX = Mathf.RoundToInt(spawn.X);
+        int centerZ = Mathf.RoundToInt(spawn.Z);
+        int floorY = Math.Max(world.SeaLevel + 5, world.SurfaceHeight(centerX, centerZ) + 3);
+
+        for (int dz = -1; dz <= 1; dz++)
+        for (int dx = -6; dx <= 6; dx++)
+            floorY = Math.Max(floorY,
+                    world.SurfaceHeight(centerX + dx, centerZ + dz) + 2);
+
+        if (floorY >= world.Height - 5)
+            throw new InvalidOperationException("Pale-material fixture has no safe build height.");
+
+        // A dark cobblestone base separates the sample swatches. All fixture
+        // mutations use the production SetBlock ownership path.
+        for (int dz = -1; dz <= 1; dz++)
+        for (int dx = -6; dx <= 6; dx++)
+        {
+            int x = centerX + dx;
+            int z = centerZ + dz;
+            WriteBlock(world, x, floorY - 1, z, BlockId.Cobblestone);
+            for (int y = floorY; y <= floorY + 2; y++)
+                WriteBlock(world, x, y, z, BlockId.Air);
+
+            BlockId sample = dx <= -4 ? BlockId.Snow
+                    : dx >= 4 ? BlockId.Stone
+                    : dx is >= -1 and <= 1 ? BlockId.Sand
+                    : BlockId.Air;
+            if (sample != BlockId.Air)
+                WriteBlock(world, x, floorY, z, sample);
+        }
+
+        Vector3 player = new(centerX + 0.5f, floorY + 1.0f, centerZ + 0.5f);
+        Vector3 target = new(centerX + 0.5f, floorY + 0.35f, centerZ + 0.5f);
+        Vector3I probe = new(centerX, floorY, centerZ);
+        return new Fixture(player, target, probe,
+                $"snow=({centerX - 5},{floorY},{centerZ}) sand=({centerX},{floorY},{centerZ}) pale_stone=({centerX + 5},{floorY},{centerZ})");
     }
 
     private static Fixture BuildDungeonFixture(

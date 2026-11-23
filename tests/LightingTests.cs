@@ -14,6 +14,7 @@ public static class LightingTests
         TestSkyLightInterpolation();
         TestHostileSilhouetteResponse();
         TestWarmEmitterResponse();
+        TestPaleSurfaceContrast();
         TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Torch] >= 13, "torch has a strong nibble emission");
         TestAssert.Check(BlockDb.LightEmission[(int)BlockId.Lava] > 0
                 && BlockDb.LightEmission[(int)BlockId.Lava] < BlockDb.LightEmission[(int)BlockId.Torch],
@@ -180,6 +181,91 @@ public static class LightingTests
                         StringComparison.Ordinal)
                 && shader.Contains("bounce * 0.22", StringComparison.Ordinal),
                 $"{label} reads a separate bounded cool cave-bounce channel");
+    }
+
+    private static void TestPaleSurfaceContrast()
+    {
+        TestAssert.Equal(1.0f, MaterialResponse.PaleSurfaceWeight(Colors.White, SurfaceFamily.Soil),
+                "snow-white soil receives full pale-surface response");
+        TestAssert.Equal(1.0f, MaterialResponse.PaleSurfaceWeight(
+                        new Color(0.86f, 0.81f, 0.61f), SurfaceFamily.Soil),
+                "bright sand receives full pale-surface response");
+        float paleStone = MaterialResponse.PaleSurfaceWeight(
+                new Color(0.60f, 0.60f, 0.60f), SurfaceFamily.Stone);
+        TestAssert.Check(paleStone > 0.5f && paleStone < 1.0f,
+                "mid-value stone receives a soft partial response");
+        TestAssert.Equal(0.0f, MaterialResponse.PaleSurfaceWeight(
+                        new Color(0.24f, 0.26f, 0.28f), SurfaceFamily.Stone),
+                "dark stone does not receive pale-surface contrast");
+        TestAssert.Equal(0.0f, MaterialResponse.PaleSurfaceWeight(Colors.White, SurfaceFamily.Wood),
+                "bright wood keeps its original directional response");
+        TestAssert.Equal(0.0f, MaterialResponse.PaleSurfaceWeight(Colors.White, SurfaceFamily.Foliage),
+                "bright foliage keeps its original directional response");
+
+        TestAssert.Equal(0.70f, MaterialResponse.DirectionalSkyGain(0.0f, 1.0f, 1.0f),
+                "turned-away pale surfaces receive stronger daylight shading");
+        TestAssert.Equal(1.0f, MaterialResponse.DirectionalSkyGain(1.0f, 1.0f, 1.0f),
+                "fully sun-facing pale surfaces keep their previous gain");
+        TestAssert.Equal(0.88f, MaterialResponse.DirectionalSkyGain(0.0f, 0.0f, 1.0f),
+                "zero-sun conditions retain existing sky fill");
+        TestAssert.Equal(0.88f, MaterialResponse.DirectionalSkyGain(0.0f, 1.0f, 0.0f),
+                "non-pale surfaces retain existing indirect sky gain");
+        TestAssert.Equal(0.88f, MaterialResponse.DirectionalSkyGain(0.0f, 1.0f, 1.0f, 0.0f),
+                "baseline mode restores the original directional sky gain");
+
+        TestAssert.Equal(2.0f, MaterialResponse.VertexTag(SurfaceFamily.Soil, false),
+                "dry soil retains its existing vertex tag");
+        TestAssert.Equal(10.0f, MaterialResponse.VertexTag(SurfaceFamily.Soil, true),
+                "wet soil retains its existing vertex tag");
+
+        ShaderMaterial atlas = BlockDb.MakeOpaqueMaterial();
+        ShaderMaterial array = BlockDb.MakeArrayOpaqueMaterial();
+        foreach (ShaderMaterial material in new[] { atlas, array })
+        {
+            TestAssert.Equal(new Vector2(MaterialResponse.PaleSurfaceLuminanceMin,
+                            MaterialResponse.PaleSurfaceLuminanceMax),
+                    material.GetShaderParameter("pale_surface_luminance_range").AsVector2(),
+                    "opaque renderers share the albedo threshold range");
+            TestAssert.Equal(MaterialResponse.PaleSurfaceDirectionalContrast,
+                    material.GetShaderParameter("pale_surface_contrast_strength").AsSingle(),
+                    "opaque renderers share the default contrast strength");
+            string shader = material.Shader?.Code ?? string.Empty;
+            // The merged renderer feeds the pale weight into the directional
+            // gain and passes the separated direct-sky channel, never the
+            // combined sky that still carries lateral cave fill.
+            TestAssert.Check(shader.Contains("pale_surface_luminance_range.x", StringComparison.Ordinal)
+                            && shader.Contains("pale_surface_contrast_strength", StringComparison.Ordinal)
+                            && shader.Contains("directional_sky_light(directional_response, direct_sky, COLOR.r, pale_surface)",
+                                    StringComparison.Ordinal)
+                            && shader.Contains("- pale_surface * pale_surface_contrast_strength",
+                                    StringComparison.Ordinal),
+                    "opaque shader applies pale weight only to directional sky gain");
+        }
+        string glassShader = BlockDb.MakeGlassMaterial().Shader?.Code ?? string.Empty;
+        TestAssert.Check(!glassShader.Contains("pale_surface_contrast_strength", StringComparison.Ordinal),
+                "glass remains outside opaque pale-surface response");
+        string waterShader = (ChunkMaterials.Water as ShaderMaterial)?.Shader?.Code ?? string.Empty;
+        TestAssert.Check(!waterShader.Contains("pale_surface_contrast_strength", StringComparison.Ordinal),
+                "water remains outside opaque pale-surface response");
+
+        ShaderMaterial sharedOpaque = ChunkMaterials.Opaque as ShaderMaterial
+                ?? throw new InvalidOperationException("Active opaque material must remain shader-backed.");
+        ChunkMaterials.SetPaleSurfaceContrast(0.0f);
+        TestAssert.Equal(0.0f,
+                sharedOpaque.GetShaderParameter("pale_surface_contrast_strength").AsSingle(),
+                "baseline switch updates the shared opaque material");
+        ChunkMaterials.SetPaleSurfaceContrast(MaterialResponse.PaleSurfaceDirectionalContrast);
+        TestAssert.Equal(MaterialResponse.PaleSurfaceDirectionalContrast,
+                sharedOpaque.GetShaderParameter("pale_surface_contrast_strength").AsSingle(),
+                "contrast restore updates the shared opaque material");
+
+        Color channels = VoxelLighting.VertexColor(VoxelLighting.Pack(11, 7), 0.75f);
+        TestAssert.Equal(11.0f / VoxelLighting.MaxLevel, channels.R,
+                "pale contrast leaves packed skylight vertex channel unchanged");
+        TestAssert.Equal(7.0f / VoxelLighting.MaxLevel, channels.G,
+                "pale contrast leaves packed block-light vertex channel unchanged");
+        TestAssert.Equal(0.75f, channels.B,
+                "pale contrast leaves AO/face-shade vertex channel unchanged");
     }
 
     private static void TestBlockAttenuation()
