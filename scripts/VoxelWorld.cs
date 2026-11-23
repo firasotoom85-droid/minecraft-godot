@@ -3035,6 +3035,7 @@ public partial class VoxelWorld : Node3D
 
     public override void _Process(double delta)
     {
+        PollBackgroundSave();
         bool hasPlayer = Player != null;
         if (hasPlayer)
         {
