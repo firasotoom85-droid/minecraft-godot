@@ -18,7 +18,8 @@ public sealed record WorldManifest(
     long PlayedUtc,
     string? Mode = null,
     string? Preset = null,
-    long PlaytimeSeconds = 0);
+    long PlaytimeSeconds = 0,
+    bool HasSavedData = false);
 
 /// <summary>Legacy combined save (v1). Read only while migrating an old save.</summary>
 public sealed record LegacySave(
@@ -178,6 +179,11 @@ public static class WorldStore
                 return false;
             }
         }
+
+        WorldReadResult<WorldSave> worldSave = ReadJsonResult<WorldSave>(WorldSavePath(dir), Json);
+        WorldReadResult<PlayerSave> playerSave = ReadJsonResult<PlayerSave>(PlayerSavePath(dir), Json);
+        if (manifest.HasSavedData || (worldSave.Value is not null && playerSave.Value is not null))
+            manifest = manifest with { HasSavedData = true };
 
         return WriteAtomic(ManifestPath(dir), JsonSerializer.Serialize(manifest, ManifestJson));
     }
