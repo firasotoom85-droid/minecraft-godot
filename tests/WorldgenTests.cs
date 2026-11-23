@@ -1331,6 +1331,7 @@ public static class WorldgenTests
 
         Span<Vector3I> visited = stackalloc Vector3I[2];
         Span<byte> occupied = stackalloc byte[2];
+        occupied.Clear();
         Vector3I firstPosition = new(7, 24, -3);
         TestAssert.Check(WorldGenV12.TryRecordUniqueOrePosition(
                         visited, occupied, firstPosition),
