@@ -159,10 +159,29 @@ public sealed class FurnaceData
         Input = Fuel = Output = ItemStack.Empty;
         if (items != null)
         {
-            foreach (ItemStackSave s in items)
+            bool[] loadedSlots = new bool[3];
+            foreach (ItemStackSave saved in items)
             {
-                ItemStack stack = new((ItemId)s.Id, s.Count, s.Durability);
-                switch (s.Slot)
+                if (saved.Slot < 0 || saved.Slot >= loadedSlots.Length)
+                {
+                    ItemStackSaveValidator.ReportInvalid("furnace", saved, "slot is out of range");
+                    continue;
+                }
+
+                if (!ItemStackSaveValidator.TryCreate(saved, out ItemStack stack, out string reason))
+                {
+                    ItemStackSaveValidator.ReportInvalid("furnace", saved, reason);
+                    continue;
+                }
+
+                if (loadedSlots[saved.Slot])
+                {
+                    ItemStackSaveValidator.ReportInvalid("furnace", saved, "duplicate slot record");
+                    continue;
+                }
+
+                loadedSlots[saved.Slot] = true;
+                switch (saved.Slot)
                 {
                     case 0:
                         Input = stack;

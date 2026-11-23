@@ -223,12 +223,16 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     private readonly InvSlot[] _armorSlots = new InvSlot[Inventory.ArmorSlots];
     private readonly InvSlot[] _containerSlots = new InvSlot[Container.Size];
     private readonly InvSlot[] _furnaceSlots = new InvSlot[3];
-    private readonly ItemStack[] _craft = new ItemStack[9];
+    private ItemStack[] _craft => _player.Inventory.CraftingGrid;
     private Container? _container;
     private FurnaceData? _furnace;
     private double _furnaceRefreshTimer;
     private int _craftSize = 2;
-    private ItemStack _cursor = ItemStack.Empty;
+    private ItemStack _cursor
+    {
+        get => _player.Inventory.CursorStack;
+        set => _player.Inventory.CursorStack = value;
+    }
     private bool _open;
     private bool _enchantingTableOpen;
 
@@ -670,28 +674,12 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     private void ReturnCraftItems()
     {
-        for (int i = 0; i < _craft.Length; i++)
-        {
-            if (_craft[i].IsEmpty)
-            {
-                continue;
-            }
-
-            int leftover = _player.Inventory.Add(_craft[i]);
-            _craft[i] = leftover <= 0 ? ItemStack.Empty : _craft[i] with { Count = leftover };
-        }
+        _player.Inventory.ReturnCraftingGridItems();
     }
 
     private void GiveCursorBack()
     {
-        if (_cursor.IsEmpty)
-        {
-            return;
-        }
-
-        int leftover = _player.Inventory.Add(_cursor);
-        _cursor = leftover <= 0 ? ItemStack.Empty : _cursor with { Count = leftover };
-        if (leftover > 0)
+        if (_player.Inventory.ReturnCursorItem() > 0)
         {
             _hud.ShowToast("Inventory full");
         }
@@ -763,11 +751,9 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             return false;
 
         ItemStack stack = ReadSlot(slot);
-        if (stack.IsEmpty) return false;
-        int leftover = _player.Inventory.Add(stack);
-        int moved = stack.Count - leftover;
-        if (moved <= 0) return false;
-        WriteSlot(slot, leftover <= 0 ? ItemStack.Empty : stack with { Count = leftover });
+        if (!InventoryStackTransfer.TryTransferToInventory(ref stack, _player.Inventory))
+            return false;
+        WriteSlot(slot, stack);
         return true;
     }
 
@@ -935,21 +921,14 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         }
 
         ItemStack result = ItemDb.New(match.Recipe.Result, match.Recipe.ResultCount);
-        if (_cursor.IsEmpty)
-        {
-            _cursor = result;
-        }
-        else if (_cursor.Id == result.Id
-                && _cursor.Count + result.Count <= ItemDb.MaxStack(result.Id))
-        {
-            _cursor = _cursor with { Count = _cursor.Count + result.Count };
-        }
-        else if (_player.Inventory.Add(result) > 0)
+        if (!InventoryStackTransfer.TryCollectCraftingResult(
+                    result, _cursor, _player.Inventory, out ItemStack updatedCursor))
         {
             _hud.ShowToast("Inventory full");
             return;
         }
 
+        _cursor = updatedCursor;
         Recipes.ConsumeFromGrid(_craft, _craftSize, match.Recipe, match.Row, match.Col);
         _player.RecordCrafted(match.Recipe.Result, match.Recipe.ResultCount);
         _player.Inventory.RaiseChanged();

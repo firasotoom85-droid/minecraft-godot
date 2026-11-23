@@ -301,6 +301,9 @@ public static class ItemDb
         ItemId.WoodenBoat => "Place on water, right-click to board, Space to dismount, Shift to brake.",
         _ => id.ToString(),
     };
+    public static bool IsRegistered(ItemId id) =>
+            id != ItemId.None && Enum.IsDefined(typeof(ItemId), id);
+
     public static int MaxStack(ItemId id) =>
         id is ItemId.FishingRod or ItemId.EmptyBucket or ItemId.WaterBucket
                 or ItemId.LavaBucket or ItemId.WoodenBoat

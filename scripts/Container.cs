@@ -53,12 +53,29 @@ public sealed class Container
             return;
         }
 
-        foreach (ItemStackSave s in items)
+        bool[] loadedSlots = new bool[Slots.Length];
+        foreach (ItemStackSave saved in items)
         {
-            if (s.Slot >= 0 && s.Slot < Slots.Length && s.Count > 0)
+            if (saved.Slot < 0 || saved.Slot >= Slots.Length)
             {
-                Slots[s.Slot] = new ItemStack((ItemId)s.Id, s.Count, s.Durability, s.Sharpness, s.Protection, s.Unbreaking);
+                ItemStackSaveValidator.ReportInvalid("container", saved, "slot is out of range");
+                continue;
             }
+
+            if (!ItemStackSaveValidator.TryCreate(saved, out ItemStack stack, out string reason))
+            {
+                ItemStackSaveValidator.ReportInvalid("container", saved, reason);
+                continue;
+            }
+
+            if (loadedSlots[saved.Slot])
+            {
+                ItemStackSaveValidator.ReportInvalid("container", saved, "duplicate slot record");
+                continue;
+            }
+
+            loadedSlots[saved.Slot] = true;
+            Slots[saved.Slot] = stack;
         }
     }
 
@@ -68,6 +85,11 @@ public sealed class Container
         if (id == ItemId.None || count <= 0)
         {
             return 0;
+        }
+
+        if (!ItemDb.IsRegistered(id))
+        {
+            return count;
         }
 
         int max = ItemDb.MaxStack(id);
