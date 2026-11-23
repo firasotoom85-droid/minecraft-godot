@@ -4,9 +4,9 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>
-/// Manual reproduction fixture for transparent panes that share one chunk
-/// glass MeshInstance. Orbit the camera to view the two panes from both depth
-/// directions; watch whether the rear pane blends over the nearer pane.
+/// Manual reproduction fixture for transparent sorting within one chunk
+/// compared with an equivalent pair split across a chunk boundary. Orbit the
+/// camera through both depth axes to inspect both pane orders.
 /// Run with: godot --path . res://tests/GlassSortingFixture.tscn
 /// </summary>
 public partial class GlassSortingFixture : Node3D
@@ -14,7 +14,7 @@ public partial class GlassSortingFixture : Node3D
     private VoxelWorld? _world;
     private Camera3D? _camera;
     private string _fixtureDirectory = "";
-    private Vector3 _target = new(8.5f, 100.5f, 9.0f);
+    private Vector3 _target = new(11.5f, 100.5f, 9.0f);
     private double _angle;
 
     public override void _Ready()
@@ -26,22 +26,31 @@ public partial class GlassSortingFixture : Node3D
                 WorldStore.DeriveNoiseSeeds(420193), 0, 0, "survival", "normal"));
         GameSession.Instance.SelectWorld(_fixtureDirectory);
 
+        AddChild(new WorldEnvironment
+        {
+            Name = "SortingEnvironment",
+            Environment = WorldEnvironmentFactory.Build(),
+        });
+
         _world = new VoxelWorld { BuildCollision = false };
         AddChild(_world);
         _world.BuildPreview(_target, 1);
 
+        // Clear both comparison areas above the generated terrain. The second
+        // pair intentionally straddles the X=16 chunk boundary.
         for (int y = 98; y <= 104; y++)
-        for (int z = 6; z <= 14; z++)
-        for (int x = 6; x <= 11; x++)
+        for (int z = 6; z <= 12; z++)
+        for (int x = 5; x <= 18; x++)
             Place(x, y, z, BlockId.Air);
 
-        // Two depth-separated panes in the same chunk. A contrasting opaque
-        // wall behind them makes an incorrect blend order easy to see.
+        // Pair A: both panes share chunk (0, 0) and overlap when viewed along Z.
         Place(8, 100, 8, BlockId.Glass);
         Place(8, 100, 10, BlockId.Glass);
-        for (int y = 99; y <= 102; y++)
-        for (int x = 7; x <= 9; x++)
-            Place(x, y, 13, BlockId.Stone);
+
+        // Pair B: equivalent panes occupy chunks (0, 0) and (1, 0), respectively,
+        // and overlap when viewed along X. This is the cross-chunk control case.
+        Place(15, 100, 8, BlockId.Glass);
+        Place(17, 100, 8, BlockId.Glass);
 
         _camera = new Camera3D
         {
@@ -52,8 +61,9 @@ public partial class GlassSortingFixture : Node3D
         AddChild(_camera);
         UpdateCamera();
 
-        GD.Print("GLASS_SORTING_FIXTURE panes=(8,100,8),(8,100,10) chunk=(0,0); camera orbits both depth orders");
-        GD.Print("Inspect the same-chunk pane overlap from the +Z and -Z directions. No automatic visual result is asserted.");
+        GD.Print("GLASS_SORTING_FIXTURE same_chunk=(8,100,8),(8,100,10) chunk=(0,0)");
+        GD.Print("GLASS_SORTING_FIXTURE cross_chunk=(15,100,8) chunk=(0,0); (17,100,8) chunk=(1,0)");
+        GD.Print("Inspect Pair A while facing +/-Z and Pair B while facing +/-X. The camera orbits continuously; no automatic visual result is asserted.");
     }
 
     public override void _Process(double delta)
@@ -84,7 +94,7 @@ public partial class GlassSortingFixture : Node3D
     private void UpdateCamera()
     {
         if (_camera == null) return;
-        float radius = 12.0f;
+        const float radius = 16.0f;
         _camera.GlobalPosition = _target + new Vector3(
                 Mathf.Sin((float)_angle) * radius,
                 2.5f,
