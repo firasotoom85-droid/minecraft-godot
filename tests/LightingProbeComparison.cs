@@ -50,7 +50,7 @@ public static class LightingProbeComparison
     public static string IdForOffset(Vector3I offset) =>
             offset == Vector3I.Zero
                     ? "center"
-                    : $"x{offset.X:+0;-0;0}_y{offset.Y:+0;-0;0}_z{offset.Z:+0;-0;0}";
+                    : $"x{offset.X}_y{offset.Y}_z{offset.Z}";
 
     public static IReadOnlyList<ReferenceSample> LoadReference(string scenario)
     {
