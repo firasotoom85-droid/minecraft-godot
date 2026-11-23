@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 
 namespace Minecraft;
@@ -655,6 +656,11 @@ public partial class VoxelWorld
 
     private void StampOreVeinsV7(Vector2I cp, byte[] data, int strideY, int ox, int oz)
     {
+        // Replaying the same neighbor-cell and ore order in each target chunk
+        // keeps cross-chunk veins deterministic. Reserved placements represent
+        // successful stone replacements across the complete source-cell paths.
+        HashSet<Vector3I> claimedOrePositions = _genVersion >= WorldGenV12.Version
+                ? new HashSet<Vector3I>(512) : [];
         for (int dz = -1; dz <= 1; dz++)
         {
             for (int dx = -1; dx <= 1; dx++)
@@ -667,13 +673,13 @@ public partial class VoxelWorld
                 int cellOz = nz * ChunkZ;
                 Biome biome = BiomeAt(cellOx + ChunkX / 2, cellOz + ChunkZ / 2);
                 TryVersionedOreVein(ref rng, BlockId.CoalOre, cellOx, cellOz,
-                        18, 112, 9, 4, 11, data, strideY, ox, oz);
+                        18, 112, 9, 4, 11, data, strideY, ox, oz, claimedOrePositions);
                 TryVersionedOreVein(ref rng, BlockId.IronOre, cellOx, cellOz,
-                        6, 88, 6, 3, 8, data, strideY, ox, oz);
+                        6, 88, 6, 3, 8, data, strideY, ox, oz, claimedOrePositions);
                 TryVersionedOreVein(ref rng, BlockId.GoldOre, cellOx, cellOz,
-                        5, 48, biome == Biome.Mountain ? 4 : 2, 2, 6, data, strideY, ox, oz);
+                        5, 48, biome == Biome.Mountain ? 4 : 2, 2, 6, data, strideY, ox, oz, claimedOrePositions);
                 TryVersionedOreVein(ref rng, BlockId.DiamondOre, cellOx, cellOz,
-                        4, 24, 1, 2, 4, data, strideY, ox, oz);
+                        4, 24, 1, 2, 4, data, strideY, ox, oz, claimedOrePositions);
             }
         }
     }
@@ -709,12 +715,13 @@ public partial class VoxelWorld
 
     private void TryVersionedOreVein(ref uint rng, BlockId ore, int cellOx, int cellOz,
             int minY, int maxY, int count, int minSize, int maxSize,
-            byte[] data, int strideY, int ox, int oz)
+            byte[] data, int strideY, int ox, int oz,
+            HashSet<Vector3I> claimedOrePositions)
     {
         if (_genVersion >= WorldGenV12.Version)
         {
             TryV12Vein(ref rng, ore, cellOx, cellOz, minY, maxY, count,
-                    minSize, maxSize, data, strideY, ox, oz);
+                    minSize, maxSize, data, strideY, ox, oz, claimedOrePositions);
             return;
         }
 
@@ -724,10 +731,16 @@ public partial class VoxelWorld
 
     private void TryV12Vein(ref uint rng, BlockId ore, int cellOx, int cellOz,
             int minY, int maxY, int count, int minSize, int maxSize,
-            byte[] data, int strideY, int ox, int oz)
+            byte[] data, int strideY, int ox, int oz,
+            HashSet<Vector3I> claimedOrePositions)
     {
         int veins = count + Range(ref rng, 0, 2);
         Span<Vector3I> visited = stackalloc Vector3I[WorldGenV12.MaxOreWalkAttempts];
+        int minX = cellOx - WorldGenV12.MaxVeinRadius;
+        int maxX = cellOx + ChunkX - 1 + WorldGenV12.MaxVeinRadius;
+        int minZ = cellOz - WorldGenV12.MaxVeinRadius;
+        int maxZ = cellOz + ChunkZ - 1 + WorldGenV12.MaxVeinRadius;
+
         for (int vein = 0; vein < veins; vein++)
         {
             int x = cellOx + Range(ref rng, 0, ChunkX - 1);
@@ -735,16 +748,23 @@ public partial class VoxelWorld
             int y = Range(ref rng, Math.Max(2, minY), Math.Min(maxY, Height - 2));
             int targetSize = Range(ref rng, minSize, maxSize);
             int visitedCount = 0;
+            int placedCount = 0;
             int attempts = 0;
 
-            // The walk consumes size only for a new coordinate. StampOre still
-            // replaces Stone exclusively, and the attempt cap bounds sparse paths.
-            while (visitedCount < targetSize && attempts < WorldGenV12.MaxOreWalkAttempts)
+            // Count only unique coordinates which are eligible Stone. The same
+            // deterministic path is replayed for each neighboring output chunk;
+            // remote candidates are classified from the pure terrain function.
+            while (placedCount < targetSize && attempts < WorldGenV12.MaxOreWalkAttempts)
             {
+                Vector3I position = new(x, y, z);
                 if (WorldGenV12.TryRecordUniqueOrePosition(
-                            visited, ref visitedCount, new Vector3I(x, y, z)))
+                            visited, ref visitedCount, position)
+                        && !claimedOrePositions.Contains(position)
+                        && IsV12NaturalStone(x, y, z, data, strideY, ox, oz))
                 {
+                    claimedOrePositions.Add(position);
                     StampOre(x, y, z, ore, data, strideY, ox, oz);
+                    placedCount++;
                 }
 
                 switch (Range(ref rng, 0, 5))
@@ -757,6 +777,8 @@ public partial class VoxelWorld
                     default: z--; break;
                 }
 
+                x = Mathf.Clamp(x, minX, maxX);
+                z = Mathf.Clamp(z, minZ, maxZ);
                 y = Mathf.Clamp(y, 2, Height - 2);
                 attempts++;
             }
