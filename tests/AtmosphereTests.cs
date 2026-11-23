@@ -161,6 +161,13 @@ public static class AtmosphereTests
                 "standard temporal/non-temporal presets use the normal capture warm-up");
         TestAssert.Equal(16.0, AtmosphereVisualCapture.SettleSecondsForPreset(Gfx.Presets[5]),
                 "FSR2 gets a longer temporal-history warm-up before visual sampling");
+        TestAssert.Check(!AtmosphereVisualCapture.UsesProductionExposure("none", false),
+                "silhouette and weather captures keep deterministic fixed exposure");
+        TestAssert.Check(AtmosphereVisualCapture.UsesProductionExposure("none", true),
+                "cave captures exercise the production adaptive exposure");
+        TestAssert.Check(AtmosphereVisualCapture.UsesProductionExposure("water-exit", false)
+                        && AtmosphereVisualCapture.UsesProductionExposure("biome-pair", false),
+                "water and biome exposure captures exercise the production adaptive exposure");
 
         DayNight.SkyPalette reference = default;
         for (int presetIndex = 0; presetIndex < Gfx.Presets.Count; presetIndex++)

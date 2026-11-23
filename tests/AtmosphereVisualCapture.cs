@@ -40,7 +40,9 @@ public partial class AtmosphereVisualCapture : Node
             // and the preset-first form. The third optional token is either a
             // cave mode (#74) or the hostile-silhouette flag (#71); the two are
             // mutually exclusive so a capture always has one deterministic setup.
-            int presetIndex = Settings.GfxPreset;
+            // Deterministic captures always start from the reference LOW preset;
+            // an explicit preset index can still select a higher tier.
+            int presetIndex = Gfx.DefaultPreset;
             bool includeTorch = false;
             int captureViewDistance = 3;
             string caveMode = "none";
@@ -194,8 +196,13 @@ public partial class AtmosphereVisualCapture : Node
                 Fov = 76.0f,
                 Far = 500.0f,
                 Current = true,
-                Attributes = player.Camera.Attributes,
             };
+            // Exposure and cave scenarios deliberately exercise the production
+            // camera's adaptive exposure. Other captures keep the fixed default
+            // attributes used by the committed reference images, so their
+            // luminance is deterministic and independent of adaptation time.
+            if (UsesProductionExposure(exposureMode, includeCave))
+                camera.Attributes = player.Camera.Attributes;
             game.AddChild(camera);
             camera.GlobalPosition = target + new Vector3(62.0f, 72.0f, 78.0f);
             camera.LookAt(target + new Vector3(0.0f, 5.0f, 0.0f), Vector3.Up);
@@ -332,6 +339,9 @@ public partial class AtmosphereVisualCapture : Node
                     GetTree().Quit(9);
                     return;
                 }
+                if (placeTorch)
+                    GD.Print($"CAVE_TORCH placed cell={world.GetBlock(centerX, torchY, centerZ)} " +
+                            $"at=({centerX},{torchY},{centerZ})");
 
                 target = new Vector3(centerX + 0.5f, torchY + 0.5f, centerZ + 0.5f);
                 // DayNight samples the production first-person camera for
@@ -361,6 +371,11 @@ public partial class AtmosphereVisualCapture : Node
                         ? cameraAttributes.AutoExposureMaxSensitivity : -1.0f;
                 byte torchBlockLevel = 0;
                 byte adjacentBlockLevel = 0;
+                BlockId torchCellBlock = placeTorch
+                        ? world.GetBlock(centerX, torchY, centerZ) : BlockId.Air;
+                bool torchRegistered = placeTorch
+                        && world.NearbyLightSources(centerX, centerX, centerZ, centerZ)
+                                .Exists(source => source.Position == new Vector3I(centerX, torchY, centerZ));
                 if (placeTorch)
                 {
                     Vector2I lightChunk = new(
@@ -382,6 +397,7 @@ public partial class AtmosphereVisualCapture : Node
                         $"darkness={DayNight.EvaluateCaveDarkness(roomSkyLight):F3} " +
                         $"camera_iso_max={cameraMaxSensitivity:F1} " +
                         $"ambient={dayNight.WorldEnv!.Environment.AmbientLightEnergy:F3} " +
+                        $"torch_cell={torchCellBlock} registered={torchRegistered} " +
                         $"torch_block={torchBlockLevel} adjacent_block={adjacentBlockLevel}");
             }
             else
@@ -506,7 +522,11 @@ public partial class AtmosphereVisualCapture : Node
 
                 ConfigureHostileSilhouetteComposition(world, player, mobs, camera,
                         centerX, centerZ);
-                for (int frame = 0; frame < 12; frame++)
+                // LOW keeps fewer mesher workers in flight than MAX. Wait for
+                // the production queue to drain, then give eye adaptation time
+                // to settle after the fixture teleports the camera.
+                await WaitForMeshesSettled(world);
+                for (int frame = 0; frame < 120; frame++)
                     await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
             }
 
@@ -583,6 +603,30 @@ public partial class AtmosphereVisualCapture : Node
         }
 
         GetTree().Quit();
+    }
+
+    internal static bool UsesProductionExposure(string exposureMode, bool includeCave)
+            => exposureMode != "none" || includeCave;
+
+    private async System.Threading.Tasks.Task WaitForMeshesSettled(VoxelWorld world)
+    {
+        int frames = 0;
+        int stableFrames = 0;
+        while (frames < 1800 && stableFrames < 30)
+        {
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            frames++;
+            bool idle = !Profiler.WorkersActive
+                    && Profiler.PendingPayloadCount == 0
+                    && Profiler.RebuildQueued == 0
+                    && Profiler.FreshQueued == 0;
+            stableFrames = idle ? stableFrames + 1 : 0;
+        }
+
+        if (stableFrames < 30)
+            throw new TimeoutException(
+                    $"Atmosphere capture meshes did not settle (chunks={world.ChunkCount}, " +
+                    $"pending={Profiler.PendingPayloadCount}, rebuilds={Profiler.RebuildQueued}).");
     }
 
     private static void ConfigureHostileSilhouetteComposition(

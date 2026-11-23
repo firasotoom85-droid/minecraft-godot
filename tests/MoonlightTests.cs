@@ -94,6 +94,8 @@ public static class MoonlightTests
                             && shader.Contains("sky_exposure")
                             && shader.Contains("moon_fill"),
                     $"{names[i]} shader gates directional moon fill with baked sky exposure");
+            TestAssert.Check(shader.Contains("(0.28 + moon_facing * 0.72) * 0.12"),
+                    $"{names[i]} keeps directional moon fill below the baked night floor");
         }
 
         bool previousGreedy = Mesher.Greedy;

@@ -31,7 +31,7 @@ vec3 directional_sky_light(vec3 normal, float sky, float sky_exposure) {
     float directional_gain = 0.88 + direct_sun * 0.12;
     float moon_facing = max(dot(normalize(normal), moon_direction), 0.0);
     float moon_fill = clamp(sky_exposure, 0.0, 1.0)
-            * moonlight_energy * (0.28 + moon_facing * 0.72);
+            * moonlight_energy * (0.28 + moon_facing * 0.72) * 0.12;
     vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
     return sky * sky_tint * directional_gain + moon_color * moon_fill;
 }
