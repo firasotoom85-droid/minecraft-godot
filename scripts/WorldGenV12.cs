@@ -64,28 +64,36 @@ public static class WorldGenV12
     }
 
     public static bool TryRecordUniqueOrePosition(Span<Vector3I> visited,
-            ref int visitedCount, Vector3I position)
+            Span<byte> occupied, Vector3I position)
     {
-        if (visitedCount < 0 || visitedCount > visited.Length)
+        if (visited.Length == 0 || occupied.Length != visited.Length
+                || (visited.Length & (visited.Length - 1)) != 0)
         {
             return false;
         }
 
-        for (int i = 0; i < visitedCount; i++)
+        // A power-of-two open-addressed table keeps duplicate detection
+        // allocation-free and bounded even at the maximum retry budget.
+        int mask = visited.Length - 1;
+        int index = (int)(unchecked((uint)position.GetHashCode()) & (uint)mask);
+        for (int probe = 0; probe < visited.Length; probe++)
         {
-            if (visited[i] == position)
+            if (occupied[index] == 0)
+            {
+                occupied[index] = 1;
+                visited[index] = position;
+                return true;
+            }
+
+            if (visited[index] == position)
             {
                 return false;
             }
+
+            index = (index + 1) & mask;
         }
 
-        if (visitedCount == visited.Length)
-        {
-            return false;
-        }
-
-        visited[visitedCount++] = position;
-        return true;
+        return false;
     }
 
     private static bool IsTreeLog(BlockId id) =>
