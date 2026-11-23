@@ -90,9 +90,11 @@ public static class WorldEnvironmentFactory
             environment.FogDepthCurve = DistanceHazeCurve;
         }
 
-        // Preserve the historical high-quality factory defaults for callers that
-        // do not specify a preset. Gameplay supplies the saved preset explicitly.
-        Gfx.ApplyEnvironmentPreset(environment, presetIndex ?? Gfx.Presets.Count - 1);
+        // A caller without an explicit preset keeps the factory's historical
+        // high-quality defaults, including its generator-version-specific AO.
+        // Gameplay supplies the saved preset before the first rendered frame.
+        if (presetIndex.HasValue)
+            Gfx.ApplyEnvironmentPreset(environment, presetIndex.Value);
         return environment;
     }
 
