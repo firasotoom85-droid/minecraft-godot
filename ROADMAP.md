@@ -85,7 +85,7 @@ The optional manifest `HasSavedData` sentinel distinguishes a never-saved world 
 
 The W05-owned `WorldStore.WriteAtomic` now stages the oldest backup until the new primary commits and restores the prior generations after injected rename/commit failures. The pause-menu Save and Quit-to-menu callers now consume W01's bool-returning `VoxelWorld.SaveNow()` contract when present: a failed save keeps the world open and displays an error. W01 PR #207 owns that API and `WorldSaveWorker`; its background writer still needs the matching staged-oldest-backup fix before #132 can be closed. The save-result caller integration likewise depends on the W01 API being merged into the shared base before #131 is closed.
 
-Hosted CI on the storage/recovery head passed Debug and Release builds with warnings as errors, the full Godot headless runner, and spatial voxel-light probe grids. The subsequent pause-menu caller bridge is being revalidated on the latest PR head. Save format V4, generator versions, persisted block/item IDs, greedy meshing and chunk streaming remain unchanged.
+Hosted CI on the latest PR head passed Debug and Release builds with warnings as errors, the full Godot headless runner, and spatial voxel-light probe grids/report upload. The independent W01 background-writer backup rotation remains an integration dependency, not a W05 change. Save format V4, generator versions, persisted block/item IDs, greedy meshing and chunk streaming remain unchanged.
 
 ## Current follow-up implementation — 2026-11-22 (rare and enchanted item language)
 
