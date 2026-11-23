@@ -38,6 +38,7 @@ public partial class LightingComparisonCapture : Node
         {
             string[] args = OS.GetCmdlineUserArgs();
             int seed = ParseInt(args, 0, 1337);
+            bool probeOnly = Array.Exists(args, argument => argument == "--probe-only");
             if (!LightingComparisonProfiles.TryGet(Scenario, out LightingComparisonProfiles.Profile profile))
                 throw new ArgumentException($"Unknown lighting comparison scenario '{Scenario}'.");
 
@@ -46,9 +47,10 @@ public partial class LightingComparisonCapture : Node
                     ? args[1]
                     : $"user://tests/lighting-comparisons/{Scenario}-seed-{seed}.png";
 
-            DisplayServer.WindowSetSize(new Vector2I(
-                    LightingComparisonProfiles.CaptureWidth,
-                    LightingComparisonProfiles.CaptureHeight));
+            if (!probeOnly)
+                DisplayServer.WindowSetSize(new Vector2I(
+                        LightingComparisonProfiles.CaptureWidth,
+                        LightingComparisonProfiles.CaptureHeight));
             Engine.MaxFps = 60;
             Settings.AutoQuality = false;
 
@@ -144,14 +146,16 @@ public partial class LightingComparisonCapture : Node
                     LightingProbeComparison.LoadReference(Scenario);
             LightingProbeComparison.Drift drift = LightingProbeComparison.Compare(
                     probeGrid, reference);
-            Image image = GetViewport().GetTexture().GetImage();
-
             string absoluteOutput = ProjectSettings.GlobalizePath(output);
             string? directory = Path.GetDirectoryName(absoluteOutput);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-            Error saveResult = image.SavePng(absoluteOutput);
-            if (saveResult != Error.Ok)
-                throw new IOException($"Could not save screenshot: {saveResult}.");
+            if (!probeOnly)
+            {
+                Image image = GetViewport().GetTexture().GetImage();
+                Error saveResult = image.SavePng(absoluteOutput);
+                if (saveResult != Error.Ok)
+                    throw new IOException($"Could not save screenshot: {saveResult}.");
+            }
 
             string metricsOutput = Path.ChangeExtension(absoluteOutput, ".lighting.json");
             var metrics = new
@@ -189,9 +193,19 @@ public partial class LightingComparisonCapture : Node
                     $"intensity_mean={drift.MeanAbsoluteIntensityDrift:F5} " +
                     $"intensity_max={drift.MaxIntensityDrift:F5} " +
                     $"outside_tolerance={drift.OutsideToleranceSamples} tolerance={drift.Tolerance:F5}");
-            GD.Print($"LIGHTING_COMPARISON_RENDER scenario={Scenario} size={image.GetWidth()}x{image.GetHeight()} " +
-                    $"ssao={preset.Ssao} ssr={preset.Ssr} glow={preset.Glow} volumetric_fog={preset.VolFog} " +
-                    $"shadows={preset.ShadowSize} path={absoluteOutput} success={saveResult == Error.Ok}");
+            if (!probeOnly)
+            {
+                Image image = GetViewport().GetTexture().GetImage();
+                GD.Print($"LIGHTING_COMPARISON_RENDER scenario={Scenario} size={image.GetWidth()}x{image.GetHeight()} " +
+                        $"ssao={preset.Ssao} ssr={preset.Ssr} glow={preset.Glow} volumetric_fog={preset.VolFog} " +
+                        $"shadows={preset.ShadowSize} path={absoluteOutput} success=true");
+            }
+            else
+            {
+                GD.Print($"LIGHTING_COMPARISON_RENDER scenario={Scenario} probe_only=true " +
+                        $"ssao={preset.Ssao} ssr={preset.Ssr} glow={preset.Glow} volumetric_fog={preset.VolFog} " +
+                        $"shadows={preset.ShadowSize} metrics={metricsOutput}");
+            }
         }
         catch (Exception exception)
         {
