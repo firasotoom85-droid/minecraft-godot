@@ -149,6 +149,264 @@ public static class SaveTests
         DirAccess.RemoveAbsolute(escapeMarker);
         DirAccess.RemoveAbsolute(escapeDir);
 
+        // Reject malformed object graphs before they reach game-state loaders.
+        string structuralPath = root + "/structural.json";
+        TestAssert.Check(WorldStore.WriteAtomic(structuralPath,
+                JsonSerializer.Serialize(save, WorldStore.Json)), "structural fixture primary writes");
+        TestAssert.Check(WorldStore.WriteAtomic(structuralPath,
+                JsonSerializer.Serialize(save with { Time = 0.875 }, WorldStore.Json)),
+                "structural fixture newer primary rotates");
+        System.IO.File.WriteAllText(ProjectSettings.GlobalizePath(structuralPath),
+                """{"version":4,"edits":{"0,0":null},"time":0.25,"furnaces":{"1,2,3":null}}""");
+        WorldReadResult<WorldSave> structural = WorldStore.ReadJsonResult<WorldSave>(
+                structuralPath, WorldStore.Json);
+        TestAssert.Equal(WorldReadStatus.Recovered, structural.Status,
+                "null nested edit dictionaries and furnace records reject the primary");
+        TestAssert.Equal(0.625, structural.Value?.Time ?? -1.0,
+                "structurally invalid primary falls back to a valid backup");
+
+        string itemListPath = root + "/null-items.json";
+        TestAssert.Check(WorldStore.WriteAtomic(itemListPath,
+                JsonSerializer.Serialize(new PlayerSave([0.0f, 0.0f, 0.0f],
+                        Items: [new ItemStackSave(0, (int)ItemId.Stone, 1)]), WorldStore.Json)),
+                "valid player item fixture writes");
+        TestAssert.Check(WorldStore.WriteAtomic(itemListPath,
+                """{"pos":[0,0,0],"items":[null]}"""),
+                "malformed player fixture replaces primary");
+        WorldReadResult<PlayerSave> itemFallback = WorldStore.ReadJsonResult<PlayerSave>(
+                itemListPath, WorldStore.Json);
+        TestAssert.Equal(WorldReadStatus.Recovered, itemFallback.Status,
+                "null item-stack entries reject a player-save candidate");
+
+        // Preserve all three previous generations when a rename or final
+        // temp-file commit fails during backup rotation.
+        string rotationPath = root + "/rotation.json";
+        WorldStore.WriteAtomic(rotationPath, "generation-one");
+        WorldStore.WriteAtomic(rotationPath, "generation-two");
+        WorldStore.WriteAtomic(rotationPath, "generation-three");
+        WorldStore.RenameForTests = (from, to) =>
+                from == rotationPath && to == rotationPath + ".bak"
+                        ? Error.Failed : DirAccess.RenameAbsolute(from, to);
+        bool rotationFailed;
+        try { rotationFailed = !WorldStore.WriteAtomic(rotationPath, "generation-four"); }
+        finally { WorldStore.RenameForTests = null; }
+        TestAssert.Check(rotationFailed, "injected current-to-backup rename failure is reported");
+        TestAssert.Equal("generation-three", FileAccess.GetFileAsString(rotationPath),
+                "failed rotation preserves the previous primary");
+        TestAssert.Equal("generation-two", FileAccess.GetFileAsString(rotationPath + ".bak"),
+                "failed rotation restores the first backup");
+        TestAssert.Equal("generation-one", FileAccess.GetFileAsString(rotationPath + ".bak2"),
+                "failed rotation restores the oldest backup");
+
+        WorldStore.RenameForTests = (from, to) =>
+                from == rotationPath + ".tmp" && to == rotationPath
+                        ? Error.Failed : DirAccess.RenameAbsolute(from, to);
+        bool commitFailed;
+        try { commitFailed = !WorldStore.WriteAtomic(rotationPath, "generation-four"); }
+        finally { WorldStore.RenameForTests = null; }
+        TestAssert.Check(commitFailed, "injected final temp commit failure is reported");
+        TestAssert.Equal("generation-three", FileAccess.GetFileAsString(rotationPath),
+                "failed final commit restores the previous primary");
+        TestAssert.Equal("generation-two", FileAccess.GetFileAsString(rotationPath + ".bak"),
+                "failed final commit restores the previous backup");
+        TestAssert.Equal("generation-one", FileAccess.GetFileAsString(rotationPath + ".bak2"),
+                "failed final commit retains the oldest backup");
+
+        // IDs are collision-resistant, and a forced duplicate cannot overwrite
+        // the first world's metadata.
+        System.Collections.Generic.Queue<string> worldIds = new(
+                ["w-w05-collision", "w-w05-collision", "w-w05-collision-second"]);
+        WorldStore.WorldIdFactoryForTests = () => worldIds.Dequeue();
+        string collisionFirst;
+        string collisionSecond;
+        try
+        {
+            collisionFirst = WorldStore.Create("Collision First", 1001);
+            string originalManifest = FileAccess.GetFileAsString(WorldStore.ManifestPath(collisionFirst));
+            collisionSecond = WorldStore.Create("Collision Second", 1002);
+            TestAssert.Check(collisionFirst != collisionSecond,
+                    "repeated world IDs are rejected and a new candidate is reserved");
+            TestAssert.Equal(originalManifest, FileAccess.GetFileAsString(WorldStore.ManifestPath(collisionFirst)),
+                    "a directory-ID collision never changes the existing manifest");
+        }
+        finally { WorldStore.WorldIdFactoryForTests = null; }
+
+        // Required manifest persistence is part of creation success.
+        WorldStore.WorldIdFactoryForTests = () => "w-w05-create-failure";
+        WorldStore.RenameForTests = (from, to) =>
+                from.EndsWith(".tmp", StringComparison.Ordinal)
+                        && to == WorldStore.ManifestPath(WorldStore.WorldsRoot + "/w-w05-create-failure")
+                        ? Error.Failed : DirAccess.RenameAbsolute(from, to);
+        bool createFailed = false;
+        try
+        {
+            try { WorldStore.Create("Must Not Open", 1003); }
+            catch (System.IO.IOException) { createFailed = true; }
+        }
+        finally
+        {
+            WorldStore.WorldIdFactoryForTests = null;
+            WorldStore.RenameForTests = null;
+        }
+        TestAssert.Check(createFailed, "failed manifest persistence makes world creation fail");
+        TestAssert.Check(!DirAccess.DirExistsAbsolute(WorldStore.WorldsRoot + "/w-w05-create-failure"),
+                "failed world creation removes its partial directory");
+        TestAssert.Equal("Collision First", WorldStore.ReadManifest(collisionFirst)?.Name,
+                "failed creation leaves an existing world's metadata untouched");
+
+        // A simulated source-file read denial aborts duplication and leaves
+        // the source world unchanged.
+        string duplicateFailureSource = WorldStore.Create("Copy Failure Source", 1101);
+        string sourceMarker = ProjectSettings.GlobalizePath(duplicateFailureSource) + "/source.bin";
+        System.IO.File.WriteAllText(sourceMarker, "source bytes");
+        string sourceManifestBefore = FileAccess.GetFileAsString(WorldStore.ManifestPath(duplicateFailureSource));
+        WorldStore.CopyFileAllowedForTests = _ => false;
+        string? failedCopy;
+        try { failedCopy = WorldStore.Duplicate(duplicateFailureSource); }
+        finally { WorldStore.CopyFileAllowedForTests = null; }
+        TestAssert.Check(failedCopy is null, "injected source file read denial aborts duplication");
+        TestAssert.Equal(sourceManifestBefore, FileAccess.GetFileAsString(WorldStore.ManifestPath(duplicateFailureSource)),
+                "failed duplication leaves the source manifest unchanged");
+        TestAssert.Check(System.IO.File.Exists(sourceMarker),
+                "failed duplication leaves all source files in place");
+
+        // Directory and file links are never traversed during duplicate or
+        // delete; their external targets must remain byte-identical.
+        string externalDirectory = ProjectSettings.GlobalizePath(root) + "/external-target";
+        System.IO.Directory.CreateDirectory(externalDirectory);
+        string externalMarker = System.IO.Path.Combine(externalDirectory, "keep.txt");
+        System.IO.File.WriteAllText(externalMarker, "external data");
+        string linkedWorld = WorldStore.Create("Linked World", 1102);
+        string linkedWorldAbsolute = ProjectSettings.GlobalizePath(linkedWorld);
+        bool directoryLinkCreated = false;
+        try
+        {
+            System.IO.Directory.CreateSymbolicLink(
+                    System.IO.Path.Combine(linkedWorldAbsolute, "external-directory"), externalDirectory);
+            directoryLinkCreated = true;
+            System.IO.File.CreateSymbolicLink(
+                    System.IO.Path.Combine(linkedWorldAbsolute, "external-file"), externalMarker);
+        }
+        catch (Exception e) when (e is System.IO.IOException
+                or UnauthorizedAccessException or PlatformNotSupportedException
+                or System.Security.SecurityException)
+        {
+            // Some Windows test runners require elevated symbolic-link privileges.
+        }
+        if (directoryLinkCreated)
+        {
+            TestAssert.Check(WorldStore.Duplicate(linkedWorld) is null,
+                    "world duplication rejects reparse-point entries");
+            TestAssert.Check(WorldStore.Delete(linkedWorld),
+                    "world deletion removes links without descending into their targets");
+            TestAssert.Equal("external data", System.IO.File.ReadAllText(externalMarker),
+                    "external target contents survive linked-world duplication and deletion");
+        }
+        else
+        {
+            TestAssert.Check(true, "directory symlink creation is unavailable on this test platform");
+            WorldStore.Delete(linkedWorld);
+        }
+
+        // A world-directory access failure must not masquerade as an empty library.
+        WorldStore.EnumerateWorldDirectoriesForTests = _ =>
+                throw new UnauthorizedAccessException("simulated worlds-root denial");
+        List<(string Dir, WorldManifest Manifest)> inaccessibleListing;
+        try { inaccessibleListing = WorldStore.List(); }
+        finally { WorldStore.EnumerateWorldDirectoriesForTests = null; }
+        TestAssert.Check(inaccessibleListing.Count == 0 && WorldStore.LastListError is not null,
+                "world-list permission errors are reported instead of showing an empty library");
+
+        // Damaged saves must not be treated as a first-run world or given a
+        // starter kit. The manifest flag distinguishes prior saves from a
+        // world that has never written its first save pair.
+        string damagedWorld = WorldStore.Create("Damaged World", 1201);
+        foreach (string savePath in new[]
+                {
+                    WorldStore.WorldSavePath(damagedWorld),
+                    WorldStore.WorldSavePath(damagedWorld) + ".bak",
+                    WorldStore.WorldSavePath(damagedWorld) + ".bak2",
+                    WorldStore.PlayerSavePath(damagedWorld),
+                    WorldStore.PlayerSavePath(damagedWorld) + ".bak",
+                    WorldStore.PlayerSavePath(damagedWorld) + ".bak2",
+                })
+            System.IO.File.WriteAllText(ProjectSettings.GlobalizePath(savePath), "{ malformed");
+        WorldReadResult<WorldSave> damagedRead = WorldStore.ReadJsonResult<WorldSave>(
+                WorldStore.WorldSavePath(damagedWorld), WorldStore.Json);
+        TestAssert.Equal(WorldReadStatus.Corrupt, damagedRead.Status,
+                "all malformed world-save candidates return an explicit corrupt result");
+        TestAssert.Check(WorldStore.IsRecoveryRequired(damagedWorld),
+                "unrecoverable save candidates mark the world recovery-required");
+        TestAssert.Check(!WorldStore.WriteAtomic(WorldStore.WorldSavePath(damagedWorld),
+                JsonSerializer.Serialize(save, WorldStore.Json)),
+                "recovery-required worlds reject ordinary writes");
+
+        GameSession? session = GameSession.Instance;
+        string previousWorldDirectory = session?.WorldDir ?? "";
+        WorldManifest? previousSessionManifest = session?.Manifest;
+        if (session is not null)
+        {
+            session.SelectWorld(damagedWorld);
+            Inventory inventory = new();
+            inventory.LoadFrom(null);
+            TestAssert.Check(inventory.Get(0).IsEmpty,
+                    "recovery-required worlds do not receive starter inventory");
+            session.WorldDir = previousWorldDirectory;
+            session.Manifest = previousSessionManifest;
+        }
+
+        string savedHistoryWorld = WorldStore.Create("Saved History", 1202);
+        WorldStore.WriteAtomic(WorldStore.WorldSavePath(savedHistoryWorld),
+                JsonSerializer.Serialize(save, WorldStore.Json));
+        WorldStore.WriteAtomic(WorldStore.PlayerSavePath(savedHistoryWorld),
+                JsonSerializer.Serialize(new PlayerSave([1.0f, 2.0f, 3.0f]), WorldStore.Json));
+        WorldManifest savedHistoryManifest = WorldStore.ReadManifest(savedHistoryWorld)!;
+        TestAssert.Check(WorldStore.WriteManifest(savedHistoryWorld, savedHistoryManifest),
+                "complete save pair persists save-history metadata in the manifest");
+        TestAssert.Check(WorldStore.ReadManifest(savedHistoryWorld)?.HasSavedData == true,
+                "manifest records whether the world has saved progress");
+        foreach (string candidate in new[]
+                {
+                    WorldStore.WorldSavePath(savedHistoryWorld),
+                    WorldStore.WorldSavePath(savedHistoryWorld) + ".bak",
+                    WorldStore.WorldSavePath(savedHistoryWorld) + ".bak2",
+                    WorldStore.PlayerSavePath(savedHistoryWorld),
+                    WorldStore.PlayerSavePath(savedHistoryWorld) + ".bak",
+                    WorldStore.PlayerSavePath(savedHistoryWorld) + ".bak2",
+                })
+            if (System.IO.File.Exists(ProjectSettings.GlobalizePath(candidate)))
+                System.IO.File.Delete(ProjectSettings.GlobalizePath(candidate));
+
+        if (session is not null)
+        {
+            session.SelectWorld(savedHistoryWorld);
+            bool missingHistoryRejected = false;
+            try { session.EnsureWorld(); }
+            catch (System.IO.InvalidDataException) { missingHistoryRejected = true; }
+            TestAssert.Check(missingHistoryRejected,
+                    "worlds with a persisted save history cannot load after all save generations disappear");
+            session.WorldDir = previousWorldDirectory;
+            session.Manifest = previousSessionManifest;
+        }
+
+        string emptyDefault = WorldStore.WorldsRoot + "/new-empty-default";
+        TestAssert.Check(WorldStore.DefaultFor(emptyDefault) is not null,
+                "an empty new directory still receives legacy default metadata");
+        string populatedDefault = WorldStore.Create("Do Not Guess", 1203);
+        System.IO.File.WriteAllText(ProjectSettings.GlobalizePath(populatedDefault + "/unrecognized.save"), "keep");
+        bool populatedDefaultRejected = false;
+        try { WorldStore.DefaultFor(populatedDefault); }
+        catch (System.IO.InvalidDataException) { populatedDefaultRejected = true; }
+        TestAssert.Check(populatedDefaultRejected,
+                "existing world directories never receive guessed generator metadata");
+
+        foreach (string testWorld in new[]
+                {
+                    collisionFirst, collisionSecond, duplicateFailureSource,
+                    damagedWorld, savedHistoryWorld, populatedDefault, emptyDefault,
+                })
+            WorldStore.Delete(testWorld);
+
         DirAccess.RemoveAbsolute(backupPath + ".bak2");
         DirAccess.RemoveAbsolute(backupPath + ".bak");
         DirAccess.RemoveAbsolute(backupPath);
@@ -157,6 +415,7 @@ public static class SaveTests
         DirAccess.RemoveAbsolute(path + ".bak2");
         DirAccess.RemoveAbsolute(path + ".bak");
         DirAccess.RemoveAbsolute(path);
-        DirAccess.RemoveAbsolute(root);
+        if (System.IO.Directory.Exists(ProjectSettings.GlobalizePath(root)))
+            System.IO.Directory.Delete(ProjectSettings.GlobalizePath(root), recursive: true);
     }
 }
