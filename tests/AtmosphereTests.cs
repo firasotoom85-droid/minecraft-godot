@@ -66,6 +66,15 @@ public static class AtmosphereTests
         TestAssert.Check(lightning.AmbientLightEnergy > overcast.AmbientLightEnergy
                 && Luminance(lightning.Top) > Luminance(overcast.Top),
                 "lightning temporarily lifts sky and ambient illumination");
+        TestAssert.Check(lightning.SkyLightEnergy > overcast.SkyLightEnergy
+                && lightning.SkyLightEnergy <= DayNight.MaximumSkyLightEnergy,
+                "lightning adds a bounded contribution to the baked terrain skylight response");
+        TestAssert.Equal(overcast.SkyLightEnergy,
+                DayNight.EvaluateLightningSkyEnergy(overcast.SkyLightEnergy, 0.0),
+                "the baked skylight response returns to its weather baseline when the flash ends");
+        TestAssert.Equal(DayNight.MaximumSkyLightEnergy,
+                DayNight.EvaluateLightningSkyEnergy(1.0f, 1.0),
+                "a full flash is capped by the existing shared material sky-energy ceiling");
 
         for (int i = 0; i <= 100; i++)
         {
@@ -136,6 +145,16 @@ public static class AtmosphereTests
         TestAssert.Check(Luminance(stormFlash.CloudColor) > Luminance(storm.CloudColor)
                 && Luminance(stormFlash.Horizon) > Luminance(storm.Horizon),
                 "lightning briefly lifts storm cloud and horizon brightness");
+        TestAssert.Check(stormFlash.SkyLightEnergy > storm.SkyLightEnergy,
+                "storm lightning reaches the terrain's baked-skylight response");
+        TestAssert.Equal(0.8, Weather.CombineFlashIntensity(0.8, 0.75),
+                "an overlapping weaker pulse does not reduce the active flash");
+        TestAssert.Equal(1.0, Weather.CombineFlashIntensity(0.8, 1.0),
+                "an overlapping stronger pulse uses the stronger bounded intensity");
+        TestAssert.Check(System.Math.Abs(Weather.DecayFlashIntensity(1.0, 0.1) - 0.55) < 0.000001,
+                "lightning intensity decays at the existing 4.5-per-second rate");
+        TestAssert.Equal(0.0, Weather.DecayFlashIntensity(1.0, 1.0),
+                "the transient lightning contribution returns fully to zero after its envelope");
 
         DayNight.SkyPalette nonFinite = DayNight.EvaluatePalette(
                 double.NaN, double.NaN, double.PositiveInfinity);
@@ -540,6 +559,25 @@ public static class AtmosphereTests
             TestAssert.Equal(0.37f, material.GetShaderParameter("sky_light_energy").AsSingle(),
                     "shared material updates retain the dynamic baked-sky energy scalar");
         }
+
+        DayNight.SkyPalette stormFlash = DayNight.EvaluatePalette(0.5,
+                Weather.TargetCloudinessFor(Weather.State.Storm), 0.8);
+        ChunkMaterials.SetSkyLighting(stormFlash.SkyLightEnergy, stormFlash.SunDirection,
+                stormFlash.SunColor, stormFlash.SkyLightColor, stormFlash.SunEnergy);
+        foreach (ShaderMaterial material in sharedMaterials)
+        {
+            TestAssert.Equal(stormFlash.SkyLightEnergy,
+                    material.GetShaderParameter("sky_light_energy").AsSingle(),
+                    "lightning sky energy reaches atlas, greedy, glass, water and lava materials");
+        }
+
+        Color sealedCaveChannels = VoxelLighting.VertexColor(VoxelLighting.Pack(0, 15), 1.0f);
+        TestAssert.Equal(0.0f, sealedCaveChannels.R * stormFlash.SkyLightEnergy,
+                "zero baked skylight remains dark during a lightning flash");
+        Color openSkyChannels = VoxelLighting.VertexColor(VoxelLighting.Pack(15, 0), 1.0f);
+        TestAssert.Check(openSkyChannels.R * stormFlash.SkyLightEnergy
+                        > openSkyChannels.R * DayNight.EvaluatePalette(0.5, 0.95, 0.0).SkyLightEnergy,
+                "open-sky terrain receives the temporary lightning contribution");
 
         ChunkMaterials.SetSkyLighting(noon.SkyLightEnergy, noon.SunDirection,
                 noon.SunColor, noon.SkyLightColor, noon.SunEnergy);

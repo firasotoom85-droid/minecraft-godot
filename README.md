@@ -140,6 +140,22 @@ remaining headroom; its warm hue and restrained shadow-gated emission remain
 separate from cool cave fill. Lava retains its orange core, normalized to its
 registered 12/15 source level, and no longer treats cave spill as directional
 sunlight. New canopy tiles 56–58 are
+
+The atlas/greedy-array/glass/water lighting shaders share one bounded sky/block
+response: torch and campfire light fill only the remaining skylight headroom,
+with the same warm hue and restrained shadow-gated emission. This prevents
+full daylight and block-light channels from stacking into washed-out surfaces
+while retaining warm contrast at night and in caves. The dedicated lava shader
+preserves its orange core, but scales that emission from the packed block-light
+channel normalized to lava's registered 12/15 source level; a zero block-light
+channel cannot leave a glowing lava surface. Storm lightning briefly raises
+the shared sky_light_energy scalar across the atlas, greedy-array, glass, water
+and lava materials. Because each shader still multiplies that scalar by the
+vertex's packed skylight channel, exposed terrain and cave mouths brighten
+during a flash while sealed zero-skylight spaces stay dark. The existing weather
+pulse decay restores the normal day/night and cloud-cover response without
+mesh rebuilds or light-emitter nodes. 
+New canopy tiles 56–58 are
 explicitly foliage, and every placeable held item derives its first-person
 response from its registered block atlas tile, preventing drift between the
 held sprite and placed geometry.

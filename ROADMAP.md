@@ -3005,3 +3005,27 @@ time or visual metric is claimed until those captures complete.
   allowance was exhausted. Local `dotnet build`, `scripts/verify.sh` and GPU
   scene captures could not be run in this session; CI and a Godot 4.7.2 .NET
   MX230 waterline capture remain required before merge.
+
+## 59. Storm lightning terrain illumination — 2026-11-23
+
+- Connected the existing Weather.SkyFlash pulse to the existing shared
+  sky_light_energy uniform through DayNight.EvaluatePalette. The transient
+  contribution is additive, scaled by flash intensity and capped at the
+  established 1.25 scalar ceiling.
+- The atlas, greedy texture-array, glass, water and lava materials already
+  consume this scalar. Their per-vertex packed skylight multiplier is retained:
+  open terrain and partially sheltered surfaces brighten, while a sealed
+  zero-skylight volume receives no flash contribution.
+- Preserved the existing two-pulse max-combination and 4.5-per-second linear
+  decay. Extracted pure helpers and added deterministic regressions for pulse
+  overlap, decay/recovery, palette bounds, all shared material paths and cave
+  skylight attenuation.
+- Compatibility/performance scope: no persisted IDs or save fields, no
+  generator V1–V11 changes, no voxel mutations, no meshing or chunk-streaming
+  changes, no new nodes, emitters, allocations, shader passes or per-frame
+  world scans. The existing shared uniforms are updated by the normal
+  DayNight frame path.
+- Verification limitation: the source and test changes are committed in the
+  PR branch, but Godot Debug/Release builds, scripts/verify.sh, GPU captures
+  and frame-time measurements could not be run from this session. These remain
+  required review checks; no pass result or performance delta is claimed.
