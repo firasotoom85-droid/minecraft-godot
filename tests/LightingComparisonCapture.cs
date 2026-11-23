@@ -602,6 +602,19 @@ public partial class LightingComparisonCapture : Node
     {
         if (y <= 0 || y >= world.Height)
             throw new ArgumentOutOfRangeException(nameof(y), y, "Lighting fixture edit is outside the world.");
+
+        Vector2I chunk = new(
+                Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX),
+                Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ));
+        // Gameplay startup now builds only its spawn-critical chunk before
+        // streaming the surrounding area. Deterministic lighting fixtures may
+        // edit a distant region during setup, so load that fixture chunk through
+        // the existing synchronous preview API before using SetBlock.
+        if (!world.HasChunk(chunk))
+        {
+            world.BuildPreview(new Vector3(x + 0.5f, y, z + 0.5f), 1);
+        }
+
         if (world.GetBlock(x, y, z) == block)
             return;
         if (!world.SetBlock(x, y, z, block))
