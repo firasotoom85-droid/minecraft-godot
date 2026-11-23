@@ -138,7 +138,6 @@ public partial class VoxelWorld : Node3D
     private readonly HashSet<Vector2I> _rebuildQueued = new();
     private readonly Lock _queueLock = new();
     private readonly ChunkWorkTracker _workTracker = new();
-    private readonly Dictionary<Vector2I, int> _workerFailureAttempts = new();
     private const int MaxWorkerBuildAttempts = 3;
     private Vector2I _streamCenter;
     private int _streamRetentionLimit;
@@ -2723,121 +2722,96 @@ public partial class VoxelWorld : Node3D
                 }
             }
 
-            bool reserved = false;
-            bool published = false;
-            bool retryRequest = false;
-            MeshPayload? payload = null;
-            try
-            {
-                // Capacity is released by the main thread after applying a
-                // payload. Revalidate after waiting because travel can make
-                // this request obsolete while the worker is blocked here.
-                if (!IsWithinCurrentRetention(cp))
+            ExecuteChunkWork(cp, rebuild);
+        }
+    }
+
+    /// <summary>
+    /// Executes one dequeued request through the same deterministic lifecycle
+    /// used by regression tests: capacity reservation, stale checks, build,
+    /// publication, failure retry, payload disposal and in-flight completion.
+    /// </summary>
+    private void ExecuteChunkWork(Vector2I cp, bool rebuild)
+    {
+        int attempts = 0;
+        ChunkWorkerExecutionResult execution = ChunkWorkerLifecycle.Execute(
+                () => _alive && IsWithinCurrentRetention(cp),
+                () => _completedPayloadSlots.Wait(_workerShutdown.Token),
+                () =>
                 {
-                    return;
-                }
-
-                _completedPayloadSlots.Wait(_workerShutdown.Token);
-                reserved = true;
-                if (!_alive || !IsWithinCurrentRetention(cp)) return;
-
-                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
-                payload = Mesher.Build(this, cp);
-                Profiler.RecordBuild(System.Diagnostics.Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
-                if (!_alive || !IsWithinCurrentRetention(cp))
-                {
-                    PayloadPool.Release(payload);
-                    payload = null;
-                    return;
-                }
-
-                lock (_queueLock)
+                    long started = System.Diagnostics.Stopwatch.GetTimestamp();
+                    MeshPayload payload = Mesher.Build(this, cp);
+                    Profiler.RecordBuild(
+                            System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+                    return payload;
+                },
+                payload =>
                 {
                     // Publish under the same lock used to change the streaming
-                    // center. A completed worker must not slip an obsolete
-                    // rebuild payload into the apply queue after pruning ran.
-                    if (!_alive || !ChunkStreamingPolicy.IsWithinRetention(
-                            cp, _streamCenter, _streamRetentionLimit))
+                    // center so obsolete work cannot enter an apply queue.
+                    lock (_queueLock)
                     {
-                        PayloadPool.Release(payload);
-                        payload = null;
-                        return;
-                    }
-
-                    _workerFailureAttempts.Remove(cp);
-                    Profiler.RecordPayloadEnqueued(payload.EstimatedBufferBytes);
-                    (rebuild ? _applyRebuild : _applyFresh).Enqueue((cp, payload));
-                    payload = null;
-                    published = true;
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-            catch (Exception exception)
-            {
-                int attempts;
-                lock (_queueLock)
-                {
-                    attempts = _workerFailureAttempts.TryGetValue(cp, out int previous)
-                            ? previous + 1 : 1;
-                    if (ChunkStreamingPolicy.ShouldRetry(attempts, MaxWorkerBuildAttempts)
-                            && _alive)
-                    {
-                        _workerFailureAttempts[cp] = attempts;
-                        retryRequest = true;
-                    }
-                    else
-                    {
-                        _workerFailureAttempts.Remove(cp);
-                    }
-                }
-
-                string retryText = retryRequest
-                        ? $" (retry {attempts}/{MaxWorkerBuildAttempts})"
-                        : $" (gave up after {attempts} attempts; a later streaming/edit request can retry)";
-                GD.PushError($"minecraft: chunk worker failed at ({cp.X},{cp.Y}){retryText}: {exception}");
-                if (payload != null)
-                {
-                    PayloadPool.Release(payload);
-                    payload = null;
-                }
-            }
-            finally
-            {
-                if (reserved && !published)
-                {
-                    _completedPayloadSlots.Release();
-                }
-
-                bool outsideRetention;
-                lock (_queueLock)
-                {
-                    bool rebuildRequested = _workTracker.Complete(cp);
-                    outsideRetention = !ChunkStreamingPolicy.IsWithinRetention(
-                            cp, _streamCenter, _streamRetentionLimit);
-                    if (_alive && !outsideRetention)
-                    {
-                        if (rebuildRequested || retryRequest && rebuild)
+                        if (!_alive || !ChunkStreamingPolicy.IsWithinRetention(
+                                cp, _streamCenter, _streamRetentionLimit))
                         {
-                            QueueRebuildLocked(cp, _streamCenter);
+                            return false;
                         }
-                        else if (retryRequest)
-                        {
-                            QueueFreshLocked(cp, _streamCenter);
-                        }
-                    }
-                }
 
-                // A build can populate a halo cache after UnloadFar has
-                // already evicted it. Re-prune against the latest center while
-                // holding the queue lock so the center cannot change mid-prune.
-                if (_alive && outsideRetention)
+                        _workTracker.ForgetFailure(cp);
+                        Profiler.RecordPayloadEnqueued(payload.EstimatedBufferBytes);
+                        (rebuild ? _applyRebuild : _applyFresh).Enqueue((cp, payload));
+                        return true;
+                    }
+                },
+                PayloadPool.Release,
+                _completedPayloadSlots.Release,
+                _ =>
                 {
-                    PruneWorldCachesForCurrentRegion();
+                    lock (_queueLock)
+                    {
+                        bool withinRetention = ChunkStreamingPolicy.IsWithinRetention(
+                                cp, _streamCenter, _streamRetentionLimit);
+                        return _workTracker.TryRecordFailure(
+                                cp, _alive, withinRetention, MaxWorkerBuildAttempts, out attempts);
+                    }
+                },
+                (exception, retryRequest) =>
+                {
+                    string retryText = retryRequest
+                            ? $" (retry {attempts}/{MaxWorkerBuildAttempts})"
+                            : attempts > 0
+                                    ? $" (gave up after {attempts} attempts; a later streaming/edit request can retry)"
+                                    : " (request abandoned because the world stopped or the chunk left retention)";
+                    GD.PushError(
+                            $"minecraft: chunk worker failed at ({cp.X},{cp.Y}){retryText}: {exception}");
+                });
+
+        bool outsideRetention;
+        lock (_queueLock)
+        {
+            bool withinRetention = ChunkStreamingPolicy.IsWithinRetention(
+                    cp, _streamCenter, _streamRetentionLimit);
+            bool rebuildRequested = _workTracker.Complete(cp, withinRetention);
+            outsideRetention = !withinRetention;
+
+            if (_alive && withinRetention && (rebuildRequested || execution.RetryRequested))
+            {
+                if (ChunkWorkTracker.ShouldQueueAsRebuild(rebuild, rebuildRequested))
+                {
+                    QueueRebuildLocked(cp, _streamCenter);
+                }
+                else
+                {
+                    QueueFreshLocked(cp, _streamCenter);
                 }
             }
+        }
+
+        // A build can populate a halo cache after UnloadFar has already
+        // evicted it. Re-prune against the latest center after abandoning it.
+        if (_alive && outsideRetention)
+        {
+            PruneWorldCachesForCurrentRegion();
         }
     }
 
@@ -3541,10 +3515,10 @@ public partial class VoxelWorld : Node3D
                 {
                     lock (_queueLock)
                     {
-                        bool rebuildRequested = _workTracker.Complete(cp);
-                        if (_alive && rebuildRequested
-                                && ChunkStreamingPolicy.IsWithinRetention(
-                                        cp, _streamCenter, _streamRetentionLimit))
+                        bool withinRetention = ChunkStreamingPolicy.IsWithinRetention(
+                                cp, _streamCenter, _streamRetentionLimit);
+                        bool rebuildRequested = _workTracker.Complete(cp, withinRetention);
+                        if (_alive && withinRetention && rebuildRequested)
                         {
                             QueueRebuildLocked(cp, _streamCenter);
                         }
