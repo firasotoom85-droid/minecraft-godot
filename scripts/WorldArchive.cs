@@ -438,8 +438,8 @@ public static class WorldArchive
                 if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
                     continue;
                 string json = File.ReadAllText(path);
-                WorldReadStatus candidateStatus;
-                string candidateError;
+                WorldReadStatus candidateStatus = WorldReadStatus.Corrupt;
+                string candidateError = "The save model is null or malformed.";
                 bool valid;
                 if (isWorldSave)
                 {
