@@ -319,9 +319,21 @@ public static class WorldStore
 
     private static string ReserveWorldDirectory()
     {
-        Error rootResult = DirAccess.MakeDirRecursiveAbsolute(WorldsRoot);
-        if (rootResult != Error.Ok && !DirAccess.DirExistsAbsolute(WorldsRoot))
-            throw new System.IO.IOException($"Could not create the worlds directory ({rootResult}).");
+        string absoluteRoot = ProjectSettings.GlobalizePath(WorldsRoot);
+        try
+        {
+            if (!System.IO.Directory.Exists(absoluteRoot))
+                System.IO.Directory.CreateDirectory(absoluteRoot);
+            System.IO.FileAttributes rootAttributes = System.IO.File.GetAttributes(absoluteRoot);
+            if ((rootAttributes & System.IO.FileAttributes.Directory) == 0
+                    || (rootAttributes & System.IO.FileAttributes.ReparsePoint) != 0)
+                throw new System.IO.IOException("The worlds root must be a regular directory, not a link or file.");
+        }
+        catch (Exception e) when (e is System.IO.IOException
+                or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            throw new System.IO.IOException($"Could not safely access the worlds directory: {e.Message}", e);
+        }
 
         for (int attempt = 0; attempt < 64; attempt++)
         {
@@ -407,8 +419,8 @@ public static class WorldStore
         string prefix = WorldsRoot + "/";
         if (!dir.StartsWith(prefix, StringComparison.Ordinal)) return false;
         string relative = dir[prefix.Length..];
-        if (relative.Length == 0
-                || relative.Split('/').Any(part => part.Length == 0 || part is "." or ".."))
+        if (relative.Length == 0 || relative.Contains('/') || relative.Contains('\\')
+                || relative is "." or "..")
             return false;
 
         string root = System.IO.Path.GetFullPath(ProjectSettings.GlobalizePath(WorldsRoot));
@@ -485,6 +497,14 @@ public static class WorldStore
 
     private static bool CopyDirectory(string source, string target)
     {
+        string prefix = WorldsRoot + "/";
+        if (!source.StartsWith(prefix, StringComparison.Ordinal))
+            return false;
+        string relative = source[prefix.Length..];
+        if (relative.Length == 0 || relative.Contains('/') || relative.Contains('\\')
+                || relative is "." or "..")
+            return false;
+
         try
         {
             string absoluteSource = ProjectSettings.GlobalizePath(source);
