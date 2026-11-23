@@ -84,9 +84,11 @@ public static class InventoryPersistenceRegressionTests
 
         FurnaceData furnace = new();
         furnace.LoadFrom([
+            new ItemStackSave(0, (int)ItemId.Coal, 1),
             new ItemStackSave(0, (int)ItemId.RawIron, 2),
-            new ItemStackSave(1, (int)ItemId.Coal, 65),
+            new ItemStackSave(1, (int)ItemId.IronSword, 1, 120),
             new ItemStackSave(1, (int)ItemId.Coal, 1),
+            new ItemStackSave(2, (int)ItemId.IronSword, 1, 120),
             new ItemStackSave(2, (int)ItemId.IronIngot, 1),
             new ItemStackSave(2, (int)ItemId.GoldIngot, 1),
             new ItemStackSave(3, (int)ItemId.Stone, 1),
@@ -100,10 +102,95 @@ public static class InventoryPersistenceRegressionTests
         TestAssert.Equal(1, furnace.Fuel.Count,
                 "furnace rejects fuel overstacks");
         TestAssert.Equal(ItemId.IronIngot, furnace.Output.Id,
-                "furnace output keeps the first valid duplicate-slot record");
+                "furnace loader rejects items that do not belong in input, fuel, or output slots");
         TestAssert.Check(!ItemStackSaveValidator.TryCreate(
                         new ItemStackSave(0, 500, 1), out _, out _),
                 "item IDs outside the byte range are rejected");
+
+        Inventory opaqueInventory = new();
+        opaqueInventory.LoadFrom([new ItemStackSave(0, 110, 5)]);
+        TestAssert.Check(opaqueInventory.Get(0).IsEmpty,
+                "unrecognized future item IDs never become runtime item stacks");
+        TestAssert.Check(opaqueInventory.HasUnrecognizedSaveSlot(0),
+                "unrecognized future item reserves its original inventory slot");
+        TestAssert.Equal(0, opaqueInventory.Add(ItemId.Stone, 3),
+                "automatic inventory insertion skips a preserved future item slot");
+        List<ItemStackSave> opaqueInventorySave = opaqueInventory.ToSave();
+        TestAssert.Check(opaqueInventorySave.Exists(s => s.Slot == 0 && s.Id == 110 && s.Count == 5),
+                "unrecognized future item is preserved unchanged in player save data");
+        TestAssert.Equal(ItemId.Stone, opaqueInventory.Get(1).Id,
+                "known items are inserted into the next non-reserved inventory slot");
+        TestAssert.Equal(2, opaqueInventory.FirstEmptySlot(),
+                "first-empty lookup skips preserved future item slots");
+
+        Inventory opaqueToolInventory = new();
+        opaqueToolInventory.LoadFrom([new ItemStackSave(0, 110, 1)]);
+        TestAssert.Equal(0, opaqueToolInventory.Add(ItemDb.New(ItemId.WoodPick, 1)),
+                "non-stackable insertion skips preserved future item slots");
+        TestAssert.Equal(ItemId.WoodPick, opaqueToolInventory.Get(1).Id,
+                "non-stackable item is stored without overwriting opaque save data");
+
+        PlayerSave opaquePlayerSave = new([0.0f, 0.0f, 0.0f], Items: opaqueInventory.ToSave());
+        string opaquePlayerJson = JsonSerializer.Serialize(opaquePlayerSave, WorldStore.Json);
+        PlayerSave? opaquePlayerReload = JsonSerializer.Deserialize<PlayerSave>(
+                opaquePlayerJson, WorldStore.Json);
+        Inventory opaqueInventoryReload = new();
+        opaqueInventoryReload.LoadFrom(opaquePlayerReload?.Items);
+        TestAssert.Check(opaqueInventoryReload.HasUnrecognizedSaveSlot(0),
+                "future item reservation survives serialized player save/load");
+        TestAssert.Check(opaqueInventoryReload.ToSave().Exists(
+                        s => s.Slot == 0 && s.Id == 110 && s.Count == 5),
+                "future item fields survive serialized player save/load unchanged");
+
+        Inventory opaqueTransientSlots = new();
+        opaqueTransientSlots.LoadFrom([
+            new ItemStackSave(Inventory.CraftingGridSaveSlot + 2, 110, 2),
+            new ItemStackSave(Inventory.CursorSaveSlot, 110, 1),
+        ]);
+        TestAssert.Check(opaqueTransientSlots.HasUnrecognizedCraftingGridItem(),
+                "unrecognized crafting-grid items block crafting instead of being discarded");
+        TestAssert.Check(opaqueTransientSlots.HasUnrecognizedSaveSlot(Inventory.CursorSaveSlot),
+                "unrecognized cursor stack remains reserved");
+        List<ItemStackSave> opaqueTransientSave = opaqueTransientSlots.ToSave();
+        TestAssert.Check(opaqueTransientSave.Exists(
+                        s => s.Slot == Inventory.CraftingGridSaveSlot + 2 && s.Id == 110 && s.Count == 2)
+                && opaqueTransientSave.Exists(
+                        s => s.Slot == Inventory.CursorSaveSlot && s.Id == 110 && s.Count == 1),
+                "unrecognized crafting and cursor records are preserved in player saves");
+
+        Container opaqueContainer = new();
+        opaqueContainer.LoadFrom([new ItemStackSave(4, 110, 3)]);
+        TestAssert.Check(opaqueContainer.Slots[4].IsEmpty,
+                "unrecognized container item never becomes a runtime stack");
+        TestAssert.Check(opaqueContainer.HasUnrecognizedSaveSlot(4),
+                "unrecognized container item reserves its source slot");
+        TestAssert.Check(!opaqueContainer.IsEmpty,
+                "container with a preserved unrecognized item is not considered empty");
+        TestAssert.Equal(0, opaqueContainer.Add(ItemId.Stone, 3),
+                "container insertion skips a preserved future item slot");
+        TestAssert.Check(opaqueContainer.ToSave().Exists(s => s.Slot == 4 && s.Id == 110 && s.Count == 3),
+                "unrecognized container item is preserved unchanged");
+
+        FurnaceData opaqueFurnace = new();
+        opaqueFurnace.LoadFrom([
+            new ItemStackSave(0, (int)ItemId.RawIron, 1),
+            new ItemStackSave(1, (int)ItemId.Coal, 1),
+            new ItemStackSave(2, 110, 2),
+        ]);
+        TestAssert.Check(opaqueFurnace.Output.IsEmpty,
+                "unrecognized furnace output never becomes a runtime item stack");
+        TestAssert.Check(opaqueFurnace.HasUnrecognizedSaveSlot(2),
+                "unrecognized furnace output reserves its slot");
+        TestAssert.Check(!opaqueFurnace.IsEmpty,
+                "furnace with preserved unrecognized contents is not considered empty");
+        TestAssert.Check(!opaqueFurnace.Tick(30.0f),
+                "furnace does not consume fuel or inputs while output slot is reserved");
+        TestAssert.Equal(1, opaqueFurnace.Input.Count,
+                "reserved furnace output retains the input stack");
+        TestAssert.Equal(1, opaqueFurnace.Fuel.Count,
+                "reserved furnace output retains the fuel stack");
+        TestAssert.Check(opaqueFurnace.ToSave().Exists(s => s.Slot == 2 && s.Id == 110 && s.Count == 2),
+                "unrecognized furnace output is preserved unchanged");
     }
 
     private static void KeepCraftingResultsAtomic()

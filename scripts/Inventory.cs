@@ -26,9 +26,59 @@ public sealed class Inventory
     // These stacks are not capacity-bearing backpack slots, but they remain
     // owned by the player and are serialized beside ordinary inventory slots.
     public readonly ItemStack[] CraftingGrid = new ItemStack[CraftingGridSize];
-    public ItemStack CursorStack { get; set; } = ItemStack.Empty;
+    private readonly ItemStackSave?[] _unrecognizedSavedSlots = new ItemStackSave?[PersistentSlotCount];
+    private ItemStack _cursorStack = ItemStack.Empty;
+
+    public ItemStack CursorStack
+    {
+        get => _cursorStack;
+        set
+        {
+            ClearUnrecognizedSaveSlot(CursorSaveSlot);
+            _cursorStack = value;
+        }
+    }
 
     public event Action? Changed;
+
+    /// <summary>
+    /// True when this slot contains an item ID from another content registry.
+    /// Such records remain opaque and reserved until a compatible build loads them.
+    /// </summary>
+    public bool HasUnrecognizedSaveSlot(int slot) =>
+            (uint)slot < _unrecognizedSavedSlots.Length && _unrecognizedSavedSlots[slot] != null;
+
+    public bool HasUnrecognizedCraftingGridItem()
+    {
+        for (int i = 0; i < CraftingGridSize; i++)
+        {
+            if (HasUnrecognizedSaveSlot(CraftingGridSaveSlot + i))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public void ClearUnrecognizedSaveSlot(int slot)
+    {
+        if ((uint)slot < _unrecognizedSavedSlots.Length)
+        {
+            _unrecognizedSavedSlots[slot] = null;
+        }
+    }
+
+    public void SetCraftingGridSlot(int slot, ItemStack stack)
+    {
+        if ((uint)slot >= CraftingGrid.Length)
+        {
+            return;
+        }
+
+        ClearUnrecognizedSaveSlot(CraftingGridSaveSlot + slot);
+        CraftingGrid[slot] = stack;
+    }
 
     public ItemStack Get(int slot) => slot < HotbarSize
             ? Hotbar[slot]
@@ -38,6 +88,11 @@ public sealed class Inventory
 
     public void Set(int slot, ItemStack stack)
     {
+        if ((uint)slot < SaveSlotCount)
+        {
+            ClearUnrecognizedSaveSlot(slot);
+        }
+
         if (slot < HotbarSize)
         {
             Hotbar[slot] = stack;
@@ -92,7 +147,7 @@ public sealed class Inventory
             int unstacked = stack.Count;
             for (int i = 0; i < SlotCount && unstacked > 0; i++)
             {
-                if (!Get(i).IsEmpty)
+                if (!Get(i).IsEmpty || HasUnrecognizedSaveSlot(i))
                 {
                     continue;
                 }
@@ -129,8 +184,8 @@ public sealed class Inventory
         int remaining = count;
         remaining = Merge(id, remaining, max, Hotbar);
         remaining = Merge(id, remaining, max, Backpack);
-        remaining = FillEmpty(id, remaining, max, Hotbar);
-        remaining = FillEmpty(id, remaining, max, Backpack);
+        remaining = FillEmpty(id, remaining, max, Hotbar, 0);
+        remaining = FillEmpty(id, remaining, max, Backpack, HotbarSize);
         Changed?.Invoke();
         return remaining;
     }
@@ -152,11 +207,11 @@ public sealed class Inventory
         return remaining;
     }
 
-    private static int FillEmpty(ItemId id, int remaining, int max, ItemStack[] slots)
+    private int FillEmpty(ItemId id, int remaining, int max, ItemStack[] slots, int firstSaveSlot)
     {
         for (int i = 0; i < slots.Length && remaining > 0; i++)
         {
-            if (!slots[i].IsEmpty)
+            if (!slots[i].IsEmpty || HasUnrecognizedSaveSlot(firstSaveSlot + i))
             {
                 continue;
             }
@@ -184,23 +239,27 @@ public sealed class Inventory
 
         int max = ItemDb.MaxStack(id);
         int space = 0;
-        space += SpaceIn(id, count, max, Hotbar);
-        space += SpaceIn(id, count, max, Backpack);
+        space += SpaceIn(id, count, max, Hotbar, 0);
+        space += SpaceIn(id, count, max, Backpack, HotbarSize);
         return space >= count;
     }
 
-    private static int SpaceIn(ItemId id, int count, int max, ItemStack[] slots)
+    private int SpaceIn(ItemId id, int count, int max, ItemStack[] slots, int firstSaveSlot)
     {
         int space = 0;
-        foreach (ItemStack s in slots)
+        for (int i = 0; i < slots.Length; i++)
         {
-            if (s.IsEmpty)
+            ItemStack stack = slots[i];
+            if (stack.IsEmpty)
             {
-                space += max;
+                if (!HasUnrecognizedSaveSlot(firstSaveSlot + i))
+                {
+                    space += max;
+                }
             }
-            else if (s.Id == id)
+            else if (stack.Id == id)
             {
-                space += Math.Max(max - s.Count, 0);
+                space += Math.Max(max - stack.Count, 0);
             }
 
             if (space >= count)
@@ -293,7 +352,7 @@ public sealed class Inventory
     {
         for (int i = 0; i < SlotCount; i++)
         {
-            if (Get(i).IsEmpty)
+            if (Get(i).IsEmpty && !HasUnrecognizedSaveSlot(i))
             {
                 return i;
             }
@@ -309,6 +368,7 @@ public sealed class Inventory
         System.Array.Fill(Armor, ItemStack.Empty);
         System.Array.Fill(CraftingGrid, ItemStack.Empty);
         CursorStack = ItemStack.Empty;
+        System.Array.Fill(_unrecognizedSavedSlots, null);
     }
 
     public bool TryAddAtomic(ItemStack stack)
@@ -390,8 +450,23 @@ public sealed class Inventory
             list.Add(ToSave(CursorSaveSlot, CursorStack));
         }
 
+        for (int slot = 0; slot < _unrecognizedSavedSlots.Length; slot++)
+        {
+            ItemStackSave? saved = _unrecognizedSavedSlots[slot];
+            if (saved != null && RuntimeStackAt(slot).IsEmpty)
+            {
+                list.Add(saved);
+            }
+        }
+
         return list;
     }
+
+    private ItemStack RuntimeStackAt(int slot) => slot < SaveSlotCount
+            ? Get(slot)
+            : slot < CursorSaveSlot
+                    ? CraftingGrid[slot - CraftingGridSaveSlot]
+                    : CursorStack;
 
     private static ItemStackSave ToSave(int slot, ItemStack stack) =>
             new(slot, (int)stack.Id, stack.Count, stack.Durability,
@@ -416,6 +491,20 @@ public sealed class Inventory
                 if (saved.Slot < 0 || saved.Slot >= PersistentSlotCount)
                 {
                     ItemStackSaveValidator.ReportInvalid("inventory", saved, "slot is out of range");
+                    continue;
+                }
+
+                if (ItemStackSaveValidator.IsUnrecognizedItemId(saved.Id))
+                {
+                    if (loadedSlots[saved.Slot])
+                    {
+                        ItemStackSaveValidator.ReportInvalid("inventory", saved, "duplicate slot record");
+                        continue;
+                    }
+
+                    loadedSlots[saved.Slot] = true;
+                    _unrecognizedSavedSlots[saved.Slot] = saved;
+                    ItemStackSaveValidator.ReportUnrecognized("inventory", saved);
                     continue;
                 }
 

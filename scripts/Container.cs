@@ -13,11 +13,31 @@ public sealed class Container
     public const int Size = 27;
 
     public readonly ItemStack[] Slots = new ItemStack[Size];
+    private readonly ItemStackSave?[] _unrecognizedSavedSlots = new ItemStackSave?[Size];
+
+    public bool HasUnrecognizedSaveSlot(int slot) =>
+            (uint)slot < _unrecognizedSavedSlots.Length && _unrecognizedSavedSlots[slot] != null;
+
+    public void ClearUnrecognizedSaveSlot(int slot)
+    {
+        if ((uint)slot < _unrecognizedSavedSlots.Length)
+        {
+            _unrecognizedSavedSlots[slot] = null;
+        }
+    }
 
     public bool IsEmpty
     {
         get
         {
+            foreach (ItemStackSave? saved in _unrecognizedSavedSlots)
+            {
+                if (saved != null)
+                {
+                    return false;
+                }
+            }
+
             foreach (ItemStack stack in Slots)
             {
                 if (!stack.IsEmpty)
@@ -42,12 +62,21 @@ public sealed class Container
             }
         }
 
+        for (int i = 0; i < _unrecognizedSavedSlots.Length; i++)
+        {
+            if (_unrecognizedSavedSlots[i] is { } saved && Slots[i].IsEmpty)
+            {
+                data.Add(saved);
+            }
+        }
+
         return data;
     }
 
     public void LoadFrom(List<ItemStackSave>? items)
     {
         Array.Fill(Slots, ItemStack.Empty);
+        Array.Fill(_unrecognizedSavedSlots, null);
         if (items == null)
         {
             return;
@@ -59,6 +88,20 @@ public sealed class Container
             if (saved.Slot < 0 || saved.Slot >= Slots.Length)
             {
                 ItemStackSaveValidator.ReportInvalid("container", saved, "slot is out of range");
+                continue;
+            }
+
+            if (ItemStackSaveValidator.IsUnrecognizedItemId(saved.Id))
+            {
+                if (loadedSlots[saved.Slot])
+                {
+                    ItemStackSaveValidator.ReportInvalid("container", saved, "duplicate slot record");
+                    continue;
+                }
+
+                loadedSlots[saved.Slot] = true;
+                _unrecognizedSavedSlots[saved.Slot] = saved;
+                ItemStackSaveValidator.ReportUnrecognized("container", saved);
                 continue;
             }
 
@@ -108,7 +151,7 @@ public sealed class Container
 
         for (int i = 0; i < Slots.Length && remaining > 0; i++)
         {
-            if (!Slots[i].IsEmpty)
+            if (!Slots[i].IsEmpty || HasUnrecognizedSaveSlot(i))
             {
                 continue;
             }

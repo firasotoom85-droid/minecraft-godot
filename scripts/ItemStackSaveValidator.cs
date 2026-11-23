@@ -4,10 +4,21 @@ namespace Minecraft;
 
 /// <summary>
 /// Canonical validation policy for persisted item stacks. Invalid records are
-/// skipped; valid earlier records retain slot ownership when duplicates occur.
+/// skipped, while unknown future IDs remain opaque and retain their original slot.
 /// </summary>
 public static class ItemStackSaveValidator
 {
+    public static bool IsUnrecognizedItemId(int savedId)
+    {
+        if (savedId <= (int)ItemId.None || savedId > byte.MaxValue)
+        {
+            return false;
+        }
+
+        ItemId id = (ItemId)(byte)savedId;
+        return !System.Enum.IsDefined(typeof(ItemId), id);
+    }
+
     public static bool TryCreate(ItemStackSave saved, out ItemStack stack, out string reason)
     {
         stack = ItemStack.Empty;
@@ -79,6 +90,23 @@ public static class ItemStackSaveValidator
         int armorSlot = slot - Inventory.SlotCount;
         return ItemDb.ArmorOf(stack.Id) is { } armor && armor.Slot == armorSlot;
     }
+
+    public static bool FitsFurnaceSlot(int slot, ItemStack stack) => slot switch
+    {
+        0 => ItemDb.SmeltsTo(stack.Id) != null,
+        1 => ItemDb.FuelSeconds(stack.Id) > 0.0f,
+        2 => IsSmeltResult(stack.Id),
+        _ => false,
+    };
+
+    private static bool IsSmeltResult(ItemId id) => id is
+            ItemId.IronIngot or ItemId.GoldIngot or ItemId.Glass or ItemId.Stone
+            or ItemId.CookedMutton or ItemId.CookedBeef or ItemId.CookedPork
+            or ItemId.CookedChicken or ItemId.CookedFish;
+
+    public static void ReportUnrecognized(string owner, ItemStackSave saved) =>
+            GD.PushWarning($"minecraft: preserved unrecognized {owner} item save at slot {saved.Slot} "
+                    + $"(id={saved.Id}, count={saved.Count}) as opaque data for content-version compatibility");
 
     public static void ReportInvalid(string owner, ItemStackSave saved, string reason) =>
             GD.PushWarning($"minecraft: skipped invalid {owner} item save at slot {saved.Slot} "

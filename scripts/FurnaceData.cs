@@ -20,10 +20,25 @@ public sealed class FurnaceData
     public float SmeltTime;
 
     private ItemId? _smeltResult;
+    private readonly ItemStackSave?[] _unrecognizedSavedSlots = new ItemStackSave?[3];
 
     public bool IsBurning => BurnTime > 0.0f;
 
-    public bool IsEmpty => Input.IsEmpty && Fuel.IsEmpty && Output.IsEmpty && BurnTime <= 0.0f && SmeltTime <= 0.0f;
+    public bool HasUnrecognizedSaveSlot(int slot) =>
+            (uint)slot < _unrecognizedSavedSlots.Length && _unrecognizedSavedSlots[slot] != null;
+
+    public void ClearUnrecognizedSaveSlot(int slot)
+    {
+        if ((uint)slot < _unrecognizedSavedSlots.Length)
+        {
+            _unrecognizedSavedSlots[slot] = null;
+        }
+    }
+
+    public bool IsEmpty => Input.IsEmpty && Fuel.IsEmpty && Output.IsEmpty
+            && BurnTime <= 0.0f && SmeltTime <= 0.0f
+            && !HasUnrecognizedSaveSlot(0) && !HasUnrecognizedSaveSlot(1)
+            && !HasUnrecognizedSaveSlot(2);
 
     /// <summary>Advance one tick; carries elapsed time across fuel boundaries.</summary>
     public bool Tick(float delta)
@@ -115,7 +130,7 @@ public sealed class FurnaceData
     {
         if (Output.IsEmpty)
         {
-            return true;
+            return !HasUnrecognizedSaveSlot(2);
         }
 
         return Output.Id == id && Output.Count < ItemDb.MaxStack(id);
@@ -151,12 +166,27 @@ public sealed class FurnaceData
             data.Add(new ItemStackSave(2, (int)Output.Id, Output.Count, Output.Durability, Output.Sharpness, Output.Protection, Output.Unbreaking));
         }
 
+        for (int i = 0; i < _unrecognizedSavedSlots.Length; i++)
+        {
+            ItemStack runtime = i switch
+            {
+                0 => Input,
+                1 => Fuel,
+                _ => Output,
+            };
+            if (_unrecognizedSavedSlots[i] is { } saved && runtime.IsEmpty)
+            {
+                data.Add(saved);
+            }
+        }
+
         return data;
     }
 
     public void LoadFrom(List<ItemStackSave>? items)
     {
         Input = Fuel = Output = ItemStack.Empty;
+        Array.Fill(_unrecognizedSavedSlots, null);
         if (items != null)
         {
             bool[] loadedSlots = new bool[3];
@@ -168,9 +198,30 @@ public sealed class FurnaceData
                     continue;
                 }
 
+                if (ItemStackSaveValidator.IsUnrecognizedItemId(saved.Id))
+                {
+                    if (loadedSlots[saved.Slot])
+                    {
+                        ItemStackSaveValidator.ReportInvalid("furnace", saved, "duplicate slot record");
+                        continue;
+                    }
+
+                    loadedSlots[saved.Slot] = true;
+                    _unrecognizedSavedSlots[saved.Slot] = saved;
+                    ItemStackSaveValidator.ReportUnrecognized("furnace", saved);
+                    continue;
+                }
+
                 if (!ItemStackSaveValidator.TryCreate(saved, out ItemStack stack, out string reason))
                 {
                     ItemStackSaveValidator.ReportInvalid("furnace", saved, reason);
+                    continue;
+                }
+
+                if (!ItemStackSaveValidator.FitsFurnaceSlot(saved.Slot, stack))
+                {
+                    ItemStackSaveValidator.ReportInvalid("furnace", saved,
+                            "item is not accepted in this furnace slot");
                     continue;
                 }
 
