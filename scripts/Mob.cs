@@ -139,11 +139,15 @@ public partial class Mob : CharacterBody3D, IDamageable
 
     protected virtual void Die()
     {
-        // Direct death paths (sunlight burn, dawn retreat) do not go through
-        // ApplyDamage, so they must still mark the mob dead and make death
-        // idempotent. Deletion is deferred; a queued mob can otherwise receive
-        // another hit and raise Died (and its loot/XP) a second time.
+        // Every death route, including sunlight/dawn deaths, checks loot capacity
+        // before the actor is marked dead or removed from the world.
         if (_deathRaised) return;
+        if (Manager != null && !Manager.TryAllowMobDeath(this))
+        {
+            Health = 1.0f;
+            return;
+        }
+
         _deathRaised = true;
         Health = Mathf.Min(Health, 0.0f);
         Died?.Invoke(this);

@@ -404,6 +404,118 @@ public sealed class Inventory
         return true;
     }
 
+    /// <summary>
+    /// Checks capacity for a set of rewards as one transaction. Empty slots are
+    /// shared across item types, so each distinct item reserves its own required
+    /// stack slots before any reward is inserted.
+    /// </summary>
+    public bool CanFitAll(ReadOnlySpan<ItemStack> rewards)
+    {
+        int emptySlots = 0;
+        for (int slot = 0; slot < SlotCount; slot++)
+        {
+            if (Get(slot).IsEmpty && !HasUnrecognizedSaveSlot(slot))
+            {
+                emptySlots++;
+            }
+        }
+
+        int requiredEmptySlots = 0;
+        for (int i = 0; i < rewards.Length; i++)
+        {
+            ItemStack reward = rewards[i];
+            if (reward.IsEmpty)
+            {
+                continue;
+            }
+
+            if (!ItemDb.IsRegistered(reward.Id) || reward.Count <= 0)
+            {
+                return false;
+            }
+
+            bool seen = false;
+            for (int previous = 0; previous < i; previous++)
+            {
+                if (rewards[previous].Id == reward.Id)
+                {
+                    seen = true;
+                    break;
+                }
+            }
+
+            if (seen)
+            {
+                continue;
+            }
+
+            long totalCount = 0;
+            for (int j = i; j < rewards.Length; j++)
+            {
+                if (rewards[j].Id == reward.Id)
+                {
+                    if (rewards[j].Count <= 0)
+                    {
+                        return false;
+                    }
+
+                    totalCount += rewards[j].Count;
+                }
+            }
+
+            int maxStack = ItemDb.MaxStack(reward.Id);
+            int existingSpace = 0;
+            for (int slot = 0; slot < SlotCount; slot++)
+            {
+                ItemStack current = Get(slot);
+                if (current.Id == reward.Id && current.Count < maxStack)
+                {
+                    existingSpace += maxStack - current.Count;
+                }
+            }
+
+            long remainder = Math.Max(totalCount - existingSpace, 0L);
+            long slotsNeeded = (remainder + maxStack - 1) / maxStack;
+            if (slotsNeeded > emptySlots - requiredEmptySlots)
+            {
+                return false;
+            }
+
+            requiredEmptySlots += (int)slotsNeeded;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Inserts a complete reward set after preflighting the combined capacity.
+    /// No reward is mutated into the inventory when the whole set cannot fit.
+    /// </summary>
+    public bool TryAddAll(ReadOnlySpan<ItemStack> rewards)
+    {
+        if (!CanFitAll(rewards))
+        {
+            return false;
+        }
+
+        for (int i = 0; i < rewards.Length; i++)
+        {
+            ItemStack reward = rewards[i];
+            if (reward.IsEmpty)
+            {
+                continue;
+            }
+
+            if (Add(reward) > 0)
+            {
+                throw new InvalidOperationException(
+                        "Inventory.TryAddAll capacity preflight disagreed with item insertion.");
+            }
+        }
+
+        return true;
+    }
+
     public bool TryAddAtomic(ItemStack stack)
     {
         if (stack.IsEmpty)
