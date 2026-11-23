@@ -487,11 +487,18 @@ public static class WorldArchive
         }
 
         if (!names.Contains(requested)) return requested;
-        string imported = requested + " (Imported)";
+
+        static string WithSuffix(string name, string suffix)
+        {
+            int prefixLength = Math.Min(name.Length, 128 - suffix.Length);
+            return name[..prefixLength] + suffix;
+        }
+
+        string imported = WithSuffix(requested, " (Imported)");
         if (!names.Contains(imported)) return imported;
         for (int suffix = 2; ; suffix++)
         {
-            string candidate = requested + $" (Imported {suffix})";
+            string candidate = WithSuffix(requested, $" (Imported {suffix})");
             if (!names.Contains(candidate)) return candidate;
         }
     }
