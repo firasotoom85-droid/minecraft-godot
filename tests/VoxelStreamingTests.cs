@@ -235,6 +235,17 @@ public static class VoxelStreamingTests
         TestAssert.Equal(0, tracker.FailureCount,
                 "completion after travel removes retry state for an abandoned out-of-retention chunk");
 
+        Vector2I queuedDepartedCoordinate = new(40, -40);
+        TestAssert.Check(tracker.TryRecordFailure(
+                        queuedDepartedCoordinate, true, true, 3, out _),
+                "a failed request records retry history before its retry is queued");
+        TestAssert.Equal(1, tracker.FailureCount,
+                "queued retry history exists before the streaming center changes");
+        tracker.ForgetFailureOutsideRetention(
+                queuedDepartedCoordinate, Vector2I.Zero, limit: 5);
+        TestAssert.Equal(0, tracker.FailureCount,
+                "queue reconciliation removes retry history for a retry discarded outside retention");
+
         Vector2I staleCoordinate = new(2, 2);
         TestAssert.Check(tracker.TryBegin(staleCoordinate),
                 "stale-payload test claims its work coordinate");
