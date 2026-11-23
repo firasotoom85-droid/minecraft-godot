@@ -752,11 +752,15 @@ selection screen to validate and import an archive. Imports are extracted to a
 staging directory, checked against the archive's SHA-256 file index, and only
 then moved into the worlds folder. Existing worlds are not overwritten; a
 name suffix is assigned when an imported world has a duplicate name. Archives
-with unsafe paths, links, unsupported save/generator versions, corrupt data
-without a valid backup, or excessive expanded size are rejected.
+with unsafe paths, links, unsupported save/generator versions, structurally
+invalid save records, corrupt data without a valid backup, or excessive
+expanded size are rejected. World duplication and deletion do not traverse
+symbolic links, junctions or other filesystem reparse points; failed copies
+are discarded instead of being published.
 
-Older manifests without a playtime field continue to load with zero playtime;
-existing world-save versions and generator versions are not rewritten by import.
+Older manifests without a playtime or save-history field continue to load with
+legacy defaults. Existing world-save versions and generator versions are not
+rewritten by import.
 
 ## Requirements
 
@@ -1450,10 +1454,17 @@ Each world lives in `user://worlds/<id>/`:
   discovered villagers, multi-stage quest progress, and optional boat state.
 - `player.json` — position, inventory, mode, health, hunger, respawn, experience, and optional per-item enchantment levels.
 
-Writes are atomic (temp file + rename) and keep two rotating backups. Old
-worlds remain loadable: block/item ids are append-only and worldgen changes are
-gated behind generator versions. The v4 fields are optional, so v1-v3 files
-load without shape, villager, quest or boat data.
+Writes use sibling temporary files and rotating recovery candidates.
+World/player save candidates are structurally validated before loading; a
+malformed primary is skipped in favor of the next valid backup, while
+unsupported future versions are never downgraded to an older save. The
+optional manifest `hasSavedData` marker (absent/false in legacy manifests)
+records that a complete save pair has existed. If a previously saved world
+loses every primary and backup candidate, or its manifest/save metadata is
+unreadable, it is retained for recovery rather than silently initialized as a
+new world or redirected to a different save. Ordinary writes are blocked while
+recovery is required. The v4 world fields remain optional, so v1-v3 files load
+without shape, villager, quest or boat data.
 
 ## Persisted block and item IDs
 
