@@ -49,7 +49,8 @@ public partial class GameSession : Node
                         + manifestRead.Error);
             }
 
-            Manifest = manifestRead.Value;
+            WorldManifest manifest = manifestRead.Value;
+            Manifest = manifest;
             WorldReadResult<WorldSave> worldRead = WorldStore.ReadJsonResult<WorldSave>(
                     WorldStore.WorldSavePath(WorldDir), WorldStore.Json);
             WorldReadResult<PlayerSave> playerRead = WorldStore.ReadJsonResult<PlayerSave>(
@@ -72,8 +73,8 @@ public partial class GameSession : Node
             }
 
             if (worldRead.Status == WorldReadStatus.Missing && playerRead.Status == WorldReadStatus.Missing
-                    && (Manifest.HasSavedData || Manifest.PlaytimeSeconds > 0
-                    || Manifest.PlayedUtc > Manifest.CreatedUtc))
+                    && (manifest.HasSavedData || manifest.PlaytimeSeconds > 0
+                    || manifest.PlayedUtc > manifest.CreatedUtc))
             {
                 WorldStore.RequireRecovery(WorldDir);
                 throw new System.IO.InvalidDataException(
@@ -86,9 +87,9 @@ public partial class GameSession : Node
 
             // Upgrade older manifests in place after verifying both existing
             // save models. The optional field is ignored by pre-existing versions.
-            if (!Manifest.HasSavedData && worldRead.Value is not null && playerRead.Value is not null)
+            if (!manifest.HasSavedData && worldRead.Value is not null && playerRead.Value is not null)
             {
-                WorldManifest marked = Manifest with { HasSavedData = true };
+                WorldManifest marked = manifest with { HasSavedData = true };
                 if (!WorldStore.WriteManifest(WorldDir, marked))
                     throw new System.IO.IOException(
                             "The world is readable, but its save-history safety metadata could not be persisted.");
