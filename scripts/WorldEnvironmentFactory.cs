@@ -25,7 +25,7 @@ public static class WorldEnvironmentFactory
                     ? Godot.Environment.FogModeEnum.Depth
                     : Godot.Environment.FogModeEnum.Exponential;
 
-    public static Godot.Environment Build(int generatorVersion = WorldStore.CurrentGenVersion)
+    public static Godot.Environment Build(int generatorVersion = WorldStore.CurrentGenVersion, int? presetIndex = null)
     {
         bool improvedWorldgenLighting = generatorVersion >= WorldGenV8.Version;
         ProceduralSkyMaterial skyMat = new()
@@ -90,6 +90,9 @@ public static class WorldEnvironmentFactory
             environment.FogDepthCurve = DistanceHazeCurve;
         }
 
+        // Preserve the historical high-quality factory defaults for callers that
+        // do not specify a preset. Gameplay supplies the saved preset explicitly.
+        Gfx.ApplyEnvironmentPreset(environment, presetIndex ?? Gfx.Presets.Count - 1);
         return environment;
     }
 
