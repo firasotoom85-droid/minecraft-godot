@@ -174,6 +174,12 @@ public static class WorldStore
 
     public static bool WriteManifest(string dir, WorldManifest manifest)
     {
+        if (!ValidateModel(manifest, out _, out string validationError))
+        {
+            GD.PushWarning($"minecraft: refusing invalid world manifest for {dir}: {validationError}");
+            return false;
+        }
+
         if (!DirAccess.DirExistsAbsolute(dir))
         {
             Error mkdir = DirAccess.MakeDirRecursiveAbsolute(dir);
@@ -290,6 +296,12 @@ public static class WorldStore
 
     public static string Create(string name, int? seed, string mode = "survival", string preset = "normal")
     {
+        name = name?.Trim() ?? "";
+        if (name.Length is < 1 or > 128
+                || mode is not ("survival" or "creative")
+                || preset is not ("normal" or "flat" or "amplified" or "sky"))
+            throw new System.IO.InvalidDataException("The world name, game mode, or generator preset is invalid.");
+
         int resolved = seed ?? unchecked((int)(Time.GetTicksUsec() & 0x7FFFFFFF));
         string dir = ReserveWorldDirectory();
         long createdUtc = NowUtc();
@@ -372,9 +384,11 @@ public static class WorldStore
         }
 
         long duplicatedUtc = NowUtc();
+        string copyName = string.IsNullOrWhiteSpace(name) ? $"{manifest.Name} copy" : name.Trim();
+        if (copyName.Length > 128) copyName = copyName[..128];
         bool manifestWritten = WriteManifest(target, manifest with
         {
-            Name = string.IsNullOrWhiteSpace(name) ? $"{manifest.Name} copy" : name.Trim(),
+            Name = copyName,
             CreatedUtc = duplicatedUtc,
             PlayedUtc = duplicatedUtc,
         });
