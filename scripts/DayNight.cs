@@ -556,7 +556,7 @@ public partial class DayNight : Node
         // Keep close-quarters cave and immersion fog exponential so those
         // established high-density profiles still close in around the player.
         Godot.Environment.FogModeEnum fogMode = WorldEnvironmentFactory.FogModeFor(
-                _usesDistanceHaze, sheltered, underwater && !_usesDistanceHaze);
+                _usesDistanceHaze, sheltered);
         if (env.FogMode != fogMode)
         {
             env.FogMode = fogMode;

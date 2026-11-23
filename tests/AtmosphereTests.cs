@@ -594,16 +594,16 @@ public static class AtmosphereTests
         }
 
         TestAssert.Equal(Godot.Environment.FogModeEnum.Depth,
-                WorldEnvironmentFactory.FogModeFor(true, underground: false, underwater: false),
+                WorldEnvironmentFactory.FogModeFor(true, underground: false),
                 "outdoor V8+ views use depth haze");
         TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential,
-                WorldEnvironmentFactory.FogModeFor(false, underground: false, underwater: false),
+                WorldEnvironmentFactory.FogModeFor(false, underground: false),
                 "legacy outdoor worlds keep exponential fog");
         TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential,
-                WorldEnvironmentFactory.FogModeFor(true, underground: true, underwater: false),
+                WorldEnvironmentFactory.FogModeFor(true, underground: true),
                 "cave darkness retains close-range exponential fog");
         TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential,
-                WorldEnvironmentFactory.FogModeFor(true, underground: false, underwater: true),
+                WorldEnvironmentFactory.FogModeFor(true, underground: false),
                 "underwater immersion retains close-range exponential fog");
 
         foreach (int presetIndex in new[] { 0, 1 })

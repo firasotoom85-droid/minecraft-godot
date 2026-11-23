@@ -19,9 +19,11 @@ public static class WorldEnvironmentFactory
     public const float ContactSsaoRadius = 0.82f;
     public const float ContactSsaoIntensity = 1.30f;
 
+    // Modern worlds keep one camera-depth fog mode through water entry/exit;
+    // immersion changes the depth range rather than switching the fog algorithm.
     internal static Godot.Environment.FogModeEnum FogModeFor(
-            bool usesDistanceHaze, bool underground, bool underwater) =>
-            usesDistanceHaze && !underground && !underwater
+            bool usesDistanceHaze, bool underground) =>
+            usesDistanceHaze && !underground
                     ? Godot.Environment.FogModeEnum.Depth
                     : Godot.Environment.FogModeEnum.Exponential;
 
