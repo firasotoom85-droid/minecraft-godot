@@ -9,6 +9,13 @@ public static class SaveTests
 {
     public static void Run()
     {
+        TestAssert.Check(PauseSaveResultPolicy.IsSuccessful(true),
+                "the pause menu accepts a successful result from the bool save API");
+        TestAssert.Check(!PauseSaveResultPolicy.IsSuccessful(false),
+                "the pause menu propagates a failed result from the bool save API");
+        TestAssert.Check(PauseSaveResultPolicy.IsSuccessful(null),
+                "the pause menu remains source-compatible with the legacy void save API");
+
         string root = $"user://tests/save-{Time.GetTicksUsec()}";
         DirAccess.MakeDirRecursiveAbsolute(root);
 
