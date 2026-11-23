@@ -200,15 +200,22 @@ public static class BlockShapeTests
 
             System.Threading.Tasks.Task<VoxelLightData[]> solve = System.Threading.Tasks.Task.Run(
                     () => world.LightDataNeighborhood(new Vector2I(1, 1)));
-            System.Threading.Tasks.Task<bool> lockProbe = System.Threading.Tasks.Task.Run(() =>
-            {
-                lock (world.SnapshotLock)
-                    return true;
-            });
-
             bool reachedSolve = snapshotCaptured.Wait(System.TimeSpan.FromSeconds(10));
-            bool acquiredDuringSolve = reachedSolve
-                    && lockProbe.Wait(System.TimeSpan.FromSeconds(2));
+
+            System.Threading.Tasks.Task<bool>? lockProbe = null;
+            bool acquiredDuringSolve = false;
+            if (reachedSolve)
+            {
+                // Start the lock probe only after the worker is paused beyond
+                // its snapshot section; this proves the solve itself is out of lock.
+                lockProbe = System.Threading.Tasks.Task.Run(() =>
+                {
+                    lock (world.SnapshotLock)
+                        return true;
+                });
+                acquiredDuringSolve = lockProbe.Wait(System.TimeSpan.FromSeconds(2));
+            }
+
             BlockId oldBlock = world.GetBlock(8, 120, 8);
             BlockId replacement = oldBlock == BlockId.Air ? BlockId.Stone : BlockId.Air;
             bool mutationSucceeded = reachedSolve && world.SetBlock(8, 120, 8, replacement);
@@ -217,7 +224,7 @@ public static class BlockShapeTests
             bool solveCompleted = solve.Wait(System.TimeSpan.FromSeconds(30));
             if (solveCompleted)
                 _ = solve.GetAwaiter().GetResult();
-            if (!lockProbe.IsCompleted)
+            if (lockProbe != null && !lockProbe.IsCompleted)
                 lockProbe.Wait(System.TimeSpan.FromSeconds(10));
 
             world.SnapshotReleasedTestHook = null;
