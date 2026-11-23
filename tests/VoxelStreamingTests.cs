@@ -13,6 +13,9 @@ public static class VoxelStreamingTests
         TestAssert.Check(StreamingApplyBudget.ShouldStop(0.0, 1, 0.0),
                 "zero time budget stops after the first payload");
 
+        TestChunkWorkTracking();
+        TestStreamingPolicies();
+
         long expectedLow = 11L * 11L * 16 * 128 * 16 * StreamingMemoryBudget.BytesPerVoxelUpperBound;
         TestAssert.Equal(expectedLow,
                 StreamingMemoryBudget.EstimateVoxelArrayBudgetBytes(2, 2, 16, 128, 16),
@@ -25,3 +28,72 @@ public static class VoxelStreamingTests
                 "voxel cache budget clamps unsupported view distances to the runtime minimum");
     }
 }
+
+    private static void TestChunkWorkTracking()
+    {
+        ChunkWorkTracker tracker = new();
+        Vector2I coordinate = new(4, -7);
+
+        TestAssert.Check(tracker.TryBegin(coordinate),
+                "first worker claims a coordinate");
+        TestAssert.Check(!tracker.TryBegin(coordinate),
+                "a coordinate cannot be claimed by two workers");
+        tracker.RequestRebuild(coordinate);
+        tracker.RequestRebuild(coordinate);
+        TestAssert.Equal(1, tracker.InFlightCount,
+                "repeated edits keep one active owner");
+        TestAssert.Check(tracker.Complete(coordinate),
+                "an edit during a build schedules one follow-up");
+        TestAssert.Equal(0, tracker.InFlightCount,
+                "completion releases active ownership");
+        TestAssert.Check(!tracker.Complete(coordinate),
+                "the follow-up request is consumed exactly once");
+        TestAssert.Check(tracker.TryBegin(coordinate),
+                "the coordinate can be claimed again after completion");
+        TestAssert.Check(!tracker.Complete(coordinate),
+                "an unchanged build does not schedule unnecessary work");
+    }
+
+    private static void TestStreamingPolicies()
+    {
+        TestAssert.Check(ChunkStreamingPolicy.IsWithinRetention(
+                        new Vector2I(-3, 5), new Vector2I(0, 0), 5),
+                "negative coordinates use symmetric retention bounds");
+        TestAssert.Check(!ChunkStreamingPolicy.IsWithinRetention(
+                        new Vector2I(0, 6), Vector2I.Zero, 5),
+                "coordinates outside retention are rejected");
+
+        TestAssert.Check(ChunkStreamingPolicy.DirectionChanged(
+                        Vector3.Right, Vector3.Left),
+                "a direction reversal refreshes queued priorities");
+        TestAssert.Check(ChunkStreamingPolicy.DirectionChanged(
+                        Vector3.Right, Vector3.Zero),
+                "stopping clears stale directional bias");
+        TestAssert.Check(!ChunkStreamingPolicy.DirectionChanged(
+                        Vector3.Right, new Vector3(0.99f, 0, 0.1f).Normalized()),
+                "small heading jitter does not rebuild the priority heap");
+
+        TestAssert.Check(ChunkStreamingPolicy.AffectsChunk(
+                        0, 0, 8, 8, 16, 16, false),
+                "an edit always rebuilds its owner chunk");
+        TestAssert.Check(!ChunkStreamingPolicy.AffectsChunk(
+                        -1, 0, 8, 8, 16, 16, false),
+                "an interior edit does not rebuild an unrelated west neighbour");
+        TestAssert.Check(ChunkStreamingPolicy.AffectsChunk(
+                        -1, 0, 0, 8, 16, 16, false),
+                "a west-edge edit rebuilds the west neighbour");
+        TestAssert.Check(!ChunkStreamingPolicy.AffectsChunk(
+                        -1, -1, 0, 8, 16, 16, false),
+                "a single-edge edit does not rebuild a diagonal neighbour");
+        TestAssert.Check(ChunkStreamingPolicy.AffectsChunk(
+                        -1, -1, 0, 0, 16, 16, false),
+                "a corner edit rebuilds its matching diagonal neighbour");
+        TestAssert.Check(ChunkStreamingPolicy.AffectsChunk(
+                        1, 1, 8, 8, 16, 16, true),
+                "lighting changes retain the full propagation neighbourhood");
+
+        TestAssert.Check(ChunkStreamingPolicy.ShouldRetry(1, 3),
+                "transient worker failures retry before the attempt limit");
+        TestAssert.Check(!ChunkStreamingPolicy.ShouldRetry(3, 3),
+                "worker retries stop at the bounded attempt limit");
+    }
