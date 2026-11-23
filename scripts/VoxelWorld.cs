@@ -104,6 +104,8 @@ public partial class VoxelWorld : Node3D
 
     public int ChunkCount => _chunks.Count;
 
+    public bool IsDirty => _dirty;
+
     public bool HasChunk(Vector2I cp) => _chunks.ContainsKey(cp);
 
     private readonly Dictionary<Vector2I, byte[]> _dataCache = new();
@@ -165,6 +167,7 @@ public partial class VoxelWorld : Node3D
     private bool _dirty;
     private double _autosaveTimer;
     private double _unsavedPlaytimeSeconds;
+    private Player? _persistenceEventsPlayer;
     private string? _worldReadOnlyReason;
     private bool _readOnlyWarningShown;
 
@@ -3007,6 +3010,7 @@ public partial class VoxelWorld : Node3D
         bool hasPlayer = Player != null;
         if (hasPlayer)
         {
+            EnsurePlayerPersistenceEventsWired();
             _unsavedPlaytimeSeconds += Math.Max(0.0, delta);
 
             // Smoothed velocity drives the prefetch bias: chunks ahead of a moving
@@ -3550,6 +3554,34 @@ public partial class VoxelWorld : Node3D
     {
         _dirty = true;
     }
+
+    /// <summary>
+    /// Attach persistence notifications after Main has loaded the player's
+    /// saved values. PlayerStats.Load raises Changed, so wiring in the Player
+    /// property setter would incorrectly dirty every freshly loaded world.
+    /// </summary>
+    internal void EnsurePlayerPersistenceEventsWired()
+    {
+        if (ReferenceEquals(_persistenceEventsPlayer, Player))
+        {
+            return;
+        }
+
+        if (_persistenceEventsPlayer != null)
+        {
+            _persistenceEventsPlayer.Stats.Changed -= MarkDirty;
+            _persistenceEventsPlayer.CampfireUsed -= OnPlayerCampfireUsed;
+        }
+
+        _persistenceEventsPlayer = Player;
+        if (_persistenceEventsPlayer != null)
+        {
+            _persistenceEventsPlayer.Stats.Changed += MarkDirty;
+            _persistenceEventsPlayer.CampfireUsed += OnPlayerCampfireUsed;
+        }
+    }
+
+    private void OnPlayerCampfireUsed(string message) => MarkDirty();
 
     private static bool HasSaveCandidate(string path) =>
             FileAccess.FileExists(path)
