@@ -96,7 +96,7 @@ public static class WorldStore
         PropertyNameCaseInsensitive = true,
     };
 
-    private static readonly JsonSerializerOptions ManifestJson = new(Json)
+    internal static readonly JsonSerializerOptions ManifestJson = new(Json)
     {
         WriteIndented = true,
     };
