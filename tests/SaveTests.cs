@@ -393,6 +393,10 @@ public static class SaveTests
                 "all malformed world-save candidates return an explicit corrupt result");
         TestAssert.Check(WorldStore.IsRecoveryRequired(damagedWorld),
                 "unrecoverable save candidates mark the world recovery-required");
+        List<(string Dir, WorldManifest Manifest)> playableWorlds = WorldStore.List();
+        TestAssert.Check(!playableWorlds.Exists(entry => entry.Dir == damagedWorld)
+                && WorldStore.UnreadableWorldDirectories.Contains(damagedWorld),
+                "the world library lists a corrupt save pair under recovery instead of Play");
         TestAssert.Check(!WorldStore.WriteAtomic(WorldStore.WorldSavePath(damagedWorld),
                 JsonSerializer.Serialize(save, WorldStore.Json)),
                 "recovery-required worlds reject ordinary writes");
