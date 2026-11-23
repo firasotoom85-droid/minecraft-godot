@@ -204,6 +204,6 @@ public partial class Main : Node3D
 
     private void SetupEnvironment()
     {
-        _worldEnv.Environment = WorldEnvironmentFactory.Build(_world.WorldGenVersion);
+        _worldEnv.Environment = WorldEnvironmentFactory.Build(_world.WorldGenVersion, Settings.GfxPreset);
     }
 }

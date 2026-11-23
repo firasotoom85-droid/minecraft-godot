@@ -20,6 +20,15 @@ comparisons and LOW-preset measurements are in
 [`docs/INTEGRATION_PR70_79.md`](docs/INTEGRATION_PR70_79.md). The earlier record
 remains in [`docs/INTEGRATION_PR49_57.md`](docs/INTEGRATION_PR49_57.md).
 
+## Renderer quality matrix
+
+The six renderer presets and their environment-effect ownership are documented
+in [the renderer quality matrix](docs/RENDERER_QUALITY_MATRIX.md). Gameplay
+constructs the shared world environment with the saved preset, and subsequent
+preset changes use the same mapping. Callers that omit a preset retain the
+factory's historical high-quality defaults; the menu backdrop continues to
+apply its own lightweight presentation overrides.
+
 ## Unified voxel material response
 
 World surfaces and first-person held items share the response palette in
