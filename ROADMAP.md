@@ -2828,10 +2828,13 @@ so merging #71 first applied only its moonlight/starfield contribution.
 - **Regression tests.** Added checks for grid stability, comparison coverage,
   missing/unreferenced ids, channel/RGB/intensity drift, tolerance thresholds,
   duplicate samples and all five historical reference anchors.
-- **Validation status.** Source changes were authored directly on GitHub because
-  the paired local workstation was unavailable. The GitHub Actions CI run is
-  the build/headless-test gate for this branch. No post-change desktop GPU
-  capture or MX230 frame-time/VRAM measurement is claimed.
+- **Validation status.** Added a `--probe-only` mode so the real main-scene
+  setup and baked-light sampling can run on a headless CI worker without
+  claiming a rendered image. CI now runs the five deterministic seed-1337 LOW
+  probe grids and uploads their JSON reports as the `lighting-probe-grids`
+  artifact, in addition to Debug/Release builds and the headless regression
+  suite. Desktop Forward+ image comparison and MX230 frame-time/VRAM
+  measurements remain separate visual/performance checks.
 - **Compatibility.** No BlockId/ItemId, save format, generator version, world
   mutation path, production light solver, shader, renderer preset, greedy
   meshing or chunk-streaming behavior was changed. Probe sampling runs only in
