@@ -358,6 +358,15 @@ unreferenced and are not treated as zero or included in drift averages. A full
 spatial baseline must be promoted from reviewed real-renderer captures, not
 invented from interpolated values.
 
+The runner also supports a data-only mode for machines without a desktop
+renderer: append `--probe-only` after the preset argument. It skips window
+sizing and PNG extraction but still loads the real main scene, waits for the
+same warm-up and reads the production cached light maps. GitHub Actions runs
+all five deterministic probe-only captures and publishes their JSON reports as
+the `lighting-probe-grids` workflow artifact. This headless path validates
+voxel-light data only; it does not replace the committed visual frames or
+measure rendered GPU performance.
+
 The optional final argument selects `LOW`, `BALANCED`, `HIGH` or `ULTRA`
 (`LOW` by default). Use the same preset for every scene; LOW keeps the
 existing 0.80 render scale and disables SSAO, SSR, glow and volumetric fog for
