@@ -2726,65 +2726,93 @@ public partial class VoxelWorld : Node3D
         }
     }
 
+    private struct ChunkWorkerOperation : IChunkWorkerOperation<MeshPayload>
+    {
+        private readonly VoxelWorld _world;
+        private readonly Vector2I _coordinate;
+        private readonly bool _rebuild;
+        private int _attempts;
+
+        public ChunkWorkerOperation(VoxelWorld world, Vector2I coordinate, bool rebuild)
+        {
+            _world = world;
+            _coordinate = coordinate;
+            _rebuild = rebuild;
+            _attempts = 0;
+        }
+
+        public bool CanContinue() =>
+                _world._alive && _world.IsWithinCurrentRetention(_coordinate);
+
+        public void ReservePayloadSlot() =>
+                _world._completedPayloadSlots.Wait(_world._workerShutdown.Token);
+
+        public MeshPayload Build()
+        {
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            MeshPayload payload = Mesher.Build(_world, _coordinate);
+            Profiler.RecordBuild(
+                    System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            return payload;
+        }
+
+        public bool Publish(MeshPayload payload)
+        {
+            // Publish under the same lock used to change the streaming center
+            // so obsolete work cannot enter an apply queue.
+            lock (_world._queueLock)
+            {
+                if (!_world._alive || !ChunkStreamingPolicy.IsWithinRetention(
+                        _coordinate, _world._streamCenter, _world._streamRetentionLimit))
+                {
+                    return false;
+                }
+
+                _world._workTracker.ForgetFailure(_coordinate);
+                Profiler.RecordPayloadEnqueued(payload.EstimatedBufferBytes);
+                (_rebuild ? _world._applyRebuild : _world._applyFresh)
+                        .Enqueue((_coordinate, payload));
+                return true;
+            }
+        }
+
+        public void DiscardPayload(MeshPayload payload) => PayloadPool.Release(payload);
+
+        public void ReleasePayloadSlot() => _world._completedPayloadSlots.Release();
+
+        public bool RequestRetry(Exception error)
+        {
+            lock (_world._queueLock)
+            {
+                bool withinRetention = ChunkStreamingPolicy.IsWithinRetention(
+                        _coordinate, _world._streamCenter, _world._streamRetentionLimit);
+                return _world._workTracker.TryRecordFailure(
+                        _coordinate, _world._alive, withinRetention,
+                        MaxWorkerBuildAttempts, out _attempts);
+            }
+        }
+
+        public void ReportFailure(Exception error, bool retryRequested)
+        {
+            string retryText = retryRequested
+                    ? $" (retry {_attempts}/{MaxWorkerBuildAttempts})"
+                    : _attempts > 0
+                            ? $" (gave up after {_attempts} attempts; a later streaming/edit request can retry)"
+                            : " (request abandoned because the world stopped or the chunk left retention)";
+            GD.PushError(
+                    $"minecraft: chunk worker failed at ({_coordinate.X},{_coordinate.Y}){retryText}: {error}");
+        }
+    }
+
     /// <summary>
-    /// Executes one dequeued request through the same deterministic lifecycle
-    /// used by regression tests: capacity reservation, stale checks, build,
-    /// publication, failure retry, payload disposal and in-flight completion.
+    /// Executes one dequeued request through the same value-type lifecycle used
+    /// by deterministic regression tests. No per-chunk delegates are allocated.
     /// </summary>
     private void ExecuteChunkWork(Vector2I cp, bool rebuild)
     {
-        int attempts = 0;
-        ChunkWorkerExecutionResult execution = ChunkWorkerLifecycle.Execute(
-                () => _alive && IsWithinCurrentRetention(cp),
-                () => _completedPayloadSlots.Wait(_workerShutdown.Token),
-                () =>
-                {
-                    long started = System.Diagnostics.Stopwatch.GetTimestamp();
-                    MeshPayload payload = Mesher.Build(this, cp);
-                    Profiler.RecordBuild(
-                            System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
-                    return payload;
-                },
-                payload =>
-                {
-                    // Publish under the same lock used to change the streaming
-                    // center so obsolete work cannot enter an apply queue.
-                    lock (_queueLock)
-                    {
-                        if (!_alive || !ChunkStreamingPolicy.IsWithinRetention(
-                                cp, _streamCenter, _streamRetentionLimit))
-                        {
-                            return false;
-                        }
-
-                        _workTracker.ForgetFailure(cp);
-                        Profiler.RecordPayloadEnqueued(payload.EstimatedBufferBytes);
-                        (rebuild ? _applyRebuild : _applyFresh).Enqueue((cp, payload));
-                        return true;
-                    }
-                },
-                PayloadPool.Release,
-                () => _completedPayloadSlots.Release(),
-                _ =>
-                {
-                    lock (_queueLock)
-                    {
-                        bool withinRetention = ChunkStreamingPolicy.IsWithinRetention(
-                                cp, _streamCenter, _streamRetentionLimit);
-                        return _workTracker.TryRecordFailure(
-                                cp, _alive, withinRetention, MaxWorkerBuildAttempts, out attempts);
-                    }
-                },
-                (exception, retryRequest) =>
-                {
-                    string retryText = retryRequest
-                            ? $" (retry {attempts}/{MaxWorkerBuildAttempts})"
-                            : attempts > 0
-                                    ? $" (gave up after {attempts} attempts; a later streaming/edit request can retry)"
-                                    : " (request abandoned because the world stopped or the chunk left retention)";
-                    GD.PushError(
-                            $"minecraft: chunk worker failed at ({cp.X},{cp.Y}){retryText}: {exception}");
-                });
+        ChunkWorkerOperation operation = new(this, cp, rebuild);
+        ChunkWorkerExecutionResult execution =
+                ChunkWorkerLifecycle.Execute<MeshPayload, ChunkWorkerOperation>(ref operation);
 
         bool outsideRetention;
         lock (_queueLock)
