@@ -21,6 +21,7 @@ public static class VoxelStreamingTests
 
         TestChunkWorkTracking();
         TestChunkGenerationReservation();
+        TestMutationBlockIds();
         TestStreamingPolicies();
 
         long expectedLow = 11L * 11L * 16 * 128 * 16 * StreamingMemoryBudget.BytesPerVoxelUpperBound;
@@ -104,6 +105,18 @@ public static class VoxelStreamingTests
                 () => new byte[] { 9, 8, 7 });
         TestAssert.Check(!ReferenceEquals(failed, retried) && retried.Value[0] == 9,
                 "a failed generation reservation can be replaced and retried");
+    }
+
+
+    private static void TestMutationBlockIds()
+    {
+        BlockDb.EnsureTables();
+        TestAssert.Check(!VoxelWorld.IsMutationBlockIdDefined((BlockId)61),
+                "the first unregistered persisted block ID is rejected at the mutation boundary");
+        TestAssert.Check(!VoxelWorld.IsMutationBlockIdDefined((BlockId)255),
+                "the largest byte-backed block ID is rejected");
+        TestAssert.Check(VoxelWorld.IsMutationBlockIdDefined(BlockId.Stone),
+                "registered block IDs remain valid for world mutation");
     }
 
     private static void TestStreamingPolicies()
