@@ -24,6 +24,8 @@ public partial class WorldManagementDialog : Control
     private string _pendingBackup = "";
     private bool _busy;
     private bool _importMode;
+    private Control? _previousFocus;
+    private Control? _focusFallback;
 
     public event Action? ImportCompleted;
 
@@ -36,8 +38,30 @@ public partial class WorldManagementDialog : Control
         GetViewport().SizeChanged += ApplyResponsiveScale;
     }
 
+    private void CaptureCallerFocus()
+    {
+        _previousFocus = GetViewport().GuiGetFocusOwner() as Control;
+        _focusFallback = GetParent() as Control;
+    }
+
+    private void RestoreCallerFocus()
+    {
+        UiFocus.RestoreFocus(_previousFocus, _focusFallback);
+        _previousFocus = null;
+        _focusFallback = null;
+    }
+
+    private void CloseDialog()
+    {
+        if (_busy)
+            return;
+        Visible = false;
+        RestoreCallerFocus();
+    }
+
     public void ShowFor(string worldDirectory)
     {
+        CaptureCallerFocus();
         _worldDirectory = worldDirectory;
         _importMode = false;
         Visible = true;
@@ -48,6 +72,7 @@ public partial class WorldManagementDialog : Control
 
     public void ShowImport()
     {
+        CaptureCallerFocus();
         _worldDirectory = "";
         _importMode = true;
         Visible = true;
@@ -65,7 +90,7 @@ public partial class WorldManagementDialog : Control
     {
         if (Visible && !_busy && @event.IsActionPressed("ui_cancel"))
         {
-            Visible = false;
+            CloseDialog();
             GetViewport().SetInputAsHandled();
         }
     }
@@ -147,7 +172,7 @@ public partial class WorldManagementDialog : Control
         actions.AddChild(_restoreButton);
         box.AddChild(actions);
 
-        _closeButton = MenuSkin.MakeButton("Close", () => Visible = false, 0);
+        _closeButton = MenuSkin.MakeButton("Close", CloseDialog, 0);
         box.AddChild(_closeButton);
 
         PanelContainer panel = MenuSkin.Wrap(box, 620);
@@ -311,6 +336,7 @@ public partial class WorldManagementDialog : Control
             _importMode = false;
             Visible = false;
             ImportCompleted?.Invoke();
+            RestoreCallerFocus();
         }
         catch (Exception e)
         {
