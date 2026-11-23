@@ -27,15 +27,15 @@ public partial class Gfx : Node
     // retain the existing mesh-baked voxel AO at no additional render-pass cost.
     public static readonly IReadOnlyList<Preset> Presets =
     [
-        new("LOW", 5, 3, 45.0f, 1024, false, false, false, false, 0.80f, 0, false, true, 0.0f, false,
+        new("LOW", 5, 3, 45.0f, 1024, false, false, false, false, 0.80f, 1, false, true, 0.0f, false,
                 RenderingServer.ShadowQuality.SoftLow, 0.0f, 0.35f, 0.80f, 1.30f, true),
-        new("BALANCED", 7, 4, 65.0f, 1024, false, false, false, false, 0.90f, 0, false, true, 256.0f, false,
+        new("BALANCED", 7, 4, 65.0f, 1024, false, false, false, false, 0.90f, 1, false, true, 256.0f, false,
                 RenderingServer.ShadowQuality.SoftLow, 0.0f, 0.35f, 0.80f, 1.30f, false),
-        new("HIGH", 9, 5, 90.0f, 2048, true, false, true, false, 1.0f, 0, true, false, 384.0f, false,
+        new("HIGH", 9, 5, 90.0f, 2048, true, false, true, false, 1.0f, 2, true, false, 384.0f, false,
                 RenderingServer.ShadowQuality.SoftMedium, 0.18f, 0.28f, 0.68f, 1.35f, false),
-        new("ULTRA", 12, 6, 120.0f, 4096, true, true, true, false, 1.0f, 0, true, false, 512.0f, false,
+        new("ULTRA", 12, 6, 120.0f, 4096, true, true, true, false, 1.0f, 2, true, false, 512.0f, false,
                 RenderingServer.ShadowQuality.SoftHigh, 0.32f, 0.25f, 0.76f, 1.40f, false),
-        new("MAX", 12, 6, 130.0f, 4096, true, true, true, true, 1.25f, 0, true, false, 640.0f, false,
+        new("MAX", 12, 6, 130.0f, 4096, true, true, true, true, 1.25f, 2, true, false, 640.0f, false,
                 RenderingServer.ShadowQuality.SoftUltra, 0.45f, 0.25f, 0.82f, 1.45f, false),
         new("MAX · FSR2", 12, 6, 130.0f, 4096, true, true, true, true, 0.7f, 0, false, false, 640.0f, true,
                 RenderingServer.ShadowQuality.SoftUltra, 0.45f, 0.25f, 0.82f, 1.45f, false),
@@ -134,6 +134,34 @@ public partial class Gfx : Node
         environment.SsaoAOChannelAffect = 0.0f;
     }
 
+    /// <summary>Apply the preset's explicit 3D MSAA choice (0=off, 1=2x, 2=4x).</summary>
+    internal static void ApplyMsaaProfile(Preset preset, Viewport viewport)
+    {
+        viewport.Msaa3D = (Viewport.Msaa)preset.Msaa;
+    }
+
+    /// <summary>Conservative depth for streamed chunks and the retained FarLod tile footprint.</summary>
+    internal static float RequiredCameraFar(int viewDistance, float lodRadius)
+    {
+        const float region = 128.0f;
+        const float chunkSize = 16.0f;
+        float streamedExtent = (Mathf.Max(2, viewDistance) + 0.5f) * chunkSize * 1.41421356f;
+        float lodExtent = lodRadius > 0.0f
+                ? lodRadius + region * 0.7f + region * 0.70710678f
+                : 0.0f;
+        return Mathf.Max(300.0f, Mathf.Max(streamedExtent, lodExtent) + 8.0f);
+    }
+
+    private void UpdateCameraFar()
+    {
+        Camera3D? camera = GetViewport().GetCamera3D();
+        if (camera == null)
+            return;
+        int viewDistance = Mathf.Max(World?.ViewDistance ?? Settings.ViewDistance, Settings.ViewDistance);
+        float lodRadius = World?.LodRadius ?? CurrentPreset.Lod;
+        camera.Far = RequiredCameraFar(viewDistance, lodRadius);
+    }
+
     public void Setup(VoxelWorld world, DirectionalLight3D sun, WorldEnvironment env)
     {
         World = world;
@@ -227,6 +255,7 @@ public partial class Gfx : Node
             World.SetViewDistance(p.View);
             World.SetLodRadius(p.Lod);
         }
+        UpdateCameraFar();
 
         // Directional filtering is renderer-global. Apply it on every
         // preset change even if the light node is not currently assigned.
@@ -267,7 +296,7 @@ public partial class Gfx : Node
 
             vp.ScreenSpaceAA = p.Fxaa ? Viewport.ScreenSpaceAAEnum.Fxaa : Viewport.ScreenSpaceAAEnum.Disabled;
             vp.UseDebanding = true;
-            vp.Msaa3D = (Viewport.Msaa)p.Msaa;
+            ApplyMsaaProfile(p, vp);
         }
 
         if (!_autoStep)
@@ -280,6 +309,7 @@ public partial class Gfx : Node
             Settings.GfxPreset = Current;
             Settings.ViewDistance = p.View;
             Settings.Save();
+            UpdateCameraFar();
             if (!_autoStep)
             {
                 _ceiling = Current;   // a manual choice resets the governor ceiling
@@ -297,6 +327,7 @@ public partial class Gfx : Node
         World.SetViewDistance(World.ViewDistance + delta);
         Settings.ViewDistance = World.ViewDistance;
         Settings.Save();
+        UpdateCameraFar();
         EmitSignal(SignalName.PresetChanged, $"view distance {World.ViewDistance}");
     }
 }

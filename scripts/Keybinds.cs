@@ -44,7 +44,6 @@ public static class Keybinds
             return;
         }
 
-        _loaded = true;
         CaptureDefaults();
         ConfigFile cfg = new();
         if (cfg.Load(Path) != Error.Ok)
@@ -59,15 +58,25 @@ public static class Keybinds
                 continue;
             }
 
-            int code = (int)cfg.GetValue("keys", action, (int)Key.None);
-            if (code != (int)Key.None)
+            Variant stored = cfg.GetValue("keys", action, (int)Key.None);
+            if (stored.VariantType != Variant.Type.Int)
             {
-                Apply(action, (Key)code);
+                GD.PushWarning($"Ignoring invalid keyboard binding in keys/{action}: expected an integer key code.");
+                continue;
             }
+            int code = (int)stored;
+            if (code == (int)Key.None || !Enum.IsDefined(typeof(Key), code))
+                continue;
+            Key key = (Key)code;
+            if (Conflict(action, key) == null)
+                Apply(action, key);
+            else
+                GD.PushWarning($"Ignoring conflicting keyboard binding in keys/{action}: {key} is already reserved.");
         }
+        _loaded = true;
     }
 
-    public static void Save()
+    public static Error Save()
     {
         ConfigFile cfg = new();
         foreach ((string action, _) in Bindable)
@@ -79,16 +88,24 @@ public static class Keybinds
             }
         }
 
-        cfg.Save(Path);
+        Error result = cfg.Save(Path);
+        if (result != Error.Ok)
+            GD.PushError($"Could not persist keyboard bindings to {Path}: {result}.");
+        return result;
     }
 
-    public static void Rebind(string action, Key key)
+    public static Error Rebind(string action, Key key) => Rebind(action, key, out _);
+
+    public static Error Rebind(string action, Key key, out string? conflict)
     {
+        conflict = Conflict(action, key);
+        if (key == Key.None || !IsBindable(action) || conflict != null)
+            return Error.InvalidParameter;
         Apply(action, key);
-        Save();
+        return Save();
     }
 
-    public static void ResetDefaults()
+    public static Error ResetDefaults()
     {
         foreach ((string action, _) in Bindable)
         {
@@ -104,7 +121,7 @@ public static class Keybinds
             }
         }
 
-        Save();
+        return Save();
     }
 
     public static string LabelFor(string action)
@@ -121,15 +138,33 @@ public static class Keybinds
             return null;
         }
 
-        foreach ((string other, string label) in Bindable)
+        foreach (StringName actionName in InputMap.GetActions())
         {
-            if (other != action && KeyOf(other) == key)
+            string other = actionName.ToString();
+            if (other == action || !InputMap.HasAction(other))
+                continue;
+            foreach (InputEvent inputEvent in InputMap.ActionGetEvents(other))
             {
-                return label;
+                if (inputEvent is not InputEventKey bound)
+                    continue;
+                if (bound.Keycode == key || bound.PhysicalKeycode == key)
+                {
+                    foreach ((string bindableAction, string label) in Bindable)
+                        if (bindableAction == other)
+                            return label;
+                    return other.Replace('_', ' ');
+                }
             }
         }
-
         return null;
+    }
+
+    private static bool IsBindable(string action)
+    {
+        foreach ((string candidate, _) in Bindable)
+            if (candidate == action)
+                return true;
+        return false;
     }
 
     private static void Apply(string action, Key key)
