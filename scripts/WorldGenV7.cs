@@ -659,8 +659,8 @@ public partial class VoxelWorld
         // Replaying the same neighbor-cell and ore order in each target chunk
         // keeps cross-chunk veins deterministic. Reserved placements represent
         // successful stone replacements across the complete source-cell paths.
-        HashSet<Vector3I> claimedOrePositions = _genVersion >= WorldGenV12.Version
-                ? new HashSet<Vector3I>(512) : [];
+        HashSet<Vector3I>? claimedOrePositions = _genVersion >= WorldGenV12.Version
+                ? new HashSet<Vector3I>(512) : null;
         for (int dz = -1; dz <= 1; dz++)
         {
             for (int dx = -1; dx <= 1; dx++)
@@ -716,10 +716,15 @@ public partial class VoxelWorld
     private void TryVersionedOreVein(ref uint rng, BlockId ore, int cellOx, int cellOz,
             int minY, int maxY, int count, int minSize, int maxSize,
             byte[] data, int strideY, int ox, int oz,
-            HashSet<Vector3I> claimedOrePositions)
+            HashSet<Vector3I>? claimedOrePositions)
     {
         if (_genVersion >= WorldGenV12.Version)
         {
+            if (claimedOrePositions is null)
+            {
+                throw new InvalidOperationException("V12 ore placement state was not initialized.");
+            }
+
             TryV12Vein(ref rng, ore, cellOx, cellOz, minY, maxY, count,
                     minSize, maxSize, data, strideY, ox, oz, claimedOrePositions);
             return;
