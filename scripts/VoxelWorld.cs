@@ -3342,6 +3342,7 @@ public partial class VoxelWorld : Node3D
     private void RebuildQueue(Vector2I pcp)
     {
         int limit = ViewDistance + UnloadMargin;
+        int r = ViewDistance;
         lock (_queueLock)
         {
             _streamCenter = pcp;
@@ -3357,15 +3358,21 @@ public partial class VoxelWorld : Node3D
                 {
                     _rebuildQueued.Remove(stale);
                     _workTracker.ForgetFollowUp(stale);
-                    _workTracker.ForgetFailureOutsideRetention(stale, pcp, limit);
+                    _workTracker.ForgetFailureIfNotRequeued(stale, willBeRequeued: false);
                 }
             }
 
-            // Fresh retry requests are also discarded when the queue is rebuilt.
-            // Clear their attempt history before the membership set is reset.
+            // Preserve retry counts only for fresh requests that will actually
+            // survive the new view-distance queue reconstruction. A chunk can
+            // remain inside the unload margin while no longer being scheduled.
             foreach (Vector2I stale in _queued.ToArray())
             {
-                _workTracker.ForgetFailureOutsideRetention(stale, pcp, limit);
+                bool willBeRequeued = Mathf.Abs(stale.X - pcp.X) <= r
+                        && Mathf.Abs(stale.Y - pcp.Y) <= r
+                        && !_chunks.ContainsKey(stale)
+                        && !_rebuildQueued.Contains(stale)
+                        && !_workTracker.IsInFlight(stale);
+                _workTracker.ForgetFailureIfNotRequeued(stale, willBeRequeued);
             }
 
             _rebuildQueue.Clear();
@@ -3376,7 +3383,6 @@ public partial class VoxelWorld : Node3D
 
             _queue.Clear();
             _queued.Clear();
-            int r = ViewDistance;
             for (int dz = -r; dz <= r; dz++)
             {
                 for (int dx = -r; dx <= r; dx++)
