@@ -100,7 +100,7 @@ public static class SaveTests
             string workerManifestPath = Path.Combine(workerRoot, "manifest.json");
             WorldManifest workerManifest = new(
                     "Background Save Test", 24680, WorldStore.CurrentGenVersion,
-                    WorldStore.DeriveNoiseSeeds(24680), 1, 1);
+                    WorldStore.DeriveNoiseSeeds(24680), 1, 1, HasSavedData: true);
             WorldSaveSnapshot workerSnapshot = new(
                     new WorldSave(WorldStore.WorldFormatVersion, [], 0.25),
                     new PlayerSave([1.0f, 2.0f, 3.0f], Health: 16.0f),
@@ -118,6 +118,10 @@ public static class SaveTests
                     JsonSerializer.Deserialize<WorldSave>(File.ReadAllText(workerWorldPath), WorldStore.Json);
             TestAssert.Equal(0.25, firstWorkerWorld?.Time ?? -1.0,
                     "background worker serializes world data before the atomic write");
+            WorldManifest? firstWorkerManifest = JsonSerializer.Deserialize<WorldManifest>(
+                    File.ReadAllText(workerManifestPath), WorldStore.ManifestJson);
+            TestAssert.Check(firstWorkerManifest is { HasSavedData: true },
+                    "background worker persists the save-history marker with its completed pair");
 
             WorldSaveSnapshot nextWorkerSnapshot = workerSnapshot with
             {
