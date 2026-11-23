@@ -78,12 +78,16 @@ public partial class DayNight : Node
         horizon = horizon.Lerp(new Color(0.95f, 0.97f, 1.0f), (float)(lightning * 0.90));
         ground = ground.Lerp(new Color(0.78f, 0.84f, 0.94f), (float)(lightning * 0.55));
 
+        // Keep the night sky and environment fill restrained. The existing
+        // directional moon remains the broad outdoor key; hostile materials
+        // gain a small light-dependent rim response rather than raising global
+        // ambient and washing every terrain surface out of the dark.
         float skyLight = (float)System.Math.Clamp(
-                day * (1.0 - cover * 0.65) + night * 0.10, 0.0, 1.25);
-        float ambient = (float)((0.10 + day * 0.90) * (1.0 - cover * 0.30)
+                day * (1.0 - cover * 0.65) + night * 0.065, 0.0, 1.25);
+        float ambient = (float)((0.065 + day * 0.935) * (1.0 - cover * 0.30)
                 + lightning * 2.0);
         float sunEnergy = (float)(day * 1.15 * (1.0 - cover * 0.60));
-        float moonEnergy = (float)(night * 0.22 * (1.0 - cover * 0.50));
+        float moonEnergy = (float)(night * 0.18 * (1.0 - cover * 0.50));
 
         Color dawnSun = new(1.0f, 0.66f, 0.40f);
         Color duskSun = new(1.0f, 0.49f, 0.31f);

@@ -40,6 +40,17 @@ public static class AtmosphereTests
                 "dawn and dusk receive a distinct twilight envelope");
         TestAssert.Check(noon.SkyLightEnergy > midnight.SkyLightEnergy,
                 "voxel sky light is stronger during the day");
+        TestAssert.Check(midnight.SkyLightEnergy <= 0.066f
+                && midnight.AmbientLightEnergy <= 0.066f,
+                "clear midnight keeps baked skylight and global ambient below the restrained night-fill ceiling");
+        TestAssert.Check(midnight.MoonEnergy > 0.17f && midnight.MoonEnergy <= 0.18f,
+                "night readability retains a directional moon key rather than compensating with global ambient");
+        TestAssert.Equal(1.0f, noon.AmbientLightEnergy,
+                "night contrast tuning does not reduce clear midday environment fill");
+        DayNight.SkyPalette cloudyMidnight = DayNight.EvaluatePalette(0.0, 1.0, 0.0);
+        TestAssert.Check(cloudyMidnight.AmbientLightEnergy < midnight.AmbientLightEnergy
+                && cloudyMidnight.MoonEnergy < midnight.MoonEnergy,
+                "cloud cover attenuates the already restrained night fill and moon key");
         TestAssert.Check(overcast.SkyLightEnergy < noon.SkyLightEnergy
                 && overcast.AmbientLightEnergy < noon.AmbientLightEnergy,
                 "heavy cloud cover softens sky and ambient lighting");

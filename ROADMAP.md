@@ -2491,3 +2491,15 @@ commit ancestry traceable.
   were active. No new pixel-level visual comparison or FPS delta is claimed.
   Re-run on an idle desktop for screenshot verification and a sustained
   frame-time soak.
+
+## 46. Nighttime hostile silhouette contrast — 2026-11-22
+
+**Goal:** preserve genuinely dark nights while making dark hostile actors distinguishable from terrain without adding per-actor lights or increasing global illumination.
+
+**Implementation:**
+- Lowered clear-night environment ambient and baked sky response from 0.10 to 0.065, while retaining the existing directional moon as the outdoor key and reducing its energy from 0.22 to 0.18. Midday settings remain unchanged; clouds and lightning continue through their existing palette paths.
+- Added a restrained light-dependent rim response to the procedural hostile body-material factory. Passive creatures remain unchanged; hostile bodies are not emissive, and the existing Shade eye emission is untouched.
+- Extended the atmosphere visual capture with a deterministic Dreadwing/Shade/Ember Warden lineup. Its temporary sky platform uses `VoxelWorld.SetBlock` and exists only in the disposable capture world.
+- No voxel IDs, save fields, generator rules, baked-light packing, propagation, greedy meshing, chunk streaming, scene light-node count, or LOW/BALANCED renderer budgets changed.
+
+**Validation:** Godot 4.7.2 .NET / .NET 9 Debug build (0 warnings, 0 errors); `scripts/verify.sh` exits 0; focused lighting and atmosphere suites pass; the full runner reports **198,728 checks, 0 failures**. The matched clear-midnight capture uses seed 1337 / V11 / `(512, -372)` on the NVIDIA MX230. Its mean frame luminance changes 26.29 → 25.96, sky 20.37 → 19.96, and unlit stage 10.01 → 6.77. Capture artifacts are stored under `docs/visual/screenshots/night-hostiles-*.png`.

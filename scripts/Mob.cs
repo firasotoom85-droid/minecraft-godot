@@ -681,13 +681,34 @@ public partial class Mob : CharacterBody3D, IDamageable
         }
     }
 
-    protected void CommitBody(SurfaceTool st, string name = "Body")
+    internal const float HostileRimStrength = 0.48f;
+    internal const float HostileRimTint = 0.36f;
+
+    /// <summary>
+    /// Creates the existing vertex-colour body material. Hostile silhouettes
+    /// receive a restrained, light-dependent rim; passive creatures and the
+    /// terrain do not. This uses the current sun/moon lighting, not emission.
+    /// </summary>
+    internal static StandardMaterial3D CreateBodyMaterial(bool hostile)
     {
-        BodyMat = new StandardMaterial3D
+        StandardMaterial3D material = new()
         {
             VertexColorUseAsAlbedo = true,
             Roughness = 1.0f,
         };
+        if (hostile)
+        {
+            material.RimEnabled = true;
+            material.Rim = HostileRimStrength;
+            material.RimTint = HostileRimTint;
+        }
+
+        return material;
+    }
+
+    protected void CommitBody(SurfaceTool st, string name = "Body")
+    {
+        BodyMat = CreateBodyMaterial(!IsPassive);
         MeshInstance3D mi = new()
         {
             Name = name,
