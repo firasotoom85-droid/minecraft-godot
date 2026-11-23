@@ -181,9 +181,13 @@ public partial class LightingComparisonCapture : Node
             GD.Print($"LIGHTING_COMPARISON_DRIFT scenario={Scenario} " +
                     $"mean_channel={drift.MeanAbsoluteChannelDrift:F3} " +
                     $"max_channel={drift.MaxChannelDrift:F0} " +
-                    $"mean_rgb={drift.MeanAbsoluteColorDrift:F5} max_rgb={drift.MaxColorDrift:F5} " +
-                    $"mean_intensity={drift.MeanAbsoluteIntensityDrift:F5} " +
-                    $"max_intensity={drift.MaxIntensityDrift:F5} " +
+                    $"sky_mean={drift.MeanAbsoluteSkyDrift:F3} sky_max={drift.MaxSkyDrift:F0} " +
+                    $"block_mean={drift.MeanAbsoluteBlockDrift:F3} block_max={drift.MaxBlockDrift:F0} " +
+                    $"rgb_mean=({drift.MeanAbsoluteRedDrift:F5},{drift.MeanAbsoluteGreenDrift:F5}," +
+                    $"{drift.MeanAbsoluteBlueDrift:F5}) " +
+                    $"rgb_max=({drift.MaxRedDrift:F5},{drift.MaxGreenDrift:F5},{drift.MaxBlueDrift:F5}) " +
+                    $"intensity_mean={drift.MeanAbsoluteIntensityDrift:F5} " +
+                    $"intensity_max={drift.MaxIntensityDrift:F5} " +
                     $"outside_tolerance={drift.OutsideToleranceSamples} tolerance={drift.Tolerance:F5}");
             GD.Print($"LIGHTING_COMPARISON_RENDER scenario={Scenario} size={image.GetWidth()}x{image.GetHeight()} " +
                     $"ssao={preset.Ssao} ssr={preset.Ssr} glow={preset.Glow} volumetric_fog={preset.VolFog} " +
