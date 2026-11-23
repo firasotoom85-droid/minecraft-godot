@@ -2764,7 +2764,7 @@ public partial class VoxelWorld : Node3D
                     }
                 },
                 PayloadPool.Release,
-                _completedPayloadSlots.Release,
+                () => _completedPayloadSlots.Release(),
                 _ =>
                 {
                     lock (_queueLock)
