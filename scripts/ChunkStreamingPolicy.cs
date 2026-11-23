@@ -90,6 +90,25 @@ internal static class ChunkStreamingPolicy
     }
 
     /// <summary>Maximum total attempts, including the initial build.</summary>
+    /// <summary>
+    /// Tests whether any chunk touched by a deterministic generator cell lies
+    /// inside the retained area. The full cell bounds are used so null-cache
+    /// entries are evicted only when their entire procedural region is distant.
+    /// </summary>
+    public static bool IsSiteCellOutsideRetention(int cellX, int cellZ, int cellSize,
+            Vector2I center, int limit, int chunkSize)
+    {
+        int minChunkX = FloorDivide((long)cellX * cellSize, chunkSize);
+        int maxChunkX = FloorDivide(((long)cellX + 1) * cellSize - 1, chunkSize);
+        int minChunkZ = FloorDivide((long)cellZ * cellSize, chunkSize);
+        int maxChunkZ = FloorDivide(((long)cellZ + 1) * cellSize - 1, chunkSize);
+        return maxChunkX < center.X - limit || minChunkX > center.X + limit
+                || maxChunkZ < center.Y - limit || minChunkZ > center.Y + limit;
+    }
+
+    private static int FloorDivide(long value, int divisor) =>
+            (int)System.Math.Floor(value / (double)divisor);
+
     public static bool ShouldRetry(int failedAttempts, int maximumAttempts) =>
             failedAttempts > 0 && failedAttempts < maximumAttempts;
 }
