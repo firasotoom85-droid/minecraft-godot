@@ -204,10 +204,13 @@ public static class WorldArchive
             foreach (WorldArchiveFile record in archiveManifest.Files)
             {
                 ValidateRelativePath(record.Path, allowWorldPrefix: true);
+                if (record is null || record.Path is not { Length: > 0 }
+                        || record.Sha256 is not { Length: 64 } sha256)
+                    throw new InvalidDataException("The archive manifest contains a file record with missing path or SHA-256 metadata.");
+                ValidateRelativePath(record.Path, allowWorldPrefix: true);
                 if (!record.Path.StartsWith(WorldPrefix, StringComparison.Ordinal)
                         || record.Length < 0 || record.Length > MaxFileBytes
-                        || record.Sha256.Length != 64
-                        || record.Sha256.Any(c => !Uri.IsHexDigit(c))
+                        || sha256.Any(c => !Uri.IsHexDigit(c))
                         || !indexedFiles.TryAdd(record.Path, record))
                     throw new InvalidDataException($"The archive manifest contains an invalid file record: {record.Path}");
                 totalBytes = checked(totalBytes + record.Length);
@@ -493,28 +496,55 @@ public static class WorldBackupStore
 {
     private static readonly string[] SaveFiles = ["manifest.json", "world.json", "player.json"];
 
+    public static string? LastListError { get; private set; }
+    internal static Func<string, string[]>? EnumerateBackupPathsForTests;
+    internal static Func<string, string>? ReadBackupTextForTests;
+
     public static List<WorldBackupInfo> List(string worldDirectory)
     {
         List<WorldBackupInfo> result = [];
+        LastListError = null;
         string absolute = ProjectSettings.GlobalizePath(worldDirectory);
-        if (!Directory.Exists(absolute)) return result;
+        string[] paths;
+        try
+        {
+            if (!Directory.Exists(absolute)) return result;
+            paths = EnumerateBackupPathsForTests?.Invoke(absolute)
+                    ?? Directory.EnumerateFiles(absolute, "*.bak*").ToArray();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException
+                or System.Security.SecurityException)
+        {
+            LastListError = $"Backups could not be listed: {e.Message}";
+            return result;
+        }
 
-        foreach (string path in Directory.EnumerateFiles(absolute, "*.bak*"))
+        foreach (string path in paths)
         {
             string name = System.IO.Path.GetFileName(path);
             string baseName = name.EndsWith(".bak2", StringComparison.Ordinal)
                     ? name[..^5] : name.EndsWith(".bak", StringComparison.Ordinal) ? name[..^4] : "";
             if (!SaveFiles.Contains(baseName, StringComparer.Ordinal)) continue;
 
-            bool valid = ValidateBackup(path, baseName);
-            FileInfo info = new(path);
-            result.Add(new WorldBackupInfo(
-                    worldDirectory.TrimEnd('/') + "/" + name,
-                    name,
-                    new DateTimeOffset(info.LastWriteTimeUtc).ToUnixTimeSeconds(),
-                    info.Length,
-                    valid,
-                    valid ? "Valid restore point" : "Corrupt or unsupported backup"));
+            try
+            {
+                bool valid = ValidateBackup(path, baseName, out string status);
+                FileInfo info = new(path);
+                result.Add(new WorldBackupInfo(
+                        worldDirectory.TrimEnd('/') + "/" + name,
+                        name,
+                        new DateTimeOffset(info.LastWriteTimeUtc).ToUnixTimeSeconds(),
+                        info.Length,
+                        valid,
+                        status));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException
+                    or System.Security.SecurityException)
+            {
+                result.Add(new WorldBackupInfo(
+                        worldDirectory.TrimEnd('/') + "/" + name,
+                        name, 0, 0, false, $"Unavailable: {e.Message}"));
+            }
         }
 
         result.Sort((a, b) => b.ModifiedUtc.CompareTo(a.ModifiedUtc));
@@ -525,9 +555,10 @@ public static class WorldBackupStore
     {
         WorldBackupInfo? selected = List(worldDirectory).Find(item => item.Path == backupPath);
         if (selected is null)
-            return new WorldBackupRestoreResult(false, "The selected backup no longer exists.");
+            return new WorldBackupRestoreResult(false, LastListError
+                    ?? "The selected backup no longer exists or could not be listed.");
         if (!selected.IsValid)
-            return new WorldBackupRestoreResult(false, "This backup is corrupt or uses an unsupported save version.");
+            return new WorldBackupRestoreResult(false, selected.Status);
 
         string baseName = selected.FileName.EndsWith(".bak2", StringComparison.Ordinal)
                 ? selected.FileName[..^5] : selected.FileName[..^4];
@@ -535,35 +566,38 @@ public static class WorldBackupStore
             return new WorldBackupRestoreResult(false, "The selected file is not a recognized world backup.");
 
         string target = worldDirectory.TrimEnd('/') + "/" + baseName;
-        string content = Godot.FileAccess.GetFileAsString(selected.Path);
-        if (content.Length == 0 && Godot.FileAccess.GetFileAsBytes(selected.Path).Length != 0)
-            return new WorldBackupRestoreResult(false, "The backup could not be read.");
+        string content;
+        try { content = File.ReadAllText(ProjectSettings.GlobalizePath(selected.Path)); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException
+                or System.Security.SecurityException)
+        {
+            return new WorldBackupRestoreResult(false, $"The backup could not be read: {e.Message}");
+        }
 
-        // WriteAtomic moves the current version into .bak before committing the
-        // restored bytes, providing a safety snapshot of the pre-restore state.
-        if (!WorldStore.WriteAtomic(target, content))
+        if (!WorldStore.WriteAtomic(target, content, allowRecovery: true))
             return new WorldBackupRestoreResult(false,
                     "Restore failed. The current save was left in place; check available disk space and permissions.");
 
+        WorldStore.TryClearRecoveryRequired(worldDirectory);
         return new WorldBackupRestoreResult(true,
                 $"Restored {baseName}. The previous current file was retained as a safety backup.");
     }
 
-    private static bool ValidateBackup(string path, string baseName)
+    private static bool ValidateBackup(string path, string baseName, out string status)
     {
         try
         {
-            string json = File.ReadAllText(path);
-            if (baseName == "manifest.json")
-                return JsonSerializer.Deserialize<WorldManifest>(json, WorldStore.Json) is not null;
-            if (baseName == "world.json")
-            {
-                WorldSave? save = JsonSerializer.Deserialize<WorldSave>(json, WorldStore.Json);
-                return save is not null && save.Version >= 1 && save.Version <= WorldStore.WorldFormatVersion;
-            }
-            return JsonSerializer.Deserialize<PlayerSave>(json, WorldStore.Json)?.Pos is not null;
+            string json = ReadBackupTextForTests?.Invoke(path)
+                    ?? File.ReadAllText(path);
+            bool valid = WorldStore.IsValidBackupModel(baseName, json);
+            status = valid ? "Valid restore point" : "Corrupt or unsupported backup";
+            return valid;
         }
-        catch (JsonException) { return false; }
-        catch (IOException) { return false; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException
+                or System.Security.SecurityException)
+        {
+            status = $"Unavailable: {e.Message}";
+            return false;
+        }
     }
-}
+}\n
