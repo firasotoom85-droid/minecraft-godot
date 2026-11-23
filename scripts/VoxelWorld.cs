@@ -2992,7 +2992,7 @@ public partial class VoxelWorld : Node3D
         }
     }
 
-    private void UnloadFar(Vector2I pcp)
+    internal void UnloadFar(Vector2I pcp)
     {
         int limit = ViewDistance + UnloadMargin;
 
