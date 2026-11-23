@@ -106,6 +106,29 @@ public static class SaveTests
             string primaryBeforeFailure = Convert.ToHexString(File.ReadAllBytes(rotationPath));
             string backupBeforeFailure = Convert.ToHexString(File.ReadAllBytes(rotationPath + ".bak"));
             string oldestBeforeFailure = Convert.ToHexString(File.ReadAllBytes(rotationPath + ".bak2"));
+            bool failedRotation = WorldSaveWorker.WriteAtomic(
+                    rotationPath,
+                    "generation-4",
+                    out string? rotationError,
+                    beforeCurrentToBackup: () => throw new System.IO.IOException(
+                            "injected current-primary-to-backup rotation failure"));
+            TestAssert.Check(!failedRotation && !string.IsNullOrEmpty(rotationError),
+                    "atomic writer reports an injected failure before moving the current primary to .bak");
+            TestAssert.Equal(primaryBeforeFailure,
+                    Convert.ToHexString(File.ReadAllBytes(rotationPath)),
+                    "rotation failure preserves the previous primary byte-for-byte");
+            TestAssert.Equal(backupBeforeFailure,
+                    Convert.ToHexString(File.ReadAllBytes(rotationPath + ".bak")),
+                    "rotation failure preserves the previous backup byte-for-byte");
+            TestAssert.Equal(oldestBeforeFailure,
+                    Convert.ToHexString(File.ReadAllBytes(rotationPath + ".bak2")),
+                    "rotation failure preserves the oldest backup byte-for-byte");
+            TestAssert.Check(!File.Exists(rotationPath + ".tmp"),
+                    "failed rotation removes its temporary file");
+            TestAssert.Equal(0,
+                    Directory.GetFiles(rotationRoot, "rotation.json.bak2.stage-*").Length,
+                    "failed rotation restores and removes the staged oldest backup");
+
             bool failedPublish = WorldSaveWorker.WriteAtomic(
                     rotationPath,
                     "generation-4",
