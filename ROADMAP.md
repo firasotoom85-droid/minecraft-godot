@@ -2357,3 +2357,46 @@ commit ancestry traceable.
   BlockId/ItemId, atlas IDs or generator V1–V11 rules were changed. The
   location scans run once at capture startup and are not part of gameplay.
   No gameplay frame, physics or per-emitter node cost is added.
+
+## 43. Chunk-stream lighting continuity validation — 2026-11-22
+
+- Audited the existing stream/lighting path before changing it. Every mesh
+  neighbourhood uses the snapshot-locked `VoxelWorld.LightDataNeighborhood`
+  solve: one 5×5 block snapshot, a 14-voxel attenuation halo, nine packed
+  sky/block result maps cached for adjacent chunk workers. `ApplyBuild` calls
+  the existing `Chunk.FadeIn` for fresh streamed chunks; opaque, glass, water
+  and lava surfaces transition over 0.4 seconds after their baked vertex light
+  is already present. Camera cave exposure reads the existing cached sky
+  channel with trilinear interpolation. No production lighting, shader,
+  environment, graphics-preset, mesher or streaming implementation needed a
+  rebuild for this task.
+- Added an integration regression that requests neighbouring 3×3 lighting
+  snapshots in west-first and east-first order, then compares packed sky and
+  block channels for all six shared chunks. It also samples camera skylight
+  immediately on both sides of a negative-to-zero chunk seam. This pins cache
+  order independence and seam interpolation without adding runtime work.
+- Added `ChunkLightingStreamingCapture.tscn`, a repeatable production-main-scene
+  capture. A source torch is placed at the boundary of an already loaded chunk
+  through `SetBlock`; the adjacent target starts unloaded, then streams in when
+  a hidden player moves. The fixture writes before/fade/settled images and
+  verifies the first voxel of the arriving chunk has propagated baked light.
+  It runs in both classic atlas and greedy meshing modes with the same seed,
+  generator, LOW preset, camera and view distance.
+- **MX230 visual validation:** Godot 4.7.2 .NET / Vulkan Forward+, seed 1337,
+  V11 normal world, 1600×900, view distance 2. The source torch is at
+  `(15,41,24)` and target chunk `(1,1)` was absent in both before-captures.
+  Atlas mode streamed it in 36 frames; greedy mode took 33 frames. Both report
+  block light 13 at the first target voxel from the 14-level source, camera
+  skylight 15.00, and 35 loaded chunks at the settled capture. Matching PNGs:
+  `docs/visual/screenshots/chunk-light-{atlas,greedy}.{before,fade,settled}.png`.
+- Performance/compatibility: production runtime cost is unchanged; the capture
+  performs one fixture-only seam lookup and the test compares cached arrays
+  only when invoked. No per-emitter lights, per-frame scans, new renderer
+  effects, physics work, save fields, IDs, voxel-generation rules, generator
+  versions, edits outside `SetBlock`, greedy merge keys, or chunk-streaming
+  policies were introduced. V1–V11 and save V4 remain frozen.
+- **Verification:** `dotnet build` and `dotnet build -c Release` both pass with
+  0 warnings / 0 errors. `scripts/verify.sh` passes **198,736 checks / 0
+  failures across 48 suites** with Godot 4.7.2 .NET. This includes the 18 new
+  lighting-neighbourhood order and camera seam checks. The intentional save
+  failure/recovery warnings remain expected test output.

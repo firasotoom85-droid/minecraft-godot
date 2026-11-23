@@ -375,6 +375,14 @@ generation or save data.
   torch`, `1337 11 0 0 campfire`, or `1337 11 0 0 overlap`, followed by an
   output PNG path. The capture uses the real main scene and prints baked flame
   and adjacent light levels for parity checks.
+  Chunk meshing requests share one snapshot-locked 3×3 packed-light solve
+  built from a 5×5 block region with a 14-voxel attenuation halo. Its nine
+  results are cached for adjacent chunk jobs, so worker completion order does
+  not change the baked sky/block channels for a given chunk. A newly applied
+  chunk fades its existing opaque, glass, water and lava surfaces from
+  transparent to opaque over 0.4 seconds; the light is already baked before
+  the fade starts. This is a mesh-arrival transition, not a second lighting
+  solve, per-frame light update, or emitter-node effect.
 - **World presets** — normal, flat, amplified, and floating sky islands, with
   share codes and per-world seeds.
 - **Survival** — health, hunger, breath, drowning, fall damage, softcore
@@ -480,8 +488,8 @@ control and shows common through legendary gear, plain and enchanted examples,
 and full / 74% / 49% / 24% durability states. The PNG is written to
 `user://equipment-durability-visual-validation.png`.
 
-The current headless suite reports **198,718 checks, 0 failures across 48
-suites**, with 0 Debug build warnings or errors. The added
+The current headless suite reports **198,736 checks, 0 failures across 48
+suites**, with 0 Debug and Release build warnings or errors. The added
 `item-visual-quality` suite pins rarity bands, cached enchantment variants,
 wear/enchantment composition, first-person visual-state signatures and block
 atlas-region compatibility. `texture-atlas-validation` audits the live atlas,
@@ -498,7 +506,10 @@ including every partial-block state. `integration-regressions` pins V9, V10 and
 V11 golden chunk hashes, runs V11 forward and reversed chunk order across
 positive and negative coordinates, proves the V11 delta is only air-to-reed
 cells, round-trips appended reed content through V4 saves, and checks the wet
-merge bit directly. Coverage also includes deterministic V9 weathering,
+merge bit directly. It also solves adjacent 3×3 light neighbourhoods in both
+orders, compares all six overlapping chunks' packed sky/block bytes, and checks
+camera skylight continuity across a negative-to-zero chunk boundary. Coverage
+also includes deterministic V9 weathering,
 the V10 foliage-only delta, the V10-to-V11 shoreline-only delta,
 V8-to-V9 chunk-diff and chunk-order regressions,
 atmosphere/weather/water presentation, the performance runner, streaming memory
@@ -509,6 +520,24 @@ V1–V8 golden chunk hashes. The headless runner and a verbose real-scene soak b
 leaked ObjectDB instances or RIDs. The project-specific reliability audit,
 including seven confirmed fixes and the remaining manual-coverage gaps, is in
 [`docs/RELIABILITY_AUDIT_2026-11-21.md`](docs/RELIABILITY_AUDIT_2026-11-21.md).
+
+### Chunk-stream lighting continuity capture
+
+Run the real-main-scene comparison once per mesher:
+
+```bash
+godot --path . res://tests/ChunkLightingStreamingCapture.tscn -- \
+  1337 11 atlas res://docs/visual/screenshots/chunk-light-atlas
+godot --path . res://tests/ChunkLightingStreamingCapture.tscn -- \
+  1337 11 greedy res://docs/visual/screenshots/chunk-light-greedy
+```
+
+Each disposable V11 world uses the same seed, LOW preset, view distance,
+camera and torch-lit corridor. The runner writes before, fade and settled
+frames as a neighbouring chunk streams across the camera-facing seam, and
+reports the baked block-light level in the first voxel of that chunk. Compare
+the atlas and greedy images at matching phases; no selected world or settings
+file is changed.
 
 ### Gameplay polish — Milestone 5 increment
 
