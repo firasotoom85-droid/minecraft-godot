@@ -88,5 +88,11 @@ reviewed captures made with the documented real-renderer setup.
 The grid sampler and comparator are covered by headless regression tests,
 including duplicate ids, missing and unreferenced points, exact channel drift,
 color/intensity aggregates and tolerance handling. These tests validate the
-comparison math; they do not replace a fresh GPU capture. No post-change
-Forward+ capture or MX230 performance measurement was run for this increment.
+comparison math; they do not replace a fresh GPU capture. The capture runner supports `--probe-only`, which skips window/pixel capture
+while preserving main-scene setup, the fixed warm-up and cached voxel-light
+sampling. CI is configured to execute all five seed-1337 LOW probe-only scenes
+and upload their JSON files as the `lighting-probe-grids` workflow artifact.
+That headless output can supply the CPU-side spatial reference values without
+requiring the unavailable desktop Linux session; it does not verify rendered
+pixels or substitute for the existing Forward+ screenshots. No new MX230
+frame-time/VRAM measurement is claimed.
