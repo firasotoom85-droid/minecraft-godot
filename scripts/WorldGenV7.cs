@@ -661,6 +661,9 @@ public partial class VoxelWorld
         // successful stone replacements across the complete source-cell paths.
         HashSet<Vector3I>? claimedOrePositions = _genVersion >= WorldGenV12.Version
                 ? new HashSet<Vector3I>(512) : null;
+        Dictionary<Vector2I, (WorldGenV7.SurfaceSample Surface, bool IsIsland)>? oreColumnCache =
+                _genVersion >= WorldGenV12.Version
+                        ? new Dictionary<Vector2I, (WorldGenV7.SurfaceSample, bool)>(256) : null;
         for (int dz = -1; dz <= 1; dz++)
         {
             for (int dx = -1; dx <= 1; dx++)
@@ -673,13 +676,13 @@ public partial class VoxelWorld
                 int cellOz = nz * ChunkZ;
                 Biome biome = BiomeAt(cellOx + ChunkX / 2, cellOz + ChunkZ / 2);
                 TryVersionedOreVein(ref rng, BlockId.CoalOre, cellOx, cellOz,
-                        18, 112, 9, 4, 11, data, strideY, ox, oz, claimedOrePositions);
+                        18, 112, 9, 4, 11, data, strideY, ox, oz, claimedOrePositions, oreColumnCache);
                 TryVersionedOreVein(ref rng, BlockId.IronOre, cellOx, cellOz,
-                        6, 88, 6, 3, 8, data, strideY, ox, oz, claimedOrePositions);
+                        6, 88, 6, 3, 8, data, strideY, ox, oz, claimedOrePositions, oreColumnCache);
                 TryVersionedOreVein(ref rng, BlockId.GoldOre, cellOx, cellOz,
-                        5, 48, biome == Biome.Mountain ? 4 : 2, 2, 6, data, strideY, ox, oz, claimedOrePositions);
+                        5, 48, biome == Biome.Mountain ? 4 : 2, 2, 6, data, strideY, ox, oz, claimedOrePositions, oreColumnCache);
                 TryVersionedOreVein(ref rng, BlockId.DiamondOre, cellOx, cellOz,
-                        4, 24, 1, 2, 4, data, strideY, ox, oz, claimedOrePositions);
+                        4, 24, 1, 2, 4, data, strideY, ox, oz, claimedOrePositions, oreColumnCache);
             }
         }
     }
@@ -716,17 +719,19 @@ public partial class VoxelWorld
     private void TryVersionedOreVein(ref uint rng, BlockId ore, int cellOx, int cellOz,
             int minY, int maxY, int count, int minSize, int maxSize,
             byte[] data, int strideY, int ox, int oz,
-            HashSet<Vector3I>? claimedOrePositions)
+            HashSet<Vector3I>? claimedOrePositions,
+            Dictionary<Vector2I, (WorldGenV7.SurfaceSample Surface, bool IsIsland)>? oreColumnCache)
     {
         if (_genVersion >= WorldGenV12.Version)
         {
-            if (claimedOrePositions is null)
+            if (claimedOrePositions is null || oreColumnCache is null)
             {
                 throw new InvalidOperationException("V12 ore placement state was not initialized.");
             }
 
             TryV12Vein(ref rng, ore, cellOx, cellOz, minY, maxY, count,
-                    minSize, maxSize, data, strideY, ox, oz, claimedOrePositions);
+                    minSize, maxSize, data, strideY, ox, oz,
+                    claimedOrePositions, oreColumnCache);
             return;
         }
 
@@ -737,7 +742,8 @@ public partial class VoxelWorld
     private void TryV12Vein(ref uint rng, BlockId ore, int cellOx, int cellOz,
             int minY, int maxY, int count, int minSize, int maxSize,
             byte[] data, int strideY, int ox, int oz,
-            HashSet<Vector3I> claimedOrePositions)
+            HashSet<Vector3I> claimedOrePositions,
+            Dictionary<Vector2I, (WorldGenV7.SurfaceSample Surface, bool IsIsland)> oreColumnCache)
     {
         int veins = count + Range(ref rng, 0, 2);
         Span<Vector3I> visited = stackalloc Vector3I[WorldGenV12.MaxOreWalkAttempts];
@@ -765,7 +771,7 @@ public partial class VoxelWorld
                 if (WorldGenV12.TryRecordUniqueOrePosition(
                             visited, ref visitedCount, position)
                         && !claimedOrePositions.Contains(position)
-                        && IsV12NaturalStone(x, y, z, data, strideY, ox, oz))
+                        && IsV12NaturalStone(x, y, z, data, strideY, ox, oz, oreColumnCache))
                 {
                     claimedOrePositions.Add(position);
                     StampOre(x, y, z, ore, data, strideY, ox, oz);
