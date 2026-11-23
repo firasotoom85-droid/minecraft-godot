@@ -3,13 +3,13 @@
 **Repository:** `firasotoom85-droid/minecraft-godot`  
 **Refreshed:** 2026-11-23  
 **Default branch audited:** `main`  
-**Audited head:** `b9fea0acfd8293e2af4abbda1abb4fca0685f849`  
-**Active baseline:** 110 open issues, #93–#202 inclusive
+**Audited head:** `9e62125a037d87f0b9f3a3ca895645a4e40873b4`  
+**Active baseline:** 109 open issues; #93–#202 excluding #150 (closed by merged PR #207)
 
 ## Scope and verification record
 
 - The active set was fetched from the repository Issues REST endpoint with `state=open`, `per_page=100`, and explicit pagination through pages 1 and 2. The pages returned 100 and 10 issues respectively; the resulting issue numbers are the contiguous range #93–#202.
-- Every active issue description was read in full. The GitHub issue metadata reports zero comments on 109 issues; #149 has one comment, which was read in full and incorporated below.
+- At the original ledger refresh, every active issue description was read in full. The 2026-11-23 W01 integration refresh re-fetched the repository's open issues after PR #207 merged: 109 open issues remain in #93–#202, with #150 closed by the merged PR. #149's issue comment remains incorporated below.
 - Repository metadata identifies `main` as the default branch. Source review was performed against `main` at `b9fea0acfd8293e2af4abbda1abb4fca0685f849`. The issue-specific confidence statements below preserve whether a finding is static, suspected, or requires runtime reproduction; static analysis is not represented as runtime verification.
 - No application code, issue title/body/labels/assignees/state, or save data was changed for this ledger task. No issue was closed or reopened.
 - The recursive `main` tree contains no `docs/remediation/ISSUE_LEDGER.md`; no prior ledger/snapshot was found on the default branch or a `remediation` branch. An exact numeric delta against a prior issue list is therefore unavailable. This refreshed snapshot is the new baseline.
@@ -19,9 +19,9 @@
 
 | Check | Result |
 |---|---:|
-| Open issues fetched | 110 |
-| Unique issue numbers | 110 |
-| Range | #93–#202 |
+| Open issues fetched | 109 |
+| Unique issue numbers | 109 |
+| Range | #93–#202, excluding closed #150 |
 | Issues with exactly one prompt-pack worker owner | 110 |
 | Issues missing or multiply assigned in ledger map | 0 |
 | Closed issues included as active fixes | 0 |
@@ -115,7 +115,7 @@ Other tracked relationships are not duplicates: #199/#201 cover non-blocking shu
 - Assert that only one build for C is active at once.
 - Assert that a request arriving during the build causes exactly one follow-up build after completion.
 - Verify a fresh chunk is installed once and that multiple payload applications do not occur for the same unchanged snapshot.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -133,7 +133,7 @@ Other tracked relationships are not duplicates: #199/#201 cover non-blocking shu
 - Edit a block on a chunk boundary and assert that every dependent neighbor payload is rejected/rebuilt.
 - Cover edits that change light opacity/emission so light-dependent payloads remain correctly invalidated.
 - Add a stress benchmark with repeated local edits while distant chunks stream, recording discarded payload count and total mesh-build time.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). W01 integration and dependency coordination are recorded in merged PR #207; implementation still requires the W03 `Mesher.cs` owner. Keep the issue open.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -151,7 +151,7 @@ Other tracked relationships are not duplicates: #199/#201 cover non-blocking shu
 - Inject repeated failures and verify retry limits/backoff prevent a hot retry loop.
 - Verify fresh-build and rebuild requests retain their correct intent across retries.
 - Verify cancellation during scene shutdown does not schedule new work and that payload-slot reservations are still balanced.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -169,7 +169,7 @@ Other tracked relationships are not duplicates: #199/#201 cover non-blocking shu
 - Assert loading fails before `ChunkData()` can generate a chunk.
 - Assert the manifest bytes and existing save files remain unchanged.
 - Test the minimum supported version and the current version still load successfully.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -187,7 +187,7 @@ Other tracked relationships are not duplicates: #199/#201 cover non-blocking shu
 - Assert the world is not loaded as V1 and no replacement manifest is written.
 - Assert the existing `world.json`, `player.json`, and backups remain byte-identical.
 - Retain a test proving a genuine pre-worlds legacy save still migrates to V1.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -206,7 +206,7 @@ Other tracked relationships are not duplicates: #199/#201 cover non-blocking shu
 - Generate the affected chunks in both orders and compare their voxel arrays.
 - Test overlap at positive and negative chunk boundaries.
 - Verify non-overlapping campfires retain their existing output.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+No implementation in merged PR #207; W01 recorded the issue as blocked on a deterministic reproducer. Any generation-output correction must use a new generator version.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -225,7 +225,7 @@ Other tracked relationships are not duplicates: #199/#201 cover non-blocking shu
 - Assert all callers receive the same cached array reference and byte-identical contents.
 - Request multiple different chunks concurrently and assert they can still generate in parallel.
 - Cover generation exceptions and verify a later retry can succeed.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -364,7 +364,7 @@ The world-save loader already validates saved block IDs, but the live mutation b
 3. Verify rejection leaves block data, block states, edit dictionaries, dirty state, edit epoch, lighting, and `BlockChanged` notifications unchanged.
 4. Verify every currently defined `BlockId` remains accepted where world bounds permit.
 5. Verify valid block edits still rebuild the affected chunk and its neighbors.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -401,7 +401,7 @@ The world-save loader already validates saved block IDs, but the live mutation b
 - **Required regression test:** - Load a V5 fixture containing an unknown field and verify the world is marked unsupported/read-only.
 - Invoke autosave, manual save, focus-loss save, and quit-save paths and verify the primary file and both backups retain their original hashes.
 - Verify V1–V4 fixtures continue loading according to the supported compatibility policy.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -419,7 +419,7 @@ The world-save loader already validates saved block IDs, but the live mutation b
 - Verify the unknown edit is preserved through a save, or verify all save entry points refuse to write.
 - Verify a world containing only known IDs still loads and saves normally.
 - Verify existing persisted-ID golden tests remain unchanged.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -621,7 +621,7 @@ The world-save loader already validates saved block IDs, but the live mutation b
 - Verify a legacy save with an omitted health field still receives its intended default.
 - Verify a normal living save restores its exact health.
 - Verify respawn anchor, inventory, XP, and spawn protection are preserved according to softcore rules.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+Sibling implementation is in [W06 PR #210](https://github.com/firasotoom85-droid/minecraft-godot/pull/210); it was not included in PR #207 and remains open pending its own merge and verification.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -639,7 +639,7 @@ The world-save loader already validates saved block IDs, but the live mutation b
 - Apply damage without changing inventory and verify health is persisted.
 - Award XP without a loot item and verify XP is persisted.
 - Verify repeated stat events are coalesced by the existing autosave interval.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -657,7 +657,7 @@ The world-save loader already validates saved block IDs, but the live mutation b
 - Save/reload and verify the campfire anchor is preserved.
 - Verify resting with changed stats still produces one coherent dirty transition.
 - Verify bed and campfire anchors follow the same persistence contract.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -714,7 +714,7 @@ The world-save loader already validates saved block IDs, but the live mutation b
 - Verify player-planted crops continue growing.
 - Verify unloading/reloading a chunk does not lose registration or cause duplicate growth entries.
 - Verify existing generator golden hashes and saved-world compatibility remain unchanged.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -752,7 +752,7 @@ The world-save loader already validates saved block IDs, but the live mutation b
 - Verify PlaytimeSeconds advances after idle autosave.
 - Verify no save is issued every frame.
 - Verify focus-loss and shutdown include the latest accumulated values.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -804,7 +804,7 @@ The world-save loader already validates saved block IDs, but the live mutation b
 - **Required regression test:** - Start with three distinct valid generations and inject a failure when moving the current file to .bak; verify all original generations remain recoverable.
 - Inject a failure during the final temp-to-primary commit; verify the previous primary and both backup generations remain.
 - Verify a successful write still leaves the newest three generations in the expected order.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** The W01 background writer's analogous rotation defect was fixed in [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) / [commit `9e62125`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). The issue's primary `WorldStore.WriteAtomic()` path remains W05-owned and is still under [PR #215](https://github.com/firasotoom85-droid/minecraft-godot/pull/215); keep #132 open until that path is merged and verified.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -999,7 +999,7 @@ If no visible failure can be reproduced, close this issue as not reproducible an
 - Perform rapid consecutive edits to the same block and verify an older payload cannot restore stale collision.
 - Repeat edits at chunk boundaries and verify neighboring collision remains correct.
 - Measure the mutation-to-collision update time under a busy streaming queue.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). W01 integration dependency is recorded in merged PR #207; immediate collision synchronization remains owned by the W03 `Chunk.cs` work. Keep the issue open.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -1074,7 +1074,7 @@ If no visible failure can be reproduced, close this issue as not reproducible an
 - Re-query an evicted cell and assert its result is identical to the original deterministic result.
 - Move across chunk boundaries and verify eviction does not remove entries still needed by nearby chunks or minimap queries.
 - Verify existing generator-version golden hashes remain unchanged.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -1130,7 +1130,7 @@ If no visible failure can be reproduced, close this issue as not reproducible an
 - Verify staged application never exposes a partially replaced chunk as complete.
 - Verify payload buffers are released exactly once on success, rejection, and cancellation.
 - Add a performance test that records p95/p99 apply duration at the project's target view distance.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). W01 integration dependency is recorded in merged PR #207; staged collision/payload application remains owned by the W03 `Chunk.cs` work. Keep the issue open.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -1153,13 +1153,13 @@ If no visible failure can be reproduced, close this issue as not reproducible an
 - Add a cold-start benchmark measuring time to first responsive frame.
 
 **Comment-scope regression (#149):** Measure cold entry to main menu after leaving a world and verify the 25 preview builds do not create a main-thread stall; confirm render-only preview has no gameplay colliders and remains visually complete.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
-- **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Partial startup/menu streaming implementation merged. Cold-start/p99 and menu-preview entry benchmarks remain outstanding; keep the issue open.
+- **Final verification:** Startup/menu streaming path passed the final W01 CI and headless regressions; the required cold-start/p99 and cold menu-entry benchmarks have not been collected. Issue remains open pending those measurements.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
 ### #150 — [Autosave][Moderate] Autosave serializes and writes the complete world synchronously
 
-- **Current GitHub status:** Open; no state change made.
+- **Current GitHub status:** Closed; automatically closed by merged PR #207 on 2026-11-23.
 - **Severity / priority:** Moderate / P2.
 - **Subsystem:** VoxelWorld, chunk streaming, and world-level coordination.
 - **Verified root cause / investigation status:** Snapshot preparation, serialization, and disk persistence are combined in the synchronous `SaveNow()` path. The periodic autosave scheduler does not offload the expensive stages. **Issue confidence:** Confirmed by static analysis; save duration was not measured with a large edited world during this audit.
@@ -1172,9 +1172,9 @@ If no visible failure can be reproduced, close this issue as not reproducible an
 - Trigger two saves quickly and verify they commit in order without losing the newest dirty state.
 - Inject write/flush/rename failures and verify the existing atomic recovery guarantees remain intact.
 - Load worlds written by the revised path using the current and previous supported save formats.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
-- **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
-- **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Fixes #150; merged implementation and final CI verification completed.
+- **Final verification:** Merged implementation verified on Godot 4.7.2 CI for PR head `4b08fee68611325f3ebbabd9937376820008a2cc`: Debug/Release builds with warnings as errors (0 warnings, 0 errors), 200,309 headless checks with 0 failures, five spatial-light probe grids at 27/27 samples and 100% coverage, and changed-C# formatting all passed.
+- **Closure status:** Closed by merged PR #207 after successful CI verification; no manual issue-state mutation was performed.
 
 ### #151 — [Save Load][Moderate] Rebuild edit-top metadata regenerates every edited chunk without reusing data
 
@@ -1191,7 +1191,7 @@ If no visible failure can be reproduced, close this issue as not reproducible an
 - Verify edited chunks still render identically after streaming.
 - Verify unedited chunks are not eagerly generated by the load path.
 - Verify save compatibility and generator-version golden hashes remain unchanged.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -1632,7 +1632,7 @@ Do not bypass `SetBlock()` / the established edit architecture, weaken required 
 - Cover torch placement/removal and shape-state changes; assert that every chunk whose baked-light samples are affected by the 14-voxel radius is rebuilt and no required light update is skipped.
 - Verify updated render faces and collision at all affected seams, including negative chunk coordinates.
 - Add a deterministic build-count or queue-target test showing that an interior non-light edit does not create eight extra mesh builds.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -1878,8 +1878,8 @@ Do not bypass `SetBlock()` / the established edit architecture, weaken required 
 - Force all sampled candidates to be rejected by the blocker predicate; verify no unchecked default coordinate is returned.
 - For normal, flat, amplified, and sky presets, assert that every successful spawn has a solid support block, sufficient headroom for the player capsule, no intersecting blocks, no lava/water hazard at body/head level, and valid height bounds.
 - Verify that the existing successful spawn choices remain stable for known seeds and that initial spawn collision is ready before player movement is enabled.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
-- **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Safe spawn search, controlled no-candidate failure, and normal/flat/amplified/sky capsule-safety regressions are merged. The issue remains open for final owner-level acceptance of the specific normal/sky edge-case fixtures.
+- **Final verification:** Merged W01 implementation passed the final headless world-generation suite; normal, flat, amplified and sky preset safety checks plus forced all-candidate rejection passed. Issue remains open pending issue-owner acceptance of the dedicated normal/sky origin edge-case fixtures.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
 ### #190 — Bug: Opaque faces disappear behind cutout foliage
@@ -2001,7 +2001,7 @@ Correct `TestLavaDepthBehavior()` so it asserts that the lava shader does not wr
 - Verify the migrated legacy V1 fixture still uses `LegacyNoiseSeeds` and retains the existing V1 anchor hash.
 - Verify valid V1, V3, V5 and V6 manifests retain their existing golden hashes.
 - Verify a current V7+ world with valid metadata remains unchanged.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -2022,7 +2022,7 @@ Correct `TestLavaDepthBehavior()` so it asserts that the lava shader does not wr
 - Verify in-range rebuild requests still apply after an edit and that saved edits are present when the player returns to the old region.
 - Cover view-distance increases/decreases and negative chunk coordinates.
 - Verify shutdown still drains published payloads and releases every semaphore reservation.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -2042,7 +2042,7 @@ Correct `TestLavaDepthBehavior()` so it asserts that the lava shader does not wr
 - Cover positive and negative chunk coordinates and movement along both X and Z axes.
 - Apply small alternating direction noise around the refresh threshold and assert hysteresis prevents repeated full queue rebuilds.
 - Verify active requests are not duplicated or invalidated by reprioritization and that normal nearest-first ordering remains when stationary.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -2062,7 +2062,7 @@ Correct `TestLavaDepthBehavior()` so it asserts that the lava shader does not wr
 - Verify in-radius rebuild requests still complete and that stale completed rebuild payloads do not block fresh payload application.
 - Cover positive and negative chunk coordinates, boundary crossings, and repeated rapid teleports.
 - Assert no duplicate active work, no stale payload application, no lost SetBlock/ApplyEdit changes, and no unbounded queue growth.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -2080,7 +2080,7 @@ Correct `TestLavaDepthBehavior()` so it asserts that the lava shader does not wr
 - Repeat with far-LOD tasks in flight and with both worker systems active simultaneously.
 - Cover shutdown when no tasks are active, when workers are waiting for payload slots, and when a worker is already inside meshing/LOD generation.
 - Assert that the scene is freed only after all workers stop, pending payload count and reservations return to zero, and no deferred result applies to a freed world.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Shutdown dependency is recorded in merged PR #207; asynchronous Far LOD/scene-transition drain remains W02-owned and unimplemented here. Keep the issue open.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -2100,7 +2100,7 @@ Correct `TestLavaDepthBehavior()` so it asserts that the lava shader does not wr
 - Cover a neighborhood with no state edits, one stateful neighbor, multiple stateful neighbors, and stateful chunks at each edge/corner of the 3×3 region.
 - Verify rented state scratch is cleared between uses so state bytes from a previous rent cannot affect cells whose current state is zero.
 - Verify buffer return on normal completion and exception paths, and confirm stateful block placement/save compatibility remains unchanged.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). Implementation and regression coverage are merged; the GitHub issue remains open pending explicit owner/closure review.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -2120,7 +2120,7 @@ Correct `TestLavaDepthBehavior()` so it asserts that the lava shader does not wr
 - Verify a worker blocked on the payload semaphore and a worker already inside meshing both terminate during scene exit.
 - Verify no payload is published after shutdown and all completed-payload reservations and pending-payload counters are balanced.
 - Run the existing V1–V11 world-generation compatibility and greedy/per-face geometry tests to prove no output changes.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
+- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). W01 cancellation dependency is recorded in merged PR #207; active mesher cancellation checkpoints remain W03-owned in `Mesher.cs`. Keep the issue open.
 - **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
@@ -2159,3 +2159,14 @@ Correct `TestLavaDepthBehavior()` so it asserts that the lava shader does not wr
 - **Fixed/stale assessment:** The current source spot-check did not establish a fully fixed issue that could be removed from the open set. #167 is partly stale/partly addressed: `PLAN.md` now reports 52 registered suites, while the current `ROADMAP.md` milestone table still says 48; keep #167 open for the remaining documentation reconciliation. Investigation-only #137 remains unverified at runtime and must not be treated as a confirmed renderer defect or as fixed.
 - **Issue comments reviewed:** #149 has one comment and its menu-preview workload is included above; all other currently open issues report zero comments.
 - **Closed issues:** Excluded from the active remediation ledger. No closed issue was reopened, imported as an active fix, or modified.
+
+## Integration update — W01 PR #207 (2026-11-23)
+
+- **Merged PR:** [#207 — W01: harden voxel chunk lifecycle and world streaming](https://github.com/firasotoom85-droid/minecraft-godot/pull/207).
+- **Squash commit on `main`:** [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4).
+- **Validated PR head:** `4b08fee68611325f3ebbabd9937376820008a2cc`.
+- **Final verification:** PR CI [#45262320529](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45262320529), push CI [#45262312094](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45262312094), and formatting [#45262320943](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45262320943) succeeded. Debug/Release reported zero compiler warnings and errors; the headless runner reported 200,309 checks and zero failures; all five spatial-light grids compared 27/27 samples (100% coverage), and report upload succeeded.
+- **Issue state:** #150 closed automatically by the merged `Fixes #150` reference. Other W01 issues remain open unless their entries above explicitly state otherwise; no additional issue was closed manually.
+- **Outstanding dependencies:** #96/#201 require W03 mesher work; #141/#148 require W03 chunk work; #199 requires W02 Far LOD/transition work; #122 remains on sibling W06 PR #210; #100 still needs a deterministic reproducer/new generator version; #149 lacks cold-start/p99 evidence; #189 remains open for final issue-owner acceptance; #132's W05-owned `WorldStore.WriteAtomic()` path remains in PR #215.
+- **Deferred dependent PR:** W02 PR #205 remains open/draft and was not integrated in this pass. It still targets `agent/w01-voxelworld`; retarget and review it separately against `main` in its own integration pass.
+- **Current open issue count:** 109 issues, #93–#202 excluding closed #150.
