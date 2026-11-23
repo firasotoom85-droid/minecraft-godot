@@ -241,10 +241,32 @@ public static class VoxelStreamingTests
                 "a failed request records retry history before its retry is queued");
         TestAssert.Equal(1, tracker.FailureCount,
                 "queued retry history exists before the streaming center changes");
-        tracker.ForgetFailureOutsideRetention(
-                queuedDepartedCoordinate, Vector2I.Zero, limit: 5);
+        tracker.ForgetFailureIfNotRequeued(
+                queuedDepartedCoordinate, willBeRequeued: false);
         TestAssert.Equal(0, tracker.FailureCount,
                 "queue reconciliation removes retry history for a retry discarded outside retention");
+
+        Vector2I shrunkViewCoordinate = new(4, 0);
+        TestAssert.Check(ChunkStreamingPolicy.IsWithinRetention(
+                        shrunkViewCoordinate, Vector2I.Zero, limit: 4),
+                "view-distance shrink can leave a chunk inside the unload margin");
+        TestAssert.Check(tracker.TryRecordFailure(
+                        shrunkViewCoordinate, true, true, 3, out _),
+                "a retry for that chunk begins with retained failure history");
+        tracker.ForgetFailureIfNotRequeued(
+                shrunkViewCoordinate, willBeRequeued: false);
+        TestAssert.Equal(0, tracker.FailureCount,
+                "queue reconciliation clears a retry no longer scheduled after view-distance shrink");
+
+        Vector2I retainedRetryCoordinate = new(1, 1);
+        TestAssert.Check(tracker.TryRecordFailure(
+                        retainedRetryCoordinate, true, true, 3, out _),
+                "a retry in the new fresh radius records its attempt history");
+        tracker.ForgetFailureIfNotRequeued(
+                retainedRetryCoordinate, willBeRequeued: true);
+        TestAssert.Equal(1, tracker.FailureCount,
+                "a retry that remains scheduled preserves its bounded attempt history");
+        tracker.ForgetFailure(retainedRetryCoordinate);
 
         Vector2I staleCoordinate = new(2, 2);
         TestAssert.Check(tracker.TryBegin(staleCoordinate),
