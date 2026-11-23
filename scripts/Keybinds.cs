@@ -61,21 +61,29 @@ public static class Keybinds
             }
 
             Variant stored = cfg.GetValue("keys", action, (int)Key.None);
-            if (stored.VariantType != Variant.Type.Int)
+            if (!TryReadKey(stored, out Key key))
             {
-                GD.PushWarning($"Ignoring invalid keyboard binding in keys/{action}: expected an integer key code.");
+                GD.PushWarning($"Ignoring invalid keyboard binding in keys/{action}: expected a defined key code.");
                 continue;
             }
-            int code = (int)stored;
-            if (code == (int)Key.None || !Enum.IsDefined(typeof(Key), code))
-                continue;
-            Key key = (Key)code;
             if (Conflict(action, key) == null)
                 Apply(action, key);
             else
                 GD.PushWarning($"Ignoring conflicting keyboard binding in keys/{action}: {key} is already reserved.");
         }
         _loaded = true;
+    }
+
+    internal static bool TryReadKey(Variant stored, out Key key)
+    {
+        key = Key.None;
+        if (stored.VariantType != Variant.Type.Int)
+            return false;
+        int code = (int)stored;
+        if (code == (int)Key.None || !Enum.IsDefined(typeof(Key), code))
+            return false;
+        key = (Key)code;
+        return true;
     }
 
     public static Error Save()

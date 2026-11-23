@@ -932,12 +932,17 @@ public partial class Sound : Node
         return wav;
     }
 
+    internal static void CancelPendingThunder(Dictionary<SceneTreeTimer, Action> pendingThunder)
+    {
+        foreach (KeyValuePair<SceneTreeTimer, Action> pending in pendingThunder)
+            pending.Key.Timeout -= pending.Value;
+        pendingThunder.Clear();
+    }
+
     public override void _ExitTree()
     {
         _exitingTree = true;
-        foreach (KeyValuePair<SceneTreeTimer, Action> pending in _pendingThunder)
-            pending.Key.Timeout -= pending.Value;
-        _pendingThunder.Clear();
+        CancelPendingThunder(_pendingThunder);
         RemoveOwnedBusEffect(_sfxBus, _muffle);
         RemoveOwnedBusEffect(_ambientBus, _ambientMuffle);
         _muffle = null;
