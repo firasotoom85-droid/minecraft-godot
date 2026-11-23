@@ -378,7 +378,7 @@ public partial class VoxelWorld
             id = GeneratorV8.OreAt(x, y, z, biome);
         }
 
-        if (GeneratorV8.IsCave(x, y, z, height))
+        if (IsCave(x, y, z, height))
         {
             if (GeneratorV8.IsMagmaPocket(x, y, z))
             {
