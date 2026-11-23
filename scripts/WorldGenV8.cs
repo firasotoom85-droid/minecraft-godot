@@ -178,8 +178,18 @@ public sealed class WorldGenV8
     public int SurfaceHeight(int x, int z, int seaLevel) =>
             SampleSurface(x, z, seaLevel).Height;
 
-    public Biome BiomeAt(int x, int z, int height, int seaLevel) =>
-            SampleSurface(x, z, seaLevel).Biome;
+    public Biome BiomeAt(int x, int z, int height, int seaLevel)
+    {
+        bool climateAtSurface = _preset is "flat" or "sky";
+        int climateHeight = climateAtSurface ? height : seaLevel + 12;
+        WorldGenV7.ClimateSample climate = ClimateAt(
+                x, z, climateHeight, includeRivers: false);
+        float temperature = climateAtSurface ? climate.Temperature
+                : climate.Temperature - Math.Max(0, height - 40) * 0.0085f
+                        + Math.Max(0, seaLevel + 12 - 40) * 0.0085f;
+        return WorldGenV7.ClassifyBiome(temperature, climate.Moisture,
+                height, seaLevel, _plainsVariation.GetNoise2D(x, z));
+    }
 
     private float RiverStrength(int x, int z)
     {
