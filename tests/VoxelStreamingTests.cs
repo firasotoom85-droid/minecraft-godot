@@ -84,5 +84,48 @@ public static class VoxelStreamingTests
         TestAssert.Check(PayloadPool.RetainedSurfaceCount >= 0
                         && PayloadPool.RetainedCollisionCount >= 0,
                 "mesher pool retained-item counters stay non-negative");
+
+        // Normal-sized buffers should remain reusable under the global cap.
+        SurfaceData reusable = new();
+        reusable.Vertex.Capacity = 32;
+        long reusableBytes = reusable.EstimatedBufferBytes;
+        MeshPayload reusablePayload = new(reusable, new SurfaceData(),
+                new SurfaceData(), new SurfaceData(), [], 0, revision, 0);
+        PayloadPool.Release(reusablePayload);
+        TestAssert.Equal(retainedBefore + reusableBytes, PayloadPool.RetainedBufferBytes,
+                "normal-size surface capacity is accounted while retained");
+        TestAssert.Equal(surfacesBefore + 1, PayloadPool.RetainedSurfaceCount,
+                "normal-size surface is added to the reusable pool");
+        SurfaceData rented = PayloadPool.RentSurface();
+        TestAssert.Check(ReferenceEquals(reusable, rented),
+                "the next surface rent reuses the returned backing buffer");
+        TestAssert.Equal(retainedBefore, PayloadPool.RetainedBufferBytes,
+                "renting a surface subtracts its exact retained capacity");
+
+        System.Threading.Tasks.Task[] workers = new System.Threading.Tasks.Task[8];
+        for (int worker = 0; worker < workers.Length; worker++)
+        {
+            workers[worker] = System.Threading.Tasks.Task.Run(() =>
+            {
+                for (int iteration = 0; iteration < 64; iteration++)
+                {
+                    SurfaceData a = PayloadPool.RentSurface();
+                    SurfaceData b = PayloadPool.RentSurface();
+                    SurfaceData c = PayloadPool.RentSurface();
+                    SurfaceData d = PayloadPool.RentSurface();
+                    System.Collections.Generic.List<Vector3> collision = PayloadPool.RentCollision();
+                    MeshPayload payload = new(a, b, c, d, collision, 0, revision, 0);
+                    PayloadPool.Release(payload);
+                }
+            });
+        }
+        System.Threading.Tasks.Task.WaitAll(workers);
+        TestAssert.Check(PayloadPool.RetainedBufferBytes <= PayloadPool.MaxRetainedBufferBytes,
+                "concurrent worker rent/release never exceeds the retained byte budget");
+        TestAssert.Check(PayloadPool.RetainedSurfaceCount >= 0
+                        && PayloadPool.RetainedCollisionCount >= 0,
+                "concurrent worker rent/release keeps item counters non-negative");
+        TestAssert.Check(PayloadPool.RetainedBufferBytes >= 0,
+                "concurrent worker rent/release keeps retained bytes non-negative");
     }
 }
