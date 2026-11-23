@@ -251,7 +251,22 @@ public static class Mesher
     /// The epoch is captured before any data is read; the caller discards the
     /// payload if the world was edited meanwhile.
     /// </summary>
-    public static MeshPayload Build(VoxelWorld world, Vector2I cp)
+    public static MeshPayload Build(VoxelWorld world, Vector2I cp) =>
+            BuildCore(world, cp, null);
+
+    /// <summary>
+    /// Deterministic test seam that changes meshing settings after the greedy
+    /// pre-pass decision and before per-face emission.
+    /// </summary>
+    internal static MeshPayload BuildWithAfterGreedyPrepass(
+            VoxelWorld world, Vector2I cp, Action afterGreedyPrepass)
+    {
+        ArgumentNullException.ThrowIfNull(afterGreedyPrepass);
+        return BuildCore(world, cp, afterGreedyPrepass);
+    }
+
+    private static MeshPayload BuildCore(
+            VoxelWorld world, Vector2I cp, Action? afterGreedyPrepass)
     {
         EnsureTables();
         (bool greedy, long meshingRevision) = CaptureConfiguration();
@@ -295,6 +310,8 @@ public static class Mesher
         {
             BuildOpaqueGreedy(pad, statePad, lightPad, directLightPad, sy, opaque);
         }
+
+        afterGreedyPrepass?.Invoke();
 
         for (int y = 1; y <= sy; y++)
         {
