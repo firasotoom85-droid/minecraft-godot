@@ -796,14 +796,14 @@ public static class WorldgenTests
         int minStructureZ = Mathf.FloorToInt((village.Z - 52) / (float)structureCell);
         int maxStructureZ = Mathf.FloorToInt((village.Z + 52) / (float)structureCell);
         for (int cz = minStructureZ; cz <= maxStructureZ; cz++)
-        for (int cx = minStructureX; cx <= maxStructureX; cx++)
-        {
-            if (first.GetStructureSite(cx, cz) is not { } structure) continue;
-            int dx = structure.X - village.X;
-            int dz = structure.Z - village.Z;
-            TestAssert.Check(dx * dx + dz * dz >= 52 * 52,
-                    "village site does not overlap a surface structure");
-        }
+            for (int cx = minStructureX; cx <= maxStructureX; cx++)
+            {
+                if (first.GetStructureSite(cx, cz) is not { } structure) continue;
+                int dx = structure.X - village.X;
+                int dz = structure.Z - village.Z;
+                TestAssert.Check(dx * dx + dz * dz >= 52 * 52,
+                        "village site does not overlap a surface structure");
+            }
 
         // Generate every chunk that the settlement touches in order, then the
         // same chunks in reverse order in an independent world.
@@ -813,37 +813,37 @@ public static class WorldgenTests
         int maxChunkZ = Mathf.FloorToInt((village.Z + VillageStructures.Radius) / (float)VoxelWorld.ChunkZ);
         Dictionary<Vector2I, string> orderedHashes = [];
         for (int cz = minChunkZ; cz <= maxChunkZ; cz++)
-        for (int cx = minChunkX; cx <= maxChunkX; cx++)
-        {
-            Vector2I chunk = new(cx, cz);
-            orderedHashes[chunk] = Convert.ToHexString(SHA256.HashData(first.ChunkData(chunk)));
-        }
+            for (int cx = minChunkX; cx <= maxChunkX; cx++)
+            {
+                Vector2I chunk = new(cx, cz);
+                orderedHashes[chunk] = Convert.ToHexString(SHA256.HashData(first.ChunkData(chunk)));
+            }
 
         int chunksWithVillageBlocks = 0;
         int bedCount = 0, chestCount = 0, furnaceCount = 0, tableCount = 0, farmCount = 0, torchCount = 0;
         for (int cz = minChunkZ; cz <= maxChunkZ; cz++)
-        for (int cx = minChunkX; cx <= maxChunkX; cx++)
-        {
-            int chunkVillageBlocks = 0;
-            int ox = cx * VoxelWorld.ChunkX;
-            int oz = cz * VoxelWorld.ChunkZ;
-            for (int z = oz; z < oz + VoxelWorld.ChunkZ; z++)
-            for (int x = ox; x < ox + VoxelWorld.ChunkX; x++)
-            for (int y = Math.Max(1, village.Y - 2); y <= Math.Min(first.Height - 1, village.Y + 8); y++)
+            for (int cx = minChunkX; cx <= maxChunkX; cx++)
             {
-                BlockId id = first.GetBlock(x, y, z);
-                switch (id)
+                int chunkVillageBlocks = 0;
+                int ox = cx * VoxelWorld.ChunkX;
+                int oz = cz * VoxelWorld.ChunkZ;
+                for (int z = oz; z < oz + VoxelWorld.ChunkZ; z++)
+                for (int x = ox; x < ox + VoxelWorld.ChunkX; x++)
+                for (int y = Math.Max(1, village.Y - 2); y <= Math.Min(first.Height - 1, village.Y + 8); y++)
                 {
-                    case BlockId.Bed: bedCount++; chunkVillageBlocks++; break;
-                    case BlockId.Chest: chestCount++; chunkVillageBlocks++; break;
-                    case BlockId.Furnace: furnaceCount++; chunkVillageBlocks++; break;
-                    case BlockId.CraftingTable: tableCount++; chunkVillageBlocks++; break;
-                    case BlockId.Farmland: farmCount++; chunkVillageBlocks++; break;
-                    case BlockId.Torch: torchCount++; chunkVillageBlocks++; break;
+                    BlockId id = first.GetBlock(x, y, z);
+                    switch (id)
+                    {
+                        case BlockId.Bed: bedCount++; chunkVillageBlocks++; break;
+                        case BlockId.Chest: chestCount++; chunkVillageBlocks++; break;
+                        case BlockId.Furnace: furnaceCount++; chunkVillageBlocks++; break;
+                        case BlockId.CraftingTable: tableCount++; chunkVillageBlocks++; break;
+                        case BlockId.Farmland: farmCount++; chunkVillageBlocks++; break;
+                        case BlockId.Torch: torchCount++; chunkVillageBlocks++; break;
+                    }
                 }
+                if (chunkVillageBlocks > 0) chunksWithVillageBlocks++;
             }
-            if (chunkVillageBlocks > 0) chunksWithVillageBlocks++;
-        }
 
         TestAssert.Check(bedCount >= 4, "generated village contains resident beds");
         TestAssert.Check(chestCount >= 2, "generated village contains storage");
@@ -875,8 +875,8 @@ public static class WorldgenTests
 
         List<Vector2I> reversed = [];
         for (int cz = maxChunkZ; cz >= minChunkZ; cz--)
-        for (int cx = maxChunkX; cx >= minChunkX; cx--)
-            reversed.Add(new Vector2I(cx, cz));
+            for (int cx = maxChunkX; cx >= minChunkX; cx--)
+                reversed.Add(new Vector2I(cx, cz));
         foreach (Vector2I chunk in reversed)
         {
             string hash = Convert.ToHexString(SHA256.HashData(second.ChunkData(chunk)));
