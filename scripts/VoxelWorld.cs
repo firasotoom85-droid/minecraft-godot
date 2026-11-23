@@ -1854,19 +1854,19 @@ public partial class VoxelWorld : Node3D
                     int cropX = halo + ChunkX + dx * ChunkX;
                     int cropZ = halo + ChunkZ + dz * ChunkZ;
                     for (int y = 0; y < Height; y++)
-                    for (int z = 0; z < ChunkZ; z++)
-                    {
-                        int src = y * plane + (cropZ + z) * width + cropX;
-                        int dst = (y * ChunkZ + z) * ChunkX;
-                        for (int x = 0; x < ChunkX; x++)
+                        for (int z = 0; z < ChunkZ; z++)
                         {
-                            int voxelIndex = dst + x;
-                            packed[voxelIndex] = VoxelLighting.Pack(sky[src + x], block[src + x]);
-                            int nibbleIndex = voxelIndex >> 1;
-                            int shift = (voxelIndex & 1) * 4;
-                            directPacked[nibbleIndex] |= (byte)((directSky[src + x] & 0x0F) << shift);
+                            int src = y * plane + (cropZ + z) * width + cropX;
+                            int dst = (y * ChunkZ + z) * ChunkX;
+                            for (int x = 0; x < ChunkX; x++)
+                            {
+                                int voxelIndex = dst + x;
+                                packed[voxelIndex] = VoxelLighting.Pack(sky[src + x], block[src + x]);
+                                int nibbleIndex = voxelIndex >> 1;
+                                int shift = (voxelIndex & 1) * 4;
+                                directPacked[nibbleIndex] |= (byte)((directSky[src + x] & 0x0F) << shift);
+                            }
                         }
-                    }
 
                     VoxelLightData data = new(packed, directPacked);
                     lock (_mutex)
@@ -2015,19 +2015,19 @@ public partial class VoxelWorld : Node3D
                     byte[] chunkBlocks = chunks[slot];
                     byte[] packed = maps[slot].Packed;
                     for (int yLocal = 0; yLocal < Height; yLocal++)
-                    for (int zLocal = 0; zLocal < ChunkZ; zLocal++)
-                    {
-                        int source = (yLocal * ChunkZ + zLocal) * ChunkX;
-                        int target = yLocal * plane
-                                + (dz + 1) * ChunkZ * width
-                                + zLocal * width
-                                + (dx + 1) * ChunkX;
-                        Array.Copy(chunkBlocks, source, regionBlocks, target, ChunkX);
-                        if (regionStates != null && stateChunks?[slot] is { Length: > 0 } chunkStates)
-                            Array.Copy(chunkStates, source, regionStates, target, ChunkX);
-                        for (int xLocal = 0; xLocal < ChunkX; xLocal++)
-                            regionLight[target + xLocal] = (byte)(packed[source + xLocal] & 0x0F);
-                    }
+                        for (int zLocal = 0; zLocal < ChunkZ; zLocal++)
+                        {
+                            int source = (yLocal * ChunkZ + zLocal) * ChunkX;
+                            int target = yLocal * plane
+                                    + (dz + 1) * ChunkZ * width
+                                    + zLocal * width
+                                    + (dx + 1) * ChunkX;
+                            Array.Copy(chunkBlocks, source, regionBlocks, target, ChunkX);
+                            if (regionStates != null && stateChunks?[slot] is { Length: > 0 } chunkStates)
+                                Array.Copy(chunkStates, source, regionStates, target, ChunkX);
+                            for (int xLocal = 0; xLocal < ChunkX; xLocal++)
+                                regionLight[target + xLocal] = (byte)(packed[source + xLocal] & 0x0F);
+                        }
                 }
 
             int localX = worldX - (center.X - 1) * ChunkX;
@@ -2042,17 +2042,17 @@ public partial class VoxelWorld : Node3D
                     int slot = (dz + 1) * 3 + dx + 1;
                     byte[] packed = maps[slot].Packed;
                     for (int yLocal = 0; yLocal < Height; yLocal++)
-                    for (int zLocal = 0; zLocal < ChunkZ; zLocal++)
-                    {
-                        int source = yLocal * plane
-                                + (dz + 1) * ChunkZ * width
-                                + zLocal * width
-                                + (dx + 1) * ChunkX;
-                        int target = (yLocal * ChunkZ + zLocal) * ChunkX;
-                        for (int xLocal = 0; xLocal < ChunkX; xLocal++)
-                            packed[target + xLocal] = (byte)((packed[target + xLocal] & 0xF0)
-                                    | regionLight[source + xLocal]);
-                    }
+                        for (int zLocal = 0; zLocal < ChunkZ; zLocal++)
+                        {
+                            int source = yLocal * plane
+                                    + (dz + 1) * ChunkZ * width
+                                    + zLocal * width
+                                    + (dx + 1) * ChunkX;
+                            int target = (yLocal * ChunkZ + zLocal) * ChunkX;
+                            for (int xLocal = 0; xLocal < ChunkX; xLocal++)
+                                packed[target + xLocal] = (byte)((packed[target + xLocal] & 0xF0)
+                                        | regionLight[source + xLocal]);
+                        }
 
                     _blockLightCache.Remove(center + new Vector2I(dx, dz));
                 }
