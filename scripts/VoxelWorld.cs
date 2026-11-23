@@ -1568,6 +1568,7 @@ public partial class VoxelWorld : Node3D
             if (_dataCache.TryGetValue(cp, out byte[]? cached))
             {
                 RegisterLightSourcesLocked(cp, cached);
+                RegisterCropSourcesLocked(cp, cached);
                 return cached;
             }
 
@@ -2824,26 +2825,47 @@ public partial class VoxelWorld : Node3D
     /// <summary>Nearest dry-land column to the origin, so the player never spawns in water.</summary>
     public Vector3 FindSpawn()
     {
-        Vector3 best = new(0.5f, 40.5f, 0.5f);
-        long bestD = 1L << 60;
-        for (int x = -64; x <= 64; x += 4)
+        Vector3 best = Vector3.Zero;
+        long bestD = long.MaxValue;
+        SearchSpawnCandidates(64, 4, ref best, ref bestD);
+
+        // The normal origin search retains its exact historical selection.
+        // Only when it finds no valid candidate do we expand deterministically.
+        if (bestD == long.MaxValue)
         {
-            for (int z = -64; z <= 64; z += 4)
-            {
-                int h = SurfaceHeight(x, z);
-                if (h > SeaLevel + 1 && (!IsSky || IslandAt(x, z)) && !SpawnBlocked(x, z))
-                {
-                    int d2 = x * x + z * z;
-                    if (d2 < bestD)
-                    {
-                        bestD = d2;
-                        best = new Vector3(x + 0.5f, h + 1.5f, z + 0.5f);
-                    }
-                }
-            }
+            SearchSpawnCandidates(512, 8, ref best, ref bestD);
+        }
+
+        if (bestD == long.MaxValue)
+        {
+            throw new InvalidOperationException(
+                    "Unable to find a safe spawn location within 512 blocks of the world origin.");
         }
 
         return best;
+    }
+
+    private void SearchSpawnCandidates(int radius, int step, ref Vector3 best, ref long bestD)
+    {
+        for (int x = -radius; x <= radius; x += step)
+        {
+            for (int z = -radius; z <= radius; z += step)
+            {
+                int h = SurfaceHeight(x, z);
+                if (h <= SeaLevel + 1 || h >= Height - 2
+                        || IsSky && !IslandAt(x, z) || SpawnBlocked(x, z))
+                {
+                    continue;
+                }
+
+                long distanceSquared = (long)x * x + (long)z * z;
+                if (distanceSquared < bestD)
+                {
+                    bestD = distanceSquared;
+                    best = new Vector3(x + 0.5f, h + 1.5f, z + 0.5f);
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -2916,7 +2938,6 @@ public partial class VoxelWorld : Node3D
         bool centerChanged = pcp != _lastPlayerChunk;
         bool priorityChanged = ChunkStreamingPolicy.DirectionChanged(
                 _lastPriorityDirection, _velocityDir);
-        _lastPriorityDirection = _velocityDir;
         if (centerChanged)
         {
             _lastPlayerChunk = pcp;
@@ -2927,6 +2948,7 @@ public partial class VoxelWorld : Node3D
         else if (priorityChanged)
         {
             RefreshFreshQueuePriorities(pcp);
+            _lastPriorityDirection = _velocityDir;
         }
 
         if (_groupActive && WorkerThreadPool.IsGroupTaskCompleted(_group))
@@ -3010,6 +3032,7 @@ public partial class VoxelWorld : Node3D
         {
             _streamCenter = pcp;
             _streamRetentionLimit = limit;
+            _lastPriorityDirection = _velocityDir;
 
             // Rebuild requests are only useful while their coordinates remain
             // in the retained region. Reconstructing the bounded heap also
@@ -3463,7 +3486,8 @@ public partial class VoxelWorld : Node3D
 
         // _editTops is normally maintained by SetBlock only; rebuild it from
         // the loaded edits so far LOD and the minimap show builds immediately
-        // after a restart.
+        // after a restart. Use the normal cache so the first later stream does
+        // not generate the same terrain a second time.
         foreach ((Vector2I cp, Dictionary<int, BlockId> edits) in _edits)
         {
             if (edits.Count == 0)
@@ -3471,7 +3495,7 @@ public partial class VoxelWorld : Node3D
                 continue;
             }
 
-            byte[] data = GenerateChunkData(cp);
+            byte[] data = ChunkData(cp);
             int stride = ChunkX * ChunkZ;
             foreach (int index in edits.Keys)
             {
