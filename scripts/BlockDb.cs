@@ -726,10 +726,18 @@ uniform vec3 moon_color = vec3(0.62, 0.74, 1.0);
 uniform float moonlight_energy = 0.0;
 
 vec3 directional_sky_light(vec3 world_normal, float sky, float sky_exposure) {
+#ifdef MINECRAFT_LOW_QUALITY
+    float sun_facing = world_normal.x;
+#else
     float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
+#endif
     float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
     float directional_gain = 0.88 + direct_sun * 0.12;
+#ifdef MINECRAFT_LOW_QUALITY
+    float moon_facing = world_normal.y;
+#else
     float moon_facing = max(dot(normalize(world_normal), moon_direction), 0.0);
+#endif
     float moon_fill = clamp(sky_exposure, 0.0, 1.0)
             * moonlight_energy * (0.28 + moon_facing * 0.72) * 0.12;
     vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
@@ -754,9 +762,14 @@ vec3 surface_response(float family) {
     return response_stone;
 }
 
+#ifndef MINECRAFT_LOW_QUALITY
 varying vec3 surface_world_position;
 varying vec3 surface_world_normal;
+#else
+varying vec2 low_directional_facing;
+#endif
 
+#ifndef MINECRAFT_LOW_QUALITY
 uint surface_cell_hash(ivec3 cell) {
     uint hash = uint(cell.x) * 374761393u;
     hash ^= uint(cell.y) * 668265263u;
@@ -764,28 +777,43 @@ uint surface_cell_hash(ivec3 cell) {
     hash = (hash ^ (hash >> 13u)) * 1274126177u;
     return hash ^ (hash >> 16u);
 }
+#endif
 
 void vertex() {
+#ifndef MINECRAFT_LOW_QUALITY
     surface_world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
     surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+#else
+    vec3 transformed_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+    low_directional_facing = vec2(
+            max(dot(transformed_normal, sun_direction), 0.0),
+            max(dot(transformed_normal, moon_direction), 0.0));
+#endif
 }
 
 " + WarmBlockLightingShader + @"
 void fragment() {
     vec4 tex = texture(atlas, UV);
+#ifndef MINECRAFT_LOW_QUALITY
     if (mod(floor(COLOR.a + 0.001), 8.0) < 0.5) {
         ivec3 cell = ivec3(floor(surface_world_position - surface_world_normal * 0.01));
         float tone = float(surface_cell_hash(cell) & 65535u) / 65535.0 * 2.0 - 1.0;
         tex.rgb *= 1.0 + tone * 0.035;
     }
+#endif
     float direct_sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
     float bounce = clamp(fract(COLOR.a) * 16.0 * sky_light_energy, 0.0, 1.0);
     float sky = clamp(direct_sky + bounce, 0.0, 1.0);
     float block = clamp(COLOR.g, 0.0, 1.0);
     float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
+#ifdef MINECRAFT_LOW_QUALITY
+    vec3 directional_response = vec3(low_directional_facing, 0.0);
+#else
+    vec3 directional_response = surface_world_normal;
+#endif
     vec3 illumination = vec3(0.035)
-            + directional_sky_light(surface_world_normal, direct_sky, COLOR.r)
+            + directional_sky_light(directional_response, direct_sky, COLOR.r)
             + cave_bounce_illumination(bounce)
             + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
@@ -818,10 +846,18 @@ uniform vec3 moon_color = vec3(0.62, 0.74, 1.0);
 uniform float moonlight_energy = 0.0;
 
 vec3 directional_sky_light(vec3 world_normal, float sky, float sky_exposure) {
+#ifdef MINECRAFT_LOW_QUALITY
+    float sun_facing = world_normal.x;
+#else
     float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
+#endif
     float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
     float directional_gain = 0.88 + direct_sun * 0.12;
+#ifdef MINECRAFT_LOW_QUALITY
+    float moon_facing = world_normal.y;
+#else
     float moon_facing = max(dot(normalize(world_normal), moon_direction), 0.0);
+#endif
     float moon_fill = clamp(sky_exposure, 0.0, 1.0)
             * moonlight_energy * (0.28 + moon_facing * 0.72) * 0.12;
     vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
@@ -846,10 +882,21 @@ vec3 surface_response(float family) {
     return response_stone;
 }
 
+#ifndef MINECRAFT_LOW_QUALITY
 varying vec3 surface_world_normal;
+#else
+varying vec2 low_directional_facing;
+#endif
 
 void vertex() {
+#ifndef MINECRAFT_LOW_QUALITY
     surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+#else
+    vec3 transformed_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+    low_directional_facing = vec2(
+            max(dot(transformed_normal, sun_direction), 0.0),
+            max(dot(transformed_normal, moon_direction), 0.0));
+#endif
 }
 
 " + WarmBlockLightingShader + @"
@@ -861,8 +908,13 @@ void fragment() {
     float block = clamp(COLOR.g, 0.0, 1.0);
     float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
+#ifdef MINECRAFT_LOW_QUALITY
+    vec3 directional_response = vec3(low_directional_facing, 0.0);
+#else
+    vec3 directional_response = surface_world_normal;
+#endif
     vec3 illumination = vec3(0.05)
-            + directional_sky_light(surface_world_normal, direct_sky, COLOR.r)
+            + directional_sky_light(directional_response, direct_sky, COLOR.r)
             + cave_bounce_illumination(bounce)
             + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade;
@@ -874,6 +926,33 @@ void fragment() {
     SPECULAR = response.z;
 }
 ";
+
+    private const string LowQualityShaderDefine = "#define MINECRAFT_LOW_QUALITY\n";
+
+    /// <summary>Switch a shared material between the full and LOW compile-time shader variants.</summary>
+    internal static void SetLowQualityShaderVariant(ShaderMaterial material, bool enabled)
+    {
+        if (material.Shader is not Shader shader)
+            return;
+
+        string code = shader.Code;
+        int defineIndex = code.IndexOf(LowQualityShaderDefine, System.StringComparison.Ordinal);
+        if (enabled)
+        {
+            if (defineIndex >= 0)
+                return;
+
+            int shaderTypeEnd = code.IndexOf('\n');
+            if (shaderTypeEnd < 0)
+                return;
+
+            shader.Code = code.Insert(shaderTypeEnd + 1, LowQualityShaderDefine);
+        }
+        else if (defineIndex >= 0)
+        {
+            shader.Code = code.Remove(defineIndex, LowQualityShaderDefine.Length);
+        }
+    }
 
     /// <summary>Opaque atlas material; vertex channels carry sky, block light and AO.</summary>
     public static ShaderMaterial MakeOpaqueMaterial()
@@ -919,10 +998,18 @@ uniform vec3 moon_color = vec3(0.62, 0.74, 1.0);
 uniform float moonlight_energy = 0.0;
 
 vec3 directional_sky_light(vec3 world_normal, float sky, float sky_exposure) {
+#ifdef MINECRAFT_LOW_QUALITY
+    float sun_facing = world_normal.x;
+#else
     float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
+#endif
     float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
     float directional_gain = 0.88 + direct_sun * 0.12;
+#ifdef MINECRAFT_LOW_QUALITY
+    float moon_facing = world_normal.y;
+#else
     float moon_facing = max(dot(normalize(world_normal), moon_direction), 0.0);
+#endif
     float moon_fill = clamp(sky_exposure, 0.0, 1.0)
             * moonlight_energy * (0.28 + moon_facing * 0.72) * 0.12;
     vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
@@ -949,9 +1036,14 @@ vec3 surface_response(float family) {
 
 varying vec2 tile_uv;
 varying float tile_layer;
+#ifndef MINECRAFT_LOW_QUALITY
 varying vec3 surface_world_position;
 varying vec3 surface_world_normal;
+#else
+varying vec2 low_directional_facing;
+#endif
 
+#ifndef MINECRAFT_LOW_QUALITY
 uint surface_cell_hash(ivec3 cell) {
     uint hash = uint(cell.x) * 374761393u;
     hash ^= uint(cell.y) * 668265263u;
@@ -959,30 +1051,45 @@ uint surface_cell_hash(ivec3 cell) {
     hash = (hash ^ (hash >> 13u)) * 1274126177u;
     return hash ^ (hash >> 16u);
 }
+#endif
 
 void vertex() {
     tile_uv = UV;
     tile_layer = UV2.x;
+#ifndef MINECRAFT_LOW_QUALITY
     surface_world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
     surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+#else
+    vec3 transformed_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+    low_directional_facing = vec2(
+            max(dot(transformed_normal, sun_direction), 0.0),
+            max(dot(transformed_normal, moon_direction), 0.0));
+#endif
 }
 
 " + WarmBlockLightingShader + @"
 void fragment() {
     vec4 tex = texture(tiles, vec3(fract(tile_uv), tile_layer));
+#ifndef MINECRAFT_LOW_QUALITY
     if (mod(floor(COLOR.a + 0.001), 8.0) < 0.5) {
         ivec3 cell = ivec3(floor(surface_world_position - surface_world_normal * 0.01));
         float tone = float(surface_cell_hash(cell) & 65535u) / 65535.0 * 2.0 - 1.0;
         tex.rgb *= 1.0 + tone * 0.035;
     }
+#endif
     float direct_sky = clamp(COLOR.r * sky_light_energy, 0.0, 1.0);
     float bounce = clamp(fract(COLOR.a) * 16.0 * sky_light_energy, 0.0, 1.0);
     float sky = clamp(direct_sky + bounce, 0.0, 1.0);
     float block = clamp(COLOR.g, 0.0, 1.0);
     float warm_response = warm_block_response(sky, block);
     float shade = COLOR.b;
+#ifdef MINECRAFT_LOW_QUALITY
+    vec3 directional_response = vec3(low_directional_facing, 0.0);
+#else
+    vec3 directional_response = surface_world_normal;
+#endif
     vec3 illumination = vec3(0.035)
-            + directional_sky_light(surface_world_normal, direct_sky, COLOR.r)
+            + directional_sky_light(directional_response, direct_sky, COLOR.r)
             + cave_bounce_illumination(bounce)
             + warm_block_illumination(warm_response);
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
@@ -1070,10 +1177,18 @@ uniform vec3 moon_color = vec3(0.62, 0.74, 1.0);
 uniform float moonlight_energy = 0.0;
 
 vec3 directional_sky_light(vec3 world_normal, float sky, float sky_exposure) {
+#ifdef MINECRAFT_LOW_QUALITY
+    float sun_facing = world_normal.x;
+#else
     float sun_facing = max(dot(normalize(world_normal), sun_direction), 0.0);
+#endif
     float direct_sun = clamp(sun_facing * sunlight_energy, 0.0, 1.0);
     float directional_gain = 0.88 + direct_sun * 0.12;
+#ifdef MINECRAFT_LOW_QUALITY
+    float moon_facing = world_normal.y;
+#else
     float moon_facing = max(dot(normalize(world_normal), moon_direction), 0.0);
+#endif
     float moon_fill = clamp(sky_exposure, 0.0, 1.0)
             * moonlight_energy * (0.28 + moon_facing * 0.72) * 0.12;
     vec3 sky_tint = mix(sky_light_color, sun_color, direct_sun * 0.32);
@@ -1082,10 +1197,21 @@ vec3 directional_sky_light(vec3 world_normal, float sky, float sky_exposure) {
 
 uniform float lava_source_level = 0.8;
 
+#ifndef MINECRAFT_LOW_QUALITY
 varying vec3 surface_world_normal;
+#else
+varying vec2 low_directional_facing;
+#endif
 
 void vertex() {
+#ifndef MINECRAFT_LOW_QUALITY
     surface_world_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+#else
+    vec3 transformed_normal = normalize(mat3(MODEL_MATRIX) * NORMAL);
+    low_directional_facing = vec2(
+            max(dot(transformed_normal, sun_direction), 0.0),
+            max(dot(transformed_normal, moon_direction), 0.0));
+#endif
 }
 
 void fragment() {
@@ -1096,8 +1222,13 @@ void fragment() {
     float block = clamp(COLOR.g, 0.0, 1.0);
     float shade = COLOR.b;
     vec3 warm = vec3(1.0, 0.48, 0.12);
+#ifdef MINECRAFT_LOW_QUALITY
+    vec3 directional_response = vec3(low_directional_facing, 0.0);
+#else
+    vec3 directional_response = surface_world_normal;
+#endif
     vec3 illumination = vec3(0.03)
-            + directional_sky_light(surface_world_normal, direct_sky, COLOR.r)
+            + directional_sky_light(directional_response, direct_sky, COLOR.r)
             + vec3(0.62, 0.75, 0.96) * bounce * 0.22
             + warm * block * 0.35;
     float lava_emission = clamp(block / max(lava_source_level, 0.0666667), 0.0, 1.0);

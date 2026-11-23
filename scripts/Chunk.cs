@@ -193,6 +193,7 @@ public static class ChunkMaterials
     private static Vector3 _moonDirection = Vector3.Down;
     private static Color _moonColor = new(0.62f, 0.74f, 1.0f);
     private static float _moonlightEnergy;
+    private static bool _lowQualityShaderVariantEnabled;
 
     private static readonly Lazy<ShaderMaterial> OpaqueLazy = new(CreateOpaqueMaterial);
     private static readonly Lazy<ShaderMaterial> OpaqueArrayLazy = new(CreateArrayOpaqueMaterial);
@@ -216,16 +217,22 @@ public static class ChunkMaterials
         return material;
     }
 
-    private static ShaderMaterial CreateOpaqueMaterial() => ApplyLighting(BlockDb.MakeOpaqueMaterial());
-    private static ShaderMaterial CreateArrayOpaqueMaterial() => ApplyLighting(BlockDb.MakeArrayOpaqueMaterial());
-    private static ShaderMaterial CreateGlassMaterial() => ApplyLighting(BlockDb.MakeGlassMaterial());
-    private static ShaderMaterial CreateLavaMaterial() => ApplyLighting(BlockDb.MakeLavaMaterial());
+    private static ShaderMaterial ApplyQualityVariant(ShaderMaterial material)
+    {
+        BlockDb.SetLowQualityShaderVariant(material, _lowQualityShaderVariantEnabled);
+        return material;
+    }
+
+    private static ShaderMaterial CreateOpaqueMaterial() => ApplyQualityVariant(ApplyLighting(BlockDb.MakeOpaqueMaterial()));
+    private static ShaderMaterial CreateArrayOpaqueMaterial() => ApplyQualityVariant(ApplyLighting(BlockDb.MakeArrayOpaqueMaterial()));
+    private static ShaderMaterial CreateGlassMaterial() => ApplyQualityVariant(ApplyLighting(BlockDb.MakeGlassMaterial()));
+    private static ShaderMaterial CreateLavaMaterial() => ApplyQualityVariant(ApplyLighting(BlockDb.MakeLavaMaterial()));
 
     private static Material CreateWaterMaterial()
     {
         Material material = BlockDb.MakeWaterMaterial();
         if (material is ShaderMaterial shader)
-            ApplyLighting(shader);
+            ApplyQualityVariant(ApplyLighting(shader));
         return material;
     }
 
@@ -237,6 +244,28 @@ public static class ChunkMaterials
     public static Material Water => WaterLazy.Value;
 
     public static ShaderMaterial Lava => LavaLazy.Value;
+
+    /// <summary>
+    /// Switches the compile-time shader variant on existing shared materials.
+    /// Meshes and chunk resources remain intact when a preset changes.
+    /// </summary>
+    public static void SetLowQualityShaderVariant(bool enabled)
+    {
+        if (_lowQualityShaderVariantEnabled == enabled)
+            return;
+
+        _lowQualityShaderVariantEnabled = enabled;
+        if (OpaqueLazy.IsValueCreated)
+            BlockDb.SetLowQualityShaderVariant(OpaqueLazy.Value, enabled);
+        if (OpaqueArrayLazy.IsValueCreated)
+            BlockDb.SetLowQualityShaderVariant(OpaqueArrayLazy.Value, enabled);
+        if (GlassLazy.IsValueCreated)
+            BlockDb.SetLowQualityShaderVariant(GlassLazy.Value, enabled);
+        if (WaterLazy.IsValueCreated && WaterLazy.Value is ShaderMaterial water)
+            BlockDb.SetLowQualityShaderVariant(water, enabled);
+        if (LavaLazy.IsValueCreated)
+            BlockDb.SetLowQualityShaderVariant(LavaLazy.Value, enabled);
+    }
 
     /// <summary>
     /// Updates the shared baked-sky response for every renderer path. Existing

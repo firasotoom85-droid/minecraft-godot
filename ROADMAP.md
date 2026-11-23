@@ -2895,3 +2895,21 @@ sky value.
   added. A Godot 4.7.2 .NET build, full `scripts/verify.sh`, and fresh MX230
   real-renderer comparisons are still required before merge; no runtime FPS
   or visual-difference result is claimed here.
+
+## 55. LOW preset voxel shader instruction reduction — 2026-11-23
+
+The LOW graphics preset now selects a dedicated compile-time shader variant on
+the existing shared voxel materials. Flat-face sun/moon facing is computed in
+the vertex stage instead of repeated per fragment; atlas/array micro-hash is
+removed; and water's vertex waves/ripples, fresnel, foam and caustics are
+compiled out. The full shader path remains enabled for BALANCED through MAX.
+
+The LOW variant preserves packed sky/block light, warm emitter response, AO,
+material-family and wet responses, lava's source-normalized emission, and the
+water depth-based shoreline fade. The preset changes existing shared shader
+resources in place; there are no per-emitter lights, extra nodes, chunk remesh,
+streaming changes, new save data or generator changes. Focused regression tests
+cover all five material paths, lazy initialization, preset switching and
+material-instance identity. GPU timing and the five controlled lighting scenes
+remain the required real-renderer comparison; headless checks alone do not
+establish an FPS gain.

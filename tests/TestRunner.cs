@@ -20,6 +20,7 @@ public partial class TestRunner : Node
         RunSuite("performance-benchmark", PerformanceBenchmarkTests.Run);
         RunSuite("voxel-streaming", VoxelStreamingTests.Run);
         RunSuite("graphics", GraphicsTests.Run);
+        RunSuite("low-cost-shaders", LowCostShaderTests.Run);
         RunSuite("biome-foliage", () => FoliageTests.Run(this));
         RunSuite("surface-variation", SurfaceVariationTests.Run);
         RunSuite("wood-textures", WoodTextureTests.Run);
