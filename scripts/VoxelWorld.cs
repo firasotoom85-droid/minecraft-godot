@@ -3212,24 +3212,33 @@ public partial class VoxelWorld : Node3D
             while (true)
             {
                 Vector2I cp;
+                bool rebuild;
                 lock (_queueLock)
                 {
-                    if (_rebuildQueue.TryDequeue(out cp, out _))
-                    {
-                        _rebuildQueued.Remove(cp);
-                    }
-                    else if (_queue.TryDequeue(out cp, out _))
-                    {
-                        _queued.Remove(cp);
-                    }
-                    else
+                    if (!TryDequeueWorkLocked(out cp, out rebuild))
                     {
                         break;
                     }
                 }
 
-                MeshPayload payload = Mesher.Build(this, cp);
-                ApplyBuild(cp, payload);
+                try
+                {
+                    MeshPayload payload = Mesher.Build(this, cp);
+                    ApplyBuild(cp, payload);
+                }
+                finally
+                {
+                    lock (_queueLock)
+                    {
+                        bool rebuildRequested = _workTracker.Complete(cp);
+                        if (_alive && rebuildRequested
+                                && ChunkStreamingPolicy.IsWithinRetention(
+                                        cp, _streamCenter, _streamRetentionLimit))
+                        {
+                            QueueRebuildLocked(cp, _streamCenter);
+                        }
+                    }
+                }
             }
         }
     }
@@ -3270,6 +3279,23 @@ public partial class VoxelWorld : Node3D
                     Mathf.Abs(Mathf.FloorToInt(pos.X / (float)ChunkX) - pcp.X) > limit + 1
                     || Mathf.Abs(Mathf.FloorToInt(pos.Z / (float)ChunkZ) - pcp.Y) > limit + 1).ToArray())
                 _lightSources.Remove(pos);
+
+            // Procedural site lookups, including cached null results, are
+            // deterministic and may be safely recomputed after spatial eviction.
+            bool SiteOutside(long key, int cellSize) =>
+                    ChunkStreamingPolicy.IsSiteCellOutsideRetention(
+                            unchecked((int)(key >> 32)),
+                            unchecked((int)(uint)key),
+                            cellSize, pcp, limit + 1, ChunkX);
+            foreach (long key in _campfireCache.Keys
+                    .Where(key => SiteOutside(key, Campfires.Cell)).ToArray())
+                _campfireCache.Remove(key);
+            foreach (long key in _structureCache.Keys
+                    .Where(key => SiteOutside(key, StructureCell)).ToArray())
+                _structureCache.Remove(key);
+            foreach (long key in _villageCache.Keys
+                    .Where(key => SiteOutside(key, VillageCell)).ToArray())
+                _villageCache.Remove(key);
         }
     }
 
