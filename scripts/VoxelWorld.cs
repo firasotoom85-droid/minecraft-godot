@@ -352,9 +352,11 @@ public partial class VoxelWorld : Node3D
 
     private static bool HasWorldMetadataOrSaveFiles(string dir)
     {
-        return HasSaveCandidate(WorldStore.ManifestPath(dir))
-                || HasSaveCandidate(WorldStore.WorldSavePath(dir))
-                || HasSaveCandidate(WorldStore.PlayerSavePath(dir));
+        bool manifestExists = HasSaveCandidate(WorldStore.ManifestPath(dir));
+        bool worldSaveExists = HasSaveCandidate(WorldStore.WorldSavePath(dir));
+        bool playerSaveExists = HasSaveCandidate(WorldStore.PlayerSavePath(dir));
+        return WorldCompatibilityPolicy.MustRejectMissingManifest(
+                manifestExists, worldSaveExists, playerSaveExists);
     }
 
     // -----------------------------------------------------------------------
