@@ -2804,3 +2804,43 @@ so merging #71 first applied only its moonlight/starfield contribution.
   Weather captures are terrain-facing, so cloud planes are verified by palette
   values and tests rather than framed pixels. Interactive playtesting and GPU
   frame-time capture remain manual.
+
+## 53. Negative-coordinate overlapping block-light validation — 2026-11-23
+
+The audit of VoxelWorld.LightDataNeighborhood, NearbyLightSources,
+SetBlock, incremental propagation and chunk-local light sampling found that
+the existing floor-based coordinate mapping and shared region solve already
+handle negative world coordinates. No production lighting discontinuity was
+reproduced, so the correction is focused validation instead of a second light
+pipeline or a per-emitter node system.
+
+- Added a world-level regression with two torches at (-17,120,-17) and
+  (-16,120,-16), on opposite sides of both x=-16 and z=-16. The shared
+  target voxels live in chunks (-1,-2) and (-2,-1).
+- The cache-first world primes both overlapping 3x3 maps before editing, then
+  checks incremental source addition and removal through VoxelWorld.SetBlock.
+  The comparison world registers the same sources before its first solve and
+  requests the opposite neighbourhood order. All four shared chunk maps must
+  match byte-for-byte.
+- Both shared target voxels read block-light level 13 while each source reads
+  14. Removing either source retains level 13 from the other emitter; removing
+  the final source clears both target voxels. Existing max-intensity behaviour
+  remains unchanged; light is not summed.
+- Extended WarmLightingVisualCapture with negative-overlap, a real
+  1600x900 main-scene comparison room built through SetBlock. The capture
+  resolves samples in world coordinates through the owning chunk map instead
+  of clamping an adjacent sample to the source chunk edge. On the MX230 /
+  Vulkan Forward+ it reported source / X-adjacent / Z-adjacent levels
+  **14 / 13 / 13**.
+- No runtime lighting, material, shader, mesher, chunk-streaming or physics
+  paths changed. No nodes, source scans, new allocations or GPU work are added
+  during gameplay; only the opt-in test and capture fixtures are larger.
+- Compatibility: no IDs, save fields or generator versions changed. V1–V11
+  generation remains frozen; all fixture voxel edits use VoxelWorld.SetBlock.
+- Final local verification was interrupted by the monthly Desktop Commander
+  quota after the latest Debug build succeeded with 0 warnings / 0 errors and
+  the headless runner printed PASS through the integration suite. An earlier
+  complete headless run (before the cache-first removal extension) completed
+  199,436 checks with 0 failures. The final integration-regressions summary and
+  subsequent Release build were not retrievable; the production capture
+  sampled 14 / 13 / 13 on the MX230. No final full-suite pass is claimed.
