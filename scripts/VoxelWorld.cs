@@ -3357,7 +3357,15 @@ public partial class VoxelWorld : Node3D
                 {
                     _rebuildQueued.Remove(stale);
                     _workTracker.ForgetFollowUp(stale);
+                    _workTracker.ForgetFailureOutsideRetention(stale, pcp, limit);
                 }
+            }
+
+            // Fresh retry requests are also discarded when the queue is rebuilt.
+            // Clear their attempt history before the membership set is reset.
+            foreach (Vector2I stale in _queued.ToArray())
+            {
+                _workTracker.ForgetFailureOutsideRetention(stale, pcp, limit);
             }
 
             _rebuildQueue.Clear();
