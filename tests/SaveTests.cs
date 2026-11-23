@@ -214,8 +214,10 @@ public static class SaveTests
 
         // IDs are collision-resistant, and a forced duplicate cannot overwrite
         // the first world's metadata.
+        string testIdSuffix = Time.GetTicksUsec().ToString("X");
+        string firstCollisionId = $"w-w05-{testIdSuffix}-collision";
         System.Collections.Generic.Queue<string> worldIds = new(
-                ["w-w05-collision", "w-w05-collision", "w-w05-collision-second"]);
+                [firstCollisionId, firstCollisionId, firstCollisionId + "-second"]);
         WorldStore.WorldIdFactoryForTests = () => worldIds.Dequeue();
         string collisionFirst;
         string collisionSecond;
@@ -232,10 +234,11 @@ public static class SaveTests
         finally { WorldStore.WorldIdFactoryForTests = null; }
 
         // Required manifest persistence is part of creation success.
-        WorldStore.WorldIdFactoryForTests = () => "w-w05-create-failure";
+        string failedCreateId = $"w-w05-{testIdSuffix}-create-failure";
+        WorldStore.WorldIdFactoryForTests = () => failedCreateId;
         WorldStore.RenameForTests = (from, to) =>
                 from.EndsWith(".tmp", StringComparison.Ordinal)
-                        && to == WorldStore.ManifestPath(WorldStore.WorldsRoot + "/w-w05-create-failure")
+                        && to == WorldStore.ManifestPath(WorldStore.WorldsRoot + "/" + failedCreateId)
                         ? Error.Failed : DirAccess.RenameAbsolute(from, to);
         bool createFailed = false;
         try
@@ -249,10 +252,25 @@ public static class SaveTests
             WorldStore.RenameForTests = null;
         }
         TestAssert.Check(createFailed, "failed manifest persistence makes world creation fail");
-        TestAssert.Check(!DirAccess.DirExistsAbsolute(WorldStore.WorldsRoot + "/w-w05-create-failure"),
+        TestAssert.Check(!DirAccess.DirExistsAbsolute(WorldStore.WorldsRoot + "/" + failedCreateId),
                 "failed world creation removes its partial directory");
         TestAssert.Equal("Collision First", WorldStore.ReadManifest(collisionFirst)?.Name,
                 "failed creation leaves an existing world's metadata untouched");
+
+        TestAssert.Check(!WorldStore.RenameDetailed(collisionFirst, "   ").Success,
+                "rename still rejects an empty name as input validation");
+        WorldStore.RenameForTests = (from, to) =>
+                from.EndsWith(".tmp", StringComparison.Ordinal)
+                        && to == WorldStore.ManifestPath(collisionFirst)
+                        ? Error.Failed : DirAccess.RenameAbsolute(from, to);
+        WorldOperationResult renameFailure;
+        try { renameFailure = WorldStore.RenameDetailed(collisionFirst, "Valid Name"); }
+        finally { WorldStore.RenameForTests = null; }
+        TestAssert.Check(!renameFailure.Success && renameFailure.Message.Contains("could not be saved",
+                StringComparison.OrdinalIgnoreCase),
+                "rename reports manifest persistence failures separately from invalid names");
+        TestAssert.Equal("Collision First", WorldStore.ReadManifest(collisionFirst)?.Name,
+                "failed rename preserves its previous manifest");
 
         // A simulated source-file read denial aborts duplication and leaves
         // the source world unchanged.
@@ -316,6 +334,35 @@ public static class SaveTests
         finally { WorldStore.EnumerateWorldDirectoriesForTests = null; }
         TestAssert.Check(inaccessibleListing.Count == 0 && WorldStore.LastListError is not null,
                 "world-list permission errors are reported instead of showing an empty library");
+
+        // A corrupt selected manifest remains the selected world even when
+        // another healthy world is available in the same library.
+        string corruptManifestWorld = WorldStore.Create("Unreadable Manifest", 1199);
+        string otherValidWorld = WorldStore.Create("Other Valid World", 1198);
+        foreach (string candidate in new[]
+                {
+                    WorldStore.ManifestPath(corruptManifestWorld),
+                    WorldStore.ManifestPath(corruptManifestWorld) + ".bak",
+                    WorldStore.ManifestPath(corruptManifestWorld) + ".bak2",
+                })
+            System.IO.File.WriteAllText(ProjectSettings.GlobalizePath(candidate), "{ damaged manifest");
+        List<(string Dir, WorldManifest Manifest)> visibleWorlds = WorldStore.List();
+        TestAssert.Check(visibleWorlds.Exists(entry => entry.Dir == otherValidWorld)
+                && WorldStore.UnreadableWorldDirectories.Contains(corruptManifestWorld),
+                "world library displays healthy worlds and retains an unreadable world for recovery");
+        if (GameSession.Instance is { } selectedSession)
+        {
+            string previousDir = selectedSession.WorldDir;
+            WorldManifest? previousManifest = selectedSession.Manifest;
+            selectedSession.SelectWorld(corruptManifestWorld);
+            bool selectedWorldRejected = false;
+            try { selectedSession.EnsureWorld(); }
+            catch (System.IO.InvalidDataException) { selectedWorldRejected = true; }
+            TestAssert.Check(selectedWorldRejected && selectedSession.WorldDir == corruptManifestWorld,
+                    "an unreadable explicit selection never switches to another existing world");
+            selectedSession.WorldDir = previousDir;
+            selectedSession.Manifest = previousManifest;
+        }
 
         // Damaged saves must not be treated as a first-run world or given a
         // starter kit. The manifest flag distinguishes prior saves from a
@@ -389,7 +436,7 @@ public static class SaveTests
             session.Manifest = previousSessionManifest;
         }
 
-        string emptyDefault = WorldStore.WorldsRoot + "/new-empty-default";
+        string emptyDefault = WorldStore.WorldsRoot + "/new-empty-default-" + testIdSuffix;
         TestAssert.Check(WorldStore.DefaultFor(emptyDefault) is not null,
                 "an empty new directory still receives legacy default metadata");
         string populatedDefault = WorldStore.Create("Do Not Guess", 1203);
@@ -403,7 +450,8 @@ public static class SaveTests
         foreach (string testWorld in new[]
                 {
                     collisionFirst, collisionSecond, duplicateFailureSource,
-                    damagedWorld, savedHistoryWorld, populatedDefault, emptyDefault,
+                    corruptManifestWorld, otherValidWorld, damagedWorld, savedHistoryWorld,
+                    populatedDefault, emptyDefault,
                 })
             WorldStore.Delete(testWorld);
 
