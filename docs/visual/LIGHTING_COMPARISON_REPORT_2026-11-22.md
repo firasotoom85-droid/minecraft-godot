@@ -55,3 +55,38 @@ gameplay. The capture bound is intentionally 25 preview chunks. The captures
 confirm that emitters remain baked voxel-light sources and do not allocate one
 OmniLight node per torch/campfire. This is not a whole-game MX230 frame-time or
 VRAM benchmark.
+
+
+## Spatial probe-grid comparison — 2026-11-23
+
+The shared capture runner now reads a deterministic 27-point grid from the
+production `VoxelWorld.LightData` cache around each scenario's original probe.
+Offsets are `-2, 0, +2` voxels on each axis. Each sample records its stable
+offset id, world coordinate, block type, packed sky nibble and packed block
+nibble. The runner writes a companion `.lighting.json` report beside each
+PNG; the JSON records the seed, generator version, selected quality preset,
+samples, reference samples and drift summary.
+
+The comparison converts the packed sky/block pair through the existing
+`VoxelLighting.VertexColor` function (with neutral blue/face-shade input) and
+reports mean/max nibble drift, normalized RGB input-channel drift,
+luminance-weighted intensity drift, and the number of samples beyond a
+one-nibble normalized tolerance. Missing reference samples and captured
+samples without a reference are reported separately.
+
+### Reference coverage and limitations
+
+`lighting-probe-reference-v1.json` is sourced only from the five exact
+centre-probe values in this report's original seed-1337 LOW capture table. It
+does **not** claim to contain measured values for the surrounding 26 points.
+Consequently, the initial comparison covers 1 of 27 samples (3.7%) per scene;
+the other positions are emitted as spatial diagnostics but excluded from
+drift statistics. This is an explicit partial baseline, not a completed
+spatial reference grid. Populate the additional reference ids only from
+reviewed captures made with the documented real-renderer setup.
+
+The grid sampler and comparator are covered by headless regression tests,
+including duplicate ids, missing and unreferenced points, exact channel drift,
+color/intensity aggregates and tolerance handling. These tests validate the
+comparison math; they do not replace a fresh GPU capture. No post-change
+Forward+ capture or MX230 performance measurement was run for this increment.
