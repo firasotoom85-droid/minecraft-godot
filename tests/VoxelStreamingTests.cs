@@ -144,6 +144,19 @@ public static class VoxelStreamingTests
                 "the largest byte-backed block ID is rejected");
         TestAssert.Check(VoxelWorld.IsMutationBlockIdDefined(BlockId.Stone),
                 "registered block IDs remain valid for world mutation");
+
+        VoxelWorld world = new();
+        try
+        {
+            TestAssert.Check(!world.SetBlock(0, 1, 0, (BlockId)61),
+                    "SetBlock rejects an unregistered ID before requiring a chunk");
+            TestAssert.Check(!world.SetBlock(0, 1, 0, (BlockId)255),
+                    "SetBlock rejects the largest byte-backed ID before mutation");
+        }
+        finally
+        {
+            world.Free();
+        }
     }
 
 
@@ -238,6 +251,22 @@ public static class VoxelStreamingTests
         TestAssert.Check(ChunkStreamingPolicy.AffectsChunk(
                         1, 1, 8, 8, 16, 16, true),
                 "lighting changes retain the full propagation neighbourhood");
+        for (int dz = -1; dz <= 1; dz++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                if (dx == 0 && dz == 0) continue;
+                int localX = dx < 0 ? 0 : dx > 0 ? 15 : 8;
+                int localZ = dz < 0 ? 0 : dz > 0 ? 15 : 8;
+                TestAssert.Check(ChunkStreamingPolicy.AffectsChunk(
+                                dx, dz, localX, localZ, 16, 16, false),
+                        $"matching edge/corner edit rebuilds neighbour ({dx},{dz})");
+                TestAssert.Check(ChunkStreamingPolicy.AffectsChunk(
+                                dx, dz, 8, 8, 16, 16, true),
+                        $"lighting dependency includes neighbour ({dx},{dz})");
+            }
+        }
+
 
         TestAssert.Check(!ChunkStreamingPolicy.IsSiteCellOutsideRetention(
                         -1, -1, 64, Vector2I.Zero, 5, 16),
