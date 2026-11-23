@@ -3744,6 +3744,7 @@ public partial class VoxelWorld : Node3D
             NoiseSeeds = (int[])_manifest.NoiseSeeds.Clone(),
             PlayedUtc = WorldStore.NowUtc(),
             PlaytimeSeconds = _manifest.PlaytimeSeconds + elapsedPlaytime,
+            HasSavedData = true,
         };
 
         // Globalize paths before dispatch. The worker receives only immutable
