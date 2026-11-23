@@ -1027,9 +1027,9 @@ public static class WorldStore
                 return true;
 
             case PlayerSave player:
-                if (!ValidVector(player.Pos) || player.Selected < 0
+                if ((player.Pos is not { Length: 0 } && !ValidVector(player.Pos))
+                        || player.Selected < 0
                         || player.Selected >= Inventory.HotbarSize
-                        || (player.Pos is not { Length: 0 } && !ValidVector(player.Pos))
                         || (player.Items is not null && !ValidStacks(player.Items, Inventory.SaveSlotCount))
                         || (player.Mode is not null && player.Mode is not ("survival" or "creative"))
                         || !float.IsFinite(player.Health) || player.Health < 0
