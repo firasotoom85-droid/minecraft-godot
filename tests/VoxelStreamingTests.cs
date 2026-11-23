@@ -20,6 +20,7 @@ public static class VoxelStreamingTests
                 "zero time budget stops after the first payload");
 
         TestChunkWorkTracking();
+        TestChunkWorkerLifecycle();
         TestChunkGenerationReservation();
         TestMutationBlockIds();
         TestWorldCompatibilityPolicies();
@@ -62,6 +63,238 @@ public static class VoxelStreamingTests
                 "the coordinate can be claimed again after completion");
         TestAssert.Check(!tracker.Complete(coordinate),
                 "an unchanged build does not schedule unnecessary work");
+    }
+
+    private static void TestChunkWorkerLifecycle()
+    {
+        ChunkWorkTracker tracker = new();
+        Vector2I coordinate = new(7, -4);
+        int availableSlots = 2;
+        int pendingPayloads = 0;
+        int discardedPayloads = 0;
+        int builds = 0;
+
+        TestAssert.Check(tracker.TryBegin(coordinate),
+                "worker dispatch claims the coordinate before entering the build lifecycle");
+        ChunkWorkerExecutionResult first = ChunkWorkerLifecycle.Execute(
+                () => true,
+                () => availableSlots--,
+                () =>
+                {
+                    builds++;
+                    tracker.RequestRebuild(coordinate);
+                    tracker.RequestRebuild(coordinate);
+                    return new object();
+                },
+                _ =>
+                {
+                    pendingPayloads++;
+                    return true;
+                },
+                _ => discardedPayloads++,
+                () => availableSlots++,
+                _ => false,
+                (_, _) => { });
+
+        TestAssert.Check(first.Published && !first.RetryRequested && !first.Cancelled,
+                "worker build publishes a current payload successfully");
+        TestAssert.Equal(1, availableSlots,
+                "published payload retains its capacity reservation until main-thread apply");
+        TestAssert.Equal(1, pendingPayloads,
+                "one dispatched build publishes exactly one payload");
+        TestAssert.Equal(0, discardedPayloads,
+                "published payload ownership transfers to the apply queue");
+
+        bool followUp = tracker.Complete(coordinate, withinRetention: true);
+        TestAssert.Check(followUp,
+                "edits arriving during an active build coalesce into one follow-up request");
+        TestAssert.Check(ChunkWorkTracker.ShouldQueueAsRebuild(
+                        currentRebuild: false, rebuildRequested: followUp),
+                "a rebuild request upgrades an active fresh build's follow-up to rebuild work");
+        TestAssert.Check(tracker.TryBegin(coordinate),
+                "the coordinate can be dispatched again after completion");
+
+        ChunkWorkerExecutionResult second = ChunkWorkerLifecycle.Execute(
+                () => true,
+                () => availableSlots--,
+                () =>
+                {
+                    builds++;
+                    return new object();
+                },
+                _ =>
+                {
+                    pendingPayloads++;
+                    return true;
+                },
+                _ => discardedPayloads++,
+                () => availableSlots++,
+                _ => false,
+                (_, _) => { });
+        TestAssert.Check(second.Published && !tracker.Complete(coordinate, withinRetention: true),
+                "the follow-up publishes once and does not schedule another unchanged build");
+        TestAssert.Equal(2, builds,
+                "one initial build plus one coalesced follow-up are executed");
+
+        // Simulate the main-thread apply path releasing both published slots.
+        availableSlots += pendingPayloads;
+        pendingPayloads = 0;
+        TestAssert.Equal(2, availableSlots,
+                "main-thread payload application returns every published capacity reservation");
+        TestAssert.Equal(0, pendingPayloads,
+                "no completed payload remains queued after application");
+
+        Vector2I failedCoordinate = new(-9, 3);
+        TestAssert.Check(tracker.TryBegin(failedCoordinate),
+                "a fresh worker request can enter the failure-injection path");
+        int failureSlots = 1;
+        int failureAttempts = 0;
+        int failureReports = 0;
+        ChunkWorkerExecutionResult failed = ChunkWorkerLifecycle.Execute(
+                () => true,
+                () => failureSlots--,
+                () => throw new InvalidOperationException("injected one-time mesher failure"),
+                _ => false,
+                _ => discardedPayloads++,
+                () => failureSlots++,
+                _ => tracker.TryRecordFailure(
+                        failedCoordinate, alive: true, withinRetention: true,
+                        maximumAttempts: 3, out failureAttempts),
+                (_, retry) =>
+                {
+                    TestAssert.Check(retry,
+                            "worker exception is reported with its bounded retry decision");
+                    failureReports++;
+                });
+        TestAssert.Check(!failed.Published && failed.RetryRequested && !failed.Cancelled,
+                "one-time worker exception requests a retry without publishing a payload");
+        TestAssert.Equal(1, failureSlots,
+                "failed build releases its reserved payload slot");
+        TestAssert.Equal(1, failureAttempts,
+                "first worker failure records the first retry attempt");
+        TestAssert.Equal(1, failureReports,
+                "worker exception is reported exactly once");
+        TestAssert.Check(!ChunkWorkTracker.ShouldQueueAsRebuild(
+                        currentRebuild: false, rebuildRequested: false),
+                "retrying a fresh request preserves fresh-work intent");
+        TestAssert.Check(ChunkWorkTracker.ShouldQueueAsRebuild(
+                        currentRebuild: true, rebuildRequested: false),
+                "retrying a rebuild request preserves rebuild-work intent");
+        TestAssert.Check(tracker.Complete(failedCoordinate, withinRetention: true) == false,
+                "failed work releases its in-flight coordinate before retry dispatch");
+
+        TestAssert.Check(tracker.TryBegin(failedCoordinate),
+                "the failed coordinate can be claimed for its retry");
+        ChunkWorkerExecutionResult retried = ChunkWorkerLifecycle.Execute(
+                () => true,
+                () => failureSlots--,
+                () => new object(),
+                _ =>
+                {
+                    tracker.ForgetFailure(failedCoordinate);
+                    return true;
+                },
+                _ => discardedPayloads++,
+                () => failureSlots++,
+                _ => false,
+                (_, _) => { });
+        TestAssert.Check(retried.Published,
+                "the retried request publishes after the injected transient failure is removed");
+        tracker.Complete(failedCoordinate, withinRetention: true);
+        TestAssert.Equal(0, tracker.FailureCount,
+                "successful publication clears the coordinate's retry history");
+        failureSlots++;
+        TestAssert.Equal(1, failureSlots,
+                "applying the retried payload returns its remaining capacity reservation");
+
+        Vector2I exhaustedCoordinate = new(12, 12);
+        TestAssert.Check(tracker.TryRecordFailure(
+                        exhaustedCoordinate, true, true, 3, out int attemptOne)
+                        && attemptOne == 1,
+                "the first repeated worker failure is retryable");
+        TestAssert.Check(tracker.TryRecordFailure(
+                        exhaustedCoordinate, true, true, 3, out int attemptTwo)
+                        && attemptTwo == 2,
+                "the second worker failure is the final bounded retry");
+        TestAssert.Check(!tracker.TryRecordFailure(
+                        exhaustedCoordinate, true, true, 3, out int attemptThree)
+                        && attemptThree == 3,
+                "the third failure exhausts the initial attempt plus two retries");
+        TestAssert.Equal(0, tracker.FailureCount,
+                "exhausted retry history is removed instead of retained indefinitely");
+
+        Vector2I departedCoordinate = new(500, -500);
+        TestAssert.Check(tracker.TryBegin(departedCoordinate),
+                "departed chunk enters the in-flight worker set");
+        TestAssert.Check(tracker.TryRecordFailure(
+                        departedCoordinate, true, true, 3, out _),
+                "a failure initially records retry state while the chunk is retained");
+        TestAssert.Equal(1, tracker.FailureCount,
+                "retained failed request has one retry record before travel");
+        tracker.Complete(departedCoordinate, withinRetention: false);
+        TestAssert.Equal(0, tracker.FailureCount,
+                "completion after travel removes retry state for an abandoned out-of-retention chunk");
+
+        Vector2I staleCoordinate = new(2, 2);
+        TestAssert.Check(tracker.TryBegin(staleCoordinate),
+                "stale-payload test claims its work coordinate");
+        int freshnessChecks = 0;
+        int staleSlots = 1;
+        int staleBuilds = 0;
+        int staleDiscards = 0;
+        int stalePublishes = 0;
+        ChunkWorkerExecutionResult stale = ChunkWorkerLifecycle.Execute(
+                () => ++freshnessChecks < 3,
+                () => staleSlots--,
+                () =>
+                {
+                    staleBuilds++;
+                    return new object();
+                },
+                _ =>
+                {
+                    stalePublishes++;
+                    return true;
+                },
+                _ => staleDiscards++,
+                () => staleSlots++,
+                _ => false,
+                (_, _) => { });
+        TestAssert.Check(!stale.Published && staleBuilds == 1,
+                "worker revalidates retention after meshing before publishing a stale payload");
+        TestAssert.Equal(0, stalePublishes,
+                "a payload completed after travel never enters the apply queue");
+        TestAssert.Equal(1, staleDiscards,
+                "a stale completed payload is returned to its owner exactly once");
+        TestAssert.Equal(1, staleSlots,
+                "discarding a stale payload releases its reserved capacity slot");
+        tracker.Complete(staleCoordinate, withinRetention: false);
+
+        Vector2I cancelledCoordinate = new(4, 4);
+        TestAssert.Check(tracker.TryBegin(cancelledCoordinate),
+                "shutdown-cancellation test claims its coordinate");
+        int cancelledSlots = 1;
+        int retryCallsAfterCancellation = 0;
+        ChunkWorkerExecutionResult cancelled = ChunkWorkerLifecycle.Execute(
+                () => true,
+                () => cancelledSlots--,
+                () => throw new OperationCanceledException(),
+                _ => false,
+                _ => discardedPayloads++,
+                () => cancelledSlots++,
+                _ =>
+                {
+                    retryCallsAfterCancellation++;
+                    return true;
+                },
+                (_, _) => { });
+        TestAssert.Check(cancelled.Cancelled && !cancelled.RetryRequested,
+                "shutdown cancellation is not treated as an ordinary worker failure");
+        TestAssert.Equal(0, retryCallsAfterCancellation,
+                "cancelled work never enters the retry path");
+        TestAssert.Equal(1, cancelledSlots,
+                "cancellation after capacity reservation releases the slot");
+        tracker.Complete(cancelledCoordinate, withinRetention: false);
     }
 
     private static void TestChunkGenerationReservation()
