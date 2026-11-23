@@ -205,26 +205,35 @@ internal static class ChunkStreamingPolicy
             maximumAttempts > 0 && failedAttempts > 0 && failedAttempts < maximumAttempts;
 }
 
+/// <summary>One implementation of the real worker build/publish contract.</summary>
+internal interface IChunkWorkerOperation<TPayload>
+        where TPayload : class
+{
+    bool CanContinue();
+    void ReservePayloadSlot();
+    TPayload Build();
+    bool Publish(TPayload payload);
+    void DiscardPayload(TPayload payload);
+    void ReleasePayloadSlot();
+    bool RequestRetry(Exception error);
+    void ReportFailure(Exception error, bool retryRequested);
+}
+
 /// <summary>Result of one actual chunk worker build/publish attempt.</summary>
 internal readonly record struct ChunkWorkerExecutionResult(
         bool Published, bool RetryRequested, bool Cancelled);
 
 /// <summary>
 /// Shared worker execution path used by VoxelWorld.WorkerLoop and deterministic
-/// regression tests. Capacity and payload ownership are balanced on every exit.
+/// regression tests. The operation is a value type so dispatch adds no captured
+/// delegates or per-chunk lifecycle allocations.
 /// </summary>
 internal static class ChunkWorkerLifecycle
 {
-    public static ChunkWorkerExecutionResult Execute<TPayload>(
-            Func<bool> canContinue,
-            Action reservePayloadSlot,
-            Func<TPayload> build,
-            Func<TPayload, bool> publish,
-            Action<TPayload> discardPayload,
-            Action releasePayloadSlot,
-            Func<Exception, bool> requestRetry,
-            Action<Exception, bool> reportFailure)
+    public static ChunkWorkerExecutionResult Execute<TPayload, TOperation>(
+            ref TOperation operation)
             where TPayload : class
+            where TOperation : struct, IChunkWorkerOperation<TPayload>
     {
         bool reserved = false;
         bool published = false;
@@ -234,25 +243,25 @@ internal static class ChunkWorkerLifecycle
 
         try
         {
-            if (!canContinue())
+            if (!operation.CanContinue())
             {
                 return new ChunkWorkerExecutionResult(false, false, false);
             }
 
-            reservePayloadSlot();
+            operation.ReservePayloadSlot();
             reserved = true;
-            if (!canContinue())
+            if (!operation.CanContinue())
             {
                 return new ChunkWorkerExecutionResult(false, false, false);
             }
 
-            payload = build();
-            if (!canContinue())
+            payload = operation.Build();
+            if (!operation.CanContinue())
             {
                 return new ChunkWorkerExecutionResult(false, false, false);
             }
 
-            if (publish(payload))
+            if (operation.Publish(payload))
             {
                 published = true;
                 payload = null;
@@ -264,19 +273,24 @@ internal static class ChunkWorkerLifecycle
         }
         catch (Exception error)
         {
-            retryRequested = requestRetry(error);
-            reportFailure(error, retryRequested);
+            retryRequested = operation.RequestRetry(error);
+            operation.ReportFailure(error, retryRequested);
         }
         finally
         {
-            if (payload != null)
+            try
             {
-                discardPayload(payload);
+                if (payload != null)
+                {
+                    operation.DiscardPayload(payload);
+                }
             }
-
-            if (reserved && !published)
+            finally
             {
-                releasePayloadSlot();
+                if (reserved && !published)
+                {
+                    operation.ReleasePayloadSlot();
+                }
             }
         }
 
