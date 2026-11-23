@@ -2804,3 +2804,35 @@ so merging #71 first applied only its moonlight/starfield contribution.
   Weather captures are terrain-facing, so cloud planes are verified by palette
   values and tests rather than framed pixels. Interactive playtesting and GPU
   frame-time capture remain manual.
+
+
+## 53. Spatial voxel-light probe drift reporting — 2026-11-23
+
+- **Implementation.** Extended the existing five-scene capture runner to read
+  a deterministic 3×3×3 grid from the real cached `VoxelLightData` maps around
+  each scene's existing probe. The runner writes a companion JSON report with
+  all 27 positions, block types, packed sky/block nibbles and comparison
+  metrics. Production lighting, shaders, meshing and chunk streaming remain
+  untouched.
+- **Drift metrics.** Added a reusable comparator for mean/maximum 4-bit
+  channel drift, normalized shader vertex RGB drift, luminance-weighted
+  intensity drift, tolerance violations, missing reference points and
+  unreferenced captures. The blue vertex input is neutral for this calculation;
+  geometry AO remains part of the renderer's existing mesh path.
+- **Reference provenance.** Added versioned reference data from the five
+  historically measured centre probes in
+  `docs/visual/LIGHTING_COMPARISON_REPORT_2026-11-22.md`. It intentionally
+  covers only 1/27 points (3.7%) in each grid. The other 26 values are not
+  guessed or inferred; the report marks them unreferenced until a reviewed
+  full-grid real-renderer capture is promoted.
+- **Regression tests.** Added checks for grid stability, comparison coverage,
+  missing/unreferenced ids, channel/RGB/intensity drift, tolerance thresholds,
+  duplicate samples and all five historical reference anchors.
+- **Validation status.** Source changes were authored directly on GitHub because
+  the paired local workstation was unavailable. The GitHub Actions CI run is
+  the build/headless-test gate for this branch. No post-change desktop GPU
+  capture or MX230 frame-time/VRAM measurement is claimed.
+- **Compatibility.** No BlockId/ItemId, save format, generator version, world
+  mutation path, production light solver, shader, renderer preset, greedy
+  meshing or chunk-streaming behavior was changed. Probe sampling runs only in
+  the standalone comparison capture scenes.
