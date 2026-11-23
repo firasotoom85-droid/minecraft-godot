@@ -1,0 +1,95 @@
+using System.Collections.Generic;
+using Godot;
+
+namespace Minecraft;
+
+/// <summary>
+/// Worker ownership state for chunk coordinates. Callers serialize access
+/// with VoxelWorld's queue lock so queue membership and ownership change
+/// atomically.
+/// </summary>
+internal sealed class ChunkWorkTracker
+{
+    private readonly HashSet<Vector2I> _inFlight = [];
+    private readonly HashSet<Vector2I> _rebuildAfterFlight = [];
+
+    public bool TryBegin(Vector2I cp) => _inFlight.Add(cp);
+
+    public bool IsInFlight(Vector2I cp) => _inFlight.Contains(cp);
+
+    /// <summary>Records an edit that arrives after a coordinate has been dequeued.</summary>
+    public void RequestRebuild(Vector2I cp)
+    {
+        if (_inFlight.Contains(cp))
+        {
+            _rebuildAfterFlight.Add(cp);
+        }
+    }
+
+    /// <returns>True when a single follow-up rebuild was requested during the work.</returns>
+    public bool Complete(Vector2I cp)
+    {
+        _inFlight.Remove(cp);
+        return _rebuildAfterFlight.Remove(cp);
+    }
+
+    public void ForgetFollowUp(Vector2I cp) => _rebuildAfterFlight.Remove(cp);
+
+    public int InFlightCount => _inFlight.Count;
+}
+
+/// <summary>Small, deterministic rules shared by world streaming and regression tests.</summary>
+internal static class ChunkStreamingPolicy
+{
+    public static bool IsWithinRetention(Vector2I cp, Vector2I center, int limit) =>
+            System.Math.Abs(cp.X - center.X) <= limit
+            && System.Math.Abs(cp.Y - center.Y) <= limit;
+
+    /// <summary>
+    /// Refresh queued priorities on stops and meaningful turns, but ignore
+    /// minor heading jitter so the heap is not rebuilt every frame.
+    /// Directions are expected to be normalized or zero.
+    /// </summary>
+    public static bool DirectionChanged(Vector3 previous, Vector3 current)
+    {
+        bool wasMoving = previous.LengthSquared() > 0.01f;
+        bool isMoving = current.LengthSquared() > 0.01f;
+        if (wasMoving != isMoving)
+        {
+            return true;
+        }
+
+        return wasMoving && Vector3.Dot(previous, current) < 0.8f;
+    }
+
+    /// <summary>
+    /// The owner always changes. Geometry neighbours only sample the edited
+    /// voxel when it lies on their shared edge/corner; light changes use the
+    /// wider existing 3x3 propagation neighbourhood.
+    /// </summary>
+    public static bool AffectsChunk(int dx, int dz, int localX, int localZ,
+            int chunkX, int chunkZ, bool lightingChanged)
+    {
+        if (dx < -1 || dx > 1 || dz < -1 || dz > 1)
+        {
+            return false;
+        }
+
+        if (lightingChanged || dx == 0 && dz == 0)
+        {
+            return true;
+        }
+
+        bool xAffected = dx == 0
+                || dx < 0 && localX == 0
+                || dx > 0 && localX == chunkX - 1;
+        bool zAffected = dz == 0
+                || dz < 0 && localZ == 0
+                || dz > 0 && localZ == chunkZ - 1;
+        return xAffected && zAffected;
+    }
+
+    /// <summary>Maximum total attempts, including the initial build.</summary>
+    public static bool ShouldRetry(int failedAttempts, int maximumAttempts) =>
+            failedAttempts > 0 && failedAttempts < maximumAttempts;
+}
