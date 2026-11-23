@@ -1398,6 +1398,13 @@ public static class WorldgenTests
                 "V12 excludes the positive horizontal world boundary");
         TestAssert.Check(!WorldGenV12.ContainsWorldPosition(-limit - 1, 0),
                 "V12 excludes coordinates below the negative horizontal boundary");
+        foreach (int magnitude in new[] { 1 << 23, 1 << 24, 1 << 25 })
+        {
+            TestAssert.Check(!WorldGenV12.ContainsWorldPosition(magnitude, 0),
+                    $"V12 rejects positive precision-boundary coordinate {magnitude}");
+            TestAssert.Check(!WorldGenV12.ContainsWorldPosition(-magnitude, 0),
+                    $"V12 rejects negative precision-boundary coordinate {-magnitude}");
+        }
         TestAssert.Check(WorldGenV12.ContainsChunk(new Vector2I(-limit / 16, 0)),
                 "V12 includes the first supported negative chunk");
         TestAssert.Check(WorldGenV12.ContainsChunk(new Vector2I(limit / 16 - 1, 0)),
