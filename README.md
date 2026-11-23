@@ -196,6 +196,40 @@ repeatable visual reference rather than an FPS benchmark:
 
 ![Voxel light continuity comparison on MX230](docs/visual/screenshots/voxel-light-continuity.png)
 
+## Negative-coordinate block-light overlap validation
+
+The block-light audit now has a repeatable world-level fixture at the negative
+chunk corner. Two torches at (-17, 120, -17) and (-16, 120, -16) occupy
+chunks (-2, -2) and (-1, -1). The two voxels between them are in chunks
+(-1, -2) and (-2, -1) and must both receive level 13 while the sources
+retain level 14.
+
+IntegrationRegressionTests primes both 3x3 light-cache neighbourhoods
+before placing the sources through VoxelWorld.SetBlock, which exercises the
+incremental add path at negative coordinates. It compares the resulting maps
+with a second world that performs the lazy full solve in the opposite
+neighbourhood-request order. It then removes one source and verifies that the
+other continues to illuminate both seams; removing the final source must clear
+both target voxels. This supplements the existing synthetic max-intensity and
+positive-coordinate seam tests.
+
+Run the real-main-scene Forward+ capture on Godot 4.7.2 .NET with:
+
+    godot --path . res://tests/WarmLightingVisualCapture.tscn -- 1337 11 -1 -1 negative-overlap /tmp/negative-overlap.png
+
+The capture constructs a small dark inspection room through VoxelWorld.SetBlock,
+places the same two sources on opposite sides of both seams, and samples the
+source plus the adjacent X/Z voxels through their owning chunk maps. Its output
+records the baked 14 / 13 / 13 levels and saves a 1600x900 production-material
+view. The screenshot is a repeatable visual check, not an FPS benchmark.
+
+The audit found the existing floor-based world-to-chunk mapping, shared
+5x5-region solve and packed 3x3 cache crop already preserve negative
+coordinates. No production solver, shader, renderer, generation, persisted ID,
+save, greedy-meshing or streaming changes were necessary. The added checks and
+capture are opt-in validation work; gameplay adds no light nodes, per-emitter
+processing or per-frame work.
+
 ## Water-adjacent materials and shoreline vegetation
 
 Faces that directly touch water keep their original material family and receive
