@@ -59,9 +59,9 @@ internal sealed class ChunkWorkTracker
     /// Drop retry history when queue reconciliation discards a request outside
     /// the retained streaming area before it can be dispatched again.
     /// </summary>
-    public void ForgetFailureOutsideRetention(Vector2I cp, Vector2I center, int limit)
+    public void ForgetFailureIfNotRequeued(Vector2I cp, bool willBeRequeued)
     {
-        if (!ChunkStreamingPolicy.IsWithinRetention(cp, center, limit))
+        if (!willBeRequeued)
         {
             _failureAttempts.Remove(cp);
         }
