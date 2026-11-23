@@ -7,27 +7,22 @@ public static class GraphicsTests
     private static void TestPresetMsaaAndCameraRanges()
     {
         int[] expectedMsaa = [1, 1, 2, 2, 2, 0];
-        SceneTree tree = (SceneTree)Engine.GetMainLoop();
-        Gfx gfx = new();
+        SubViewport viewport = new();
         Camera3D camera = new() { Far = 300.0f };
-        tree.Root.AddChild(camera);
-        camera.MakeCurrent();
-        tree.Root.AddChild(gfx);
-        int previousViewDistance = Settings.ViewDistance;
         try
         {
             for (int i = 0; i < Gfx.Presets.Count; i++)
             {
                 Gfx.Preset preset = Gfx.Presets[i];
                 TestAssert.Equal(expectedMsaa[i], preset.Msaa, $"{preset.Name} declares its explicit MSAA tier");
-                Settings.ViewDistance = preset.View;
-                gfx.ApplyPreset(i, persist: false);
-                TestAssert.Equal((Viewport.Msaa)expectedMsaa[i], gfx.GetViewport().Msaa3D,
-                        $"{preset.Name} applies its effective MSAA value to the active viewport");
+                Gfx.ApplyMsaaProfile(preset, viewport);
+                TestAssert.Equal((Viewport.Msaa)expectedMsaa[i], viewport.Msaa3D,
+                        $"{preset.Name} applies its MSAA value to the viewport");
+                Gfx.ApplyCameraFar(camera, preset.View, preset.Lod);
                 TestAssert.Check(Gfx.RequiredCameraFar(preset.View, preset.Lod) >= 300.0f,
                         $"{preset.Name} camera range retains a safe minimum");
                 TestAssert.Equal(Gfx.RequiredCameraFar(preset.View, preset.Lod), camera.Far,
-                        $"{preset.Name} updates the active gameplay camera to cover its streamed/LOD extent");
+                        $"{preset.Name} updates the gameplay camera to cover its streamed/LOD extent");
                 if (preset.Lod > 0.0f)
                     TestAssert.Check(camera.Far > preset.Lod + 170.0f,
                             $"{preset.Name} camera covers the complete FarLod tile footprint");
@@ -35,9 +30,8 @@ public static class GraphicsTests
         }
         finally
         {
-            Settings.ViewDistance = previousViewDistance;
-            gfx.QueueFree();
-            camera.QueueFree();
+            viewport.Free();
+            camera.Free();
         }
 
         TestAssert.Check(Gfx.RequiredCameraFar(24, 0.0f) > 560.0f,

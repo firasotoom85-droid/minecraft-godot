@@ -152,6 +152,11 @@ public partial class Gfx : Node
         return Mathf.Max(300.0f, Mathf.Max(streamedExtent, lodExtent) + 8.0f);
     }
 
+    internal static void ApplyCameraFar(Camera3D camera, int viewDistance, float lodRadius)
+    {
+        camera.Far = RequiredCameraFar(viewDistance, lodRadius);
+    }
+
     private void UpdateCameraFar()
     {
         // Preset policy is also exercised by headless tests on an unattached Gfx node.
@@ -163,7 +168,7 @@ public partial class Gfx : Node
             return;
         int viewDistance = Mathf.Max(World?.ViewDistance ?? Settings.ViewDistance, Settings.ViewDistance);
         float lodRadius = World?.LodRadius ?? CurrentPreset.Lod;
-        camera.Far = RequiredCameraFar(viewDistance, lodRadius);
+        ApplyCameraFar(camera, viewDistance, lodRadius);
     }
 
     public void Setup(VoxelWorld world, DirectionalLight3D sun, WorldEnvironment env)
