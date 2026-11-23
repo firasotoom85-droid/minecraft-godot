@@ -250,7 +250,8 @@ public static class WorldStore
                             != (playerSave.Status == WorldReadStatus.Missing);
                     bool missingHistory = worldSave.Status == WorldReadStatus.Missing
                             && playerSave.Status == WorldReadStatus.Missing
-                            && (value.HasSavedData || value.PlaytimeSeconds > 0);
+                            && (value.HasSavedData || value.PlaytimeSeconds > 0
+                            || value.PlayedUtc > value.CreatedUtc);
                     if (worldUnavailable || playerUnavailable || incompletePair || missingHistory)
                     {
                         if (incompletePair || missingHistory)
@@ -1077,7 +1078,8 @@ public static class WorldStore
                 && player.Status == WorldReadStatus.Missing;
         bool bothPresent = world.Value is not null && player.Value is not null;
         bool knownPreviouslySaved = manifest.Value.HasSavedData
-                || manifest.Value.PlaytimeSeconds > 0;
+                || manifest.Value.PlaytimeSeconds > 0
+                || manifest.Value.PlayedUtc > manifest.Value.CreatedUtc;
         if ((bothMissing && !knownPreviouslySaved) || bothPresent)
             ClearRecoveryRequired(dir);
     }
