@@ -2559,8 +2559,9 @@ public partial class VoxelWorld : Node3D
     }
 
     /// <summary>
-    /// Synchronous chunk build for the menu backdrop. No player is required;
-    /// the camera orbits this centre while the menu is open.
+    /// Synchronous preview builder retained for deterministic fixtures and
+    /// callers that require the complete requested square before returning.
+    /// The live main-menu backdrop uses BuildPreviewStreaming instead.
     /// </summary>
     public void BuildPreview(Vector3 center, int radius)
     {
@@ -2568,9 +2569,31 @@ public partial class VoxelWorld : Node3D
                 Mathf.FloorToInt(center.X / ChunkX),
                 Mathf.FloorToInt(center.Z / ChunkZ));
         int r = Mathf.Clamp(radius, 1, 5);
+        for (int dz = -r; dz <= r; dz++)
+        {
+            for (int dx = -r; dx <= r; dx++)
+            {
+                BuildNow(pcp + new Vector2I(dx, dz));
+            }
+        }
 
-        // Keep the preview's focal chunk immediately available for callers
-        // that sample/edit its voxels; the surrounding 24 preview chunks stream.
+        _lastPlayerChunk = pcp;
+        _lastPlayerPos = center;
+        _streamCenter = pcp;
+        _streamRetentionLimit = r + UnloadMargin;
+    }
+
+    /// <summary>
+    /// Render-only preview path for live menus. Builds the focal chunk
+    /// synchronously, then streams the surrounding square through bounded
+    /// worker and main-thread payload queues.
+    /// </summary>
+    public void BuildPreviewStreaming(Vector3 center, int radius)
+    {
+        Vector2I pcp = new(
+                Mathf.FloorToInt(center.X / ChunkX),
+                Mathf.FloorToInt(center.Z / ChunkZ));
+        int r = Mathf.Clamp(radius, 1, 5);
         BuildNow(pcp);
 
         _lastPlayerChunk = pcp;
