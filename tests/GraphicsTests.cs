@@ -4,8 +4,46 @@ namespace Minecraft;
 
 public static class GraphicsTests
 {
+    private static void TestEnvironmentPresetMatrix()
+    {
+        for (int i = 0; i < Gfx.Presets.Count; i++)
+        {
+            Gfx.Preset preset = Gfx.Presets[i];
+            Godot.Environment environment = WorldEnvironmentFactory.Build(WorldGenV11.Version, i);
+            TestAssert.Check(environment.SsaoEnabled == preset.Ssao,
+                    $"{preset.Name} environment SSAO matches its renderer preset");
+            TestAssert.Check(environment.SsrEnabled == preset.Ssr,
+                    $"{preset.Name} environment SSR matches its renderer preset");
+            TestAssert.Check(environment.GlowEnabled == preset.Glow,
+                    $"{preset.Name} environment glow matches its renderer preset");
+            TestAssert.Check(environment.VolumetricFogEnabled == preset.VolFog,
+                    $"{preset.Name} environment volumetric fog matches its renderer preset");
+            TestAssert.Equal(WorldEnvironmentFactory.DistanceHazeDensity, environment.FogDensity,
+                    $"{preset.Name} preserves the modern world's depth-haze density");
+        }
+
+        Godot.Environment legacyLow = WorldEnvironmentFactory.Build(WorldGenV7.Version, Gfx.DefaultPreset);
+        TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential, legacyLow.FogMode,
+                "preset selection does not change legacy world fog mode");
+        TestAssert.Equal(WorldEnvironmentFactory.LegacyAirFogDensity, legacyLow.FogDensity,
+                "preset selection preserves legacy world fog density");
+
+        Godot.Environment modernLow = WorldEnvironmentFactory.Build(WorldGenV11.Version, Gfx.DefaultPreset);
+        TestAssert.Check(!modernLow.SsaoEnabled && !modernLow.SsrEnabled
+                        && !modernLow.GlowEnabled && !modernLow.VolumetricFogEnabled,
+                "LOW environment disables all four optional post effects at construction");
+        TestAssert.Equal(WorldEnvironmentFactory.DistanceHazeDensity, modernLow.FogDensity,
+                "LOW keeps the modern depth-haze profile");
+
+        Godot.Environment defaultEnvironment = WorldEnvironmentFactory.Build();
+        TestAssert.Check(defaultEnvironment.SsaoEnabled && defaultEnvironment.SsrEnabled
+                        && defaultEnvironment.GlowEnabled && defaultEnvironment.VolumetricFogEnabled,
+                "factory calls without a preset preserve historical high-quality defaults");
+    }
+
     public static void Run()
     {
+        TestEnvironmentPresetMatrix();
         TestAssert.Equal(6, Gfx.Presets.Count, "graphics preset list includes low through max fsr2");
         TestAssert.Equal(0, Gfx.DefaultPreset, "low is the hardware-friendly default");
         TestAssert.Equal("LOW", Gfx.Presets[Gfx.DefaultPreset].Name, "default preset name is low");
