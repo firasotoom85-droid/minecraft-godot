@@ -158,6 +158,7 @@ public partial class Main : Node3D
             // A save captured during the death screen resumes through the same
             // softcore respawn path as a live death, after cleanup is wired.
             _player.Respawn();
+            _world.MarkDirty();
         }
 
         _player.Inventory.Changed += _world.MarkDirty;
