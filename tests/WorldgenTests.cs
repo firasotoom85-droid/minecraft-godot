@@ -115,6 +115,25 @@ public static class WorldgenTests
         }
         DirAccess.RemoveAbsolute(v5Dir);
 
+        foreach (string preset in new[] { "flat", "amplified" })
+        {
+            string presetDir = $"user://tests/world-{preset}-spawn-{Time.GetTicksUsec()}";
+            DirAccess.MakeDirRecursiveAbsolute(presetDir);
+            WorldStore.WriteManifest(presetDir, new WorldManifest(
+                    $"{preset} Spawn", 31415926, WorldGenV8.Version,
+                    WorldStore.DeriveNoiseSeeds(31415926), 0, 0, "survival", preset));
+            GameSession.Instance.SelectWorld(presetDir);
+            VoxelWorld presetWorld = new();
+            host.AddChild(presetWorld);
+            Vector3 presetSpawn = presetWorld.FindSpawn();
+            TestAssert.Check(presetWorld.IsSafeSpawnPosition(presetSpawn),
+                    $"{preset}-world spawn has solid support and a clear dry player capsule");
+            host.RemoveChild(presetWorld);
+            presetWorld.QueueFree();
+            DirAccess.RemoveAbsolute(presetDir + "/manifest.json");
+            DirAccess.RemoveAbsolute(presetDir);
+        }
+
         string skySpawnDir = $"user://tests/world-sky-spawn-{Time.GetTicksUsec()}";
         DirAccess.MakeDirRecursiveAbsolute(skySpawnDir);
         WorldStore.WriteManifest(skySpawnDir, new WorldManifest(
