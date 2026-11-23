@@ -41,6 +41,13 @@ public static class SaveTests
         PlayerSave? legacyPlayer = JsonSerializer.Deserialize<PlayerSave>("{\"pos\":[0,0,0]}", WorldStore.Json);
         TestAssert.Check(legacyPlayer?.Hunger is null,
                 "old player saves distinguish a missing hunger field");
+        string previewPlayerPath = root + "/preview-player.json";
+        TestAssert.Check(WorldStore.WriteAtomic(previewPlayerPath,
+                JsonSerializer.Serialize(new PlayerSave([]), WorldStore.Json)),
+                "preview fixture writes a player save without a live Player node");
+        TestAssert.Equal(WorldReadStatus.Valid,
+                WorldStore.ReadJsonResult<PlayerSave>(previewPlayerPath, WorldStore.Json).Status,
+                "an empty position array remains a supported preview/headless save representation");
 
         WorldSave boatSave = new(WorldStore.WorldFormatVersion, [], 0.5,
                 Boats: [new BoatSave([12.5f, 49.7f, -3.5f], 0.75f, [1.0f, 0.0f, -2.0f], true)]);
@@ -510,6 +517,23 @@ public static class SaveTests
             session.Manifest = previousSessionManifest;
         }
 
+        // A valid world save without a player file remains a legacy/unplayed
+        // world when the manifest has no evidence of completed save history.
+        string singleFileWorld = WorldStore.Create("Legacy Single File", 1205);
+        TestAssert.Check(WorldStore.WriteAtomic(WorldStore.WorldSavePath(singleFileWorld),
+                JsonSerializer.Serialize(save, WorldStore.Json)),
+                "legacy single-file world fixture writes");
+        if (session is not null)
+        {
+            session.SelectWorld(singleFileWorld);
+            TestAssert.Equal(singleFileWorld, session.EnsureWorld(),
+                    "a valid single-file world without saved-history metadata remains loadable");
+            session.WorldDir = previousWorldDirectory;
+            session.Manifest = previousSessionManifest;
+        }
+        TestAssert.Check(WorldStore.List().Exists(entry => entry.Dir == singleFileWorld),
+                "legacy single-file world remains visible in the world library");
+
         string unsupportedPath = root + "/future-save.json";
         WorldStore.WriteAtomic(unsupportedPath, v2);
         WorldStore.WriteAtomic(unsupportedPath, v2);
@@ -535,7 +559,7 @@ public static class SaveTests
                 {
                     collisionFirst, collisionSecond, duplicateFailureSource,
                     corruptManifestWorld, otherValidWorld, damagedWorld, savedHistoryWorld,
-                    legacyPlayedWorld, populatedDefault, emptyDefault,
+                    legacyPlayedWorld, singleFileWorld, populatedDefault, emptyDefault,
                 })
             WorldStore.Delete(testWorld);
 
@@ -545,6 +569,7 @@ public static class SaveTests
         DirAccess.RemoveAbsolute(corruptPath + ".bak");
         DirAccess.RemoveAbsolute(corruptPath);
         DirAccess.RemoveAbsolute(unsupportedPath);
+        DirAccess.RemoveAbsolute(previewPlayerPath);
         DirAccess.RemoveAbsolute(path + ".bak2");
         DirAccess.RemoveAbsolute(path + ".bak");
         DirAccess.RemoveAbsolute(path);
