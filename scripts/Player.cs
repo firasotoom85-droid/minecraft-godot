@@ -828,7 +828,8 @@ public partial class Player : CharacterBody3D, IDamageable
     }
 
     /// <summary>Restore persisted player state; null mode keeps the world default.</summary>
-    public void LoadFromSave(string? mode, float health, float hunger, Vector3? respawn, int experience = 0)
+    public void LoadFromSave(string? mode, float health, float hunger, Vector3? respawn,
+            int experience = 0, bool dead = false)
     {
         if (mode == "survival")
         {
