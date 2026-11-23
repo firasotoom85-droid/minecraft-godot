@@ -62,6 +62,20 @@ public static class BlockShapeTests
                     2, BlockId.PlanksSlab, BlockShapes.SlabTop),
                 "upper neighboring slab leaves the lower boundary visible");
 
+        foreach (BlockId foliage in new[]
+        {
+            BlockId.Leaves, BlockId.BirchLeaves, BlockId.SpruceLeaves,
+            BlockId.JungleLeaves, BlockId.SwampLeaves,
+        })
+        {
+            TestAssert.Check(BlockShapes.FaceExposed(slab, BlockShapes.SlabBottom,
+                            1, 0, 0, 2, foliage, 0),
+                    $"{foliage} does not occlude an exposed slab micro-face");
+            TestAssert.Check(BlockShapes.FaceExposed(stairs, 0,
+                            1, 0, 0, 2, foliage, 0),
+                    $"{foliage} does not occlude an exposed stair micro-face");
+        }
+
         TestAssert.Equal(BlockShapes.SlabBottom,
                 BlockShapes.SelectSlabState(Vector3.Up, new Vector3(0.5f, 1.0f, 0.5f)),
                 "top-face placement chooses bottom slab");
