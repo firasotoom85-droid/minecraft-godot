@@ -76,7 +76,7 @@ public static class VoxelStreamingTests
 
         TestAssert.Check(tracker.TryBegin(coordinate),
                 "worker dispatch claims the coordinate before entering the build lifecycle");
-        ChunkWorkerExecutionResult first = ChunkWorkerLifecycle.Execute(
+        ChunkWorkerExecutionResult first = ExecuteTestWorker(
                 () => true,
                 () => availableSlots--,
                 () =>
@@ -114,7 +114,7 @@ public static class VoxelStreamingTests
         TestAssert.Check(tracker.TryBegin(coordinate),
                 "the coordinate can be dispatched again after completion");
 
-        ChunkWorkerExecutionResult second = ChunkWorkerLifecycle.Execute(
+        ChunkWorkerExecutionResult second = ExecuteTestWorker(
                 () => true,
                 () => availableSlots--,
                 () =>
@@ -150,7 +150,7 @@ public static class VoxelStreamingTests
         int failureSlots = 1;
         int failureAttempts = 0;
         int failureReports = 0;
-        ChunkWorkerExecutionResult failed = ChunkWorkerLifecycle.Execute<object>(
+        ChunkWorkerExecutionResult failed = ExecuteTestWorker(
                 () => true,
                 () => failureSlots--,
                 () => throw new InvalidOperationException("injected one-time mesher failure"),
@@ -185,7 +185,7 @@ public static class VoxelStreamingTests
 
         TestAssert.Check(tracker.TryBegin(failedCoordinate),
                 "the failed coordinate can be claimed for its retry");
-        ChunkWorkerExecutionResult retried = ChunkWorkerLifecycle.Execute(
+        ChunkWorkerExecutionResult retried = ExecuteTestWorker(
                 () => true,
                 () => failureSlots--,
                 () => new object(),
@@ -243,7 +243,7 @@ public static class VoxelStreamingTests
         int staleBuilds = 0;
         int staleDiscards = 0;
         int stalePublishes = 0;
-        ChunkWorkerExecutionResult stale = ChunkWorkerLifecycle.Execute(
+        ChunkWorkerExecutionResult stale = ExecuteTestWorker(
                 () => ++freshnessChecks < 3,
                 () => staleSlots--,
                 () =>
@@ -275,7 +275,7 @@ public static class VoxelStreamingTests
                 "shutdown-cancellation test claims its coordinate");
         int cancelledSlots = 1;
         int retryCallsAfterCancellation = 0;
-        ChunkWorkerExecutionResult cancelled = ChunkWorkerLifecycle.Execute<object>(
+        ChunkWorkerExecutionResult cancelled = ExecuteTestWorker(
                 () => true,
                 () => cancelledSlots--,
                 () => throw new OperationCanceledException(),
@@ -554,4 +554,69 @@ public static class VoxelStreamingTests
         TestAssert.Check(!ChunkStreamingPolicy.ShouldRetry(3, 3),
                 "worker retries stop at the bounded attempt limit");
     }
+
+    private readonly struct TestWorkerOperation : IChunkWorkerOperation<object>
+    {
+        private readonly Func<bool> _canContinue;
+        private readonly Action _reservePayloadSlot;
+        private readonly Func<object> _build;
+        private readonly Func<object, bool> _publish;
+        private readonly Action<object> _discardPayload;
+        private readonly Action _releasePayloadSlot;
+        private readonly Func<Exception, bool> _requestRetry;
+        private readonly Action<Exception, bool> _reportFailure;
+
+        public TestWorkerOperation(
+                Func<bool> canContinue,
+                Action reservePayloadSlot,
+                Func<object> build,
+                Func<object, bool> publish,
+                Action<object> discardPayload,
+                Action releasePayloadSlot,
+                Func<Exception, bool> requestRetry,
+                Action<Exception, bool> reportFailure)
+        {
+            _canContinue = canContinue;
+            _reservePayloadSlot = reservePayloadSlot;
+            _build = build;
+            _publish = publish;
+            _discardPayload = discardPayload;
+            _releasePayloadSlot = releasePayloadSlot;
+            _requestRetry = requestRetry;
+            _reportFailure = reportFailure;
+        }
+
+        public bool CanContinue() => _canContinue();
+        public void ReservePayloadSlot() => _reservePayloadSlot();
+        public object Build() => _build();
+        public bool Publish(object payload) => _publish(payload);
+        public void DiscardPayload(object payload) => _discardPayload(payload);
+        public void ReleasePayloadSlot() => _releasePayloadSlot();
+        public bool RequestRetry(Exception error) => _requestRetry(error);
+        public void ReportFailure(Exception error, bool retryRequested) =>
+                _reportFailure(error, retryRequested);
+    }
+
+    private static ChunkWorkerExecutionResult ExecuteTestWorker(
+            Func<bool> canContinue,
+            Action reservePayloadSlot,
+            Func<object> build,
+            Func<object, bool> publish,
+            Action<object> discardPayload,
+            Action releasePayloadSlot,
+            Func<Exception, bool> requestRetry,
+            Action<Exception, bool> reportFailure)
+    {
+        TestWorkerOperation operation = new(
+                canContinue,
+                reservePayloadSlot,
+                build,
+                publish,
+                discardPayload,
+                releasePayloadSlot,
+                requestRetry,
+                reportFailure);
+        return ChunkWorkerLifecycle.Execute<object, TestWorkerOperation>(ref operation);
+    }
+
 }
