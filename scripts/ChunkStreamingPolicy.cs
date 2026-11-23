@@ -158,6 +158,10 @@ internal static class ChunkStreamingPolicy
     private static int FloorDivide(long value, int divisor) =>
             (int)System.Math.Floor(value / (double)divisor);
 
+    /// <summary>Clear only the active region of a rented scratch buffer.</summary>
+    public static void ClearUsedBuffer(byte[] buffer, int usedLength) =>
+            Array.Clear(buffer, 0, usedLength);
+
     /// <summary>Maximum total attempts, including the initial build.</summary>
     public static bool ShouldRetry(int failedAttempts, int maximumAttempts) =>
             failedAttempts > 0 && failedAttempts < maximumAttempts;
