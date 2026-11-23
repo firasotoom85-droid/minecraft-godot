@@ -112,6 +112,11 @@ public static class WorldArchiveTests
                     JsonSerializer.Serialize(before, WorldStore.Json)), "initial restore point writes");
             TestAssert.Check(WorldStore.WriteAtomic(backupSavePath,
                     JsonSerializer.Serialize(after, WorldStore.Json)), "newer save rotates the previous version");
+            TestAssert.Check(WorldStore.WriteAtomic(WorldStore.PlayerSavePath(backupWorld),
+                    JsonSerializer.Serialize(new PlayerSave([4.0f, 5.0f, 6.0f]), WorldStore.Json)),
+                    "matching player state is written for a complete recovery fixture");
+            TestAssert.Check(WorldStore.WriteManifest(backupWorld, WorldStore.ReadManifest(backupWorld)!),
+                    "complete recovery fixture records its save history");
             List<WorldBackupInfo> backups = WorldBackupStore.List(backupWorld);
             WorldBackupInfo? selected = backups.Find(item => item.FileName == "world.json.bak" && item.IsValid);
             TestAssert.Check(selected is not null, "backup browser lists dated, validated restore points");
