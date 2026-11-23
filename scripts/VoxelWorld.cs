@@ -118,7 +118,8 @@ public partial class VoxelWorld : Node3D
     private readonly Dictionary<Vector2I, byte[]> _skyLightCache = [];
     private readonly Dictionary<Vector2I, byte[]> _blockLightCache = [];
     private readonly Dictionary<Vector2I, VoxelLightData> _voxelLightCache = [];
-    private readonly HashSet<Vector3I> _crops = [];  // placed wheat, for growth ticks
+    private readonly HashSet<Vector3I> _crops = [];  // generated and placed wheat, for growth ticks
+    private readonly HashSet<Vector2I> _cropScannedChunks = [];
     private readonly Lock _mutex = new();           // guards _dataCache, _edits, EditEpoch
     public Lock SnapshotLock { get; } = new();      // serialises edits vs mesher snapshots
 
@@ -1605,11 +1606,13 @@ public partial class VoxelWorld : Node3D
             if (_dataCache.TryGetValue(cp, out byte[]? existing))
             {
                 RegisterLightSourcesLocked(cp, existing);
+                RegisterCropSourcesLocked(cp, existing);
                 return existing;
             }
 
             _dataCache[cp] = data;
             RegisterLightSourcesLocked(cp, data);
+            RegisterCropSourcesLocked(cp, data);
             if (_generationInFlight.TryGetValue(cp, out Lazy<byte[]>? current)
                     && ReferenceEquals(current, generation))
             {
@@ -1949,9 +1952,17 @@ public partial class VoxelWorld : Node3D
 
         byte[] regionBlocks = ArrayPool<byte>.Shared.Rent(volume);
         byte[] regionLight = ArrayPool<byte>.Shared.Rent(volume);
-        byte[]? regionStates = hasNonDefaultStates ? new byte[volume] : null;
+        byte[]? regionStates = hasNonDefaultStates
+                ? ArrayPool<byte>.Shared.Rent(volume) : null;
         try
         {
+            if (regionStates != null)
+            {
+                // Rented arrays may contain data from an earlier use. States
+                // are sparse, so clear the complete active volume before copy.
+                Array.Clear(regionStates, 0, volume);
+            }
+
             for (int dz = -1; dz <= 1; dz++)
             for (int dx = -1; dx <= 1; dx++)
             {
@@ -2005,6 +2016,10 @@ public partial class VoxelWorld : Node3D
         {
             ArrayPool<byte>.Shared.Return(regionBlocks);
             ArrayPool<byte>.Shared.Return(regionLight);
+            if (regionStates != null)
+            {
+                ArrayPool<byte>.Shared.Return(regionStates);
+            }
         }
         return true;
     }
@@ -2104,6 +2119,13 @@ public partial class VoxelWorld : Node3D
     /// <summary>All block and shape-state edits pass through this mutation seam.</summary>
     public bool SetBlock(int x, int y, int z, BlockId id, byte state)
     {
+        // BlockId values are persisted and index several definition tables.
+        // Reject unknown values before normalization or any mutation side effect.
+        if (!BlockDb.IsDefined(id))
+        {
+            return false;
+        }
+
         state = BlockShapes.NormalizeState(id, state);
         if (y <= 0 || y >= Height)
         {
@@ -2125,6 +2147,7 @@ public partial class VoxelWorld : Node3D
         int lz = z - cp.Y * ChunkZ;
         int i = lx + lz * ChunkZ + y * ChunkX * ChunkZ;
         bool isCampfireCell = IsCampfireSiteCell(x, y, z);
+        bool lightingChanged = false;
         lock (SnapshotLock)
         {
             // Chunk.Blocks is also read by worker meshing. Mutate it while
@@ -2182,6 +2205,10 @@ public partial class VoxelWorld : Node3D
 
                 bool sourcePositionChanged = oldEmission > 0 && newEmission > 0
                         && oldCampfireEmitter != newCampfireEmitter;
+                lightingChanged = oldOpacity != newOpacity
+                        || oldLightFaces != newLightFaces
+                        || sourcePositionChanged
+                        || oldEmission != newEmission;
                 Vector3I changedSource = oldEmission > 0
                         ? new Vector3I(x, y + (oldCampfireEmitter ? 1 : 0), z)
                         : new Vector3I(x, y + (newCampfireEmitter ? 1 : 0), z);
@@ -2216,14 +2243,26 @@ public partial class VoxelWorld : Node3D
         _dirty = true;
         BlockChanged?.Invoke(new Vector3I(x, y, z));
 
-        // A blocker or emitter can affect every adjacent chunk within the
-        // 14-voxel light radius, including chunks not sharing the edited edge.
+        // The edited chunk always changes. Geometry-only dependencies are
+        // limited to the sampled edge/corner; light-affecting edits retain the
+        // full existing 3x3 region for the 14-voxel propagation halo.
         for (int dz = -1; dz <= 1; dz++)
+        {
             for (int dx = -1; dx <= 1; dx++)
             {
+                if (!ChunkStreamingPolicy.AffectsChunk(dx, dz, lx, lz,
+                        ChunkX, ChunkZ, lightingChanged))
+                {
+                    continue;
+                }
+
                 Vector2I affected = cp + new Vector2I(dx, dz);
-                if (_chunks.ContainsKey(affected)) EnqueueRebuild(affected);
+                if (_chunks.ContainsKey(affected))
+                {
+                    EnqueueRebuild(affected);
+                }
             }
+        }
 
         return true;
     }
@@ -2333,21 +2372,55 @@ public partial class VoxelWorld : Node3D
         }
     }
 
+    private void RegisterCropSourcesLocked(Vector2I cp, byte[] blocks)
+    {
+        if (!_cropScannedChunks.Add(cp))
+        {
+            return;
+        }
+
+        int stride = ChunkX * ChunkZ;
+        int ox = cp.X * ChunkX;
+        int oz = cp.Y * ChunkZ;
+        for (int i = 0; i < blocks.Length; i++)
+        {
+            if (!BlockDb.IsWheat((BlockId)blocks[i]))
+            {
+                continue;
+            }
+
+            int y = i / stride;
+            int rem = i - y * stride;
+            int z = rem / ChunkX;
+            int x = rem - z * ChunkX;
+            _crops.Add(new Vector3I(ox + x, y, oz + z));
+        }
+    }
+
     private void UpdateCropSource(int x, int y, int z, BlockId id)
     {
         Vector3I cell = new(x, y, z);
-        if (BlockDb.IsWheat(id))
+        lock (_mutex)
         {
-            _crops.Add(cell);
-        }
-        else
-        {
-            _crops.Remove(cell);
+            if (BlockDb.IsWheat(id))
+            {
+                _crops.Add(cell);
+            }
+            else
+            {
+                _crops.Remove(cell);
+            }
         }
     }
 
     /// <summary>Snapshot for the growth tick (avoids mutating the set mid-loop).</summary>
-    public Vector3I[] CropSnapshot() => [.. _crops];
+    public Vector3I[] CropSnapshot()
+    {
+        lock (_mutex)
+        {
+            return [.. _crops];
+        }
+    }
 
     // -----------------------------------------------------------------------
     // Edit-aware surface heights: per-chunk topmost solid block of every
@@ -3164,6 +3237,12 @@ public partial class VoxelWorld : Node3D
             foreach (Vector2I cp in _blockLightCache.Keys.Where(Outside).ToArray()) _blockLightCache.Remove(cp);
             foreach (Vector2I cp in _voxelLightCache.Keys.Where(Outside).ToArray()) _voxelLightCache.Remove(cp);
             foreach (Vector2I cp in _sourceScannedChunks.Where(Outside).ToArray()) _sourceScannedChunks.Remove(cp);
+            foreach (Vector2I cp in _cropScannedChunks.Where(Outside).ToArray()) _cropScannedChunks.Remove(cp);
+            foreach (Vector3I crop in _crops.Where(pos =>
+                    Outside(new Vector2I(
+                            Mathf.FloorToInt(pos.X / (float)ChunkX),
+                            Mathf.FloorToInt(pos.Z / (float)ChunkZ)))).ToArray())
+                _crops.Remove(crop);
             foreach (Vector3I pos in _lightSources.Keys.Where(pos =>
                     Mathf.Abs(Mathf.FloorToInt(pos.X / (float)ChunkX) - pcp.X) > limit + 1
                     || Mathf.Abs(Mathf.FloorToInt(pos.Z / (float)ChunkZ) - pcp.Y) > limit + 1).ToArray())
