@@ -303,9 +303,15 @@ public sealed class Inventory
         Clear();
         if (items == null)
         {
-            foreach ((int slot, ItemId id, int count) in ItemDb.StarterKit())
+            // A missing player save in a recovery-required world is not a
+            // first-run state. Never install starter items over missing history.
+            if (GameSession.Instance is null
+                    || !WorldStore.IsRecoveryRequired(GameSession.Instance.WorldDir))
             {
-                Set(slot, ItemDb.New(id, count));
+                foreach ((int slot, ItemId id, int count) in ItemDb.StarterKit())
+                {
+                    Set(slot, ItemDb.New(id, count));
+                }
             }
         }
         else
