@@ -11,8 +11,8 @@ public static class LightingComparisonTests
 {
     public static void Run()
     {
-        TestAssert.Equal(5, LightingComparisonProfiles.All.Count,
-                "lighting comparison suite exposes all five requested environments");
+        TestAssert.Equal(6, LightingComparisonProfiles.All.Count,
+                "lighting comparison suite exposes six deterministic environments");
         TestAssert.Equal(1280, LightingComparisonProfiles.CaptureWidth,
                 "all lighting comparisons use a fixed 1280-pixel width");
         TestAssert.Equal(720, LightingComparisonProfiles.CaptureHeight,
@@ -54,6 +54,11 @@ public static class LightingComparisonTests
 
         TestAssert.Check(!LightingComparisonProfiles.TryGet("not-a-scenario", out _),
                 "unknown lighting scenarios are rejected rather than mapped to a different fixture");
+
+        TestAssert.Check(LightingComparisonProfiles.TryGet("pale-surfaces", out var paleProfile)
+                        && paleProfile.SceneFile == "PaleSurfaceLighting.tscn"
+                        && paleProfile.TimeOfDay == 0.50,
+                "pale-material comparison uses the fixed clear-noon profile");
 
         Gfx.Preset low = Gfx.Presets[Gfx.DefaultPreset];
         TestAssert.Equal("LOW", low.Name,

@@ -193,6 +193,7 @@ public static class ChunkMaterials
     private static Vector3 _moonDirection = Vector3.Down;
     private static Color _moonColor = new(0.62f, 0.74f, 1.0f);
     private static float _moonlightEnergy;
+    private static float _paleSurfaceContrastStrength = MaterialResponse.PaleSurfaceDirectionalContrast;
 
     private static readonly Lazy<ShaderMaterial> OpaqueLazy = new(CreateOpaqueMaterial);
     private static readonly Lazy<ShaderMaterial> OpaqueArrayLazy = new(CreateArrayOpaqueMaterial);
@@ -216,8 +217,16 @@ public static class ChunkMaterials
         return material;
     }
 
-    private static ShaderMaterial CreateOpaqueMaterial() => ApplyLighting(BlockDb.MakeOpaqueMaterial());
-    private static ShaderMaterial CreateArrayOpaqueMaterial() => ApplyLighting(BlockDb.MakeArrayOpaqueMaterial());
+    private static ShaderMaterial CreateOpaqueMaterial() =>
+            ApplyPaleSurfaceContrast(ApplyLighting(BlockDb.MakeOpaqueMaterial()));
+    private static ShaderMaterial CreateArrayOpaqueMaterial() =>
+            ApplyPaleSurfaceContrast(ApplyLighting(BlockDb.MakeArrayOpaqueMaterial()));
+
+    private static ShaderMaterial ApplyPaleSurfaceContrast(ShaderMaterial material)
+    {
+        MaterialResponse.ApplyPaleSurfaceContrast(material, _paleSurfaceContrastStrength);
+        return material;
+    }
     private static ShaderMaterial CreateGlassMaterial() => ApplyLighting(BlockDb.MakeGlassMaterial());
     private static ShaderMaterial CreateLavaMaterial() => ApplyLighting(BlockDb.MakeLavaMaterial());
 
@@ -231,6 +240,18 @@ public static class ChunkMaterials
 
     /// <summary>Opaque terrain material for the active meshing mode.</summary>
     public static Material Opaque => Mesher.Greedy ? OpaqueArrayLazy.Value : OpaqueLazy.Value;
+
+    /// <summary>Current opaque contrast strength, used by deterministic visual captures.</summary>
+    public static float PaleSurfaceContrastStrength => _paleSurfaceContrastStrength;
+
+    /// <summary>Changes only opaque presentation; packed light and vertices are untouched.</summary>
+    public static void SetPaleSurfaceContrast(float strength)
+    {
+        _paleSurfaceContrastStrength = Mathf.Clamp(
+                strength, 0.0f, MaterialResponse.PaleSurfaceDirectionalContrast);
+        if (OpaqueLazy.IsValueCreated) ApplyPaleSurfaceContrast(OpaqueLazy.Value);
+        if (OpaqueArrayLazy.IsValueCreated) ApplyPaleSurfaceContrast(OpaqueArrayLazy.Value);
+    }
 
     public static ShaderMaterial Glass => GlassLazy.Value;
 

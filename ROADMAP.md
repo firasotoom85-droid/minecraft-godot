@@ -2804,3 +2804,39 @@ so merging #71 first applied only its moonlight/starfield contribution.
   Weather captures are terrain-facing, so cloud planes are verified by palette
   values and tests rather than framed pixels. Interactive playtesting and GPU
   frame-time capture remain manual.
+
+
+## 53. Pale-surface directional contrast — 2026-11-23
+
+**Goal:** make snow, sand and pale stone readable under strong daylight without
+editing baked voxel-light values or increasing scene-light count.
+
+**Implementation:**
+- Added an albedo-luminance mask to the existing opaque atlas and greedy
+  texture-array paths. It is active only for bright texels classified as the
+  existing Stone or Soil families; the mask softly transitions from medium
+  stone to full-strength snow/sand response.
+- Only directional sky gain is shaped. A fully sun-facing face retains its
+  prior gain, while indirect sky on the turned-away side is reduced by at most
+  0.18 at full daylight. The response fades with sunlight energy, so night,
+  moonlight, cave fill and warm block-light emission retain their existing values.
+- MaterialResponse owns the C# thresholds and reference evaluator.
+  ChunkMaterials owns the default uniform and temporary baseline override;
+  no second material registry or per-emitter scene light is introduced.
+- Added PaleSurfaceLighting.tscn, using the production main scene, three
+  equal-size snow/sand/stone swatches, a fixed noon camera and the existing LOW
+  preset. baseline and contrast arguments produce a matched image pair; both
+  log packed sky/block samples and assert that no OmniLight3D emitters are present.
+- Added regression checks for material-family/luminance gating, direct-vs-
+  indirect gain, zero-sun neutrality, original packed channels, material
+  uniform parity, and reversible baseline capture state.
+
+**Compatibility:** no persisted IDs, saves, generator V1–V11 outputs, sky/block
+solver, SetBlock/ApplyEdit path, AO values, mesh layout, greedy merging,
+streaming, environment settings or renderer presets changed. The extra shader
+arithmetic applies only to opaque fragments; LOW/BALANCED continue to disable
+SSAO, SSR, glow and volumetric fog.
+
+**Validation status:** automated and GPU verification pending on Godot 4.7.2
+.NET. Reproduce the matched pair with the README commands. No measured frame
+time or visual metric is claimed until those captures complete.

@@ -4,7 +4,7 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>
-/// Fixed scene composition and time-of-day settings for the five repeatable
+/// Fixed scene composition and time-of-day settings for the repeatable
 /// lighting inspections. These profiles change only test cameras and clock
 /// values; production lights, environment resources and render paths are reused.
 /// </summary>
@@ -36,6 +36,9 @@ public static class LightingComparisonProfiles
         new("dungeon-arena", "Dungeon arena", "DungeonArenaLighting.tscn",
                 0.02, new Vector3(5.0f, 3.0f, 5.0f),
                 new Vector3(0.0f, 2.5f, 0.0f), 62.0f),
+        new("pale-surfaces", "Snow, sand and pale stone", "PaleSurfaceLighting.tscn",
+                0.50, new Vector3(10.0f, 7.0f, 18.0f),
+                Vector3.Zero, 55.0f),
     ];
 
     public const int CaptureWidth = 1280;
