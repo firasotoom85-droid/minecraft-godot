@@ -31,9 +31,9 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         run: |
           mapfile -t files < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- '*.cs')
-          if (( \${#files[@]} == 0 )); then
+          if (( ${#files[@]} == 0 )); then
             echo "No C# files changed; formatting check is not applicable."
             exit 0
           fi
-          printf 'Checking %s changed C# file(s)\n' "\${#files[@]}"
-          dotnet format whitespace minecraft.sln --verify-no-changes --include "\${files[@]}"
+          printf 'Checking %s changed C# file(s)\n' "${#files[@]}"
+          dotnet format whitespace minecraft.sln --verify-no-changes --include "${files[@]}"

@@ -1,6 +1,6 @@
 # GitHub repository profile
 
-This is the suggested public-facing metadata for the repository. The repository was private at the time of the 2026-11-23 profile review; this change deliberately does not alter repository visibility.
+This is the public-facing metadata recommendation for the repository. GitHub repository metadata was checked on 2026-11-23: the repository is **public**, with no description, homepage or topics configured. This PR does not change those settings.
 
 ## Suggested description
 
@@ -12,14 +12,15 @@ godot, godot-engine, godot-csharp, voxel-engine, voxel-game, procedural-generati
 
 ## Homepage
 
-Leave unset until there is a maintained project page or download page. The GitHub Releases page is the current distribution location.
+Leave unset until there is a maintained project page or download page. GitHub Releases is the current distribution location.
 
-## Visibility decision
+## Public-collaboration readiness
 
-Keep the repository private until the owner explicitly decides that:
-- The code and project assets are ready for public access.
-- Every third-party component and imported asset has an appropriate license notice.
-- Issue and pull-request history has been reviewed for private data, credentials, local paths and personal information.
-- Security reporting and release policies are ready for public contributors.
+The repository is already public. Before actively inviting outside contributions:
+- Ensure the issue templates and label taxonomy are in use.
+- Keep SECURITY.md and private vulnerability reporting instructions actionable.
+- Review issue/PR history for private data, credentials, local paths and personal information.
+- Ensure every third-party component and imported asset has an appropriate license notice.
+- Keep the contribution and compatibility requirements current.
 
-Changing visibility affects the entire repository history, issues, branches, Actions artifacts and releases. It must be a deliberate owner action, not an automatic consequence of documentation cleanup.
+The repository description and topics can be added through GitHub repository Settings. They were not changed by this PR because the available repository connection does not expose the repository-metadata write operation.

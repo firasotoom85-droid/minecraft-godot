@@ -17,9 +17,9 @@ This is the **current forward plan**, not a running implementation diary. Comple
 | Release packaging | Being automated | Exercise tag-triggered Linux/Windows export packaging on a beta tag |
 | Performance baselines | Partial | Record a fresh controlled Release baseline; the comparable RTX 4060 run remains outstanding |
 | Gameplay/visual sign-off | Partial | Complete human playtesting across mining, building, combat, quests, saves and low/high graphics presets |
-| Public project profile | Owner decision | Decide whether the private repository should remain private before changing its visibility or public-facing settings |
+| Public project profile | Incomplete | Repository is already public; add a description and relevant topics in GitHub Settings |
 
-## 2. 1.0 release gates
+## 2. Stable-release quality gates
 
 A release candidate is ready only when all of the following are true:
 

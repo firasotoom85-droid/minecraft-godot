@@ -2,8 +2,8 @@ name: Feature request
 description: Propose a focused improvement with a clear use case.
 title: "[Feature]: "
 labels:
-  - type: feature
-  - status: needs-triage
+  - "type: feature"
+  - "status: needs-triage"
 body:
   - type: textarea
     id: problem

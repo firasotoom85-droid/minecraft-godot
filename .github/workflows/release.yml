@@ -58,7 +58,8 @@ jobs:
           timeout 300 "$GODOT_BIN" --headless --path . res://tests/TestRunner.tscn
 
       - name: Import project resources
-        run: "$GODOT_BIN" --headless --editor --path . --import
+        run: |
+          "$GODOT_BIN" --headless --editor --path . --import
 
       - name: Export Linux and Windows builds
         shell: bash
@@ -147,4 +148,4 @@ jobs:
           else
             args+=(--latest)
           fi
-          gh "\${args[@]}"
+          gh "${args[@]}"
