@@ -2934,30 +2934,39 @@ public partial class VoxelWorld : Node3D
         }
     }
 
-    /// <summary>Nearest dry-land column to the origin, so the player never spawns in water.</summary>
+    private readonly record struct SpawnCandidate(int X, int Z, int SurfaceY, long DistanceSquared);
+
+    /// <summary>Nearest validated dry-land column to the origin.</summary>
     public Vector3 FindSpawn()
     {
-        Vector3 best = Vector3.Zero;
-        long bestD = long.MaxValue;
-        SearchSpawnCandidates(64, 4, ref best, ref bestD);
+        List<SpawnCandidate> candidates = [];
+        HashSet<long> tested = [];
+        HashSet<long> seen = [];
 
-        // The normal origin search retains its exact historical selection.
-        // Only when it finds no valid candidate do we expand deterministically.
-        if (bestD == long.MaxValue)
+        SearchSpawnCandidates(64, 4, candidates, seen);
+        if (TryFindSafeSpawn(candidates, tested, out Vector3 spawn))
         {
-            SearchSpawnCandidates(512, 8, ref best, ref bestD);
+            return spawn;
         }
 
-        if (bestD == long.MaxValue)
+        // If the origin search has no physically safe candidate, expand
+        // deterministically. Keep all original candidates and avoid rechecking
+        // their already-tested coordinates.
+        SearchSpawnCandidates(512, 8, candidates, seen);
+        if (TryFindSafeSpawn(candidates, tested, out spawn))
         {
-            throw new InvalidOperationException(
-                    "Unable to find a safe spawn location within 512 blocks of the world origin.");
+            return spawn;
         }
 
-        return best;
+        throw new InvalidOperationException(
+                "Unable to find a safe spawn location within 512 blocks of the world origin.");
     }
 
-    private void SearchSpawnCandidates(int radius, int step, ref Vector3 best, ref long bestD)
+    private void SearchSpawnCandidates(
+            int radius,
+            int step,
+            List<SpawnCandidate> candidates,
+            HashSet<long> seen)
     {
         for (int x = -radius; x <= radius; x += step)
         {
@@ -2970,14 +2979,170 @@ public partial class VoxelWorld : Node3D
                     continue;
                 }
 
-                long distanceSquared = (long)x * x + (long)z * z;
-                if (distanceSquared < bestD)
+                long key = ((long)x << 32) ^ (uint)z;
+                if (!seen.Add(key))
                 {
-                    bestD = distanceSquared;
-                    best = new Vector3(x + 0.5f, h + 1.5f, z + 0.5f);
+                    continue;
+                }
+
+                long distanceSquared = (long)x * x + (long)z * z;
+                candidates.Add(new SpawnCandidate(x, z, h, distanceSquared));
+            }
+        }
+    }
+
+    private bool TryFindSafeSpawn(
+            List<SpawnCandidate> candidates,
+            HashSet<long> tested,
+            out Vector3 spawn)
+    {
+        candidates.Sort(static (a, b) =>
+        {
+            int distance = a.DistanceSquared.CompareTo(b.DistanceSquared);
+            if (distance != 0) return distance;
+            int x = a.X.CompareTo(b.X);
+            return x != 0 ? x : a.Z.CompareTo(b.Z);
+        });
+
+        foreach (SpawnCandidate candidate in candidates)
+        {
+            long key = ((long)candidate.X << 32) ^ (uint)candidate.Z;
+            if (!tested.Add(key) || !IsSafeSpawnCandidate(candidate))
+            {
+                continue;
+            }
+
+            spawn = new Vector3(candidate.X + 0.5f,
+                    candidate.SurfaceY + 1.5f, candidate.Z + 0.5f);
+            return true;
+        }
+
+        spawn = Vector3.Zero;
+        return false;
+    }
+
+    /// <summary>
+    /// Validate the actual generated support block and the complete player
+    /// capsule, including partial block shapes and fluid hazards.
+    /// Player.tscn uses a 0.35 m radius / 1.8 m capsule whose base is the root.
+    /// </summary>
+    internal bool IsSafeSpawnCandidate(SpawnCandidate candidate)
+    {
+        if (candidate.SurfaceY < 0 || candidate.SurfaceY >= Height - 2)
+        {
+            return false;
+        }
+
+        BlockId support = GetBlock(candidate.X, candidate.SurfaceY, candidate.Z);
+        byte supportMask = BlockShapes.OccupancyMask(support,
+                GetBlockState(candidate.X, candidate.SurfaceY, candidate.Z));
+        if ((supportMask & 0xF0) != 0xF0)
+        {
+            return false;
+        }
+
+        Vector3 feet = new(candidate.X + 0.5f,
+                candidate.SurfaceY + 1.5f, candidate.Z + 0.5f);
+        return IsSpawnCapsuleClear(feet);
+    }
+
+    private bool IsSpawnCapsuleClear(Vector3 feet)
+    {
+        const float radius = 0.35f;
+        const float height = 1.8f;
+        if (feet.Y < 0.0f || feet.Y + height > Height)
+        {
+            return false;
+        }
+
+        int minX = Mathf.FloorToInt(feet.X - radius);
+        int maxX = Mathf.FloorToInt(feet.X + radius);
+        int minY = Mathf.FloorToInt(feet.Y);
+        int maxY = Mathf.FloorToInt(feet.Y + height);
+        int minZ = Mathf.FloorToInt(feet.Z - radius);
+        int maxZ = Mathf.FloorToInt(feet.Z + radius);
+
+        for (int y = minY; y <= maxY; y++)
+        {
+            for (int z = minZ; z <= maxZ; z++)
+            {
+                for (int x = minX; x <= maxX; x++)
+                {
+                    BlockId id = GetBlock(x, y, z);
+                    Vector3 blockOrigin = new(x, y, z);
+
+                    if (id == BlockId.Lava
+                            && CapsuleIntersectsVoxelAabb(feet, radius, height,
+                                    blockOrigin, blockOrigin + Vector3.One))
+                    {
+                        return false;
+                    }
+
+                    if (BlockDb.IsWater(id))
+                    {
+                        float waterHeight = BlockDb.WaterHeight(id);
+                        Vector3 waterMax = new(x + 1.0f, y + waterHeight, z + 1.0f);
+                        if (CapsuleIntersectsVoxelAabb(feet, radius, height,
+                                blockOrigin, waterMax))
+                        {
+                            return false;
+                        }
+                    }
+
+                    byte mask = BlockShapes.OccupancyMask(id, GetBlockState(x, y, z));
+                    if (mask == 0)
+                    {
+                        continue;
+                    }
+
+                    for (int halfY = 0; halfY < 2; halfY++)
+                    {
+                        for (int halfZ = 0; halfZ < 2; halfZ++)
+                        {
+                            for (int halfX = 0; halfX < 2; halfX++)
+                            {
+                                int bit = halfX + halfZ * 2 + halfY * 4;
+                                if ((mask & (1 << bit)) == 0)
+                                {
+                                    continue;
+                                }
+
+                                Vector3 cellMin = blockOrigin
+                                        + new Vector3(halfX * 0.5f, halfY * 0.5f, halfZ * 0.5f);
+                                Vector3 cellMax = cellMin + new Vector3(0.5f, 0.5f, 0.5f);
+                                if (CapsuleIntersectsVoxelAabb(feet, radius, height, cellMin, cellMax))
+                                {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
+
+        return true;
+    }
+
+    /// <summary>Exact vertical-capsule versus AABB distance check.</summary>
+    internal static bool CapsuleIntersectsVoxelAabb(
+            Vector3 feet, float radius, float height, Vector3 boxMin, Vector3 boxMax)
+    {
+        if (radius <= 0.0f || height < radius * 2.0f)
+        {
+            return false;
+        }
+
+        float segmentMinY = feet.Y + radius;
+        float segmentMaxY = feet.Y + height - radius;
+        float closestX = Mathf.Clamp(feet.X, boxMin.X, boxMax.X);
+        float closestZ = Mathf.Clamp(feet.Z, boxMin.Z, boxMax.Z);
+        float dx = feet.X - closestX;
+        float dz = feet.Z - closestZ;
+        float dy = segmentMaxY < boxMin.Y ? boxMin.Y - segmentMaxY
+                : segmentMinY > boxMax.Y ? segmentMinY - boxMax.Y : 0.0f;
+        const float epsilon = 0.00001f;
+        return dx * dx + dy * dy + dz * dz < radius * radius - epsilon;
     }
 
     /// <summary>
