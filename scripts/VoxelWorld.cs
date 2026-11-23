@@ -156,6 +156,9 @@ public partial class VoxelWorld : Node3D
     private readonly Lock _mutex = new();           // guards _dataCache, _edits, EditEpoch
     public Lock SnapshotLock { get; } = new();      // serialises edits vs mesher snapshots
 
+    /// <summary>Optional deterministic hook for snapshot-lock regression tests.</summary>
+    internal Action? SnapshotReleasedTestHook { get; set; }
+
     // Nearest-first build queues: .NET's PriorityQueue replaces the
     // "sort a candidate list" bookkeeping, and the side sets keep them unique.
     // Fresh chunks (streaming) and rebuilds (player edits) are separate so an
@@ -1756,6 +1759,10 @@ public partial class VoxelWorld : Node3D
                 sources = NearbyLightSources(
                         originX, originX + width - 1, originZ, originZ + depth - 1);
             }
+
+            // Test-only hook runs after SnapshotLock has been released, before
+            // the expensive region assembly/propagation work begins.
+            SnapshotReleasedTestHook?.Invoke();
 
             // Region assembly and both propagation algorithms operate solely
             // on the immutable arrays above. No global snapshot lock is held.
