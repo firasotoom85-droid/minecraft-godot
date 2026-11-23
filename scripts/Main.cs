@@ -53,7 +53,19 @@ public partial class Main : Node3D
         _player.SetWaterEnvironment(_worldEnv.Environment);
         _world.Player = _player;
         _player.World = _world;
-        _player.Position = _world.SavedPlayerPos ?? _world.FindSpawn();
+
+        Vector3 initialPosition;
+        try
+        {
+            initialPosition = _world.SavedPlayerPos ?? _world.FindSpawn();
+        }
+        catch (InvalidOperationException error)
+        {
+            ShowSpawnFailure(error.Message);
+            return;
+        }
+
+        _player.Position = initialPosition;
         _player.Inventory.LoadFrom(_world.SavedInventory);
         _player.Select(_world.SavedSelected);
         _player.LoadFromSave(_world.SavedMode ?? _world.DefaultMode, _world.SavedHealth, _world.SavedHunger, _world.SavedRespawn, _world.SavedExperience);
@@ -170,6 +182,40 @@ public partial class Main : Node3D
         _boats.Setup(_world, _player, _sound);
         _hud.Bind(_player);
         _hud.ShowToast($"{_gfx.CurrentPreset.Name} quality  ·  F6 change  ·  H help  ·  F3 info");
+    }
+
+    private void ShowSpawnFailure(string reason)
+    {
+        // No gameplay workers or player movement should start while the user
+        // chooses a different seed/preset from the world menu.
+        _world.SetProcess(false);
+        _world.SetPhysicsProcess(false);
+        _player.SetProcess(false);
+        _player.SetPhysicsProcess(false);
+        if (_world.GetNodeOrNull<FarLod>("FarLod") is { } farLod)
+        {
+            farLod.SetProcess(false);
+            farLod.SetPhysicsProcess(false);
+        }
+
+        GD.PushWarning($"minecraft: world startup stopped because no safe spawn was found ({reason})");
+        AcceptDialog dialog = new()
+        {
+            Title = "No safe starting location",
+            DialogText = "This world has no safe starting location within the search area. " +
+                    "The world has not been modified. Return to the world list and choose " +
+                    "another seed or terrain preset.\n\n" + reason,
+        };
+        AddChild(dialog);
+
+        void ReturnToWorldList()
+        {
+            GetTree().ChangeSceneToFile("res://scenes/main_menu.tscn");
+        }
+
+        dialog.Confirmed += ReturnToWorldList;
+        dialog.CloseRequested += ReturnToWorldList;
+        dialog.CallDeferred("popup_centered");
     }
 
     /// <summary>
