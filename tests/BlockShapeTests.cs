@@ -12,6 +12,7 @@ public static class BlockShapeTests
         Run();
         CheckChunkGeometryAndPersistence(host);
         CheckStreamingColliderBoundary(host);
+        CheckLightingSnapshotLockAndRetry(host);
     }
 
     public static void Run()
@@ -167,6 +168,78 @@ public static class BlockShapeTests
         })
             TestAssert.Check(Recipes.All.Any(recipe => recipe.Result == item),
                     $"{item} has a crafting recipe");
+    }
+
+    private static void CheckLightingSnapshotLockAndRetry(Node host)
+    {
+        string dir = $"user://tests/light-snapshot-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(dir);
+        WorldStore.WriteManifest(dir, new WorldManifest(
+                "Light snapshot retry", 271828, WorldStore.CurrentGenVersion,
+                WorldStore.DeriveNoiseSeeds(271828), 0, 0, "survival", "normal"));
+        GameSession.Instance.SelectWorld(dir);
+
+        VoxelWorld world = new() { BuildCollision = false };
+        host.AddChild(world);
+        try
+        {
+            world.BuildPreview(Vector3.Zero, 1);
+
+            using System.Threading.ManualResetEventSlim snapshotCaptured = new(false);
+            using System.Threading.ManualResetEventSlim resumeSolve = new(false);
+            int capturedSnapshots = 0;
+            world.SnapshotReleasedTestHook = () =>
+            {
+                int attempt = System.Threading.Interlocked.Increment(ref capturedSnapshots);
+                if (attempt == 1)
+                {
+                    snapshotCaptured.Set();
+                    resumeSolve.Wait(System.TimeSpan.FromSeconds(15));
+                }
+            };
+
+            System.Threading.Tasks.Task<VoxelLightData[]> solve = System.Threading.Tasks.Task.Run(
+                    () => world.LightDataNeighborhood(new Vector2I(1, 1)));
+            System.Threading.Tasks.Task<bool> lockProbe = System.Threading.Tasks.Task.Run(() =>
+            {
+                lock (world.SnapshotLock)
+                    return true;
+            });
+
+            bool reachedSolve = snapshotCaptured.Wait(System.TimeSpan.FromSeconds(10));
+            bool acquiredDuringSolve = reachedSolve
+                    && lockProbe.Wait(System.TimeSpan.FromSeconds(2));
+            BlockId oldBlock = world.GetBlock(8, 120, 8);
+            BlockId replacement = oldBlock == BlockId.Air ? BlockId.Stone : BlockId.Air;
+            bool mutationSucceeded = reachedSolve && world.SetBlock(8, 120, 8, replacement);
+
+            resumeSolve.Set();
+            bool solveCompleted = solve.Wait(System.TimeSpan.FromSeconds(30));
+            if (solveCompleted)
+                _ = solve.GetAwaiter().GetResult();
+            if (!lockProbe.IsCompleted)
+                lockProbe.Wait(System.TimeSpan.FromSeconds(10));
+
+            world.SnapshotReleasedTestHook = null;
+            TestAssert.Check(reachedSolve,
+                    "light neighborhood solve reaches derived work after releasing the snapshot lock");
+            TestAssert.Check(acquiredDuringSolve,
+                    "another thread can acquire SnapshotLock while neighborhood lighting is solving");
+            TestAssert.Check(mutationSucceeded,
+                    "a block edit can complete while the prior light snapshot is being solved");
+            TestAssert.Check(solveCompleted && capturedSnapshots >= 2,
+                    "a light solve captured before an edit is discarded and retried against the new epoch");
+        }
+        finally
+        {
+            world.SnapshotReleasedTestHook = null;
+            host.RemoveChild(world);
+            world.QueueFree();
+            DirAccess.RemoveAbsolute(WorldStore.WorldSavePath(dir));
+            DirAccess.RemoveAbsolute(WorldStore.PlayerSavePath(dir));
+            DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+            DirAccess.RemoveAbsolute(dir);
+        }
     }
 
     private static void CheckStreamingColliderBoundary(Node host)
