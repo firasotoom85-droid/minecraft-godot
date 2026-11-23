@@ -3017,10 +3017,15 @@ public partial class VoxelWorld : Node3D
         foreach (SpawnCandidate candidate in candidates)
         {
             long key = ((long)candidate.X << 32) ^ (uint)candidate.Z;
+            if (!tested.Add(key))
+            {
+                continue;
+            }
+
             bool isSafe = candidateValidatorOverride != null
                     ? candidateValidatorOverride(candidate)
                     : IsSafeSpawnCandidate(candidate);
-            if (!tested.Add(key) || !isSafe)
+            if (!isSafe)
             {
                 continue;
             }
