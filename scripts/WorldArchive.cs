@@ -509,7 +509,12 @@ public static class WorldBackupStore
         string[] paths;
         try
         {
-            if (!Directory.Exists(absolute)) return result;
+            if (!Directory.Exists(absolute))
+            {
+                try { _ = File.GetAttributes(absolute); }
+                catch (DirectoryNotFoundException) { return result; }
+                catch (FileNotFoundException) { return result; }
+            }
             paths = EnumerateBackupPathsForTests?.Invoke(absolute)
                     ?? Directory.EnumerateFiles(absolute, "*.bak*").ToArray();
         }
