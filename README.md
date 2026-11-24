@@ -25,6 +25,7 @@ The project uses original procedural materials and audio. It is Minecraft-inspir
 - Passive herds, hostile creatures, village residents, trading, quests, dungeons and the Ember Warden encounter.
 - Baked voxel lighting, day/night, weather, underwater fog blending and six graphics-quality presets.
 - Multi-world saves with atomic writes, rotating backups, import/export and compatibility for older worlds.
+- Validated player spawning, saved-position/bed/campfire recovery and collision-ready teleports with controlled failure when no safe destination exists.
 - Keyboard and controller rebinding, minimap, achievements journal, contextual onboarding, photo mode and a developer console.
 
 Autosaving captures an immutable save snapshot on the main thread; serialization and the three ordered atomic file writes run on the background save worker, so `_Process()` does not serialize or perform disk I/O. Explicit save and quit flush older work before writing the latest state synchronously.
@@ -144,9 +145,9 @@ when the quest is accepted. Revisiting a biome does not add progress twice.
 
 Mob simulation is suspended when an entity's current terrain chunk is absent
 and resumes when that chunk becomes available again. This includes residents
-managed by the village system. The village removal pass reuses its scratch list,
-and mob projectiles reuse a configured terrain `RayCast3D` instead of building
-a ray-query object and result dictionary every physics tick.
+managed by the village system. The village removal pass reuses its scratch list.
+Mob projectiles sweep their configured spherical collision volume against both
+players and terrain, including grazing contacts.
 
 Fluid updates preserve level 1 at the foot of a falling column, avoid weakening
 flow when a neighbouring chunk is unknown, and periodically rediscover water
@@ -160,5 +161,24 @@ change persisted IDs, save format, generator versions, the mesher, or chunk
 streaming architecture. Regression cases live in the existing
 `MobPerceptionTests`, `VillageTests`, `FluidWorldTests`, and
 `MobContentTests` suites.
+
+## Player spawn and recovery lifecycle — 2026-11-24
+
+Player startup, saved-position restoration, respawn anchors, void recovery,
+developer-console teleports and boat dismounts use one destination transaction.
+It validates support, capsule clearance, fluid hazards and world bounds, then
+ensures that the destination chunk collider represents the current world edit
+epoch before committing the player transform. Invalid anchors fall back to a
+validated world spawn; an unavailable destination leaves death/recovery state
+intact rather than partially moving the player.
+
+Nearby geometry edits refresh the affected chunk collider synchronously when
+they are within the player's movement horizon; distant edits continue through
+the existing bounded worker rebuild queue. Fluid reactions defer solids that
+would intersect the player. Movement buffers are invalidated on input locks and
+flight transitions, and interaction rays/projectiles retain exact traversal
+faces and configured collision radii. The regression coverage is registered in
+`SpawnRecoveryTests`, `SurvivalProgressionTests`, `SelectionOutlineTests`,
+`VoxelStreamingTests` and `MobContentTests`.
 
 Project code and documentation are licensed under the [MIT License](LICENSE). Bundled third-party components and assets retain their own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
