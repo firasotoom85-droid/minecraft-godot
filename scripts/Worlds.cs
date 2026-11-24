@@ -52,7 +52,10 @@ public sealed record PlayerSave(
     float Health = 0.0f,
     float? Hunger = null,
     float[]? Respawn = null,
-    int Experience = 0);
+    int Experience = 0,
+    float? Yaw = null,
+    float? Pitch = null,
+    bool Dead = false);
 
 public enum WorldReadStatus { Missing, Valid, Recovered, Corrupt, Unsupported, Inaccessible }
 

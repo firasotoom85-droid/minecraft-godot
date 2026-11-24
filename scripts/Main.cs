@@ -69,7 +69,9 @@ public partial class Main : Node3D
         _player.Position = initialPosition;
         _player.Inventory.LoadFrom(_world.SavedInventory);
         _player.Select(_world.SavedSelected);
-        _player.LoadFromSave(_world.SavedMode ?? _world.DefaultMode, _world.SavedHealth, _world.SavedHunger, _world.SavedRespawn, _world.SavedExperience);
+        _player.LoadFromSave(_world.SavedMode ?? _world.DefaultMode, _world.SavedHealth,
+                _world.SavedHunger, _world.SavedRespawn, _world.SavedExperience, _world.SavedPlayerDead);
+        _player.RestoreOrientation(_world.SavedPlayerYaw, _world.SavedPlayerPitch);
 
         _gfx = AddSystem(new Gfx());
         _gfx.Setup(_world, _sun, _worldEnv);
@@ -164,6 +166,13 @@ public partial class Main : Node3D
         _player.CampfireUsed += _hud.ShowToast;
         _player.Respawned += () => _mobs.ClearHostilesNear(_player.GlobalPosition, 10.0f);
         _player.Slept += () => _mobs.ClearHostilesNear(_player.GlobalPosition, 32.0f);
+        if (_player.Stats.Dead)
+        {
+            // A save captured during the death screen resumes through the same
+            // softcore respawn path as a live death, after cleanup is wired.
+            _player.Respawn();
+            _world.MarkDirty();
+        }
 
         _player.Inventory.Changed += _world.MarkDirty;
         _player.ToolBroke += () =>

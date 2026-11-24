@@ -51,6 +51,75 @@ public static class SaveTests
         PlayerSave? legacyPlayer = JsonSerializer.Deserialize<PlayerSave>("{\"pos\":[0,0,0]}", WorldStore.Json);
         TestAssert.Check(legacyPlayer?.Hunger is null,
                 "old player saves distinguish a missing hunger field");
+        TestAssert.Check(legacyPlayer?.Yaw is null && legacyPlayer?.Pitch is null,
+                "legacy player saves without orientation fields remain valid");
+        TestAssert.Check(legacyPlayer is { Dead: false },
+                "legacy player saves without a death field remain alive by default");
+        PlayerStats legacyStats = new();
+        legacyStats.Load(legacyPlayer?.Health ?? 0.0f, legacyPlayer?.Hunger ?? -1.0f,
+                legacyPlayer?.Experience ?? 0, legacyPlayer?.Dead ?? false);
+        TestAssert.Check(!legacyStats.Dead && legacyStats.Health == PlayerStats.MaxHealth,
+                "legacy zero-health sentinel still restores as a healthy player");
+        PlayerStats livingStats = new();
+        livingStats.Load(13.5f, 6.0f, 24, dead: false);
+        TestAssert.Check(!livingStats.Dead && livingStats.Health == 13.5f,
+                "living player saves restore their persisted health without a death state");
+
+        PlayerSave deadSave = new([3.0f, 20.0f, 4.0f], Mode: "survival", Health: 0.0f,
+                Hunger: 7.0f, Respawn: [10.5f, 65.0f, -2.5f], Experience: 120, Dead: true);
+        PlayerSave? deadReload = JsonSerializer.Deserialize<PlayerSave>(
+                JsonSerializer.Serialize(deadSave, WorldStore.Json), WorldStore.Json);
+        TestAssert.Check(deadReload is { Dead: true, Health: 0.0f },
+                "explicit player death and zero health survive save round-trip");
+        PlayerStats restoredDeadStats = new();
+        restoredDeadStats.Load(deadReload?.Health ?? 0.0f, deadReload?.Hunger ?? -1.0f,
+                deadReload?.Experience ?? 0, deadReload?.Dead ?? false);
+        TestAssert.Check(restoredDeadStats.Dead && restoredDeadStats.Health == 0.0f,
+                "explicitly dead player save restores zero health and dead state");
+
+        Player deadPlayer = new();
+        deadPlayer.Position = new Vector3(3.0f, 20.0f, 4.0f);
+        deadPlayer.LoadFromSave(deadReload?.Mode, deadReload?.Health ?? 0.0f,
+                deadReload?.Hunger ?? -1.0f,
+                deadReload?.Respawn is { Length: 3 } savedAnchor
+                        ? new Vector3(savedAnchor[0], savedAnchor[1], savedAnchor[2]) : null,
+                deadReload?.Experience ?? 0, deadReload?.Dead ?? false);
+        TestAssert.Check(deadPlayer.Stats.Dead,
+                "saved death is pending until the respawn transition is invoked");
+        deadPlayer.Respawn();
+        TestAssert.Check(!deadPlayer.Stats.Dead && deadPlayer.Stats.Health == PlayerStats.MaxHealth,
+                "restored death uses normal full-health respawn rules");
+        TestAssert.Equal(new Vector3(10.5f, 65.0f, -2.5f), deadPlayer.Position,
+                "restored death respawns at the saved anchor");
+        TestAssert.Equal(120, deadPlayer.Stats.Experience,
+                "softcore respawn preserves player experience");
+        TestAssert.Equal(new Vector3(10.5f, 65.0f, -2.5f), deadPlayer.RespawnPoint ?? Vector3.Zero,
+                "softcore respawn keeps the saved anchor");
+        deadPlayer.Free();
+        PlayerSave orientationSave = new([2.0f, 64.0f, -3.0f],
+                Yaw: 1.25f, Pitch: -0.45f);
+        PlayerSave? orientationReload = JsonSerializer.Deserialize<PlayerSave>(
+                JsonSerializer.Serialize(orientationSave, WorldStore.Json), WorldStore.Json);
+        TestAssert.Equal(1.25f, orientationReload?.Yaw ?? float.NaN,
+                "player yaw survives optional save serialization");
+        TestAssert.Equal(-0.45f, orientationReload?.Pitch ?? float.NaN,
+                "camera pitch survives optional save serialization");
+
+        Player orientedPlayer = new();
+        Camera3D orientationCamera = new();
+        orientedPlayer.Camera = orientationCamera;
+        orientedPlayer.RestoreOrientation(orientationReload?.Yaw, orientationReload?.Pitch);
+        TestAssert.Equal(1.25f, orientedPlayer.Rotation.Y,
+                "saved yaw restores onto the player body");
+        TestAssert.Equal(-0.45f, orientedPlayer.Camera.Rotation.X,
+                "saved pitch restores onto the camera");
+        orientedPlayer.RestoreOrientation(float.NaN, float.PositiveInfinity);
+        TestAssert.Equal(1.25f, orientedPlayer.Rotation.Y,
+                "non-finite saved yaw is ignored");
+        TestAssert.Equal(-0.45f, orientedPlayer.Camera.Rotation.X,
+                "non-finite saved pitch is ignored");
+        orientedPlayer.Free();
+        orientationCamera.Free();
         string previewPlayerPath = root + "/preview-player.json";
         TestAssert.Check(WorldStore.WriteAtomic(previewPlayerPath,
                 JsonSerializer.Serialize(new PlayerSave([]), WorldStore.Json)),

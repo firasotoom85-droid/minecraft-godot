@@ -539,6 +539,11 @@ public static class BlockDb
         id is BlockId.TallGrass or BlockId.FlowerRed or BlockId.FlowerYellow or BlockId.Torch
                 or BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2 or BlockId.RiverReeds;
 
+    /// <summary>Plants/crops that a placed block may replace without a separate break action.</summary>
+    public static bool IsReplaceable(BlockId id) =>
+        id is BlockId.TallGrass or BlockId.FlowerRed or BlockId.FlowerYellow
+                or BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2 or BlockId.RiverReeds;
+
     public static bool IsWheat(BlockId id) =>
         id is BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2;
 

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Godot;
 
 namespace Minecraft;
@@ -89,6 +90,30 @@ public static class MiningTests
         TestAssert.Check(BlockDb.IsCross(BlockId.FlowerRed), "flowers use cross geometry");
         TestAssert.Check(BlockDb.IsCross(BlockId.Torch), "torches use cross geometry");
         TestAssert.Check(BlockDb.IsCross(BlockId.Wheat2), "wheat uses cross geometry");
+        foreach (BlockId replaceable in new[]
+        {
+            BlockId.TallGrass, BlockId.FlowerRed, BlockId.FlowerYellow,
+            BlockId.Wheat0, BlockId.Wheat1, BlockId.Wheat2, BlockId.RiverReeds,
+        })
+        {
+            TestAssert.Check(BlockDb.IsReplaceable(replaceable), $"{replaceable} is explicitly replaceable during placement");
+            TestAssert.Check(Player.CanReplacePlacementDestination(replaceable),
+                    $"{replaceable} can be replaced by a placed block");
+        }
+        foreach (BlockId protectedBlock in new[]
+        {
+            BlockId.Torch, BlockId.Leaves, BlockId.Lava, BlockId.Stone, BlockId.Bedrock,
+        })
+        {
+            TestAssert.Check(!BlockDb.IsReplaceable(protectedBlock),
+                    $"{protectedBlock} is not implicitly replaceable");
+            TestAssert.Check(!Player.CanReplacePlacementDestination(protectedBlock),
+                    $"{protectedBlock} still blocks placement");
+        }
+        TestAssert.Check(Player.CanReplacePlacementDestination(BlockId.Air),
+                "air remains a valid placement destination");
+        TestAssert.Check(Player.CanReplacePlacementDestination(BlockId.Water),
+                "water retains its existing placement replacement behavior");
 
         TestAssert.Check(
             BlockDb.RayIntersectsCross(
@@ -121,5 +146,65 @@ public static class MiningTests
         TestAssert.Check(inventory.DamageTool(0), "last durability point breaks the tool");
         TestAssert.Check(inventory.Get(0).IsEmpty, "broken tool slot is cleared");
         TestAssert.Check(!inventory.DamageTool(-1), "invalid inventory slot cannot consume durability");
+        CheckMinedRewardDelivery();
+    }
+
+    private static void CheckMinedRewardDelivery()
+    {
+        Player player = new() { Mode = GameMode.Survival };
+        List<(ItemId Id, int Count)> gathered = [];
+        player.ItemGathered += (id, count) => gathered.Add((id, count));
+
+        player.GiveDrop(ItemId.RawIron, 3);
+        TestAssert.Equal(3, player.Inventory.CountOf(ItemId.RawIron),
+                "ordinary mined reward enters the existing inventory");
+        TestAssert.Equal(1, gathered.Count,
+                "one mined reward emits exactly one gather event");
+        TestAssert.Equal(ItemId.RawIron, gathered[0].Id,
+                "mined reward reports its actual gathered item");
+        TestAssert.Equal(3, gathered[0].Count,
+                "mined reward reports the accepted quantity");
+
+        Inventory capacity = new();
+        for (int slot = 0; slot < Inventory.SlotCount; slot++)
+            capacity.Set(slot, ItemDb.New(ItemId.Dirt, 64));
+        capacity.Set(0, ItemDb.New(ItemId.RawIron, 60));
+        Player.MinedDrop[] fitPlan = [new(ItemId.RawIron, 4)];
+        Player.MinedDrop[] overflowPlan =
+        [
+            new(ItemId.RawIron, 2),
+            new(ItemId.RawIron, 3),
+        ];
+        TestAssert.Check(Player.CanFitMinedDrops(capacity, fitPlan),
+                "mining preflight accepts a reward that fits the remaining stack space");
+        TestAssert.Check(!Player.CanFitMinedDrops(capacity, overflowPlan),
+                "mining preflight aggregates same-item rewards before removing the block");
+
+        Inventory oneSlot = new();
+        for (int slot = 0; slot < Inventory.SlotCount; slot++)
+            oneSlot.Set(slot, ItemDb.New(ItemId.Dirt, 64));
+        oneSlot.Set(0, ItemStack.Empty);
+        Player.MinedDrop[] mixedPlan =
+        [
+            new(ItemId.Wheat, 1),
+            new(ItemId.Seeds, 1),
+        ];
+        TestAssert.Check(!Player.CanFitMinedDrops(oneSlot, mixedPlan),
+                "mining preflight reserves empty slots across different drop item types");
+
+        Player partial = new() { Mode = GameMode.Survival };
+        for (int slot = 0; slot < Inventory.SlotCount; slot++)
+            partial.Inventory.Set(slot, ItemDb.New(ItemId.Dirt, 64));
+        partial.Inventory.Set(0, ItemDb.New(ItemId.RawIron, 60));
+        int partialGathered = 0;
+        partial.ItemGathered += (_, count) => partialGathered += count;
+        partial.GiveDrop(ItemId.RawIron, 8);
+        TestAssert.Equal(64, partial.Inventory.CountOf(ItemId.RawIron),
+                "partial reward delivery adds only the four remaining stack spaces");
+        TestAssert.Equal(4, partialGathered,
+                "gather events exclude the undelivered overflow quantity");
+
+        player.Free();
+        partial.Free();
     }
 }
