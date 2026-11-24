@@ -2058,6 +2058,13 @@ public partial class Player : CharacterBody3D, IDamageable
         {
             if (Inventory.Backpack[i].Id == item)
             {
+                // A reserved slot holds an unknown future item. Do not replace
+                // it with an ordinary pick-block swap.
+                if (Inventory.HasUnrecognizedSaveSlot(Selected))
+                {
+                    return;
+                }
+
                 (Inventory.Hotbar[Selected], Inventory.Backpack[i]) =
                         (Inventory.Backpack[i], Inventory.Hotbar[Selected]);
                 Inventory.RaiseChanged();
