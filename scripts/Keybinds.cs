@@ -53,25 +53,71 @@ public static class Keybinds
             return;
         }
 
+        ApplySavedBindings(cfg);
+        _loaded = true;
+    }
+
+    internal static void ApplySavedBindings(ConfigFile cfg)
+    {
+        CaptureDefaults();
+        Dictionary<string, Key> overrides = [];
         foreach ((string action, _) in Bindable)
         {
             if (!cfg.HasSectionKey("keys", action))
-            {
                 continue;
-            }
 
             Variant stored = cfg.GetValue("keys", action, (int)Key.None);
-            if (!TryReadKey(stored, out Key key))
-            {
-                GD.PushWarning($"Ignoring invalid keyboard binding in keys/{action}: expected a defined key code.");
-                continue;
-            }
-            if (Conflict(action, key) == null)
-                Apply(action, key);
+            if (TryReadKey(stored, out Key key))
+                overrides[action] = key;
             else
-                GD.PushWarning($"Ignoring conflicting keyboard binding in keys/{action}: {key} is already reserved.");
+                GD.PushWarning($"Ignoring invalid keyboard binding in keys/{action}: expected a defined key code.");
         }
-        _loaded = true;
+
+        // Remove every bindable default first. Conflicts are then resolved
+        // against reserved actions and the complete set of saved overrides,
+        // not against defaults that another saved entry is about to vacate.
+        foreach ((string action, _) in Bindable)
+            ClearKeyEvents(action);
+
+        HashSet<string> applied = [];
+        foreach ((string action, _) in Bindable)
+        {
+            if (!overrides.TryGetValue(action, out Key key))
+                continue;
+
+            if (Conflict(action, key) == null)
+            {
+                Apply(action, key);
+                applied.Add(action);
+            }
+            else
+            {
+                GD.PushWarning($"Ignoring conflicting keyboard binding in keys/{action}: {key} is already reserved.");
+            }
+        }
+
+        // Legacy/partial files still inherit defaults for entries they do not
+        // override. Persisted overrides take precedence over those defaults.
+        foreach ((string action, _) in Bindable)
+        {
+            if (applied.Contains(action) || !Defaults.TryGetValue(action, out Key fallback)
+                    || fallback == Key.None)
+                continue;
+
+            if (Conflict(action, fallback) == null)
+                Apply(action, fallback);
+            else
+                GD.PushWarning($"Keeping {action} unbound because its default key {fallback} is already assigned.");
+        }
+    }
+
+    private static void ClearKeyEvents(string action)
+    {
+        if (!InputMap.HasAction(action))
+            return;
+        foreach (InputEvent existing in InputMap.ActionGetEvents(action))
+            if (existing is InputEventKey)
+                InputMap.ActionEraseEvent(action, existing);
     }
 
     internal static bool TryReadKey(Variant stored, out Key key)
