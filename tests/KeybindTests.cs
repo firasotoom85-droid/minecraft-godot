@@ -164,6 +164,11 @@ public static class KeybindTests
                         "user://w09-missing-controller-dir/gamepad.cfg") != Error.Ok,
                 "controller binding persistence failures are observable");
 
+        TestAssert.Equal(1.0f, CameraLookInput.VerticalDelta(1.0f, false),
+                "normal vertical look preserves the input sign across camera modes");
+        TestAssert.Equal(-1.0f, CameraLookInput.VerticalDelta(1.0f, true),
+                "Invert-Y reverses vertical look consistently across camera modes");
+
         TestAssert.Check(PhotoMode.CanTogglePhotoMode(true, true, true, true),
                 "photo mode can always handle its own exit even while locked or dead");
         TestAssert.Check(!PhotoMode.CanTogglePhotoMode(false, true, false, false),
