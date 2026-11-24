@@ -193,6 +193,9 @@ public partial class InvSlot : DurabilitySlotPanel
 /// </summary>
 public partial class InventoryUi : CanvasLayer, IModalUi
 {
+    public event Action? Opened;
+    public bool IsOpen => _open;
+
     private const int SlotPx = 44;
 
     private Player _player = null!;
@@ -650,6 +653,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _player.InputLocked = true;
         Refresh();
         UiFocus.FocusFirst(_backpackSlots[0]);
+        Opened?.Invoke();
     }
 
     private void Close()
