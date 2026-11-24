@@ -969,4 +969,5 @@ public partial class Hud : CanvasLayer
             return "—";
 
         return BlockDb.IsDefined(id) ? BlockDb.NameOf(id) : "—";
-    }}
+    }
+}
