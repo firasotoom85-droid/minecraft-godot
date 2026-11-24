@@ -361,7 +361,8 @@ public partial class Player : CharacterBody3D, IDamageable
             {
                 RotateY(-look.X * 2.4f * dt);
                 Vector3 cameraRotation = Camera.Rotation;
-                cameraRotation.X = Mathf.Clamp(cameraRotation.X - look.Y * 2.0f * dt, -1.55f, 1.55f);
+                float lookY = look.Y * (Settings.InvertY ? -1.0f : 1.0f);
+                cameraRotation.X = Mathf.Clamp(cameraRotation.X - lookY * 2.0f * dt, -1.55f, 1.55f);
                 Camera.Rotation = cameraRotation;
             }
         }
@@ -1006,7 +1007,7 @@ public partial class Player : CharacterBody3D, IDamageable
         return new Vector3I(Mathf.FloorToInt(p.X), Mathf.FloorToInt(p.Y), Mathf.FloorToInt(p.Z));
     }
 
-    private bool TryGetTargetBlock(out Vector3I blockPosition, out BlockId blockId) =>
+    internal bool TryGetTargetBlock(out Vector3I blockPosition, out BlockId blockId) =>
         TryGetTargetBlock(out blockPosition, out blockId, out _, out _);
 
     private bool TryGetTargetBlock(out Vector3I blockPosition, out BlockId blockId,
@@ -2231,7 +2232,7 @@ public partial class Player : CharacterBody3D, IDamageable
                 * WaterPhysics.MiningSpeedMultiplier(Underwater), 1.0f);
 
         _mineSoundTimer -= delta;
-        if (_mineSoundTimer <= 0.0)
+        if (_mineProgress < 1.0f && _mineSoundTimer <= 0.0)
         {
             _mineSoundTimer = 0.25;
             Vector3 center = new(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
