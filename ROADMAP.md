@@ -17,7 +17,7 @@ This is the **current forward plan**, not a running implementation diary. Comple
 | Release packaging | Being automated | Exercise tag-triggered Linux/Windows export packaging on a beta tag |
 | Performance baselines | Partial | Benchmark/soak reports now expose persistent managed-memory categories and high-water marks; record a fresh controlled Release baseline, with the comparable RTX 4060 run still outstanding |
 | Gameplay/visual sign-off | Partial | Complete human playtesting across mining, building, combat, quests, saves and low/high graphics presets |
-| Player lifecycle and safe recovery | In progress | Run W12 spawn/recovery regressions and full Debug/Release CI; verify every relocation path and nearby mutation collision behavior |
+| Player lifecycle and safe recovery (W12) | Implemented; CI verified | Keep the destination resolver authoritative; capture controlled Release performance baselines on the MX230 reference and a higher-end GPU before release sign-off |
 | Public project profile | Incomplete | Repository is already public; add a description and relevant topics in GitHub Settings |
 
 **Persistence contract (integrated W01):** autosave captures an immutable save
@@ -30,7 +30,7 @@ writing the latest state synchronously.
 
 **Gameplay lifecycle guard (integrated W08):** crop growth validates loaded-only farmland and open space, pausing without generating terrain. Merchant biome progress reconciles unique `explored/<Biome>` flags. Mob and village simulation suspend when their terrain chunk is unavailable. Water columns retain level 1 at their foot, and unknown neighbours cannot weaken flow. Mob steering respects plants, lava and stateful slab/stair occupancy.
 
-**Player destination contract (W12, in progress):** startup, saved-position recovery, respawn, void recovery, console teleports and boat dismounts resolve through a shared player destination transaction. It validates support and capsule/hazard clearance, prepares a collider at the current world edit epoch, and only then commits the transform. Nearby occupied-geometry edits synchronously refresh the affected chunk collider; distant edits retain the bounded worker rebuild path. The remaining gate is a clean Godot 4.7.2 .NET Debug/Release build and execution of the registered spawn/recovery and full headless suites.
+**Player destination contract (W12, implemented and CI-verified):** startup, saved-position recovery, respawn, void recovery, console teleports and boat dismounts resolve through a shared player destination transaction. It validates support and capsule/hazard clearance, prepares the destination chunk's collision payload at the current world edit epoch, and only then commits the transform. Nearby occupied-geometry edits synchronously refresh the affected chunk collider; distant edits retain the bounded worker rebuild path. The Godot 4.7.2 .NET CI run passes Debug and Release with warnings as errors, all 201,706 headless assertions, and the five spatial-light probe scenarios. This verifies correctness and regression coverage, not a hardware performance benchmark: controlled Release measurements on the MX230 reference and a higher-end GPU remain part of release sign-off.
 
 ## 2. Stable-release quality gates
 
