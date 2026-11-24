@@ -85,10 +85,12 @@ public static class SpawnRecoveryTests
                 "rejecting every candidate without an alternate reports failure, not a default spawn");
         world.SpawnCandidateValidatorForTests = null;
 
-        Vector3 boatSeat = spawn + new Vector3(0.0f, 0.48f, 0.0f);
+        Vector3 boatSeat = new(spawn.X, world.Height - 4.5f, spawn.Z);
+        Vector3 savedBoatPosition = boatSeat - new Vector3(0.0f, 0.48f, 0.0f);
         world.SavedBoats =
         [
-            new BoatSave([spawn.X, spawn.Y, spawn.Z], 0.0f, [0.0f, 0.0f, 0.0f], true),
+            new BoatSave([savedBoatPosition.X, savedBoatPosition.Y, savedBoatPosition.Z],
+                    0.0f, [0.0f, 0.0f, 0.0f], true),
         ];
         TestAssert.Check(world.TryGetSavedOccupiedBoatSeat(boatSeat, out Vector3 restoredSeat)
                         && restoredSeat == boatSeat,
