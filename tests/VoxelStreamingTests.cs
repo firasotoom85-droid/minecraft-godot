@@ -50,8 +50,10 @@ public static class VoxelStreamingTests
                 "collision readiness requires and accepts the current edit epoch");
         TestAssert.Check(!ChunkCollisionReadiness.IsReady(11, 12, true),
                 "collision from an earlier world edit epoch is stale");
+        TestAssert.Check(ChunkCollisionReadiness.IsReady(12, 12, true),
+                "a current collision payload is ready when it has geometry");
         TestAssert.Check(!ChunkCollisionReadiness.IsReady(12, 12, false),
-                "an empty/unavailable collider cannot satisfy teleport readiness");
+                "a missing or unapplied collision payload cannot satisfy teleport readiness");
         TestAssert.Check(!ChunkCollisionReadiness.IsReady(0, 1, true),
                 "an initial or unbuilt collision payload cannot satisfy a changed world epoch");
     }
