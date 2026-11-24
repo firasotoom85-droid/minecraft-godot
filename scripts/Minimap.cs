@@ -27,6 +27,11 @@ public partial class Minimap : Control
     private int _zoom = 1;
     private int _buildRow;
     private bool _building;
+    private bool _rebuildDirty = true;
+    private int _mutationVersion;
+    private int _buildMutationVersion;
+    private float _lastYaw = float.NaN;
+    private VoxelWorld? _subscribedWorld;
     private int _buildCx;
     private int _buildCz;
     private VoxelWorld? _spawnWorld;
@@ -71,9 +76,39 @@ public partial class Minimap : Control
 
     public override void _Process(double delta)
     {
-        if (World == null || PlayerRef == null || !IsVisibleInTree())
+        if (World != _subscribedWorld)
         {
-            _building = false;
+            if (_subscribedWorld != null)
+                _subscribedWorld.BlockChanged -= OnBlockChanged;
+            _subscribedWorld = World;
+            if (_subscribedWorld != null)
+                _subscribedWorld.BlockChanged += OnBlockChanged;
+        }
+
+        if (World == null || PlayerRef == null)
+        {
+            if (_building)
+            {
+                _building = false;
+                _rebuildDirty = true;
+            }
+            return;
+        }
+
+        float yaw = PlayerRef.Rotation.Y;
+        if (!float.IsFinite(_lastYaw) || Mathf.Abs(Mathf.AngleDifference(_lastYaw, yaw)) > 0.001f)
+        {
+            _lastYaw = yaw;
+            QueueRedraw();
+        }
+
+        if (!IsVisibleInTree())
+        {
+            if (_building)
+            {
+                _building = false;
+                _rebuildDirty = true;
+            }
             return;
         }
 
@@ -83,18 +118,42 @@ public partial class Minimap : Control
             return;
         }
 
-        _timer -= delta;
-        if (_timer > 0.0)
+        Vector2 here = new(PlayerRef.GlobalPosition.X, PlayerRef.GlobalPosition.Z);
+        bool moved = _lastCentre.DistanceTo(here) > 2.0f;
+        if (_rebuildDirty)
         {
+            StartRebuild();
             return;
         }
 
-        Vector2 here = new(PlayerRef.GlobalPosition.X, PlayerRef.GlobalPosition.Z);
-        bool moved = _lastCentre.DistanceTo(here) > 2.0f;
+        _timer -= delta;
+        if (_timer > 0.0)
+            return;
+
         _timer = moved ? 0.55 : 2.5;
-        if (moved || _lastCentre == Vector2.Zero)
-        {
+        if (moved)
             StartRebuild();
+    }
+
+    private void OnBlockChanged(Vector3I position)
+    {
+        Vector2 centre = _building ? new Vector2(_buildCx, _buildCz) : _lastCentre;
+        float halfExtent = Px * MetresPerPx * 0.5f;
+        if (Mathf.Abs(position.X - centre.X) > halfExtent
+                || Mathf.Abs(position.Z - centre.Y) > halfExtent)
+            return;
+
+        _mutationVersion++;
+        _rebuildDirty = true;
+        _timer = 0.0;
+    }
+
+    public override void _ExitTree()
+    {
+        if (_subscribedWorld != null)
+        {
+            _subscribedWorld.BlockChanged -= OnBlockChanged;
+            _subscribedWorld = null;
         }
     }
 
@@ -107,9 +166,10 @@ public partial class Minimap : Control
 
         _buildCx = Mathf.FloorToInt(PlayerRef.GlobalPosition.X);
         _buildCz = Mathf.FloorToInt(PlayerRef.GlobalPosition.Z);
-        _lastCentre = new Vector2(_buildCx, _buildCz);
+        _buildMutationVersion = _mutationVersion;
         _buildRow = 0;
         _building = true;
+        _rebuildDirty = true;
     }
 
     private void BuildSlice()
@@ -150,6 +210,16 @@ public partial class Minimap : Control
         Colorize();
         _tex.Update(_img);
         _building = false;
+        if (_buildMutationVersion == _mutationVersion)
+        {
+            _lastCentre = new Vector2(_buildCx, _buildCz);
+            _rebuildDirty = false;
+        }
+        else
+        {
+            _rebuildDirty = true;
+        }
+        _timer = 2.5;
         QueueRedraw();
     }
 
