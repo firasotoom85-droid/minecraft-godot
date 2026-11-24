@@ -67,7 +67,8 @@ public partial class MobProjectile : Area3D
         });
 
         BodyEntered += OnBodyEntered;
-        GlobalPosition = origin;
+        if (IsInsideTree()) GlobalPosition = origin;
+        else Position = origin;
     }
 
     public override void _PhysicsProcess(double delta)
