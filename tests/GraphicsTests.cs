@@ -4,6 +4,21 @@ namespace Minecraft;
 
 public static class GraphicsTests
 {
+    private static void TestMinimapInvalidationPolicies()
+    {
+        Vector2 centre = new(0.0f, 0.0f);
+        TestAssert.Check(Minimap.IsInsideMap(new Vector3I(10, 0, 10), centre, 20.0f),
+                "nearby block mutations invalidate the represented minimap terrain");
+        TestAssert.Check(!Minimap.IsInsideMap(new Vector3I(40, 0, 40), centre, 20.0f),
+                "distant block mutations do not invalidate the minimap terrain");
+        TestAssert.Check(Minimap.ShouldStartRebuild(false, false, Vector2.Zero, Vector2.Zero),
+                "an unbuilt minimap schedules its initial terrain image even at the origin");
+        TestAssert.Check(Minimap.ShouldStartRebuild(true, true, centre, centre),
+                "an interrupted or mutation-invalidated map rebuild is retried at a stationary centre");
+        TestAssert.Check(!Minimap.ShouldStartRebuild(true, false, centre, centre),
+                "a completed minimap does not rebuild without movement or invalidation");
+    }
+
     private static void TestPresetMsaaAndCameraRanges()
     {
         int[] expectedMsaa = [1, 1, 2, 2, 2, 0];
@@ -79,6 +94,7 @@ public static class GraphicsTests
 
     public static void Run()
     {
+        TestMinimapInvalidationPolicies();
         TestEnvironmentPresetMatrix();
         TestPresetMsaaAndCameraRanges();
         TestAssert.Equal(6, Gfx.Presets.Count, "graphics preset list includes low through max fsr2");
