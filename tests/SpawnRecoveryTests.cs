@@ -84,6 +84,18 @@ public static class SpawnRecoveryTests
                         && failed == Vector3.Zero,
                 "rejecting every candidate without an alternate reports failure, not a default spawn");
         world.SpawnCandidateValidatorForTests = null;
+
+        Vector3 boatSeat = spawn + new Vector3(0.0f, 0.48f, 0.0f);
+        world.SavedBoats =
+        [
+            new BoatSave([spawn.X, spawn.Y, spawn.Z], 0.0f, [0.0f, 0.0f, 0.0f], true),
+        ];
+        TestAssert.Check(world.TryGetSavedOccupiedBoatSeat(boatSeat, out Vector3 restoredSeat)
+                        && restoredSeat == boatSeat,
+                "saved occupied boat restores the player's validated seat offset");
+        TestAssert.Check(!world.TryGetSavedOccupiedBoatSeat(spawn + Vector3.Right * 4.0f, out _),
+                "an unrelated occupied boat cannot override the saved player destination");
+        world.SavedBoats = null;
     }
 
     private static void CheckFluidReactionGuard(Node host, VoxelWorld world, Player player)
