@@ -87,6 +87,15 @@ public static class SaveTests
                 "save respawn fixture creates real support under the saved anchor");
 
         Player deadPlayer = new();
+        deadPlayer.AddChild(new CollisionShape3D
+        {
+            Name = "Collision",
+            Shape = new CapsuleShape3D { Radius = Player.CollisionRadius, Height = Player.CollisionHeight },
+            Position = Vector3.Up * (Player.CollisionHeight * 0.5f),
+        });
+        Camera3D deadCamera = new() { Name = "Camera3D" };
+        deadCamera.AddChild(new RayCast3D { Name = "RayCast3D" });
+        deadPlayer.AddChild(deadCamera);
         host.AddChild(deadPlayer);
         deadPlayer.World = respawnWorld;
         respawnWorld.Player = deadPlayer;
