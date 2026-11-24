@@ -838,7 +838,7 @@ public partial class Player : CharacterBody3D, IDamageable
             if (GodotObject.IsInstanceValid(mounted))
             {
                 if (mounted.Rider == this) mounted.SetRider(null);
-                ExitBoat(mounted, destination);
+                DetachFromBoatAt(mounted, destination);
             }
             else
             {
@@ -1798,7 +1798,7 @@ public partial class Player : CharacterBody3D, IDamageable
         _jumpBuffer = 0.0;
     }
 
-    public void ExitBoat(Boat boat, Vector3 position)
+    private void DetachFromBoatAt(Boat boat, Vector3 position)
     {
         if (CurrentBoat != boat) return;
         Node? destination = _preBoatParent is { } parent && GodotObject.IsInstanceValid(parent)
