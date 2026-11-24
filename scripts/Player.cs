@@ -823,11 +823,12 @@ public partial class Player : CharacterBody3D, IDamageable
     /// Resolve, validate and prepare collision before committing any player
     /// relocation. All player spawn/respawn callers use this transaction.
     /// </summary>
-    internal bool TryTeleportToSafePosition(Vector3? preferredPosition = null)
+    internal bool TryTeleportToSafePosition(Vector3? preferredPosition = null, bool allowWater = false)
     {
         if (World == null
-                || !World.TryResolvePlayerDestination(preferredPosition, out Vector3 destination)
-                || !World.TryEnsureCollisionReady(destination))
+                || !World.TryResolvePlayerDestination(preferredPosition, out Vector3 destination,
+                        allowWater)
+                || !World.TryEnsureCollisionReady(destination, allowWater))
         {
             return false;
         }
