@@ -1,5 +1,4 @@
 using System;
-using System.Reflection;
 using Godot;
 
 namespace Minecraft;
@@ -16,13 +15,6 @@ public static class PauseInputPolicy
     /// </summary>
     public static bool CanHandlePause(bool pauseOpen, bool keybindOpen, bool playerInputLocked) =>
             !(pauseOpen && keybindOpen) && (pauseOpen || !playerInputLocked);
-}
-
-internal static class PauseSaveResultPolicy
-{
-    // The W01 persistence API returns bool. Treat the older void API as
-    // successful for source compatibility until that API revision is merged.
-    public static bool IsSuccessful(object? result) => result is not bool saved || saved;
 }
 
 public partial class PauseMenu : CanvasLayer, IModalUi
@@ -194,18 +186,7 @@ public partial class PauseMenu : CanvasLayer, IModalUi
     {
         try
         {
-            // Reflection keeps this worker's caller change buildable against
-            // main while consuming W01's new bool-returning SaveNow once merged.
-            MethodInfo? saveMethod = typeof(VoxelWorld).GetMethod(
-                    nameof(VoxelWorld.SaveNow), Type.EmptyTypes);
-            if (saveMethod is null)
-            {
-                error = "Save failed: the world save operation is unavailable.";
-                return false;
-            }
-
-            object? result = saveMethod.Invoke(_world, null);
-            if (!PauseSaveResultPolicy.IsSuccessful(result))
+            if (!_world.SaveNow())
             {
                 error = "Save failed. The world remains open; retry or resume without quitting.";
                 return false;
@@ -213,11 +194,6 @@ public partial class PauseMenu : CanvasLayer, IModalUi
 
             error = "";
             return true;
-        }
-        catch (TargetInvocationException exception)
-        {
-            error = "Save failed: " + (exception.InnerException?.Message ?? exception.Message);
-            return false;
         }
         catch (Exception exception)
         {
