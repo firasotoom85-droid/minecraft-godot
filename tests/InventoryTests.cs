@@ -22,10 +22,10 @@ public static class InventoryTests
         Button paletteEntry = new() { FocusMode = Control.FocusModeEnum.All };
         focusList.AddChild(recipeEntry);
         focusList.AddChild(paletteEntry);
-        TestAssert.Check(ReferenceEquals(UiFocus.FindFocusable(focusList), recipeEntry),
+        TestAssert.Check(object.ReferenceEquals(UiFocus.FindFocusable(focusList), recipeEntry),
                 "actionable recipe entries participate in keyboard/controller focus");
         recipeEntry.Disabled = true;
-        TestAssert.Check(ReferenceEquals(UiFocus.FindFocusable(focusList), paletteEntry),
+        TestAssert.Check(object.ReferenceEquals(UiFocus.FindFocusable(focusList), paletteEntry),
                 "disabled recipe entries are skipped while palette entries remain focusable");
         focusList.Free();
 
