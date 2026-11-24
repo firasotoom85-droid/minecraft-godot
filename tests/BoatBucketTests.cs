@@ -42,9 +42,9 @@ public static class BoatBucketTests
 
         // Keep an isolated, deterministic fluid test pocket in loaded chunk zero.
         for (int y = 48; y <= 52; y++)
-        for (int z = 4; z <= 12; z++)
-        for (int x = 4; x <= 12; x++)
-            world.SetBlock(x, y, z, BlockId.Air);
+            for (int z = 4; z <= 12; z++)
+                for (int x = 4; x <= 12; x++)
+                    world.SetBlock(x, y, z, BlockId.Air);
 
         Inventory waterBuckets = new();
         waterBuckets.Add(ItemId.EmptyBucket, 1);
