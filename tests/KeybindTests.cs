@@ -9,6 +9,48 @@ public static class KeybindTests
     public static void Run()
     {
         GamepadBindings.ResetDefaults();
+        ConfigFile keySwap = new();
+        keySwap.SetValue("keys", "forward", (int)Key.E);
+        keySwap.SetValue("keys", "inventory", (int)Key.Z);
+        Dictionary<string, Key> resolvedKeys = Keybinds.ResolveSavedBindings(keySwap);
+        TestAssert.Equal(Key.E, resolvedKeys["forward"],
+                "saved keyboard remaps can take a key another saved action vacated");
+        TestAssert.Equal(Key.Z, resolvedKeys["inventory"],
+                "keyboard remap sets restore independently of declaration order");
+
+        ConfigFile duplicateKeys = new();
+        duplicateKeys.SetValue("keys", "jump", (int)Key.F10);
+        duplicateKeys.SetValue("keys", "sprint", (int)Key.F10);
+        Dictionary<string, Key> safeKeys = Keybinds.ResolveSavedBindings(duplicateKeys);
+        TestAssert.Check(safeKeys["jump"] != Key.F10 && safeKeys["sprint"] != Key.F10
+                        && safeKeys["jump"] != safeKeys["sprint"],
+                "duplicate saved keyboard overrides fall back to non-conflicting defaults");
+
+        ConfigFile buttonSwap = new();
+        buttonSwap.SetValue("buttons", "jump", (int)JoyButton.B);
+        buttonSwap.SetValue("buttons", "toggle_fly", (int)JoyButton.A);
+        Dictionary<string, JoyButton> resolvedButtons = GamepadBindings.ResolveSavedButtons(buttonSwap);
+        TestAssert.Equal(JoyButton.B, resolvedButtons["jump"],
+                "valid controller button swaps survive complete-set loading");
+        TestAssert.Equal(JoyButton.A, resolvedButtons["toggle_fly"],
+                "controller swaps are not rejected by old default assignments");
+
+        ConfigFile duplicateButtons = new();
+        duplicateButtons.SetValue("buttons", "jump", (int)JoyButton.X);
+        duplicateButtons.SetValue("buttons", "sprint", (int)JoyButton.X);
+        Dictionary<string, JoyButton> safeButtons = GamepadBindings.ResolveSavedButtons(duplicateButtons);
+        TestAssert.Check(safeButtons["jump"] != JoyButton.X && safeButtons["sprint"] != JoyButton.X
+                        && safeButtons["jump"] != safeButtons["sprint"],
+                "duplicate persisted controller buttons restore safe defaults");
+
+        foreach ((string action, string label) in GamepadBindings.ControllerOnlyBindable)
+        {
+            TestAssert.Check(!string.IsNullOrWhiteSpace(label),
+                    $"controller-only action {action} has a readable label");
+            TestAssert.Check(GamepadBindings.LabelFor(action) != "—",
+                    $"controller-only action {action} has a configured binding");
+        }
+
         HashSet<string> actions = [];
         TestAssert.Check(Keybinds.Bindable.Length > 8, "keybind list is populated");
         foreach ((string action, string label) in Keybinds.Bindable)
