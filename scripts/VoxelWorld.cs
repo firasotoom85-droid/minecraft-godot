@@ -3332,22 +3332,77 @@ public partial class VoxelWorld : Node3D
                         return false;
         }
 
-        int supportY = Mathf.FloorToInt(position.Y - 1.0f);
-        if (supportY < 0 || supportY >= Height - 1)
-            return false;
-
-        int supportX = Mathf.FloorToInt(position.X);
-        int supportZ = Mathf.FloorToInt(position.Z);
-        BlockId support = GetBlock(supportX, supportY, supportZ);
-        byte supportMask = BlockShapes.OccupancyMask(support,
-                GetBlockState(supportX, supportY, supportZ));
-        bool hasSolidSupport = (supportMask & 0xF0) == 0xF0;
+        bool hasSolidSupport = HasPlayerSupport(position);
         if (!hasSolidSupport && !allowWater && !allowVehicleSupport)
             return false;
 
         return IsSpawnCapsuleClear(position, allowWater, out bool waterIntersected)
                 && (hasSolidSupport || allowVehicleSupport
                     || allowWater && waterIntersected);
+    }
+
+    /// <summary>
+    /// Check the actual horizontal capsule footprint against the voxel
+    /// microcells immediately below the player's support plane. The player
+    /// root sits 0.5 m above that plane, matching the existing FindSpawn
+    /// contract; half-height surfaces therefore include bottom slabs/stair
+    /// treads instead of assuming every saved position stands on a full cube.
+    /// </summary>
+    private bool HasPlayerSupport(Vector3 position)
+    {
+        const float radius = 0.35f;
+        const float epsilon = 0.001f;
+        float supportPlaneY = position.Y - 0.5f;
+        int minX = Mathf.FloorToInt(position.X - radius);
+        int maxX = Mathf.FloorToInt(position.X + radius);
+        int minZ = Mathf.FloorToInt(position.Z - radius);
+        int maxZ = Mathf.FloorToInt(position.Z + radius);
+        int supportFloorY = Mathf.FloorToInt(supportPlaneY);
+
+        for (int y = supportFloorY - 1; y <= supportFloorY; y++)
+        {
+            if (y < 0 || y >= Height)
+                continue;
+
+            for (int z = minZ; z <= maxZ; z++)
+            {
+                for (int x = minX; x <= maxX; x++)
+                {
+                    BlockId id = GetBlock(x, y, z);
+                    byte mask = BlockShapes.OccupancyMask(id, GetBlockState(x, y, z));
+                    if (mask == 0)
+                        continue;
+
+                    for (int halfY = 0; halfY < 2; halfY++)
+                    {
+                        float topY = y + (halfY + 1) * 0.5f;
+                        if (Mathf.Abs(topY - supportPlaneY) > epsilon)
+                            continue;
+
+                        for (int halfZ = 0; halfZ < 2; halfZ++)
+                        {
+                            for (int halfX = 0; halfX < 2; halfX++)
+                            {
+                                int bit = halfX + halfZ * 2 + halfY * 4;
+                                if ((mask & (1 << bit)) == 0)
+                                    continue;
+
+                                float cellMinX = x + halfX * 0.5f;
+                                float cellMaxX = cellMinX + 0.5f;
+                                float cellMinZ = z + halfZ * 0.5f;
+                                float cellMaxZ = cellMinZ + 0.5f;
+                                float dx = position.X - Mathf.Clamp(position.X, cellMinX, cellMaxX);
+                                float dz = position.Z - Mathf.Clamp(position.Z, cellMinZ, cellMaxZ);
+                                if (dx * dx + dz * dz <= radius * radius + epsilon)
+                                    return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
