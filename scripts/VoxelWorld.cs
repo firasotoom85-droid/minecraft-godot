@@ -1193,8 +1193,10 @@ public partial class VoxelWorld : Node3D
     // Chunk data generation + cache (thread-safe)
     // -----------------------------------------------------------------------
 
-    private byte[] GenerateChunkData(Vector2I cp)
+    private byte[] GenerateChunkData(
+            Vector2I cp, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         byte[] data = new byte[ChunkX * Height * ChunkZ];
         if (_genVersion >= WorldGenV12.Version && !WorldGenV12.ContainsChunk(cp))
         {
@@ -1207,6 +1209,7 @@ public partial class VoxelWorld : Node3D
         int strideY = ChunkX * ChunkZ;
         for (int z = 0; z < ChunkZ; z++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int x = 0; x < ChunkX; x++)
             {
                 int wx = ox + x;
@@ -1244,13 +1247,16 @@ public partial class VoxelWorld : Node3D
         // Ore veins (gen v3+): deterministic per-chunk blobs in depth bands.
         if (_genVersion >= 3)
         {
-            StampOreVeins(cp, data, strideY, ox, oz);
+            cancellationToken.ThrowIfCancellationRequested();
+            StampOreVeins(cp, data, strideY, ox, oz, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
         // Trees from the padded neighbourhood, clipped into this chunk.
         // Only air is replaced, so overlapping trees merge gracefully.
         for (int tz = oz - 2; tz < oz + ChunkZ + 2; tz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int tx = ox - 2; tx < ox + ChunkX + 2; tx++)
             {
                 if (GetTreeAt(tx, tz) is not { } tree)
@@ -1298,6 +1304,7 @@ public partial class VoxelWorld : Node3D
         // Cacti: desert-only columns, clipped into this chunk.
         for (int tz = oz - 1; tz < oz + ChunkZ + 1; tz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int tx = ox - 1; tx < ox + ChunkX + 1; tx++)
             {
                 if (GetCactusAt(tx, tz) is not { } cactus)
@@ -1328,16 +1335,21 @@ public partial class VoxelWorld : Node3D
         // sites always win.
         if (_genVersion >= 4)
         {
-            StampDecorators(data, strideY, ox, oz);
-            StampStructures(data, strideY, ox, oz);
+            cancellationToken.ThrowIfCancellationRequested();
+            StampDecorators(data, strideY, ox, oz, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            StampStructures(data, strideY, ox, oz, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (_genVersion >= WorldGenV7.Version)
             {
-                StampUndergroundStructuresV7(data, strideY, ox, oz);
+                StampUndergroundStructuresV7(data, strideY, ox, oz, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
             }
 
             if (_genVersion >= 8)
             {
-                StampVillagesV8(data, strideY, ox, oz);
+                StampVillagesV8(data, strideY, ox, oz, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
             }
         }
 
@@ -1346,6 +1358,7 @@ public partial class VoxelWorld : Node3D
         Vector2I[] fireOffsets = [new(0, 0), new(1, 0), new(-1, 0), new(0, 1), new(0, -1)];
         for (int cellz = Mathf.FloorToInt((oz - 1) / 64.0f); cellz <= Mathf.FloorToInt((oz + ChunkZ) / 64.0f); cellz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int cellx = Mathf.FloorToInt((ox - 1) / 64.0f); cellx <= Mathf.FloorToInt((ox + ChunkX) / 64.0f); cellx++)
             {
                 if (GetCampfireSite(cellx, cellz) is not { } site)
@@ -1383,12 +1396,14 @@ public partial class VoxelWorld : Node3D
         }
 
         // Player edits on top of the generated terrain.
+        cancellationToken.ThrowIfCancellationRequested();
         lock (_mutex)
         {
             if (_edits.TryGetValue(cp, out Dictionary<int, BlockId>? edits))
             {
                 foreach ((int index, BlockId id) in edits)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     if ((uint)index < (uint)data.Length)
                     {
                         data[index] = (byte)id;
@@ -1405,18 +1420,22 @@ public partial class VoxelWorld : Node3D
     // Only stone is replaced, so caves and the surface stay untouched.
     // -----------------------------------------------------------------------
 
-    private void StampOreVeins(Vector2I cp, byte[] data, int strideY, int ox, int oz)
+    private void StampOreVeins(
+            Vector2I cp, byte[] data, int strideY, int ox, int oz,
+            CancellationToken cancellationToken)
     {
         if (_genVersion >= WorldGenV7.Version)
         {
-            StampOreVeinsV7(cp, data, strideY, ox, oz);
+            StampOreVeinsV7(cp, data, strideY, ox, oz, cancellationToken);
             return;
         }
 
         for (int dz = -1; dz <= 1; dz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int dx = -1; dx <= 1; dx++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 StampVeinsOfChunk(cp + new Vector2I(dx, dz), data, strideY, ox, oz);
             }
         }
@@ -1540,22 +1559,25 @@ public partial class VoxelWorld : Node3D
     // writes only into air above natural grass.
     // -----------------------------------------------------------------------
 
-    private void StampDecorators(byte[] data, int strideY, int ox, int oz)
+    private void StampDecorators(
+            byte[] data, int strideY, int ox, int oz,
+            CancellationToken cancellationToken)
     {
         if (_genVersion >= WorldGenV8.Version)
         {
-            StampDecoratorsV8(data, strideY, ox, oz);
+            StampDecoratorsV8(data, strideY, ox, oz, cancellationToken);
             return;
         }
 
         if (_genVersion >= WorldGenV7.Version)
         {
-            StampDecoratorsV7(data, strideY, ox, oz);
+            StampDecoratorsV7(data, strideY, ox, oz, cancellationToken);
             return;
         }
 
         for (int wz = oz - 2; wz < oz + ChunkZ + 2; wz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int wx = ox - 2; wx < ox + ChunkX + 2; wx++)
             {
                 int h = SurfaceHeight(wx, wz);
@@ -1683,7 +1705,9 @@ public partial class VoxelWorld : Node3D
     // Structures (gen v4+): templates clipped into the chunk being generated.
     // -----------------------------------------------------------------------
 
-    private void StampStructures(byte[] data, int strideY, int ox, int oz)
+    private void StampStructures(
+            byte[] data, int strideY, int ox, int oz,
+            CancellationToken cancellationToken)
     {
         int c0x = Mathf.FloorToInt((ox - 14) / (float)StructureCell);
         int c1x = Mathf.FloorToInt((ox + ChunkX + 14) / (float)StructureCell);
@@ -1691,8 +1715,10 @@ public partial class VoxelWorld : Node3D
         int c1z = Mathf.FloorToInt((oz + ChunkZ + 14) / (float)StructureCell);
         for (int cz = c0z; cz <= c1z; cz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int cx = c0x; cx <= c1x; cx++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (CachedStructureSite(cx, cz) is not { } site)
                 {
                     continue;
@@ -1749,11 +1775,13 @@ public partial class VoxelWorld : Node3D
     /// Block data for any chunk: built node data, cached data, or freshly
     /// generated + cached. Safe to call from worker threads.
     /// </summary>
-    public byte[] ChunkData(Vector2I cp)
+    public byte[] ChunkData(Vector2I cp, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         Lazy<byte[]> generation;
         lock (_mutex)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (_dataCache.TryGetValue(cp, out byte[]? cached))
             {
                 RegisterLightSourcesLocked(cp, cached);
@@ -1761,15 +1789,33 @@ public partial class VoxelWorld : Node3D
                 return cached;
             }
 
-            generation = _generationInFlight.GetOrCreate(cp, () => GenerateChunkData(cp));
+            // All mesher workers for this world share one shutdown token. A
+            // cancelled generation throws before the completed array is cached.
+            generation = _generationInFlight.GetOrCreate(
+                    cp, () => GenerateChunkData(cp, cancellationToken));
         }
 
-        byte[] data;
         try
         {
-            // Exactly one caller generates this coordinate. Other workers wait
-            // on the same Lazy while unrelated coordinates remain parallel.
-            data = generation.Value;
+            byte[] data = generation.Value;
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_mutex)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_dataCache.TryGetValue(cp, out byte[]? existing))
+                {
+                    RegisterLightSourcesLocked(cp, existing);
+                    RegisterCropSourcesLocked(cp, existing);
+                    _generationInFlight.Complete(cp, generation);
+                    return existing;
+                }
+
+                _dataCache[cp] = data;
+                RegisterLightSourcesLocked(cp, data);
+                RegisterCropSourcesLocked(cp, data);
+                _generationInFlight.Complete(cp, generation);
+                return data;
+            }
         }
         catch
         {
@@ -1779,23 +1825,6 @@ public partial class VoxelWorld : Node3D
             }
 
             throw;
-        }
-
-        lock (_mutex)
-        {
-            if (_dataCache.TryGetValue(cp, out byte[]? existing))
-            {
-                RegisterLightSourcesLocked(cp, existing);
-                RegisterCropSourcesLocked(cp, existing);
-                _generationInFlight.Complete(cp, generation);
-                return existing;
-            }
-
-            _dataCache[cp] = data;
-            RegisterLightSourcesLocked(cp, data);
-            RegisterCropSourcesLocked(cp, data);
-            _generationInFlight.Complete(cp, generation);
-            return data;
         }
     }
 
@@ -1892,10 +1921,12 @@ public partial class VoxelWorld : Node3D
     /// region solve. A 14-voxel halo on each side is sufficient for block-light
     /// attenuation and prevents nine overlapping per-chunk solves.
     /// </summary>
-    public VoxelLightData[] LightDataNeighborhood(Vector2I center)
+    public VoxelLightData[] LightDataNeighborhood(
+            Vector2I center, CancellationToken cancellationToken = default)
     {
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             long snapshotEpoch;
             VoxelLightData[] result = new VoxelLightData[9];
             byte[][] chunks = new byte[25][];
@@ -1912,6 +1943,8 @@ public partial class VoxelWorld : Node3D
                 lock (_mutex)
                 {
                     for (int dz = -1; dz <= 1; dz++)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
                         for (int dx = -1; dx <= 1; dx++)
                         {
                             int slot = (dz + 1) * 3 + dx + 1;
@@ -1921,21 +1954,26 @@ public partial class VoxelWorld : Node3D
                             else
                                 complete = false;
                         }
+                    }
                 }
                 if (complete) return result;
 
                 for (int dz = -2; dz <= 2; dz++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
                     for (int dx = -2; dx <= 2; dx++)
                     {
                         int slot = (dz + 2) * 5 + dx + 2;
-                        byte[] data = ChunkData(center + new Vector2I(dx, dz));
+                        Vector2I chunk = center + new Vector2I(dx, dz);
+                        byte[] data = ChunkData(chunk, cancellationToken);
                         chunks[slot] = (byte[])data.Clone();
-                        byte[] states = ChunkBlockStates(center + new Vector2I(dx, dz));
+                        byte[] states = ChunkBlockStates(chunk, cancellationToken);
                         if (states.Length > 0)
                         {
                             (stateChunks ??= new byte[25][])[slot] = (byte[])states.Clone();
                         }
                     }
+                }
 
                 const int halo = VoxelLighting.BlockLightRadius;
                 int width = ChunkX * 3 + halo * 2;
@@ -1949,6 +1987,7 @@ public partial class VoxelWorld : Node3D
             // Test-only hook runs after SnapshotLock has been released, before
             // the expensive region assembly/propagation work begins.
             SnapshotReleasedTestHook?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
 
             // Region assembly and both propagation algorithms operate solely
             // on the immutable arrays above. No global snapshot lock is held.
@@ -1963,6 +2002,7 @@ public partial class VoxelWorld : Node3D
             byte[]? regionStates = stateChunks == null ? null : new byte[region.Length];
             for (int z = 0; z < lightDepth; z++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 int wz = lightOriginZ + z;
                 int cz = Mathf.FloorToInt(wz / (float)ChunkZ);
                 int lz = wz - cz * ChunkZ;
@@ -1988,7 +2028,8 @@ public partial class VoxelWorld : Node3D
             }
 
             byte[] sky = VoxelLighting.BuildSkyLight(
-                    region, lightWidth, Height, lightDepth, regionStates, out byte[] directSky);
+                    region, lightWidth, Height, lightDepth, regionStates,
+                    out byte[] directSky, cancellationToken);
             int plane = lightWidth * lightDepth;
             for (int i = 0; i < sources.Count; i++)
             {
@@ -2000,9 +2041,12 @@ public partial class VoxelWorld : Node3D
             }
 
             byte[] block = VoxelLighting.PropagateBlockLight(
-                    region, lightWidth, Height, lightDepth, sources, regionStates);
+                    region, lightWidth, Height, lightDepth, sources, regionStates,
+                    cancellationToken);
             VoxelLightData[] built = new VoxelLightData[9];
             for (int dz = -1; dz <= 1; dz++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 for (int dx = -1; dx <= 1; dx++)
                 {
                     int slot = (dz + 1) * 3 + dx + 1;
@@ -2014,6 +2058,7 @@ public partial class VoxelWorld : Node3D
                     for (int y = 0; y < Height; y++)
                         for (int z = 0; z < ChunkZ; z++)
                         {
+                            cancellationToken.ThrowIfCancellationRequested();
                             int source = y * plane + (cropZ + z) * lightWidth + cropX;
                             int destination = (y * ChunkZ + z) * ChunkX;
                             for (int x = 0; x < ChunkX; x++)
@@ -2029,18 +2074,23 @@ public partial class VoxelWorld : Node3D
                         }
                     built[slot] = new VoxelLightData(packed, directPacked);
                 }
+            }
 
             // A block/source edit invalidates the entire affected neighborhood
             // while holding SnapshotLock. Discard stale solves and retry from a
             // fresh snapshot before any map is made visible to another worker.
+            cancellationToken.ThrowIfCancellationRequested();
             lock (SnapshotLock)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (EditEpoch != snapshotEpoch)
                     continue;
 
                 lock (_mutex)
                 {
                     for (int dz = -1; dz <= 1; dz++)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
                         for (int dx = -1; dx <= 1; dx++)
                         {
                             int slot = (dz + 1) * 3 + dx + 1;
@@ -2329,10 +2379,12 @@ public partial class VoxelWorld : Node3D
     }
 
     /// <summary>State array aligned with ChunkData; default-state chunks allocate no dense buffer.</summary>
-    public byte[] ChunkBlockStates(Vector2I cp)
+    public byte[] ChunkBlockStates(Vector2I cp, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         lock (_mutex)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (_blockStateCache.TryGetValue(cp, out byte[]? cached)) return cached;
             if (!_blockStateEdits.TryGetValue(cp, out Dictionary<int, byte>? edits) || edits.Count == 0)
             {
@@ -2342,7 +2394,10 @@ public partial class VoxelWorld : Node3D
 
             byte[] states = new byte[ChunkX * Height * ChunkZ];
             foreach ((int index, byte state) in edits)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 if ((uint)index < (uint)states.Length) states[index] = state;
+            }
             _blockStateCache[cp] = states;
             return states;
         }
@@ -3043,16 +3098,18 @@ public partial class VoxelWorld : Node3D
             _attempts = 0;
         }
 
+        public CancellationToken CancellationToken => _world._workerShutdown.Token;
+
         public bool CanContinue() =>
                 _world._alive && _world.IsWithinCurrentRetention(_coordinate);
 
         public void ReservePayloadSlot() =>
-                _world._completedPayloadSlots.Wait(_world._workerShutdown.Token);
+                _world._completedPayloadSlots.Wait(CancellationToken);
 
-        public MeshPayload Build()
+        public MeshPayload Build(CancellationToken cancellationToken)
         {
             long started = System.Diagnostics.Stopwatch.GetTimestamp();
-            MeshPayload payload = Mesher.Build(_world, _coordinate);
+            MeshPayload payload = Mesher.Build(_world, _coordinate, cancellationToken);
             Profiler.RecordBuild(
                     System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             return payload;

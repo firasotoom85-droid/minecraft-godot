@@ -251,23 +251,36 @@ public static class Mesher
     /// The epoch is captured before any data is read; the caller discards the
     /// payload if the world was edited meanwhile.
     /// </summary>
-    public static MeshPayload Build(VoxelWorld world, Vector2I cp) =>
-            BuildCore(world, cp, null);
+    public static MeshPayload Build(
+            VoxelWorld world, Vector2I cp, CancellationToken cancellationToken = default) =>
+            BuildCore(world, cp, null, null, cancellationToken);
 
     /// <summary>
     /// Deterministic test seam that changes meshing settings after the greedy
     /// pre-pass decision and before per-face emission.
     /// </summary>
     internal static MeshPayload BuildWithAfterGreedyPrepass(
-            VoxelWorld world, Vector2I cp, Action afterGreedyPrepass)
+            VoxelWorld world, Vector2I cp, Action afterGreedyPrepass,
+            CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(afterGreedyPrepass);
-        return BuildCore(world, cp, afterGreedyPrepass);
+        return BuildCore(world, cp, afterGreedyPrepass, null, cancellationToken);
+    }
+
+    /// <summary>Deterministic seam for cancellation/failure after every pooled buffer is rented.</summary>
+    internal static MeshPayload BuildWithAfterBufferRent(
+            VoxelWorld world, Vector2I cp, Action afterBufferRent,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(afterBufferRent);
+        return BuildCore(world, cp, null, afterBufferRent, cancellationToken);
     }
 
     private static MeshPayload BuildCore(
-            VoxelWorld world, Vector2I cp, Action? afterGreedyPrepass)
+            VoxelWorld world, Vector2I cp, Action? afterGreedyPrepass,
+            Action? afterBufferRent, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         EnsureTables();
         (bool greedy, long meshingRevision) = CaptureConfiguration();
         long epoch;
@@ -280,23 +293,38 @@ public static class Mesher
         lock (world.SnapshotLock)
         {
             epoch = world.EditEpoch;
-            byte[] data = world.ChunkData(cp);
-            byte[] states = world.ChunkBlockStates(cp);
-            pad = BuildPadded(world, cp, data, sy);
-            statePad = BuildPaddedStates(world, cp, states, sy);
+            byte[] data = world.ChunkData(cp, cancellationToken);
+            byte[] states = world.ChunkBlockStates(cp, cancellationToken);
+            pad = BuildPadded(world, cp, data, sy, cancellationToken);
+            statePad = BuildPaddedStates(world, cp, states, sy, cancellationToken);
         }
         // Collider availability is independent of the voxel snapshot and is
         // revalidated when the payload is applied.
+        cancellationToken.ThrowIfCancellationRequested();
         boundaryMask = world.MissingColliderBoundaryMask(cp);
         // Derived lighting is solved outside the world snapshot critical section.
-        lightPad = BuildLightPadded(world, cp, sy, out directLightPad);
+        lightPad = BuildLightPadded(world, cp, sy, out directLightPad, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
 
-        SurfaceData opaque = PayloadPool.RentSurface();
-        SurfaceData glass = PayloadPool.RentSurface();
-        SurfaceData water = PayloadPool.RentSurface();
-        SurfaceData lava = PayloadPool.RentSurface();
-        bool buildCollision = world.BuildCollision;
-        List<Vector3> collision = PayloadPool.RentCollision();
+        // The worker owns every rented buffer until a complete MeshPayload is
+        // constructed. Any exception or cancellation before that transfer
+        // returns all buffers here, including failures part-way through Rent.
+        SurfaceData opaque = null!;
+        SurfaceData glass = null!;
+        SurfaceData water = null!;
+        SurfaceData lava = null!;
+        List<Vector3> collision = null!;
+        bool payloadOwnsBuffers = false;
+        try
+        {
+            opaque = PayloadPool.RentSurface();
+            glass = PayloadPool.RentSurface();
+            water = PayloadPool.RentSurface();
+            lava = PayloadPool.RentSurface();
+            collision = PayloadPool.RentCollision();
+            afterBufferRent?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
+            bool buildCollision = world.BuildCollision;
 
         // Reused per face; all four entries are always (re)assigned before use.
         Span<float> kk = stackalloc float[4];
@@ -306,18 +334,22 @@ public static class Mesher
         // Greedy mode: merged coplanar quads for the opaque surface (using the
         // texture-array material). The per-face loop below then only emits the
         // remaining surfaces and the collision for opaque blocks.
-        if (greedy)
-        {
-            BuildOpaqueGreedy(pad, statePad, lightPad, directLightPad, sy, opaque);
-        }
-
-        afterGreedyPrepass?.Invoke();
-
-        for (int y = 1; y <= sy; y++)
-        {
-            for (int z = 1; z <= SZ; z++)
+            if (greedy)
             {
-                for (int x = 1; x <= SX; x++)
+                BuildOpaqueGreedy(pad, statePad, lightPad, directLightPad,
+                        sy, opaque, cancellationToken);
+            }
+
+            afterGreedyPrepass?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
+
+            for (int y = 1; y <= sy; y++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                for (int z = 1; z <= SZ; z++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    for (int x = 1; x <= SX; x++)
                 {
                     int i = (y * PZ + z) * PX + x;
                     BlockId id = (BlockId)pad[i];
@@ -496,8 +528,18 @@ public static class Mesher
             }
         }
 
-        return new MeshPayload(opaque, glass, water, lava, collision, epoch,
-                meshingRevision, boundaryMask);
+            MeshPayload payload = new(opaque, glass, water, lava, collision, epoch,
+                    meshingRevision, boundaryMask);
+            payloadOwnsBuffers = true;
+            return payload;
+        }
+        finally
+        {
+            if (!payloadOwnsBuffers)
+            {
+                PayloadPool.ReleaseBuildBuffers(opaque, glass, water, lava, collision);
+            }
+        }
     }
 
 
@@ -791,13 +833,14 @@ public static class Mesher
 
     private static void BuildOpaqueGreedy(
             byte[] pad, byte[] statePad, byte[] lightPad, byte[] directLightPad,
-            int sy, SurfaceData opaque)
+            int sy, SurfaceData opaque, CancellationToken cancellationToken)
     {
         int[] axisSize = [SX, sy, SZ];
         FaceMergeKey[] keys = RentKeys(SX * sy);
         int baseIdx = PLANE + PX + 1;   // padded (1,1,1)
         for (int f = 0; f < 6; f++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             int nAxis = _normalAxis[f];
             int uAxis = _uAxis[f];
             int vAxis = _vAxis[f];
@@ -812,12 +855,14 @@ public static class Mesher
             bool positive = BlockDb.FaceDirs[f][nAxis] > 0.0f;
             for (int sn = 1; sn <= nExt; sn++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 // Padded coordinate sn along the normal axis (base is padded 1,
                 // so sn-1 steps from it). sn also equals the plane of the
                 // positive face, since a block at padded sn occupies local sn-1.
                 int slice = baseIdx + (sn - 1) * nStep;
                 for (int vv = 0; vv < vExt; vv++)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     for (int uu = 0; uu < uExt; uu++)
                     {
                         keys[vv * uExt + uu] = BuildFaceMergeKey(
@@ -1058,11 +1103,14 @@ public static class Mesher
     /// per-thread scratch pool and zeroed first; cardinal and diagonal borders
     /// are copied so corner AO resolves the actual neighbouring voxels.
     /// </summary>
-    private static byte[] BuildPadded(VoxelWorld world, Vector2I cp, byte[] data, int sy)
+    private static byte[] BuildPadded(
+            VoxelWorld world, Vector2I cp, byte[] data, int sy,
+            CancellationToken cancellationToken)
     {
         byte[] pad = RentPad(PX * (sy + 2) * PZ);
         for (int y = 0; y < sy; y++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int z = 0; z < SZ; z++)
             {
                 int src = (y * SZ + z) * SX;
@@ -1074,16 +1122,17 @@ public static class Mesher
             }
         }
 
-        byte[] west = world.ChunkData(cp + new Vector2I(-1, 0));
-        byte[] east = world.ChunkData(cp + new Vector2I(1, 0));
-        byte[] north = world.ChunkData(cp + new Vector2I(0, -1));
-        byte[] south = world.ChunkData(cp + new Vector2I(0, 1));
-        byte[] northWest = world.ChunkData(cp + new Vector2I(-1, -1));
-        byte[] northEast = world.ChunkData(cp + new Vector2I(1, -1));
-        byte[] southWest = world.ChunkData(cp + new Vector2I(-1, 1));
-        byte[] southEast = world.ChunkData(cp + new Vector2I(1, 1));
+        byte[] west = world.ChunkData(cp + new Vector2I(-1, 0), cancellationToken);
+        byte[] east = world.ChunkData(cp + new Vector2I(1, 0), cancellationToken);
+        byte[] north = world.ChunkData(cp + new Vector2I(0, -1), cancellationToken);
+        byte[] south = world.ChunkData(cp + new Vector2I(0, 1), cancellationToken);
+        byte[] northWest = world.ChunkData(cp + new Vector2I(-1, -1), cancellationToken);
+        byte[] northEast = world.ChunkData(cp + new Vector2I(1, -1), cancellationToken);
+        byte[] southWest = world.ChunkData(cp + new Vector2I(-1, 1), cancellationToken);
+        byte[] southEast = world.ChunkData(cp + new Vector2I(1, 1), cancellationToken);
         for (int y = -1; y <= sy; y++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (y < 0 || y >= sy)
             {
                 continue;
@@ -1104,6 +1153,7 @@ public static class Mesher
 
         for (int y = -1; y <= sy; y++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (y < 0 || y >= sy)
             {
                 continue;
@@ -1136,16 +1186,19 @@ public static class Mesher
     }
 
 
-    private static byte[] BuildPaddedStates(VoxelWorld world, Vector2I cp, byte[] data, int sy)
+    private static byte[] BuildPaddedStates(
+            VoxelWorld world, Vector2I cp, byte[] data, int sy,
+            CancellationToken cancellationToken)
     {
-        byte[] west = world.ChunkBlockStates(cp + new Vector2I(-1, 0));
-        byte[] east = world.ChunkBlockStates(cp + new Vector2I(1, 0));
-        byte[] north = world.ChunkBlockStates(cp + new Vector2I(0, -1));
-        byte[] south = world.ChunkBlockStates(cp + new Vector2I(0, 1));
-        byte[] northWest = world.ChunkBlockStates(cp + new Vector2I(-1, -1));
-        byte[] northEast = world.ChunkBlockStates(cp + new Vector2I(1, -1));
-        byte[] southWest = world.ChunkBlockStates(cp + new Vector2I(-1, 1));
-        byte[] southEast = world.ChunkBlockStates(cp + new Vector2I(1, 1));
+        cancellationToken.ThrowIfCancellationRequested();
+        byte[] west = world.ChunkBlockStates(cp + new Vector2I(-1, 0), cancellationToken);
+        byte[] east = world.ChunkBlockStates(cp + new Vector2I(1, 0), cancellationToken);
+        byte[] north = world.ChunkBlockStates(cp + new Vector2I(0, -1), cancellationToken);
+        byte[] south = world.ChunkBlockStates(cp + new Vector2I(0, 1), cancellationToken);
+        byte[] northWest = world.ChunkBlockStates(cp + new Vector2I(-1, -1), cancellationToken);
+        byte[] northEast = world.ChunkBlockStates(cp + new Vector2I(1, -1), cancellationToken);
+        byte[] southWest = world.ChunkBlockStates(cp + new Vector2I(-1, 1), cancellationToken);
+        byte[] southEast = world.ChunkBlockStates(cp + new Vector2I(1, 1), cancellationToken);
         byte[] pad = RentStatePad(PX * (sy + 2) * PZ);
         if (data.Length == 0 && west.Length == 0 && east.Length == 0
                 && north.Length == 0 && south.Length == 0 && northWest.Length == 0
@@ -1153,6 +1206,8 @@ public static class Mesher
             return pad;
 
         for (int y = 0; y < sy; y++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int z = 0; z < SZ; z++)
             {
                 int src = (y * SZ + z) * SX;
@@ -1160,9 +1215,11 @@ public static class Mesher
                 if (data.Length > 0)
                     System.Array.Copy(data, src, pad, dst, SX);
             }
+        }
 
         for (int y = 0; y < sy; y++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             int row = (y + 1) * PZ;
             int nrow = y * SZ;
             for (int z = -1; z <= SZ; z++)
@@ -1177,6 +1234,7 @@ public static class Mesher
         }
         for (int y = 0; y < sy; y++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             int row = (y + 1) * PZ;
             int nrow = y * SZ;
             for (int x = -1; x <= SX; x++)
@@ -1205,12 +1263,14 @@ public static class Mesher
     /// maps keep vertex-light interpolation continuous at chunk corners.
     /// </summary>
     private static byte[] BuildLightPadded(
-            VoxelWorld world, Vector2I cp, int sy, out byte[] directPad)
+            VoxelWorld world, Vector2I cp, int sy, out byte[] directPad,
+            CancellationToken cancellationToken)
     {
         int length = PX * (sy + 2) * PZ;
         byte[] pad = RentLightPad(length);
         directPad = RentDirectLightPad(length);
-        VoxelLightData[] neighbourhood = world.LightDataNeighborhood(cp);
+        cancellationToken.ThrowIfCancellationRequested();
+        VoxelLightData[] neighbourhood = world.LightDataNeighborhood(cp, cancellationToken);
         VoxelLightData center = neighbourhood[4];
         VoxelLightData west = neighbourhood[3];
         VoxelLightData east = neighbourhood[5];
@@ -1223,6 +1283,7 @@ public static class Mesher
 
         for (int y = 0; y < sy; y++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             int srcLayer = y * SX * SZ;
             int dstLayer = (y + 1) * PLANE;
             for (int z = 0; z < SZ; z++)
@@ -1313,7 +1374,11 @@ public sealed class MeshPayload(
     public readonly long Epoch = epoch;
     public readonly long MeshingRevision = meshingRevision;
     public readonly int BoundaryMask = boundaryMask;
-    public bool Released;
+    private int _released;
+
+    public bool Released => Volatile.Read(ref _released) != 0;
+
+    internal bool TryMarkReleased() => Interlocked.Exchange(ref _released, 1) == 0;
 
     public long EstimatedBufferBytes => Opaque.EstimatedBufferBytes + Glass.EstimatedBufferBytes
             + Water.EstimatedBufferBytes + Lava.EstimatedBufferBytes
@@ -1365,20 +1430,36 @@ public static class PayloadPool
 
     public static void Release(MeshPayload payload)
     {
-        if (payload.Released) return;
+        ArgumentNullException.ThrowIfNull(payload);
+        if (!payload.TryMarkReleased()) return;
 
-        payload.Released = true;
-        ReturnSurface(payload.Opaque);
-        ReturnSurface(payload.Glass);
-        ReturnSurface(payload.Water);
-        ReturnSurface(payload.Lava);
-        payload.Collision.Clear();
+        ReleaseBuildBuffers(payload.Opaque, payload.Glass, payload.Water,
+                payload.Lava, payload.Collision);
+    }
 
-        long collisionBytes = (long)payload.Collision.Capacity * 12;
+    /// <summary>
+    /// Returns buffers still owned by an in-progress build that failed before
+    /// it could transfer them into a MeshPayload.
+    /// </summary>
+    internal static void ReleaseBuildBuffers(
+            SurfaceData? opaque, SurfaceData? glass, SurfaceData? water,
+            SurfaceData? lava, List<Vector3>? collision)
+    {
+        if (opaque != null) ReturnSurface(opaque);
+        if (glass != null) ReturnSurface(glass);
+        if (water != null) ReturnSurface(water);
+        if (lava != null) ReturnSurface(lava);
+        if (collision != null) ReturnCollision(collision);
+    }
+
+    private static void ReturnCollision(List<Vector3> collision)
+    {
+        collision.Clear();
+        long collisionBytes = (long)collision.Capacity * 12;
         if (TryReserve(collisionBytes))
         {
             Interlocked.Increment(ref _retainedCollisionCount);
-            Collisions.Add(payload.Collision);
+            Collisions.Add(collision);
         }
     }
 

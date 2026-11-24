@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Godot;
 
 namespace Minecraft;
@@ -221,9 +222,10 @@ internal static class ChunkStreamingPolicy
 internal interface IChunkWorkerOperation<TPayload>
         where TPayload : class
 {
+    CancellationToken CancellationToken { get; }
     bool CanContinue();
     void ReservePayloadSlot();
-    TPayload Build();
+    TPayload Build(CancellationToken cancellationToken);
     bool Publish(TPayload payload);
     void DiscardPayload(TPayload payload);
     void ReleasePayloadSlot();
@@ -255,6 +257,8 @@ internal static class ChunkWorkerLifecycle
 
         try
         {
+            CancellationToken cancellationToken = operation.CancellationToken;
+            cancellationToken.ThrowIfCancellationRequested();
             if (!operation.CanContinue())
             {
                 return new ChunkWorkerExecutionResult(false, false, false);
@@ -262,12 +266,16 @@ internal static class ChunkWorkerLifecycle
 
             operation.ReservePayloadSlot();
             reserved = true;
+            cancellationToken.ThrowIfCancellationRequested();
             if (!operation.CanContinue())
             {
                 return new ChunkWorkerExecutionResult(false, false, false);
             }
 
-            payload = operation.Build();
+            payload = operation.Build(cancellationToken);
+            // A build may complete just as shutdown is requested. Keep the
+            // returned payload owned locally until cancellation is rechecked.
+            cancellationToken.ThrowIfCancellationRequested();
             if (!operation.CanContinue())
             {
                 return new ChunkWorkerExecutionResult(false, false, false);

@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Threading;
 using Godot;
 
 namespace Minecraft;
@@ -181,6 +183,53 @@ public static class GlassTests
         {
             Mesher.Greedy = false;
             world.BuildPreview(Vector3.Zero, 1);
+
+            // Seed small reusable buffers, then cancel the real mesher after
+            // all five pooled payload buffers have been rented. BuildCore must
+            // return its still-local buffers because no MeshPayload was created.
+            SurfaceData seedOpaque = PayloadPool.RentSurface();
+            SurfaceData seedGlass = PayloadPool.RentSurface();
+            SurfaceData seedWater = PayloadPool.RentSurface();
+            SurfaceData seedLava = PayloadPool.RentSurface();
+            List<Vector3> seedCollision = PayloadPool.RentCollision();
+            foreach (SurfaceData surface in new[]
+            {
+                seedOpaque, seedGlass, seedWater, seedLava,
+            })
+            {
+                surface.Vertex.Capacity = 1;
+                surface.Normal.Capacity = 1;
+                surface.Color.Capacity = 1;
+                surface.Uv.Capacity = 1;
+                surface.Uv2.Capacity = 1;
+            }
+            seedCollision.Capacity = 1;
+            PayloadPool.ReleaseBuildBuffers(seedOpaque, seedGlass, seedWater,
+                    seedLava, seedCollision);
+
+            long retainedBeforeCancelledBuild = PayloadPool.RetainedBufferBytes;
+            int surfacesBeforeCancelledBuild = PayloadPool.RetainedSurfaceCount;
+            int collisionsBeforeCancelledBuild = PayloadPool.RetainedCollisionCount;
+            using CancellationTokenSource mesherShutdown = new();
+            bool mesherCancellationObserved = false;
+            try
+            {
+                _ = Mesher.BuildWithAfterBufferRent(world, Vector2I.Zero,
+                        () => mesherShutdown.Cancel(), mesherShutdown.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                mesherCancellationObserved = true;
+            }
+
+            TestAssert.Check(mesherCancellationObserved,
+                    "mesher observes shutdown immediately after renting all payload buffers");
+            TestAssert.Equal(retainedBeforeCancelledBuild, PayloadPool.RetainedBufferBytes,
+                    "cancelled mesher returns every rented surface and collision backing buffer");
+            TestAssert.Equal(surfacesBeforeCancelledBuild, PayloadPool.RetainedSurfaceCount,
+                    "cancelled mesher restores all four surface pool entries");
+            TestAssert.Equal(collisionsBeforeCancelledBuild, PayloadPool.RetainedCollisionCount,
+                    "cancelled mesher restores its collision pool entry");
 
             // Isolate each material at altitude so terrain and adjacent cells
             // cannot accidentally satisfy a surface-routing assertion.
