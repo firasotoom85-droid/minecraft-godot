@@ -66,7 +66,6 @@ public sealed class FurnaceData
     {
         if (!float.IsFinite(delta) || delta <= 0.0f
                 || (!Input.IsEmpty && !ItemStackSaveValidator.FitsFurnaceSlot(0, Input))
-                || (!Fuel.IsEmpty && !ItemStackSaveValidator.FitsFurnaceSlot(1, Fuel))
                 || (!Output.IsEmpty && !ItemStackSaveValidator.FitsFurnaceSlot(2, Output)))
         {
             return false;
@@ -87,7 +86,8 @@ public sealed class FurnaceData
         {
             if (BurnTime <= 0.0f)
             {
-                if (!canAccept || Fuel.IsEmpty)
+                if (!canAccept || Fuel.IsEmpty
+                        || !ItemStackSaveValidator.FitsFurnaceSlot(1, Fuel))
                 {
                     break;
                 }
@@ -141,7 +141,7 @@ public sealed class FurnaceData
         }
 
         if (SmeltTime > 0.0f && (!canAccept || (BurnTime <= 0.0f
-                && (Fuel.IsEmpty || ItemDb.FuelSeconds(Fuel.Id) <= 0.0f))))
+                && (Fuel.IsEmpty || !ItemStackSaveValidator.FitsFurnaceSlot(1, Fuel)))))
         {
             SmeltTime = 0.0f;
             changed = true;
