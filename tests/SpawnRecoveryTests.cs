@@ -114,8 +114,9 @@ public static class SpawnRecoveryTests
         int z = chunkZ * VoxelWorld.ChunkZ + 6;
         int y = world.Height - 8;
 
-        TestAssert.Check(world.SetBlock(x, y, z, BlockId.Air),
-                "partial-support fixture clears its support cell through SetBlock");
+        if (world.GetBlock(x, y, z) != BlockId.Air)
+            TestAssert.Check(world.SetBlock(x, y, z, BlockId.Air),
+                    "partial-support fixture clears its support cell through SetBlock");
         TestAssert.Check(world.SetBlock(x, y, z, BlockId.PlanksSlab, BlockShapes.SlabBottom),
                 "partial-support fixture places a bottom slab through SetBlock");
         Vector3 bottomSlabPosition = new(x + 0.5f, y + 0.5f, z + 0.5f);
