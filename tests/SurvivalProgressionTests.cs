@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Reflection;
 using Godot;
 
 namespace Minecraft;
@@ -6,6 +7,43 @@ namespace Minecraft;
 /// <summary>Deterministic cross-system survival progression and balance regressions.</summary>
 public static class SurvivalProgressionTests
 {
+    private static void CheckInputLockAndFlightTransitions()
+    {
+        Player player = new();
+        FieldInfo coyote = typeof(Player).GetField("_coyote",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+        FieldInfo jumpBuffer = typeof(Player).GetField("_jumpBuffer",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+        MethodInfo setFlying = typeof(Player).GetMethod("SetFlying",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        coyote.SetValue(player, 0.1);
+        jumpBuffer.SetValue(player, 0.12);
+        player.InputLocked = true;
+        TestAssert.Equal(0.0, (double)coyote.GetValue(player)!,
+                "locking gameplay input invalidates coyote time");
+        TestAssert.Equal(0.0, (double)jumpBuffer.GetValue(player)!,
+                "locking gameplay input invalidates pending jump buffers");
+
+        player.InputLocked = false;
+        coyote.SetValue(player, 0.1);
+        jumpBuffer.SetValue(player, 0.12);
+        setFlying.Invoke(player, [true]);
+        TestAssert.Equal(0.0, (double)coyote.GetValue(player)!,
+                "entering flight invalidates pre-flight coyote time");
+        TestAssert.Equal(0.0, (double)jumpBuffer.GetValue(player)!,
+                "entering flight invalidates a pending walking jump");
+
+        coyote.SetValue(player, 0.1);
+        jumpBuffer.SetValue(player, 0.12);
+        setFlying.Invoke(player, [false]);
+        TestAssert.Equal(0.0, (double)coyote.GetValue(player)!,
+                "leaving flight cannot restore stale coyote time");
+        TestAssert.Equal(0.0, (double)jumpBuffer.GetValue(player)!,
+                "leaving flight cannot restore a stale jump buffer");
+        player.Free();
+    }
+
     private static bool Craft(Inventory inventory, ItemId result)
     {
         Recipe? recipe = Recipes.All.FirstOrDefault(candidate => candidate.Result == result);
@@ -23,6 +61,7 @@ public static class SurvivalProgressionTests
 
     public static void Run()
     {
+        CheckInputLockAndFlightTransitions();
         TestAssert.Equal(8, MobPopulationRules.WildPassiveTarget,
                 "wild herds leave two slots open for offspring");
         TestAssert.Check(MobPopulationRules.CanSpawnWildGroup(7)
