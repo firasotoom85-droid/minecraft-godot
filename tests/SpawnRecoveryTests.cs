@@ -93,6 +93,10 @@ public static class SpawnRecoveryTests
         TestAssert.Check(world.TryGetSavedOccupiedBoatSeat(boatSeat, out Vector3 restoredSeat)
                         && restoredSeat == boatSeat,
                 "saved occupied boat restores the player's validated seat offset");
+        TestAssert.Check(!world.IsSafePlayerPosition(restoredSeat, allowWater: true)
+                        && world.IsSafePlayerPosition(restoredSeat, allowWater: true,
+                                allowVehicleSupport: true),
+                "saved boat seat may rely on its restored hull without weakening aquatic dismount support");
         TestAssert.Check(!world.TryGetSavedOccupiedBoatSeat(spawn + Vector3.Right * 4.0f, out _),
                 "an unrelated occupied boat cannot override the saved player destination");
         world.SavedBoats = null;
