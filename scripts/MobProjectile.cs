@@ -19,6 +19,7 @@ public partial class MobProjectile : Area3D
     private RayCast3D? _terrainRay;
     private ShapeCast3D? _sweep;
     private bool _spent;
+    internal ShapeCast3D? SweepForTests => _sweep;
     private string _sound = "mobcrystal";
     private Color _color = Colors.White;
 
