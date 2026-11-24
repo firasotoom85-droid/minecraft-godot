@@ -106,6 +106,15 @@ public sealed class OnboardingProgress
             FoodGathered = true;
     }
 
+    public bool MarkInventoryOpened()
+    {
+        if (InventoryOpened)
+            return false;
+
+        InventoryOpened = true;
+        return true;
+    }
+
     public void RecordItemCrafted(ItemId id)
     {
         if (id == ItemId.CraftingTable)
@@ -269,11 +278,8 @@ public partial class OnboardingSystem : Node
 
     private void OnInventoryOpened()
     {
-        if (_progress.InventoryOpened)
-            return;
-
-        _progress.InventoryOpened = true;
-        PersistFacts();
+        if (_progress.MarkInventoryOpened())
+            PersistFacts();
     }
 
     public override void _Process(double delta)
