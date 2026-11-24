@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Godot;
 
 namespace Minecraft;
@@ -27,6 +28,13 @@ public static class GamepadBindings
         ("journal", JoyButton.DpadDown),
     ];
 
+    public static readonly (string Action, string Label)[] ControllerOnlyActions =
+    [
+        ("break_block", "Mine blocks"),
+        ("place_block", "Place / use"),
+        ("pick_block", "Pick block"),
+    ];
+
     private static bool _configured;
 
     public static void Configure()
@@ -45,16 +53,55 @@ public static class GamepadBindings
         AddAxis("look_down", JoyAxis.RightY, 1.0f);
 
         ConfigFile config = new();
-        bool hasConfig = config.Load(ConfigPath) == Error.Ok;
-        foreach ((string action, JoyButton button) in DefaultButtons)
+        if (config.Load(ConfigPath) != Error.Ok)
+            config = new ConfigFile();
+        ApplyStoredBindings(config);
+        _configured = true;
+    }
+
+    internal static void ApplyStoredBindings(ConfigFile config)
+    {
+        HashSet<JoyButton> claimed = [];
+        foreach ((string action, JoyButton fallback) in DefaultButtons)
         {
-            JoyButton selected = button;
-            if (hasConfig && config.HasSectionKey("buttons", action)
-                    && !TryReadButton(config, action, button, out selected))
-                GD.PushWarning($"Ignoring invalid controller binding in buttons/{action}; keeping {button}.");
+            JoyButton selected = fallback;
+            if (config.HasSectionKey("buttons", action))
+            {
+                if (TryReadButton(config, action, fallback, out JoyButton saved)
+                        && !claimed.Contains(saved))
+                {
+                    selected = saved;
+                }
+                else
+                {
+                    GD.PushWarning($"Ignoring invalid or duplicate controller binding in buttons/{action}; restoring a free default.");
+                }
+            }
+
+            if (claimed.Contains(selected))
+                selected = FindAvailableButton(claimed, fallback);
+            if (selected == JoyButton.Max)
+            {
+                GD.PushWarning($"No unused controller button remains for {action}.");
+                continue;
+            }
+
+            claimed.Add(selected);
             ApplyButton(action, selected);
         }
-        _configured = true;
+    }
+
+    private static JoyButton FindAvailableButton(HashSet<JoyButton> claimed, JoyButton preferred)
+    {
+        if (!claimed.Contains(preferred))
+            return preferred;
+        for (int raw = 0; raw < (int)JoyButton.Max; raw++)
+        {
+            if (System.Enum.IsDefined(typeof(JoyButton), (long)raw)
+                    && !claimed.Contains((JoyButton)raw))
+                return (JoyButton)raw;
+        }
+        return JoyButton.Max;
     }
 
     internal static bool TryReadButton(ConfigFile config, string action, JoyButton fallback, out JoyButton selected)
@@ -73,7 +120,8 @@ public static class GamepadBindings
     public static Error SetButton(string action, JoyButton button)
     {
         if (!IsBindable(action) || (int)button < 0 || button >= JoyButton.Max
-                || !System.Enum.IsDefined(typeof(JoyButton), (long)button))
+                || !System.Enum.IsDefined(typeof(JoyButton), (long)button)
+                || Conflict(action, button) != null)
             return Error.InvalidParameter;
         ApplyButton(action, button);
         return Save();
@@ -98,7 +146,7 @@ public static class GamepadBindings
     {
         foreach ((string other, _) in DefaultButtons)
         {
-            if (other == action) continue;
+            if (other == action || !InputMap.HasAction(other)) continue;
             foreach (InputEvent inputEvent in InputMap.ActionGetEvents(other))
                 if (inputEvent is InputEventJoypadButton bound && bound.ButtonIndex == button)
                     return other;
