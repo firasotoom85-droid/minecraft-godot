@@ -55,7 +55,7 @@ public partial class InvSlot : DurabilitySlotPanel
         _count.AddThemeConstantOverride("outline_size", 4);
         _count.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight, LayoutPresetMode.Minsize, 2);
         AddChild(_count);
-        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(_selected, false));
+        RefreshSlotStyle();
         MouseEntered += OnMouseEntered;
         MouseExited += OnMouseExited;
     }
@@ -98,8 +98,14 @@ public partial class InvSlot : DurabilitySlotPanel
                 + condition
                 + (enchantments.Length == 0 ? "" : "\n" + enchantments);
 
-        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(selected, _hovered));
+        RefreshSlotStyle();
     }
+
+    internal static StyleBoxFlat StyleForState(bool selected, bool hovered) =>
+            MenuSkin.SlotStyle(selected, hovered);
+
+    private void RefreshSlotStyle() =>
+            AddThemeStyleboxOverride("panel", StyleForState(_selected, _hovered));
 
     private static string EnchantmentSummary(ItemStack stack)
     {
@@ -113,13 +119,13 @@ public partial class InvSlot : DurabilitySlotPanel
     private void OnMouseEntered()
     {
         _hovered = true;
-        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(_selected, true));
+        RefreshSlotStyle();
     }
 
     private void OnMouseExited()
     {
         _hovered = false;
-        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(_selected, false));
+        RefreshSlotStyle();
     }
 
     public override Variant _GetDragData(Vector2 atPosition)
