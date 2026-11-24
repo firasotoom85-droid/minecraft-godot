@@ -27,6 +27,8 @@ The project uses original procedural materials and audio. It is Minecraft-inspir
 - Multi-world saves with atomic writes, rotating backups, import/export and compatibility for older worlds.
 - Keyboard and controller rebinding, minimap, achievements journal, contextual onboarding, photo mode and a developer console.
 
+Audio currently uses original procedural sound effects and ambience. Authored music is deferred, so the settings UI does not expose a Music volume control without an active playback source.
+
 Autosaving captures an immutable save snapshot on the main thread; serialization and the three ordered atomic file writes run on the background save worker, so `_Process()` does not serialize or perform disk I/O. Explicit save and quit flush older work before writing the latest state synchronously.
 
 See the [documentation index](docs/README.md) for subsystem details, test procedures, visual references and historical engineering reports.
