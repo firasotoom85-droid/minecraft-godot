@@ -24,6 +24,7 @@ public partial class PhotoMode : Node
     private bool _playerCameraWasCurrent;
     private bool _dayNightWasPaused;
     private Input.MouseModeEnum _mouseModeBeforePhotoMode;
+    private bool _skipMotion;
 
     public void Setup(Player player, VoxelWorld world, Hud hud, DayNight daynight)
     {
@@ -59,12 +60,25 @@ public partial class PhotoMode : Node
         if (GetTree().Paused || player.Stats.Dead || (player.InputLocked && !Active))
             return;
 
-        if (Active && @event is InputEventMouseMotion motion
-                && Input.MouseMode == Input.MouseModeEnum.Captured)
+        if (Active && @event is InputEventMouseMotion motion)
         {
+            if (Input.MouseMode != Input.MouseModeEnum.Captured)
+            {
+                Input.MouseMode = Input.MouseModeEnum.Captured;
+                _skipMotion = true;
+                return;
+            }
+
+            if (_skipMotion)
+            {
+                _skipMotion = false;
+                return;
+            }
+
             float sens = Settings.MouseSensitivity * 0.8f;
+            float lookY = motion.Relative.Y * (Settings.InvertY ? -1.0f : 1.0f);
             _yaw -= motion.Relative.X * sens;
-            _pitch = Mathf.Clamp(_pitch - motion.Relative.Y * sens, -1.5f, 1.5f);
+            _pitch = Mathf.Clamp(_pitch - lookY * sens, -1.5f, 1.5f);
         }
     }
 
@@ -93,7 +107,11 @@ public partial class PhotoMode : Node
         _cam.GlobalPosition = PlayerRef.Camera.GlobalPosition;
         _yaw = PlayerRef.Camera.GlobalRotation.Y;
         _pitch = PlayerRef.Camera.Rotation.X;
+        _cam.Fov = Settings.Fov;
+        Gfx.ApplyCameraFar(_cam, Mathf.Max(World!.ViewDistance, Settings.ViewDistance), World.LodRadius);
         _cam.Current = true;
+        Input.MouseMode = Input.MouseModeEnum.Captured;
+        _skipMotion = true;
         PlayerRef.InputLocked = true;
         HudRef.Visible = false;
         if (DayNightRef != null)
@@ -108,6 +126,7 @@ public partial class PhotoMode : Node
         if (!Active)
             return;
         Active = false;
+        _skipMotion = false;
         if (_cam != null && GodotObject.IsInstanceValid(_cam))
             _cam.Current = false;
         if (PlayerRef != null && GodotObject.IsInstanceValid(PlayerRef))
