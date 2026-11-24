@@ -824,12 +824,13 @@ public partial class Player : CharacterBody3D, IDamageable
     /// relocation. All player spawn/respawn callers use this transaction.
     /// </summary>
     internal bool TryTeleportToSafePosition(Vector3? preferredPosition = null, bool allowWater = false,
-            Vector3? alternatePosition = null)
+            Vector3? alternatePosition = null, bool allowVehicleSupport = false)
     {
         if (World == null
                 || !World.TryResolvePlayerDestination(preferredPosition, out Vector3 destination,
-                        allowWater, alternatePosition: alternatePosition)
-                || !World.TryEnsureCollisionReady(destination, allowWater))
+                        allowWater, alternatePosition: alternatePosition,
+                        allowVehicleSupport: allowVehicleSupport)
+                || !World.TryEnsureCollisionReady(destination, allowWater, allowVehicleSupport))
         {
             return false;
         }
