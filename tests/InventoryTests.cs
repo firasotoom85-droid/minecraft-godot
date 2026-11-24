@@ -7,6 +7,28 @@ public static class InventoryTests
 {
     public static void Run()
     {
+        StyleBoxFlat selected = InvSlot.StyleForState(selected: true, hovered: false);
+        StyleBoxFlat selectedHovered = InvSlot.StyleForState(selected: true, hovered: true);
+        StyleBoxFlat ordinaryHovered = InvSlot.StyleForState(selected: false, hovered: true);
+        TestAssert.Equal(selected.BgColor, selectedHovered.BgColor,
+                "hovering a selected hotbar slot preserves its selected background");
+        TestAssert.Equal(selected.BorderColor, selectedHovered.BorderColor,
+                "hovering a selected hotbar slot preserves its selected border");
+        TestAssert.Check(ordinaryHovered.BorderColor != selectedHovered.BorderColor,
+                "hover feedback remains distinct for an unselected slot");
+
+        VBoxContainer focusList = new();
+        Button recipeEntry = new() { FocusMode = Control.FocusModeEnum.All };
+        Button paletteEntry = new() { FocusMode = Control.FocusModeEnum.All };
+        focusList.AddChild(recipeEntry);
+        focusList.AddChild(paletteEntry);
+        TestAssert.Check(ReferenceEquals(UiFocus.FindFocusable(focusList), recipeEntry),
+                "actionable recipe entries participate in keyboard/controller focus");
+        recipeEntry.Disabled = true;
+        TestAssert.Check(ReferenceEquals(UiFocus.FindFocusable(focusList), paletteEntry),
+                "disabled recipe entries are skipped while palette entries remain focusable");
+        focusList.Free();
+
         Inventory inv = new();
         TestAssert.Equal(0, inv.Add(ItemId.Stone, 64), "first stack fits");
         TestAssert.Equal(64, inv.Get(0).Count, "hotbar fills first");
