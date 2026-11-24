@@ -888,15 +888,21 @@ public partial class Player : CharacterBody3D, IDamageable
         if (!Stats.Dead)
             return;
 
+        bool respawningFromBoat = CurrentBoat is { } boat
+                && GodotObject.IsInstanceValid(boat);
+        bool allowBoatSupport = respawningFromBoat;
         if (RespawnPoint is { } anchor && World != null
-                && !World.IsSafePlayerPosition(anchor))
+                && !World.IsSafePlayerPosition(anchor, allowWater: allowBoatSupport,
+                        allowVehicleSupport: allowBoatSupport))
         {
             RespawnPoint = null;
             World.MarkDirty();
         }
 
         // Keep death state and UI intact unless the complete relocation commits.
-        if (!TryTeleportToSafePosition(RespawnPoint))
+        if (!TryTeleportToSafePosition(RespawnPoint,
+                allowWater: allowBoatSupport,
+                allowVehicleSupport: allowBoatSupport))
         {
             EmitSignal(SignalName.Notice,
                     "Respawn failed: no safe location with ready terrain collision is available");
