@@ -91,6 +91,10 @@ public partial class Minimap : Control
             _subscribedWorld = World;
             if (_subscribedWorld != null)
                 _subscribedWorld.BlockChanged += OnBlockChanged;
+            _building = false;
+            _rebuildDirty = true;
+            _lastCentre = Vector2.Zero;
+            _timer = 0.0;
         }
 
         if (World == null || PlayerRef == null)
