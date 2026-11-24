@@ -2166,6 +2166,9 @@ public partial class Player : CharacterBody3D, IDamageable
         EmitSignal(SignalName.FlyChanged, Flying);
     }
 
+    internal static bool ShouldEmitMiningTick(float progress, double soundTimer) =>
+            progress < 1.0f && soundTimer <= 0.0;
+
     private void HoldMine(float delta)
     {
         if (InputLocked || Stats.Dead || !Input.IsActionPressed("break_block") || World == null)
@@ -2232,7 +2235,7 @@ public partial class Player : CharacterBody3D, IDamageable
                 * WaterPhysics.MiningSpeedMultiplier(Underwater), 1.0f);
 
         _mineSoundTimer -= delta;
-        if (_mineProgress < 1.0f && _mineSoundTimer <= 0.0)
+        if (ShouldEmitMiningTick(_mineProgress, _mineSoundTimer))
         {
             _mineSoundTimer = 0.25;
             Vector3 center = new(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
