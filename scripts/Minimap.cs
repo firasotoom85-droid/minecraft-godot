@@ -51,6 +51,14 @@ public partial class Minimap : Control
     private Color _deep = new(0.08f, 0.22f, 0.48f);
     private Color _stone = new(0.55f, 0.55f, 0.57f);
 
+    internal static bool HeadingChanged(float previous, float current) =>
+            !float.IsFinite(previous)
+            || Mathf.Abs(Mathf.Wrap(current - previous, -Mathf.Pi, Mathf.Pi)) > 0.001f;
+
+    internal static bool IsPositionWithinMap(Vector3I position, Vector2 centre, float halfExtent) =>
+            Mathf.Abs(position.X - centre.X) <= halfExtent
+            && Mathf.Abs(position.Z - centre.Y) <= halfExtent;
+
     public float MetresPerPx => ZoomLevels[_zoom];
     public string ScaleLabel => $"{Mathf.RoundToInt(Px * MetresPerPx)} m";
 
@@ -96,7 +104,7 @@ public partial class Minimap : Control
         }
 
         float yaw = PlayerRef.Rotation.Y;
-        if (!float.IsFinite(_lastYaw) || Mathf.Abs(Mathf.AngleDifference(_lastYaw, yaw)) > 0.001f)
+        if (HeadingChanged(_lastYaw, yaw))
         {
             _lastYaw = yaw;
             QueueRedraw();
@@ -139,8 +147,7 @@ public partial class Minimap : Control
     {
         Vector2 centre = _building ? new Vector2(_buildCx, _buildCz) : _lastCentre;
         float halfExtent = Px * MetresPerPx * 0.5f;
-        if (Mathf.Abs(position.X - centre.X) > halfExtent
-                || Mathf.Abs(position.Z - centre.Y) > halfExtent)
+        if (!IsPositionWithinMap(position, centre, halfExtent))
             return;
 
         _mutationVersion++;
