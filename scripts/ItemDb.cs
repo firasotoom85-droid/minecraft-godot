@@ -144,10 +144,19 @@ public static class ItemDb
             ItemId.FishingRod => "Fishing Rod",
             ItemId.RawFish => "Raw Fish",
             ItemId.CookedFish => "Cooked Fish",
-            ItemId.WoodSword => "Wooden Sword", ItemId.StoneSword => "Stone Sword", ItemId.IronSword => "Iron Sword", ItemId.DiamondSword => "Diamond Sword",
-            ItemId.Bow => "Bow", ItemId.Arrow => "Arrow", ItemId.Shield => "Shield", ItemId.EmberBlade => "Ember Blade", ItemId.LapisLazuli => "Lapis Lazuli",
-            ItemId.EmptyBucket => "Bucket", ItemId.WaterBucket => "Water Bucket",
-            ItemId.LavaBucket => "Lava Bucket", ItemId.WoodenBoat => "Wooden Boat",
+            ItemId.WoodSword => "Wooden Sword",
+            ItemId.StoneSword => "Stone Sword",
+            ItemId.IronSword => "Iron Sword",
+            ItemId.DiamondSword => "Diamond Sword",
+            ItemId.Bow => "Bow",
+            ItemId.Arrow => "Arrow",
+            ItemId.Shield => "Shield",
+            ItemId.EmberBlade => "Ember Blade",
+            ItemId.LapisLazuli => "Lapis Lazuli",
+            ItemId.EmptyBucket => "Bucket",
+            ItemId.WaterBucket => "Water Bucket",
+            ItemId.LavaBucket => "Lava Bucket",
+            ItemId.WoodenBoat => "Wooden Boat",
             _ => id.ToString(),
         };
     }
@@ -245,10 +254,14 @@ public static class ItemDb
 
     public static WeaponInfo? WeaponOf(ItemId id) => id switch
     {
-        ItemId.WoodSword => new(4, 0.85f, 70, 1, 2.8f), ItemId.StoneSword => new(5, 0.72f, 150, 2, 3.2f),
-        ItemId.IronSword => new(6, 0.62f, 320, 3, 3.5f), ItemId.DiamondSword => new(7, 0.55f, 900, 4, 4.0f),
-        ItemId.EmberBlade => new(8, 0.52f, 1200, 5, 4.5f), ItemId.Bow => new(5, 0.8f, 384, 2, 0),
-        ItemId.Shield => new(0, 0, 420, 2, 0), _ => null,
+        ItemId.WoodSword => new(4, 0.85f, 70, 1, 2.8f),
+        ItemId.StoneSword => new(5, 0.72f, 150, 2, 3.2f),
+        ItemId.IronSword => new(6, 0.62f, 320, 3, 3.5f),
+        ItemId.DiamondSword => new(7, 0.55f, 900, 4, 4.0f),
+        ItemId.EmberBlade => new(8, 0.52f, 1200, 5, 4.5f),
+        ItemId.Bow => new(5, 0.8f, 384, 2, 0),
+        ItemId.Shield => new(0, 0, 420, 2, 0),
+        _ => null,
     };
 
     /// <summary>Presentation tier derived from existing item metadata and material identity.</summary>
@@ -289,10 +302,16 @@ public static class ItemDb
     };
     public static string DescriptionOf(ItemId id) => id switch
     {
-        ItemId.WoodSword => "Fast starter weapon; limited durability.", ItemId.StoneSword => "Reliable cave weapon with improved stopping force.",
-        ItemId.IronSword => "Durable blade forged from smelted iron.", ItemId.DiamondSword => "Rare, powerful blade for deep expeditions.",
-        ItemId.EmberBlade => "A Warden-forged end-game blade.", ItemId.Bow => "Ranged weapon; consumes one arrow per shot.",
-        ItemId.Arrow => "Bow ammunition crafted from gravel, sticks and feathers.", ItemId.Shield => "Blocks frontal melee and ranged hits while held; blocking wears it.", ItemId.LapisLazuli => "A blue mineral used to power enchantments.", ItemId.EnchantingTable => "A crafted station for enchanting and upgrading equipment.",
+        ItemId.WoodSword => "Fast starter weapon; limited durability.",
+        ItemId.StoneSword => "Reliable cave weapon with improved stopping force.",
+        ItemId.IronSword => "Durable blade forged from smelted iron.",
+        ItemId.DiamondSword => "Rare, powerful blade for deep expeditions.",
+        ItemId.EmberBlade => "A Warden-forged end-game blade.",
+        ItemId.Bow => "Ranged weapon; consumes one arrow per shot.",
+        ItemId.Arrow => "Bow ammunition crafted from gravel, sticks and feathers.",
+        ItemId.Shield => "Blocks frontal melee and ranged hits while held; blocking wears it.",
+        ItemId.LapisLazuli => "A blue mineral used to power enchantments.",
+        ItemId.EnchantingTable => "A crafted station for enchanting and upgrading equipment.",
         ItemId.PlanksSlab or ItemId.CobblestoneSlab or ItemId.BrickSlab => "A half-height building block. Place against a face to choose the top or bottom half; stack a matching slab to make a full block.",
         ItemId.PlanksStairs or ItemId.CobblestoneStairs or ItemId.BrickStairs => "A stepped building block. Facing follows your view; upper-half placement turns the stairs upside down.",
         ItemId.EmptyBucket => "Collects source water or lava. Flowing water cannot be scooped.",
@@ -1123,11 +1142,11 @@ public static class ItemDb
     {
         Color metal = weapon.Tier switch { 1 => new Color(0.62f, 0.43f, 0.25f), 2 => new Color(0.62f, 0.64f, 0.68f), 3 => new Color(0.84f, 0.86f, 0.90f), 4 => new Color(0.30f, 0.88f, 0.90f), _ => new Color(1, 0.48f, 0.12f) };
         Color wood = new(0.42f, 0.25f, 0.13f);
-        if (id == ItemId.Bow) { for (int y=3;y<29;y++) Rect(img, y<16?10-(y-3)/3:6+(y-16)/3, y, 3, 2, wood); Rect(img,12,3,1,26,Colors.Beige); return; }
-        if (id == ItemId.Shield) { Rect(img,6,4,20,23,wood); Rect(img,9,7,14,17,metal); return; }
-        for(int i=0;i<18;i++) Rect(img,24-i,27-i,3,3,wood);
-        Rect(img,5,4,6,22,metal); Rect(img,2,5,12,4,metal.Lightened(0.12f)); Rect(img,8,3,7,4,metal);
-        if(id==ItemId.EmberBlade) Rect(img,4,8,8,3,new Color(1,0.55f,0.1f));
+        if (id == ItemId.Bow) { for (int y = 3; y < 29; y++) Rect(img, y < 16 ? 10 - (y - 3) / 3 : 6 + (y - 16) / 3, y, 3, 2, wood); Rect(img, 12, 3, 1, 26, Colors.Beige); return; }
+        if (id == ItemId.Shield) { Rect(img, 6, 4, 20, 23, wood); Rect(img, 9, 7, 14, 17, metal); return; }
+        for (int i = 0; i < 18; i++) Rect(img, 24 - i, 27 - i, 3, 3, wood);
+        Rect(img, 5, 4, 6, 22, metal); Rect(img, 2, 5, 12, 4, metal.Lightened(0.12f)); Rect(img, 8, 3, 7, 4, metal);
+        if (id == ItemId.EmberBlade) Rect(img, 4, 8, 8, 3, new Color(1, 0.55f, 0.1f));
     }
 
     private static void PaintBucket(Image img, Color liquid)
