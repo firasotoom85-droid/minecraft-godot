@@ -140,7 +140,8 @@ public static class KeybindTests
         TestAssert.Equal("?", Hud.BiomeName((Biome)255), "unknown biome ids keep a clear fallback");
 
         BlockId[] appendedFoliage = [BlockId.SpruceLeaves, BlockId.JungleLeaves,
-                BlockId.SwampLeaves, BlockId.RiverReeds];
+                BlockId.SwampLeaves, BlockId.RiverReeds, BlockId.Cactus, BlockId.Torch,
+                BlockId.Wheat0, BlockId.Wheat1, BlockId.Wheat2];
         foreach (BlockId id in appendedFoliage)
         {
             TestAssert.Equal("dig_leaves", Sound.FamilyFor(id), $"{id} uses foliage break sounds");
