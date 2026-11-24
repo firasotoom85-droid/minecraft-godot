@@ -3,7 +3,7 @@
 **Repository:** `firasotoom85-droid/minecraft-godot`  
 **Refreshed:** 2026-11-24  
 **Default branch audited:** `main`  
-**Audited head:** `c44957d13f412a765c5f33576fa94d538acbd318`  
+**Audited head:** `ff5990c2c68104ebf35be246ade8a66b238d69be`  
 **Active baseline:** 109 open issues; #93–#202 excluding #150 (closed by merged PR #207)
 
 ## Scope and verification record
@@ -2183,4 +2183,5 @@ Correct `TestLavaDepthBehavior()` so it asserts that the lava shader does not wr
 - **Scope completed:** #94 stale/recreated tile payload protection; #147 worker exception capture and exact in-flight cleanup; #194 Far-LOD/full-resolution ownership boundary and negative-coordinate cell gating; #202 unconditional completion-finally dispatch and queue progress after eviction.
 - **Issue state:** #94, #147, #194 and #202 remain open pending explicit issue-owner closure review. No GitHub issue was closed or otherwise mutated by this integration.
 - **Outstanding W02 dependency:** #199 remains a separate asynchronous world/Far-LOD/scene-transition shutdown coordination issue; it was not silently folded into PR #205.
-- **Current main head:** `c44957d13f412a765c5f33576fa94d538acbd318`. The active issue count remains 109 (#93–#202 excluding already-closed #150).
+- **W02 implementation merge commit:** `c44957d13f412a765c5f33576fa94d538acbd318`.  
+- **Current main head after this ledger update:** `ff5990c2c68104ebf35be246ade8a66b238d69be`. The active issue count remains 109 (#93–#202 excluding already-closed #150).
