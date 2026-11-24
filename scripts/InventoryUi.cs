@@ -529,14 +529,13 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     // Open / close
     // -----------------------------------------------------------------------
 
+    internal static bool CanHandleInventoryInput(bool paused, bool open, bool inputLocked) =>
+            !paused && (open || !inputLocked);
+
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (GetTree().Paused || @event is InputEventKey { Echo: true })
-            return;
-
-        // Another modal (console, journal, trader) owns input; do not open on
-        // top of it or closing this panel would unlock the player behind it.
-        if (!_open && _player.InputLocked)
+        if (@event is InputEventKey { Echo: true }
+                || !CanHandleInventoryInput(GetTree().Paused, _open, _player.InputLocked))
             return;
 
         if (@event.IsActionPressed("inventory"))
