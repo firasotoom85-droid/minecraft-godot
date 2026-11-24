@@ -306,16 +306,34 @@ public partial class MainMenu : Control
         foreach ((string dir, WorldManifest manifest) in worlds)
         {
             string played = Time.GetDatetimeStringFromUnixTime(manifest.PlayedUtc, true);
-            string presetTag = manifest.Preset is { Length: > 0 } pr ? $"   ·   {pr}" : "";
+            string presetTag = manifest.Preset is { Length: > 0 } pr ? $" · {pr}" : "";
             HBoxContainer row = new();
-            row.AddThemeConstantOverride("separation", 6);
-            Button entry = MenuSkin.MakeButton(
-                    $"{manifest.Name}   ·   seed {manifest.Seed}{presetTag}   ·   gen v{manifest.GenVersion}   ·   {played}",
-                    () => StartWorld(dir),
-                    0);
-            entry.Alignment = HorizontalAlignment.Left;
-            entry.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-            row.AddChild(entry);
+            row.AddThemeConstantOverride("separation", 8);
+
+            VBoxContainer details = new()
+            {
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                CustomMinimumSize = new Vector2(0, 52),
+            };
+            Label worldName = new()
+            {
+                Text = manifest.Name,
+                AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                TooltipText = manifest.Name,
+            };
+            worldName.AddThemeFontSizeOverride("font_size", 15);
+            Label metadata = new()
+            {
+                Text = $"Seed {manifest.Seed} · gen v{manifest.GenVersion}{presetTag} · {played}",
+                AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            };
+            metadata.AddThemeFontSizeOverride("font_size", 11);
+            details.AddChild(worldName);
+            details.AddChild(metadata);
+            row.AddChild(details);
+            row.AddChild(MenuSkin.MakeButton("Play", () => StartWorld(dir), 76));
             row.AddChild(MenuSkin.MakeButton("Manage", () => ShowManage(dir, manifest), 92));
             _worldList.AddChild(row);
         }
