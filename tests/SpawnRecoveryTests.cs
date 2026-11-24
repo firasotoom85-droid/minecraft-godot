@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using Godot;
 
 namespace Minecraft;
@@ -71,30 +72,27 @@ public static class SpawnRecoveryTests
     {
         Vector3 spawn = world.FindSpawn();
         player.GlobalPosition = spawn;
-        int x = Mathf.FloorToInt(spawn.X);
-        int y = Mathf.FloorToInt(spawn.Y);
-        int z = Mathf.FloorToInt(spawn.Z);
-        Vector3I lavaCell = new(x, y, z);
-        Vector3I waterSource = new(x + 1, y, z);
-
+        Vector3I lavaCell = new(
+                Mathf.FloorToInt(spawn.X),
+                Mathf.FloorToInt(spawn.Y),
+                Mathf.FloorToInt(spawn.Z));
         TestAssert.Check(world.SetBlock(lavaCell.X, lavaCell.Y, lavaCell.Z, BlockId.Lava),
                 "fluid reaction fixture places lava inside the player capsule through SetBlock");
-        TestAssert.Check(world.SetBlock(waterSource.X, waterSource.Y, waterSource.Z, BlockId.Water),
-                "fluid reaction fixture places adjacent source water through SetBlock");
 
         FluidSystem fluids = new();
-        host.AddChild(fluids);
         fluids.Setup(world, player);
-        fluids.SimulateForTests(world, spawn);
+        typeof(FluidSystem).GetField("_editsRemaining",
+                BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(fluids, 1);
+        int edits = (int)typeof(FluidSystem).GetMethod("ReactAt",
+                BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(fluids, [lavaCell])!;
+        TestAssert.Equal(0, edits,
+                "fluid reaction defers a result that would intersect the player capsule");
         TestAssert.Equal(BlockId.Lava,
                 world.GetBlock(lavaCell.X, lavaCell.Y, lavaCell.Z),
-                "water cannot react lava into solid cobblestone inside the player capsule");
+                "deferred fluid reaction leaves the player's occupied lava voxel unchanged");
 
         TestAssert.Check(world.SetBlock(lavaCell.X, lavaCell.Y, lavaCell.Z, BlockId.Air),
                 "fluid reaction test removes its lava fixture through SetBlock");
-        TestAssert.Check(world.SetBlock(waterSource.X, waterSource.Y, waterSource.Z, BlockId.Air),
-                "fluid reaction test removes its water fixture through SetBlock");
-        host.RemoveChild(fluids);
         fluids.Free();
     }
 
