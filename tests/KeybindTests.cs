@@ -74,13 +74,13 @@ public static class KeybindTests
         TestAssert.Equal(Error.Ok, Keybinds.ResetDefaults(), "keyboard reset restores persisted defaults");
 
         ConfigFile reorderedRemap = new();
-        reorderedRemap.SetValue("keys", "forward", (int)Key.E);
-        reorderedRemap.SetValue("keys", "inventory", (int)Key.Z);
+        reorderedRemap.SetValue("keys", "forward", (int)Key.F11);
+        reorderedRemap.SetValue("keys", "inventory", (int)Key.W);
         Keybinds.ApplySavedBindings(reorderedRemap);
-        TestAssert.Equal("E", Keybinds.LabelFor("forward"),
-                "saved remaps may reuse a key another saved action vacates");
-        TestAssert.Equal("Z", Keybinds.LabelFor("inventory"),
-                "the vacated action's replacement loads independent of binding order");
+        TestAssert.Equal("F11", Keybinds.LabelFor("forward"),
+                "saved overrides load before defaults without reserving their old key");
+        TestAssert.Equal("W", Keybinds.LabelFor("inventory"),
+                "an action can claim a key vacated by another saved override");
         TestAssert.Equal(Error.Ok, Keybinds.ResetDefaults(),
                 "permutation regression restores the original keyboard defaults");
 
