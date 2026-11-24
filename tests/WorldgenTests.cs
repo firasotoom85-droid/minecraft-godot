@@ -164,6 +164,11 @@ public static class WorldgenTests
         CheckV8VillageGeneration(host);
         CheckChunkBoundaries(host, WorldGenV8.Version);
         ProfileChunkGeneration(host);
+        CheckV12KnownHeightBiomeQueries();
+        CheckV12FeatureRules();
+        CheckV12WorldBoundary(host);
+        CheckV12SurfaceCaveEntrance(host);
+        CheckV12ChunkDeterminism(host);
     }
 
     private static void CheckLegacyGoldenHashes(Node host)
@@ -1027,8 +1032,8 @@ public static class WorldgenTests
             new(-2, -2), new(-1, -2), new(0, -2), new(1, -2),
             new(-2, -1), new(-1, -1), new(0, -1), new(1, -1),
         ];
-        double[] elapsed = new double[3];
-        int[] versions = [6, WorldGenV7.Version, WorldGenV8.Version];
+        double[] elapsed = new double[4];
+        int[] versions = [6, WorldGenV7.Version, WorldGenV8.Version, WorldGenV12.Version];
         for (int v = 0; v < versions.Length; v++)
         {
             int version = versions[v];
@@ -1057,9 +1062,10 @@ public static class WorldgenTests
             DirAccess.RemoveAbsolute(dir);
         }
 
-        GD.Print($"WORLDGEN_CHUNK_PROFILE chunks={chunks.Length} v6_ms_per_chunk={elapsed[0]:F2} v7_ms_per_chunk={elapsed[1]:F2} v8_ms_per_chunk={elapsed[2]:F2} v8_vs_v7={(elapsed[2] / Math.Max(0.001, elapsed[1])):F2}x");
-        TestAssert.Check(elapsed[0] > 0.0 && elapsed[1] > 0.0 && elapsed[2] > 0.0,
-                "V6, V7 and V8 chunk generation profiling completed");
+        GD.Print($"WORLDGEN_CHUNK_PROFILE chunks={chunks.Length} v6_ms_per_chunk={elapsed[0]:F2} v7_ms_per_chunk={elapsed[1]:F2} v8_ms_per_chunk={elapsed[2]:F2} v12_ms_per_chunk={elapsed[3]:F2} v12_vs_v8={(elapsed[3] / Math.Max(0.001, elapsed[2])):F2}x");
+        TestAssert.Check(elapsed[0] > 0.0 && elapsed[1] > 0.0
+                        && elapsed[2] > 0.0 && elapsed[3] > 0.0,
+                "V6, V7, V8 and V12 chunk generation profiling completed");
     }
 
     private static void ProfileV7ColumnSampling()
@@ -1337,6 +1343,326 @@ public static class WorldgenTests
         {
             TestAssert.Check(faceAreas.ContainsKey(key),
                     $"greedy mesher invented normal {key} with area {area:F3}");
+        }
+    }
+
+    private static void CheckV12KnownHeightBiomeQueries()
+    {
+        const int x = 127;
+        const int z = -311;
+        foreach (string preset in new[] { "normal", "flat", "amplified", "sky" })
+        {
+            WorldGenV7 v7 = new(1337, preset);
+            WorldGenV7.SurfaceSample sampleV7 = v7.SampleSurface(x, z, 40);
+            TestAssert.Equal(sampleV7.Biome, v7.BiomeAt(x, z, sampleV7.Height, 40),
+                    $"V7 {preset} known-height biome matches its sampled surface");
+            TestAssert.Equal(Biome.Beach, v7.BiomeAt(x, z, 42, 40),
+                    $"V7 {preset} known height selects beach without resampling terrain");
+            TestAssert.Equal(Biome.Ocean, v7.BiomeAt(x, z, 36, 40),
+                    $"V7 {preset} known height selects ocean without resampling terrain");
+
+            WorldGenV8 v8 = new(1337, preset);
+            WorldGenV7.SurfaceSample sampleV8 = v8.SampleSurface(x, z, 40);
+            TestAssert.Equal(sampleV8.Biome, v8.BiomeAt(x, z, sampleV8.Height, 40),
+                    $"V8 {preset} known-height biome matches its sampled surface");
+            TestAssert.Equal(Biome.Beach, v8.BiomeAt(x, z, 42, 40),
+                    $"V8 {preset} known height selects beach without resampling terrain");
+            TestAssert.Equal(Biome.Ocean, v8.BiomeAt(x, z, 36, 40),
+                    $"V8 {preset} known height selects ocean without resampling terrain");
+        }
+    }
+
+    private static void CheckV12FeatureRules()
+    {
+        TestAssert.Equal(WorldGenV12.Version, WorldStore.CurrentGenVersion,
+                "new worlds default to generator V12");
+        WorldGenV8 seedA = new(1337, "normal");
+        WorldGenV8 seedB = new(7331, "normal");
+        bool seedChangesCactusHash = false;
+        for (int z = -4; z <= 4 && !seedChangesCactusHash; z++)
+        {
+            for (int x = -4; x <= 4; x++)
+            {
+                uint first = WorldGenV12.CactusHash(seedA, x, z);
+                uint second = WorldGenV12.CactusHash(seedB, x, z);
+                if (first != second)
+                {
+                    seedChangesCactusHash = true;
+                    break;
+                }
+            }
+        }
+
+        TestAssert.Check(seedChangesCactusHash,
+                "V12 cactus placement hash changes with the world seed");
+        TestAssert.Equal(WorldGenV12.CactusHash(seedA, 17, -29),
+                WorldGenV12.CactusHash(seedA, 17, -29),
+                "V12 cactus placement hash is deterministic for a fixed seed and coordinate");
+
+        TestAssert.Check(WorldGenV12.ShouldCarveSurfaceEntrance(
+                        55, 55, 40, "normal", true),
+                "V12 opens a dry surface voxel above an existing cave entrance");
+        TestAssert.Check(!WorldGenV12.ShouldCarveSurfaceEntrance(
+                        54, 55, 40, "normal", true),
+                "V12 does not extend the surface entrance rule below the surface");
+        TestAssert.Check(!WorldGenV12.ShouldCarveSurfaceEntrance(
+                        42, 42, 40, "normal", true),
+                "V12 protects ocean and shoreline columns from surface cave openings");
+        TestAssert.Check(!WorldGenV12.ShouldCarveSurfaceEntrance(
+                        55, 55, 40, "flat", true),
+                "V12 keeps flat worlds sealed");
+        TestAssert.Check(!WorldGenV12.ShouldCarveSurfaceEntrance(
+                        55, 55, 40, "normal", false),
+                "V12 does not open a surface without a cave directly below");
+
+        Span<Vector3I> visited = stackalloc Vector3I[2];
+        Span<byte> occupied = stackalloc byte[2];
+        occupied.Clear();
+        Vector3I firstPosition = new(7, 24, -3);
+        TestAssert.Check(WorldGenV12.TryRecordUniqueOrePosition(
+                        visited, occupied, firstPosition),
+                "V12 ore walk records its first candidate");
+        TestAssert.Check(!WorldGenV12.TryRecordUniqueOrePosition(
+                        visited, occupied, firstPosition),
+                "V12 ore walk rejects a revisited candidate");
+        TestAssert.Check(WorldGenV12.TryRecordUniqueOrePosition(
+                        visited, occupied, new Vector3I(8, 24, -3)),
+                "V12 ore walk records a distinct candidate");
+        TestAssert.Check(!WorldGenV12.TryRecordUniqueOrePosition(
+                        visited, occupied, new Vector3I(9, 24, -3)),
+                "V12 ore walk stops recording when its fixed visit table is full");
+
+        Span<Vector3I> solidVisited = stackalloc Vector3I[8];
+        Span<byte> solidOccupied = stackalloc byte[8];
+        solidOccupied.Clear();
+        Vector3I[] solidPath =
+        [
+            new(1, 32, 1), new(2, 32, 1), new(1, 32, 1),
+            new(3, 32, 1), new(4, 32, 1), new(2, 32, 1),
+        ];
+        int solidPlaced = 0;
+        foreach (Vector3I position in solidPath)
+        {
+            if (WorldGenV12.TryRecordUniqueOrePosition(
+                            solidVisited, solidOccupied, position))
+            {
+                WorldGenV12.TryCountOrePlacement(true, ref solidPlaced);
+            }
+        }
+        TestAssert.Equal(4, solidPlaced,
+                "V12 solid-stone vein size counts distinct placements rather than walk steps");
+
+        int blockedPlaced = 0;
+        TestAssert.Check(!WorldGenV12.TryCountOrePlacement(
+                        false, ref blockedPlaced),
+                "V12 ore walk does not count a cave or existing non-stone candidate");
+        TestAssert.Equal(0, blockedPlaced,
+                "V12 non-stone candidates do not consume a vein placement slot");
+
+        TestAssert.Equal(BlockId.Leaves,
+                WorldGenV12.MergeTreeBlock(BlockId.Air, BlockId.Leaves),
+                "V12 tree canopy still fills air");
+        TestAssert.Equal(BlockId.Log,
+                WorldGenV12.MergeTreeBlock(BlockId.Leaves, BlockId.Log),
+                "V12 trunk replaces a leaf from an earlier canopy");
+        TestAssert.Equal(BlockId.Log,
+                WorldGenV12.MergeTreeBlock(BlockId.Log, BlockId.Leaves),
+                "V12 later canopy leaves cannot replace a trunk");
+        TestAssert.Equal(BlockId.Stone,
+                WorldGenV12.MergeTreeBlock(BlockId.Stone, BlockId.BirchLog),
+                "V12 tree stamping retains the existing air-only rule for non-leaf blocks");
+        TestAssert.Equal(BlockId.Log,
+                WorldGenV12.MergeTreeBlock(BlockId.Log, BlockId.BirchLog),
+                "V12 overlapping trunks do not overwrite an existing log");
+
+        const int limit = WorldGenV12.HorizontalBlockLimit;
+        TestAssert.Check(WorldGenV12.ContainsWorldPosition(-limit, 0),
+                "V12 includes the negative horizontal world boundary");
+        TestAssert.Check(WorldGenV12.ContainsWorldPosition(limit - 1, 0),
+                "V12 includes the last positive horizontal block");
+        TestAssert.Check(!WorldGenV12.ContainsWorldPosition(limit, 0),
+                "V12 excludes the positive horizontal world boundary");
+        TestAssert.Check(!WorldGenV12.ContainsWorldPosition(-limit - 1, 0),
+                "V12 excludes coordinates below the negative horizontal boundary");
+        foreach (int magnitude in new[] { 1 << 23, 1 << 24, 1 << 25 })
+        {
+            TestAssert.Check(!WorldGenV12.ContainsWorldPosition(magnitude, 0),
+                    $"V12 rejects positive precision-boundary coordinate {magnitude}");
+            TestAssert.Check(!WorldGenV12.ContainsWorldPosition(-magnitude, 0),
+                    $"V12 rejects negative precision-boundary coordinate {-magnitude}");
+        }
+        TestAssert.Check(WorldGenV12.ContainsChunk(new Vector2I(-limit / 16, 0)),
+                "V12 includes the first supported negative chunk");
+        TestAssert.Check(WorldGenV12.ContainsChunk(new Vector2I(limit / 16 - 1, 0)),
+                "V12 includes the last supported positive chunk");
+        TestAssert.Check(!WorldGenV12.ContainsChunk(new Vector2I(limit / 16, 0)),
+                "V12 rejects the first positive out-of-range chunk");
+        TestAssert.Check(!WorldGenV12.ContainsChunk(new Vector2I(-limit / 16 - 1, 0)),
+                "V12 rejects the first negative out-of-range chunk");
+
+        float lastBlock = limit - 1;
+        float halfStep = lastBlock + 0.5f;
+        TestAssert.Check(halfStep > lastBlock && halfStep < limit,
+                "V12 horizontal extent preserves half-block float precision at its edge");
+    }
+
+    private static void CheckV12WorldBoundary(Node host)
+    {
+        const int seed = 27182818;
+        string dir = $"user://tests/world-v12-boundary-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(dir);
+        WorldStore.WriteManifest(dir, new WorldManifest(
+                "V12 boundary", seed, WorldGenV12.Version,
+                WorldStore.DeriveNoiseSeeds(seed), 0, 0, "survival", "normal"));
+        GameSession.Instance.SelectWorld(dir);
+
+        VoxelWorld world = new();
+        host.AddChild(world);
+        int limit = WorldGenV12.HorizontalBlockLimit;
+        TestAssert.Equal(WorldGenV12.Version, world.WorldGenVersion,
+                "V12 boundary test loads the requested generator version");
+        TestAssert.Equal(BlockId.Bedrock, world.GetBlock(limit, 64, 0),
+                "V12 block reads treat the positive world edge as bedrock");
+        TestAssert.Equal(BlockId.Bedrock, world.GetBlock(-limit - 1, 64, 0),
+                "V12 block reads treat the negative world edge as bedrock");
+        TestAssert.Check(world.TryGetLoadedBlock(limit, 64, 0, out BlockId boundary)
+                        && boundary == BlockId.Bedrock,
+                "V12 loaded-block reads expose the immutable boundary");
+        TestAssert.Check(!world.SetBlock(limit, 64, 0, BlockId.Stone),
+                "V12 block mutations cannot cross the positive world edge");
+
+        foreach (Vector2I outside in new[]
+                {
+                    new Vector2I(limit / VoxelWorld.ChunkX, 0),
+                    new Vector2I(-limit / VoxelWorld.ChunkX - 1, 0),
+                })
+        {
+            byte[] blocks = world.ChunkData(outside);
+            bool allBedrock = true;
+            foreach (byte block in blocks)
+            {
+                if ((BlockId)block != BlockId.Bedrock)
+                {
+                    allBedrock = false;
+                    break;
+                }
+            }
+
+            TestAssert.Check(allBedrock,
+                    $"V12 out-of-range chunk {outside} is a solid bedrock boundary");
+        }
+
+        host.RemoveChild(world);
+        world.QueueFree();
+        DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+        DirAccess.RemoveAbsolute(dir);
+    }
+
+    private static void CheckV12SurfaceCaveEntrance(Node host)
+    {
+        const int seed = 1337;
+        WorldGenV8 generator = new(seed, "normal");
+        int entranceX = 0;
+        int entranceZ = 0;
+        int entranceHeight = 0;
+        bool found = false;
+        for (int z = -512; z <= 512 && !found; z += 4)
+        {
+            for (int x = -512; x <= 512; x += 4)
+            {
+                WorldGenV7.SurfaceSample surface = generator.SampleSurface(x, z, 40);
+                if (surface.Height <= 42
+                        || !generator.IsCave(x, surface.Height - 1, z, surface.Height))
+                {
+                    continue;
+                }
+
+                entranceX = x;
+                entranceZ = z;
+                entranceHeight = surface.Height;
+                found = true;
+                break;
+            }
+        }
+
+        TestAssert.Check(found,
+                "fixed V8 seed provides a dry column with a shallow cave entrance");
+        if (!found)
+        {
+            return;
+        }
+
+        string dir = $"user://tests/world-v12-cave-mouth-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(dir);
+        WorldStore.WriteManifest(dir, new WorldManifest(
+                "V12 cave entrance", seed, WorldGenV12.Version,
+                WorldStore.DeriveNoiseSeeds(seed), 0, 0, "survival", "normal"));
+        GameSession.Instance.SelectWorld(dir);
+
+        VoxelWorld world = new();
+        host.AddChild(world);
+        TestAssert.Check(world.IsCave(entranceX, entranceHeight - 1,
+                        entranceZ, entranceHeight),
+                "V12 retains the cave block directly below the surface");
+        TestAssert.Check(world.IsCave(entranceX, entranceHeight,
+                        entranceZ, entranceHeight),
+                "V12 exposes the surface voxel above that cave");
+        TestAssert.Equal(BlockId.Air,
+                world.GetBlock(entranceX, entranceHeight, entranceZ),
+                "V12 block generation leaves the cave mouth open to the surface");
+
+        host.RemoveChild(world);
+        world.QueueFree();
+        DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+        DirAccess.RemoveAbsolute(dir);
+    }
+
+    private static void CheckV12ChunkDeterminism(Node host)
+    {
+        const int seed = 24681357;
+        string firstDir = $"user://tests/world-v12-order-a-{Time.GetTicksUsec()}";
+        string secondDir = $"user://tests/world-v12-order-b-{Time.GetTicksUsec()}";
+        foreach (string dir in new[] { firstDir, secondDir })
+        {
+            DirAccess.MakeDirRecursiveAbsolute(dir);
+            WorldStore.WriteManifest(dir, new WorldManifest(
+                    "V12 deterministic", seed, WorldGenV12.Version,
+                    WorldStore.DeriveNoiseSeeds(seed), 0, 0, "survival", "normal"));
+        }
+
+        Vector2I[] positions =
+        [
+            new(-3, 2), new(2, -4), new(-1, -1), new(0, 0), new(1, 0), new(0, 1),
+        ];
+        string[] hashes = new string[positions.Length];
+        GameSession.Instance.SelectWorld(firstDir);
+        VoxelWorld first = new();
+        host.AddChild(first);
+        for (int i = 0; i < positions.Length; i++)
+        {
+            hashes[i] = Convert.ToHexString(SHA256.HashData(first.ChunkData(positions[i])));
+        }
+
+        host.RemoveChild(first);
+        first.QueueFree();
+
+        GameSession.Instance.SelectWorld(secondDir);
+        VoxelWorld second = new();
+        host.AddChild(second);
+        for (int i = positions.Length - 1; i >= 0; i--)
+        {
+            string hash = Convert.ToHexString(SHA256.HashData(second.ChunkData(positions[i])));
+            TestAssert.Equal(hashes[i], hash,
+                    $"V12 chunk {positions[i]} is invariant under reversed generation order");
+        }
+
+        host.RemoveChild(second);
+        second.QueueFree();
+
+        foreach (string dir in new[] { firstDir, secondDir })
+        {
+            DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+            DirAccess.RemoveAbsolute(dir);
         }
     }
 

@@ -178,8 +178,18 @@ public sealed class WorldGenV8
     public int SurfaceHeight(int x, int z, int seaLevel) =>
             SampleSurface(x, z, seaLevel).Height;
 
-    public Biome BiomeAt(int x, int z, int height, int seaLevel) =>
-            SampleSurface(x, z, seaLevel).Biome;
+    public Biome BiomeAt(int x, int z, int height, int seaLevel)
+    {
+        bool climateAtSurface = _preset is "flat" or "sky";
+        int climateHeight = climateAtSurface ? height : seaLevel + 12;
+        WorldGenV7.ClimateSample climate = ClimateAt(
+                x, z, climateHeight, includeRivers: false);
+        float temperature = climateAtSurface ? climate.Temperature
+                : climate.Temperature - Math.Max(0, height - 40) * 0.0085f
+                        + Math.Max(0, seaLevel + 12 - 40) * 0.0085f;
+        return WorldGenV7.ClassifyBiome(temperature, climate.Moisture,
+                height, seaLevel, _plainsVariation.GetNoise2D(x, z));
+    }
 
     private float RiverStrength(int x, int z)
     {
@@ -368,7 +378,7 @@ public partial class VoxelWorld
             id = GeneratorV8.OreAt(x, y, z, biome);
         }
 
-        if (GeneratorV8.IsCave(x, y, z, height))
+        if (IsCave(x, y, z, height))
         {
             if (GeneratorV8.IsMagmaPocket(x, y, z))
             {
@@ -535,60 +545,60 @@ public partial class VoxelWorld
 
         // A 3×3 sample grid rejects shorelines, rivers, cliffs and biome edges.
         for (int dz = -18; dz <= 18; dz += 18)
-        for (int dx = -18; dx <= 18; dx += 18)
-        {
-            WorldGenV7.SurfaceSample sample = GeneratorV8.SampleSurface(x + dx, z + dz, SeaLevel);
-            if (VillageGenerator.ThemeForBiome(sample.Biome) != theme
-                    || sample.Height <= SeaLevel + 2 || Math.Abs(sample.Height - y) > 2
-                    || GeneratorV8.IsCave(x + dx, y - 7, z + dz, sample.Height))
-                return CacheVillage(key, null);
-        }
+            for (int dx = -18; dx <= 18; dx += 18)
+            {
+                WorldGenV7.SurfaceSample sample = GeneratorV8.SampleSurface(x + dx, z + dz, SeaLevel);
+                if (VillageGenerator.ThemeForBiome(sample.Biome) != theme
+                        || sample.Height <= SeaLevel + 2 || Math.Abs(sample.Height - y) > 2
+                        || GeneratorV8.IsCave(x + dx, y - 7, z + dz, sample.Height))
+                    return CacheVillage(key, null);
+            }
 
         int minStructureX = Mathf.FloorToInt((x - 52) / (float)StructureCell);
         int maxStructureX = Mathf.FloorToInt((x + 52) / (float)StructureCell);
         int minStructureZ = Mathf.FloorToInt((z - 52) / (float)StructureCell);
         int maxStructureZ = Mathf.FloorToInt((z + 52) / (float)StructureCell);
         for (int cz = minStructureZ; cz <= maxStructureZ; cz++)
-        for (int cx = minStructureX; cx <= maxStructureX; cx++)
-        {
-            if (GetStructureSite(cx, cz) is { } structure)
+            for (int cx = minStructureX; cx <= maxStructureX; cx++)
             {
-                int dx = structure.X - x;
-                int dz = structure.Z - z;
-                if (dx * dx + dz * dz < 52 * 52) return CacheVillage(key, null);
+                if (GetStructureSite(cx, cz) is { } structure)
+                {
+                    int dx = structure.X - x;
+                    int dz = structure.Z - z;
+                    if (dx * dx + dz * dz < 52 * 52) return CacheVillage(key, null);
+                }
             }
-        }
 
         int minFireX = Mathf.FloorToInt((x - 28) / 64.0f);
         int maxFireX = Mathf.FloorToInt((x + 28) / 64.0f);
         int minFireZ = Mathf.FloorToInt((z - 28) / 64.0f);
         int maxFireZ = Mathf.FloorToInt((z + 28) / 64.0f);
         for (int cz = minFireZ; cz <= maxFireZ; cz++)
-        for (int cx = minFireX; cx <= maxFireX; cx++)
-        {
-            if (GetCampfireSite(cx, cz) is { } fire)
+            for (int cx = minFireX; cx <= maxFireX; cx++)
             {
-                int dx = fire.X - x;
-                int dz = fire.Z - z;
-                if (dx * dx + dz * dz < 24 * 24) return CacheVillage(key, null);
+                if (GetCampfireSite(cx, cz) is { } fire)
+                {
+                    int dx = fire.X - x;
+                    int dz = fire.Z - z;
+                    if (dx * dx + dz * dz < 24 * 24) return CacheVillage(key, null);
+                }
             }
-        }
 
         int minCaveX = Mathf.FloorToInt((x - 30) / 128.0f);
         int maxCaveX = Mathf.FloorToInt((x + 30) / 128.0f);
         int minCaveZ = Mathf.FloorToInt((z - 30) / 128.0f);
         int maxCaveZ = Mathf.FloorToInt((z + 30) / 128.0f);
         for (int cz = minCaveZ; cz <= maxCaveZ; cz++)
-        for (int cx = minCaveX; cx <= maxCaveX; cx++)
-        {
-            if (TryGetUndergroundStructureSiteV7(cx, cz, out Vector3I chamber, out _, out _))
+            for (int cx = minCaveX; cx <= maxCaveX; cx++)
             {
-                int dx = chamber.X - x;
-                int dz = chamber.Z - z;
-                if (chamber.Y >= y - 42 && dx * dx + dz * dz < 30 * 30)
-                    return CacheVillage(key, null);
+                if (TryGetUndergroundStructureSiteV7(cx, cz, out Vector3I chamber, out _, out _))
+                {
+                    int dx = chamber.X - x;
+                    int dz = chamber.Z - z;
+                    if (chamber.Y >= y - 42 && dx * dx + dz * dz < 30 * 30)
+                        return CacheVillage(key, null);
+                }
             }
-        }
 
         return CacheVillage(key, new VillageInfo(theme.Value, x, y, z, cellX, cellZ, seed));
     }
@@ -608,13 +618,13 @@ public partial class VoxelWorld
         int maxZ = Mathf.FloorToInt((position.Z + radius) / VillageCell);
         float radiusSquared = radius * radius;
         for (int cz = minZ; cz <= maxZ; cz++)
-        for (int cx = minX; cx <= maxX; cx++)
-        {
-            if (GetVillageSite(cx, cz) is not { } village) continue;
-            float dx = village.X + 0.5f - position.X;
-            float dz = village.Z + 0.5f - position.Z;
-            if (dx * dx + dz * dz <= radiusSquared) result.Add(village);
-        }
+            for (int cx = minX; cx <= maxX; cx++)
+            {
+                if (GetVillageSite(cx, cz) is not { } village) continue;
+                float dx = village.X + 0.5f - position.X;
+                float dz = village.Z + 0.5f - position.Z;
+                if (dx * dx + dz * dz <= radiusSquared) result.Add(village);
+            }
         return result;
     }
 
@@ -633,44 +643,44 @@ public partial class VoxelWorld
         int minZ = Mathf.FloorToInt((oz - VillageStructures.Radius) / (float)VillageCell);
         int maxZ = Mathf.FloorToInt((oz + ChunkZ + VillageStructures.Radius) / (float)VillageCell);
         for (int cellZ = minZ; cellZ <= maxZ; cellZ++)
-        for (int cellX = minX; cellX <= maxX; cellX++)
-        {
-            if (GetVillageSite(cellX, cellZ) is not { } village) continue;
-            Action<int, int, int, BlockId> put = (wx, wy, wz, id) =>
+            for (int cellX = minX; cellX <= maxX; cellX++)
             {
-                int lx = wx - ox;
-                int lz = wz - oz;
-                if (lx < 0 || lx >= ChunkX || lz < 0 || lz >= ChunkZ
-                        || wy <= 0 || wy >= Height) return;
-                int index = lx + lz * ChunkX + wy * strideY;
-                if ((BlockId)data[index] != BlockId.Bedrock) data[index] = (byte)id;
-            };
+                if (GetVillageSite(cellX, cellZ) is not { } village) continue;
+                Action<int, int, int, BlockId> put = (wx, wy, wz, id) =>
+                {
+                    int lx = wx - ox;
+                    int lz = wz - oz;
+                    if (lx < 0 || lx >= ChunkX || lz < 0 || lz >= ChunkZ
+                            || wy <= 0 || wy >= Height) return;
+                    int index = lx + lz * ChunkX + wy * strideY;
+                    if ((BlockId)data[index] != BlockId.Bedrock) data[index] = (byte)id;
+                };
 
-            BlockId ground = village.Theme switch
-            {
-                VillageTheme.Desert => BlockId.Sand,
-                VillageTheme.Snow => BlockId.SnowGrass,
-                _ => BlockId.Grass,
-            };
-            BlockId fill = village.Theme == VillageTheme.Desert ? BlockId.Sand : BlockId.Dirt;
-            for (int dz = -VillageStructures.Radius; dz <= VillageStructures.Radius; dz++)
-            for (int dx = -VillageStructures.Radius; dx <= VillageStructures.Radius; dx++)
-            {
-                if (dx * dx + dz * dz > VillageStructures.Radius * VillageStructures.Radius) continue;
-                int wx = village.X + dx;
-                int wz = village.Z + dz;
-                int surface = GeneratorV8.SurfaceHeight(wx, wz, SeaLevel);
-                if (surface > village.Y)
+                BlockId ground = village.Theme switch
                 {
-                    for (int fy = village.Y + 1; fy <= surface; fy++) put(wx, fy, wz, BlockId.Air);
-                }
-                else if (surface < village.Y)
-                {
-                    for (int fy = surface + 1; fy < village.Y; fy++) put(wx, fy, wz, fill);
-                }
-                put(wx, village.Y, wz, ground);
+                    VillageTheme.Desert => BlockId.Sand,
+                    VillageTheme.Snow => BlockId.SnowGrass,
+                    _ => BlockId.Grass,
+                };
+                BlockId fill = village.Theme == VillageTheme.Desert ? BlockId.Sand : BlockId.Dirt;
+                for (int dz = -VillageStructures.Radius; dz <= VillageStructures.Radius; dz++)
+                    for (int dx = -VillageStructures.Radius; dx <= VillageStructures.Radius; dx++)
+                    {
+                        if (dx * dx + dz * dz > VillageStructures.Radius * VillageStructures.Radius) continue;
+                        int wx = village.X + dx;
+                        int wz = village.Z + dz;
+                        int surface = GeneratorV8.SurfaceHeight(wx, wz, SeaLevel);
+                        if (surface > village.Y)
+                        {
+                            for (int fy = village.Y + 1; fy <= surface; fy++) put(wx, fy, wz, BlockId.Air);
+                        }
+                        else if (surface < village.Y)
+                        {
+                            for (int fy = surface + 1; fy < village.Y; fy++) put(wx, fy, wz, fill);
+                        }
+                        put(wx, village.Y, wz, ground);
+                    }
+                VillageStructures.Stamp(village, put);
             }
-            VillageStructures.Stamp(village, put);
-        }
     }
 }

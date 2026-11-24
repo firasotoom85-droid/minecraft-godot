@@ -498,6 +498,13 @@ public partial class VoxelWorld : Node3D
     {
         if (_genVersion >= WorldGenV8.Version)
         {
+            if (_genVersion >= WorldGenV12.Version
+                    && WorldGenV12.ShouldCarveSurfaceEntrance(y, h, SeaLevel, _preset,
+                            y > 0 && GeneratorV8.IsCave(x, y - 1, z, h)))
+            {
+                return true;
+            }
+
             return GeneratorV8.IsCave(x, y, z, h);
         }
 
@@ -548,7 +555,20 @@ public partial class VoxelWorld : Node3D
     }
 
     /// <summary>Temperature/moisture biome map (pure function of x,z).</summary>
-    public Biome BiomeAt(int x, int z) => BiomeAt(x, z, SurfaceHeight(x, z));
+    public Biome BiomeAt(int x, int z)
+    {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            return GeneratorV8.SampleSurface(x, z, SeaLevel).Biome;
+        }
+
+        if (_genVersion >= WorldGenV7.Version)
+        {
+            return GeneratorV7.SampleSurface(x, z, SeaLevel).Biome;
+        }
+
+        return BiomeAt(x, z, SurfaceHeight(x, z));
+    }
 
     /// <summary>Biome with a known surface height — skips the internal
     /// SurfaceHeight call for callers that already paid for it (minimap,
@@ -831,6 +851,18 @@ public partial class VoxelWorld : Node3D
         if (h <= SeaLevel + 1 || biome != Biome.Desert)
         {
             return null;
+        }
+
+        if (_genVersion >= WorldGenV12.Version)
+        {
+            uint seededHash = WorldGenV12.CactusHash(GeneratorV8, tx, tz);
+            if (seededHash % 120u != 0u)
+            {
+                return null;
+            }
+
+            return new CactusInfo(tx, tz, h + 1,
+                    2 + (int)((seededHash >> 8) % 3u));
         }
 
         long r = Hash2(tx + 77, tz - 31);
@@ -1159,6 +1191,12 @@ public partial class VoxelWorld : Node3D
     private byte[] GenerateChunkData(Vector2I cp)
     {
         byte[] data = new byte[ChunkX * Height * ChunkZ];
+        if (_genVersion >= WorldGenV12.Version && !WorldGenV12.ContainsChunk(cp))
+        {
+            Array.Fill(data, (byte)BlockId.Bedrock);
+            return data;
+        }
+
         int ox = cp.X * ChunkX;
         int oz = cp.Y * ChunkZ;
         int strideY = ChunkX * ChunkZ;
@@ -1237,7 +1275,12 @@ public partial class VoxelWorld : Node3D
                             }
 
                             int i = lx + lz * ChunkX + wy * strideY;
-                            if ((BlockId)data[i] == BlockId.Air)
+                            if (_genVersion >= WorldGenV12.Version)
+                            {
+                                data[i] = (byte)WorldGenV12.MergeTreeBlock(
+                                        (BlockId)data[i], id);
+                            }
+                            else if ((BlockId)data[i] == BlockId.Air)
                             {
                                 data[i] = (byte)id;
                             }
@@ -1424,6 +1467,50 @@ public partial class VoxelWorld : Node3D
                 gy = Mathf.Clamp(gy, 2, Height - 2);
             }
         }
+    }
+
+    private bool IsV12NaturalStone(int x, int y, int z,
+            byte[] data, int strideY, int ox, int oz,
+            Dictionary<Vector2I, (WorldGenV7.SurfaceSample Surface, bool IsIsland)> columnCache)
+    {
+        if (y < 0 || y >= Height
+                || !WorldGenV12.ContainsWorldPosition(x, z))
+        {
+            return false;
+        }
+
+        int localX = x - ox;
+        int localZ = z - oz;
+        if (localX >= 0 && localX < ChunkX && localZ >= 0 && localZ < ChunkZ)
+        {
+            int index = localX + localZ * ChunkX + y * strideY;
+            return (BlockId)data[index] == BlockId.Stone;
+        }
+
+        // Each output chunk replays the same neighboring ore paths. Cache one
+        // surface/climate sample per remote column instead of resampling it for
+        // each Y position visited by different veins.
+        Vector2I column = new(x, z);
+        if (!columnCache.TryGetValue(column, out var cached))
+        {
+            WorldGenV7.SurfaceSample surface = GeneratorV8.SampleSurface(x, z, SeaLevel);
+            bool isIsland = _preset != "sky" || GeneratorV8.IsIsland(x, z);
+            cached = (surface, isIsland);
+            columnCache.Add(column, cached);
+        }
+
+        int height = cached.Surface.Height;
+        if (y > height - 4 || (_preset == "sky"
+                && (!cached.IsIsland || y < height - 26)))
+        {
+            return false;
+        }
+
+        // These are the remaining V8 block-classifier conditions for a natural
+        // Stone voxel below the topsoil. Avoid calling the full BlockAt path,
+        // which would resample the column and repeat its surface noise layers.
+        return GeneratorV8.OreAt(x, y, z, cached.Surface.Biome) == BlockId.Stone
+                && !GeneratorV8.IsCave(x, y, z, height);
     }
 
     private void StampOre(int gx, int gy, int gz, BlockId ore, byte[] data, int strideY, int ox, int oz)
@@ -1711,6 +1798,10 @@ public partial class VoxelWorld : Node3D
     private void RegisterLightSourcesLocked(Vector2I cp, byte[] blocks)
     {
         if (!_sourceScannedChunks.Add(cp)) return;
+        if (_genVersion >= WorldGenV12.Version && !WorldGenV12.ContainsChunk(cp))
+        {
+            return;
+        }
         int stride = ChunkX * ChunkZ;
         int ox = cp.X * ChunkX;
         int oz = cp.Y * ChunkZ;
@@ -2181,6 +2272,13 @@ public partial class VoxelWorld : Node3D
     {
         id = BlockId.Air;
         if (y < 0 || y >= Height) return false;
+        if (_genVersion >= WorldGenV12.Version
+                && !WorldGenV12.ContainsWorldPosition(x, z))
+        {
+            id = BlockId.Bedrock;
+            return true;
+        }
+
         Vector2I cp = new(Mathf.FloorToInt(x / (float)ChunkX), Mathf.FloorToInt(z / (float)ChunkZ));
         if (!_chunks.TryGetValue(cp, out Chunk? chunk)) return false;
         int lx = x - cp.X * ChunkX;
@@ -2198,6 +2296,12 @@ public partial class VoxelWorld : Node3D
             return BlockId.Air;
         }
 
+        if (_genVersion >= WorldGenV12.Version
+                && !WorldGenV12.ContainsWorldPosition(x, z))
+        {
+            return BlockId.Bedrock;
+        }
+
         Vector2I cp = new(Mathf.FloorToInt(x / (float)ChunkX), Mathf.FloorToInt(z / (float)ChunkZ));
         int lx = x - cp.X * ChunkX;
         int lz = z - cp.Y * ChunkZ;
@@ -2208,6 +2312,8 @@ public partial class VoxelWorld : Node3D
     public byte GetBlockState(int x, int y, int z)
     {
         if (y < 0 || y >= Height) return 0;
+        if (_genVersion >= WorldGenV12.Version
+                && !WorldGenV12.ContainsWorldPosition(x, z)) return 0;
         Vector2I cp = new(Mathf.FloorToInt(x / (float)ChunkX), Mathf.FloorToInt(z / (float)ChunkZ));
         int lx = x - cp.X * ChunkX;
         int lz = z - cp.Y * ChunkZ;
@@ -2258,6 +2364,12 @@ public partial class VoxelWorld : Node3D
         }
 
         state = BlockShapes.NormalizeState(id, state);
+        if (_genVersion >= WorldGenV12.Version
+                && !WorldGenV12.ContainsWorldPosition(x, z))
+        {
+            return false;
+        }
+
         if (y <= 0 || y >= Height)
         {
             return false;
