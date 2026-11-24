@@ -176,6 +176,14 @@ public static class BoatBucketTests
             TestAssert.Check(player.Stats.ApplyDamage(100.0f, GameMode.Survival) && player.Dead,
                     "lethal damage kills a seated player");
             player.RespawnPoint = boat.GlobalPosition + new Vector3(0.0f, 1.0f, 0.0f);
+            TestAssert.Check(player.CurrentBoat == boat,
+                    "respawn fixture remains attached to its occupied boat");
+            TestAssert.Check(world.IsSafePlayerPosition(player.RespawnPoint.Value,
+                            allowWater: true, allowVehicleSupport: true),
+                    "boat respawn anchor passes capsule and external-support validation");
+            TestAssert.Check(world.TryEnsureCollisionReady(player.RespawnPoint.Value,
+                            allowWater: true, allowVehicleSupport: true),
+                    "boat respawn anchor has an applied collision snapshot");
             player.Respawn();
             TestAssert.Check(player.CurrentBoat == null && boat.Rider == null,
                     "respawning after death in a boat detaches the player and frees the seat");
@@ -185,6 +193,14 @@ public static class BoatBucketTests
                     "respawning after death in a boat uses the respawn point");
             TestAssert.Check(boats.TryBoard(boat, player),
                     "a respawned player can board the boat again");
+            Vector3 dismountCandidate = boat.GlobalPosition
+                    + boat.GlobalBasis.X * 1.35f + Vector3.Up * 0.15f;
+            TestAssert.Check(world.IsSafePlayerPosition(dismountCandidate,
+                            allowWater: true, allowVehicleSupport: true),
+                    "boat dismount candidate passes capsule and external-support validation");
+            TestAssert.Check(world.TryEnsureCollisionReady(dismountCandidate,
+                            allowWater: true, allowVehicleSupport: true),
+                    "boat dismount candidate has an applied collision snapshot");
 
             TestAssert.Check(boats.Dismount(boat), "player dismounts to a loaded clear cell");
             TestAssert.Check(player.CurrentBoat == null && boat.Rider == null,
