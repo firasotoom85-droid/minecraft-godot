@@ -12,12 +12,18 @@ This is the **current forward plan**, not a running implementation diary. Comple
 | Area | State | Next action |
 |---|---|---|
 | Documentation and repository standards | In progress | Merge this repository-hygiene work; keep active docs short and move completed reports to history |
-| Build and test baseline | Established | Keep Debug/Release warnings-as-errors and headless tests green on every PR |
+| Build and test baseline | Established | Keep Debug/Release warnings-as-errors, registered headless suites and deterministic spatial-light probes green on every PR |
 | .NET lifecycle | Migration in this change | Verify .NET 10 through CI and the Godot 4.7.2 export path before treating it as released |
 | Release packaging | Being automated | Exercise tag-triggered Linux/Windows export packaging on a beta tag |
-| Performance baselines | Partial | Record a fresh controlled Release baseline; the comparable RTX 4060 run remains outstanding |
+| Performance baselines | Partial | Benchmark/soak reports now expose persistent managed-memory categories and high-water marks; record a fresh controlled Release baseline, with the comparable RTX 4060 run still outstanding |
 | Gameplay/visual sign-off | Partial | Complete human playtesting across mining, building, combat, quests, saves and low/high graphics presets |
 | Public project profile | Incomplete | Repository is already public; add a description and relevant topics in GitHub Settings |
+
+**Persistence contract (integrated W01):** autosave captures an immutable save
+snapshot on the main thread; one ordered background save worker serializes it
+and performs the three atomic file writes, so `_Process()` performs no
+serialization or disk I/O. Explicit save and quit flush older work before
+writing the latest state synchronously.
 
 ## 2. Stable-release quality gates
 

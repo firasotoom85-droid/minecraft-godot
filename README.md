@@ -27,6 +27,8 @@ The project uses original procedural materials and audio. It is Minecraft-inspir
 - Multi-world saves with atomic writes, rotating backups, import/export and compatibility for older worlds.
 - Keyboard and controller rebinding, minimap, achievements journal, contextual onboarding, photo mode and a developer console.
 
+Autosaving captures an immutable save snapshot on the main thread; serialization and the three ordered atomic file writes run on the background save worker, so `_Process()` does not serialize or perform disk I/O. Explicit save and quit flush older work before writing the latest state synchronously.
+
 See the [documentation index](docs/README.md) for subsystem details, test procedures, visual references and historical engineering reports.
 
 ## Requirements
@@ -61,6 +63,8 @@ Run the full headless verification suite:
     GODOT=/path/to/Godot_v4.7.2-stable_mono ./scripts/verify.sh
 
 The script builds Debug and runs the registered suites through the real Godot headless test runner. CI additionally builds Debug and Release with warnings treated as errors and captures the deterministic lighting probe scenarios.
+
+The opt-in benchmark and soak reports separate exact retained array lengths from capacity/key-based estimates for persistent caches, registries and streaming queues. These managed-memory diagnostics are not whole-process or VRAM totals; see the [performance benchmark procedure](docs/PERFORMANCE_BENCHMARKS.md) for the accounting boundaries.
 
 For the longer real-scene survival soak:
 

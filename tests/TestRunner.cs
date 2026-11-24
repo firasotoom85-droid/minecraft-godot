@@ -18,6 +18,7 @@ public partial class TestRunner : Node
         RunSuite("item-icons", ItemIconTests.Run);
         RunSuite("item-visual-quality", ItemVisualQualityTests.Run);
         RunSuite("performance-benchmark", PerformanceBenchmarkTests.Run);
+        await RunSuiteAsync("runner-reliability", RunnerReliabilityTests.Run);
         RunSuite("voxel-streaming", VoxelStreamingTests.Run);
         RunSuite("far-lod-lifecycle", FarLodLifecycleTests.Run);
         RunSuite("graphics", GraphicsTests.Run);

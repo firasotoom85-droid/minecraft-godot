@@ -2651,14 +2651,38 @@ public partial class VoxelWorld : Node3D
     }
 
     /// <summary>
-    /// Snapshot managed voxel-cache byte arrays and estimates for edit/light
-    /// metadata. Array sizes are exact; dictionary entry sizes are estimates.
-    /// Applied mesh bytes describe source arrays, not driver-specific VRAM.
+    /// Snapshot world-owned managed memory. Byte-array payloads and edit-top
+    /// arrays are exact; collection storage and saved-object registries are
+    /// capacity/key-based estimates, not deep object-graph measurements.
+    /// W10 owns this diagnostic-only cross-owner extension to W01's VoxelWorld:
+    /// it reads existing private collections and changes no world, streaming or
+    /// persistence behavior.
     /// </summary>
     public VoxelCacheMemorySnapshot GetCacheMemorySnapshot()
     {
         long blocks = 0, states = 0, sky = 0, block = 0, packed = 0;
-        long editMetadata = 0, lightSourceEstimate = 0;
+        long generatorSeedArrayBytes = _noiseSeeds.LongLength * sizeof(int);
+        long editMetadata = 0;
+        long cacheIndexEstimate = 0;
+        long lightSourceEstimate;
+        long sourceScanEstimate;
+        long cropScanEstimate;
+        long campfireSiteEstimate;
+        long structureSiteEstimate;
+        long villageSiteEstimate;
+        long editTopArrayBytes = 0;
+        long editTopIndexEstimate;
+        long worldStateRegistryEstimate =
+                EstimateStringDictionaryBytes(Containers, 40)
+                + EstimateStringDictionaryBytes(Furnaces, 40)
+                + EstimateStringDictionaryBytes(Flags, 32)
+                + EstimateStringDictionaryBytes(Villagers, 40)
+                + EstimateStringDictionaryBytes(Quests, 40)
+                + EstimateListBytes(SavedInventory, 40)
+                + EstimateListBytes(SavedBoats, 64);
+        long cropRegistryEstimate;
+        long streamingQueueBytesEstimate;
+
         lock (_mutex)
         {
             foreach (byte[] data in _dataCache.Values) blocks += data.LongLength;
@@ -2667,20 +2691,98 @@ public partial class VoxelWorld : Node3D
             foreach (byte[] data in _blockLightCache.Values) block += data.LongLength;
             foreach (VoxelLightData data in _voxelLightCache.Values)
                 packed += data.Packed.LongLength + data.DirectSkyPacked.LongLength;
+
             foreach (Dictionary<int, BlockId> edits in _edits.Values)
-                editMetadata += 64L + edits.Count * 24L;
+                editMetadata += EstimateDictionaryBytes(edits, 24);
             foreach (Dictionary<int, byte> edits in _blockStateEdits.Values)
-                editMetadata += 64L + edits.Count * 16L;
-            lightSourceEstimate = _lightSources.Count * 32L;
+                editMetadata += EstimateDictionaryBytes(edits, 16);
+
+            cacheIndexEstimate =
+                    EstimateDictionaryBytes(_dataCache, 40)
+                    + EstimateDictionaryBytes(_blockStateCache, 40)
+                    + EstimateDictionaryBytes(_skyLightCache, 40)
+                    + EstimateDictionaryBytes(_blockLightCache, 40)
+                    + EstimateDictionaryBytes(_voxelLightCache, 40)
+                    + EstimateDictionaryBytes(_edits, 48)
+                    + EstimateDictionaryBytes(_blockStateEdits, 48);
+            lightSourceEstimate = EstimateDictionaryBytes(_lightSources, 48);
+            // Source scanning and crop scanning are separate registries with
+            // different responsibilities; account for each independently.
+            sourceScanEstimate = EstimateHashSetBytes(_sourceScannedChunks, 32);
+            cropScanEstimate = EstimateHashSetBytes(_cropScannedChunks, 32);
+            cropRegistryEstimate = EstimateHashSetBytes(_crops, 40);
+            campfireSiteEstimate = EstimateDictionaryBytes(_campfireCache, 48);
+            structureSiteEstimate = EstimateDictionaryBytes(_structureCache, 56);
+            villageSiteEstimate = EstimateDictionaryBytes(_villageCache, 56);
+
+            foreach (byte[] data in _editTops.Values) editTopArrayBytes += data.LongLength;
+            foreach (byte[] data in _editTopBlocks.Values) editTopArrayBytes += data.LongLength;
+            editTopIndexEstimate = EstimateDictionaryBytes(_editTops, 40)
+                    + EstimateDictionaryBytes(_editTopBlocks, 40);
         }
 
+        long chunkIndexEstimate = EstimateDictionaryBytes(_chunks, 40);
         long appliedMeshBytes = 0;
         foreach (Chunk chunk in _chunks.Values) appliedMeshBytes += chunk.EstimatedMeshBytes;
+        lock (_queueLock)
+        {
+            streamingQueueBytesEstimate =
+                    EstimatePriorityQueueBytes(_queue, 24)
+                    + EstimateHashSetBytes(_queued, 32)
+                    + EstimatePriorityQueueBytes(_rebuildQueue, 24)
+                    + EstimateHashSetBytes(_rebuildQueued, 32);
+        }
+        // ConcurrentQueue has no public capacity API. Count its node/reference
+        // overhead as an estimate; payload contents remain in the profiler's
+        // separate pending-payload byte counters.
+        streamingQueueBytesEstimate += 128L + (_applyFresh.Count + (long)_applyRebuild.Count) * 48L;
+
         long budget = StreamingMemoryBudget.EstimateVoxelArrayBudgetBytes(
                 ViewDistance, UnloadMargin, ChunkX, Height, ChunkZ);
-        return new VoxelCacheMemorySnapshot(blocks, states, sky, block, packed,
-                editMetadata, lightSourceEstimate, appliedMeshBytes,
-                PayloadPool.RetainedBufferBytes, budget);
+
+        return new VoxelCacheMemorySnapshot(
+                blocks, states, sky, block, packed, generatorSeedArrayBytes,
+                cacheIndexEstimate, cropRegistryEstimate, sourceScanEstimate, cropScanEstimate,
+                campfireSiteEstimate, structureSiteEstimate, villageSiteEstimate,
+                editTopArrayBytes, editTopIndexEstimate, worldStateRegistryEstimate,
+                chunkIndexEstimate, editMetadata, lightSourceEstimate,
+                appliedMeshBytes, PayloadPool.RetainedBufferBytes, streamingQueueBytesEstimate, budget);
+    }
+
+    // EnsureCapacity(0) can initialize default backing arrays. Probe capacity
+    // only for non-empty collections so diagnostics never allocate collection
+    // storage just to measure an otherwise empty world.
+    private static long EstimateDictionaryBytes<TKey, TValue>(
+            Dictionary<TKey, TValue> dictionary, int estimatedBytesPerEntry)
+            where TKey : notnull
+    {
+        int capacity = dictionary.Count == 0 ? 0 : dictionary.EnsureCapacity(dictionary.Count);
+        return 64L + capacity * (long)estimatedBytesPerEntry;
+    }
+
+    private static long EstimateHashSetBytes<T>(HashSet<T> set, int estimatedBytesPerEntry)
+    {
+        int capacity = set.Count == 0 ? 0 : set.EnsureCapacity(set.Count);
+        return 64L + capacity * (long)estimatedBytesPerEntry;
+    }
+
+    private static long EstimatePriorityQueueBytes<TElement, TPriority>(
+            PriorityQueue<TElement, TPriority> queue, int estimatedBytesPerEntry)
+    {
+        int capacity = queue.Count == 0 ? 0 : queue.EnsureCapacity(queue.Count);
+        return 64L + capacity * (long)estimatedBytesPerEntry;
+    }
+
+    private static long EstimateListBytes<T>(List<T>? list, int estimatedBytesPerEntry) =>
+            list is null ? 0L : 32L + list.Capacity * (long)estimatedBytesPerEntry;
+
+    private static long EstimateStringDictionaryBytes<T>(
+            Dictionary<string, T> dictionary, int estimatedBytesPerEntry)
+    {
+        long bytes = EstimateDictionaryBytes(dictionary, estimatedBytesPerEntry);
+        foreach (string key in dictionary.Keys)
+            bytes += 24L + key.Length * sizeof(char);
+        return bytes;
     }
 
     /// <summary>Synchronous build (startup / when a node must exist immediately).</summary>
