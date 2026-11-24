@@ -10,6 +10,7 @@ public partial class ArrowProjectile : Area3D
     private Player? _owner;
     private bool _spent;
     private ShapeCast3D _sweep = null!;
+    internal ShapeCast3D? SweepForTests => _sweep;
 
     public void Launch(Player owner, Vector3 origin, Vector3 direction, float speed = 22.0f)
     {
