@@ -3348,11 +3348,14 @@ public partial class VoxelWorld : Node3D
     /// contract; half-height surfaces therefore include bottom slabs/stair
     /// treads instead of assuming every saved position stands on a full cube.
     /// </summary>
-    private bool HasPlayerSupport(Vector3 position)
+    private bool HasPlayerSupport(Vector3 position) =>
+            HasPlayerSupportAtPlane(position, position.Y)
+            || HasPlayerSupportAtPlane(position, position.Y - 0.5f);
+
+    private bool HasPlayerSupportAtPlane(Vector3 position, float supportPlaneY)
     {
         const float radius = 0.35f;
         const float epsilon = 0.001f;
-        float supportPlaneY = position.Y - 0.5f;
         int minX = Mathf.FloorToInt(position.X - radius);
         int maxX = Mathf.FloorToInt(position.X + radius);
         int minZ = Mathf.FloorToInt(position.Z - radius);
