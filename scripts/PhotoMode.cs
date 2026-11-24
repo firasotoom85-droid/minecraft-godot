@@ -76,7 +76,7 @@ public partial class PhotoMode : Node
             }
 
             float sens = Settings.MouseSensitivity * 0.8f;
-            float lookY = motion.Relative.Y * (Settings.InvertY ? -1.0f : 1.0f);
+            float lookY = CameraLookInput.VerticalDelta(motion.Relative.Y, Settings.InvertY);
             _yaw -= motion.Relative.X * sens;
             _pitch = Mathf.Clamp(_pitch - lookY * sens, -1.5f, 1.5f);
         }
