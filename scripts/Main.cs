@@ -157,7 +157,7 @@ public partial class Main : Node3D
         _achievementSystem = AddSystem(new AchievementSystem());
         _achievementSystem.Setup(_world, _player, _hud);
         _achievementUi = AddSystem(new AchievementUi());
-        _achievementUi.Setup(_player, _world);
+        _achievementUi.Setup(_player, _world, _achievementSystem);
 
         _onboarding = AddSystem(new OnboardingSystem());
         _onboarding.Setup(_world, _player, _hud, _mobs);

@@ -2,7 +2,7 @@
 
 This is the **current forward plan**, not a running implementation diary. Completed work, integration records and historical audits are preserved under docs/history and the relevant subsystem folders.
 
-**Status date:** 2026-11-23  
+**Status date:** 2026-11-24  
 **Current engine baseline:** Godot 4.7.2 .NET  
 **Current framework target:** .NET 10  
 **Latest published build:** [v1.1.0-beta.1](https://github.com/firasotoom85-droid/minecraft-godot/releases/tag/v1.1.0-beta.1)
@@ -28,6 +28,8 @@ writing the latest state synchronously.
 **Persistence recovery (integrated W05):** world and player manifests and saves use model-specific validation with ordered backup fallback. A damaged selected world is retained in recovery rather than silently replaced, and ordinary writes are blocked until a valid world/player pair is restored. The optional `hasSavedData` manifest marker distinguishes a never-saved world from lost save history. Archive imports validate metadata and candidates; duplication and deletion do not traverse links or other reparse points.
 
 **Gameplay lifecycle guard (integrated W08):** crop growth validates loaded-only farmland and open space, pausing without generating terrain. Merchant biome progress reconciles unique `explored/<Biome>` flags. Mob and village simulation suspend when their terrain chunk is unavailable; projectile queries reuse a configured terrain ray cast. Water columns retain level 1 at their foot, and unknown neighbours cannot weaken flow. Mob steering respects plants, lava and stateful slab/stair occupancy.
+
+**Gameplay state integrity (W14):** hostile population limits are enforced at the common spawn boundary; every herd spawn checks loaded terrain and capsule clearance; damage, breeding, furnace and inventory operations validate inputs before consuming state. Recipe-book outputs are preflighted against post-consumption capacity, achievement unlocks update an open journal, trader sessions expire with their residents, and particle bursts use bounded emitter pools. Generated village wheat is registered through the existing chunk-scan path. Campfire/structure exclusion is generator V13-only so V1–V12 remain frozen.
 
 ## 2. Stable-release quality gates
 

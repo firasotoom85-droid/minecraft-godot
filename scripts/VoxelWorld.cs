@@ -927,7 +927,31 @@ public partial class VoxelWorld : Node3D
             return null;
         }
 
+        if (_genVersion >= WorldGenV13.Version && HasCampfireStructureConflict(x, z))
+        {
+            return null;
+        }
+
         return new Vector3I(x, h, z);
+    }
+
+    private bool HasCampfireStructureConflict(int x, int z)
+    {
+        int clearance = WorldGenV13.StructureClearance;
+        int minCellX = Mathf.FloorToInt((x - clearance) / (float)StructureCell);
+        int maxCellX = Mathf.FloorToInt((x + clearance) / (float)StructureCell);
+        int minCellZ = Mathf.FloorToInt((z - clearance) / (float)StructureCell);
+        int maxCellZ = Mathf.FloorToInt((z + clearance) / (float)StructureCell);
+        for (int cz = minCellZ; cz <= maxCellZ; cz++)
+            for (int cx = minCellX; cx <= maxCellX; cx++)
+            {
+                if (CachedStructureSite(cx, cz) is { } structure
+                        && WorldGenV13.CampfireConflictsWithStructure(
+                                x, z, structure.X, structure.Z))
+                    return true;
+            }
+
+        return false;
     }
 
     private readonly Dictionary<long, Vector3I?> _campfireCache = new();

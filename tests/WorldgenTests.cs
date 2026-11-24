@@ -1033,7 +1033,8 @@ public static class WorldgenTests
             new(-2, -1), new(-1, -1), new(0, -1), new(1, -1),
         ];
         double[] elapsed = new double[4];
-        int[] versions = [6, WorldGenV7.Version, WorldGenV8.Version, WorldGenV12.Version];
+        int[] versions = [6, WorldGenV7.Version, WorldGenV8.Version,
+                WorldGenV12.Version, WorldGenV13.Version];
         for (int v = 0; v < versions.Length; v++)
         {
             int version = versions[v];

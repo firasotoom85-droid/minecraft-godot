@@ -2,6 +2,12 @@ using Godot;
 
 namespace Minecraft;
 
+public static class VillagerLifecycleRules
+{
+    public static bool CanInteract(bool dead, bool queuedForDeletion) =>
+            !dead && !queuedForDeletion;
+}
+
 public partial class Villager : Mob
 {
     private Vector3 _work;
@@ -102,6 +108,7 @@ public partial class Villager : Mob
 
     public override bool Interact(Player player)
     {
+        if (!VillagerLifecycleRules.CanInteract(Dead, IsQueuedForDeletion())) return false;
         player.InteractVillager(this);
         return true;
     }

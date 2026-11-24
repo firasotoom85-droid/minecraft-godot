@@ -112,6 +112,18 @@ public static class InventoryTests
         TestAssert.Equal(1, oneGapStack.Get(Inventory.SlotCount - 1).Count,
                 "the stored tool occupies exactly one slot with count one");
 
+        Inventory selectedCook = new();
+        for (int slot = 0; slot < Inventory.SlotCount; slot++)
+            selectedCook.Set(slot, ItemDb.New(ItemId.Dirt, 64));
+        selectedCook.Set(0, ItemDb.New(ItemId.RawPork, 2));
+        selectedCook.Set(1, ItemDb.New(ItemId.RawPork, 1));
+        TestAssert.Check(Player.TryCook(selectedCook, 1, ItemId.RawPork),
+                "campfire cooking can use the selected raw-food slot as its output space");
+        TestAssert.Equal(2, selectedCook.Get(0).Count,
+                "cooking leaves an earlier matching raw-food stack untouched");
+        TestAssert.Equal(ItemId.CookedPork, selectedCook.Get(1).Id,
+                "cooked output occupies the selected stack's freed slot");
+
         InventoryPersistenceRegressionTests.Run();
     }
 }

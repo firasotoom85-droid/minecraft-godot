@@ -45,10 +45,29 @@ public sealed class FurnaceData
             && BurnTime <= 0.0f && SmeltTime <= 0.0f
             && _unrecognizedSavedSlots is not { Count: > 0 };
 
+    public bool CanSetSlot(int slot, ItemStack stack)
+    {
+        if (slot is not (0 or 1) || HasUnrecognizedSaveSlot(slot))
+            return false;
+        return stack.IsEmpty || ItemStackSaveValidator.FitsFurnaceSlot(slot, stack);
+    }
+
+    public bool TrySetSlot(int slot, ItemStack stack)
+    {
+        if (!CanSetSlot(slot, stack)) return false;
+        ClearUnrecognizedSaveSlot(slot);
+        if (slot == 0) Input = stack;
+        else Fuel = stack;
+        return true;
+    }
+
     /// <summary>Advance one tick; carries elapsed time across fuel boundaries.</summary>
     public bool Tick(float delta)
     {
-        if (delta <= 0.0f)
+        if (!float.IsFinite(delta) || delta <= 0.0f
+                || (!Input.IsEmpty && !ItemStackSaveValidator.FitsFurnaceSlot(0, Input))
+                || (!Fuel.IsEmpty && !ItemStackSaveValidator.FitsFurnaceSlot(1, Fuel))
+                || (!Output.IsEmpty && !ItemStackSaveValidator.FitsFurnaceSlot(2, Output)))
         {
             return false;
         }
@@ -194,6 +213,7 @@ public sealed class FurnaceData
     public void LoadFrom(List<ItemStackSave>? items)
     {
         Input = Fuel = Output = ItemStack.Empty;
+        _smeltResult = null;
         _unrecognizedSavedSlots = null;
         if (items != null)
         {

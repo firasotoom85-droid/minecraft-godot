@@ -259,20 +259,44 @@ public static class Recipes
     public static bool CanCraft(Recipe recipe, Inventory inv) =>
         Ingredients(recipe).All(kv => inv.CountOf(kv.Key) >= kv.Value);
 
+    /// <summary>
+    /// Checks recipe ingredients and result capacity against the inventory
+    /// after those ingredients have been consumed.
+    /// </summary>
+    public static bool CanCraftAndFit(Recipe recipe, Inventory inv)
+    {
+        Dictionary<ItemId, int> ingredients = Ingredients(recipe);
+        foreach ((ItemId id, int count) in ingredients)
+        {
+            if (inv.CountOf(id) < count) return false;
+        }
+
+        return inv.CanFitAfterConsume(recipe.Result, recipe.ResultCount, ingredients);
+    }
+
     /// <summary>One-click craft straight from the inventory (recipe book).</summary>
     public static bool Craft(Recipe recipe, Inventory inv)
     {
-        if (!CanCraft(recipe, inv) || !inv.CanFit(recipe.Result, recipe.ResultCount))
+        Dictionary<ItemId, int> ingredients = Ingredients(recipe);
+        foreach ((ItemId id, int count) in ingredients)
         {
+            if (inv.CountOf(id) < count) return false;
+        }
+
+        if (!inv.CanFitAfterConsume(recipe.Result, recipe.ResultCount, ingredients))
             return false;
-        }
 
-        foreach ((ItemId id, int n) in Ingredients(recipe))
+        foreach ((ItemId id, int count) in ingredients)
         {
-            inv.Consume(id, n);
+            if (!inv.Consume(id, count))
+                throw new InvalidOperationException(
+                        "Recipe ingredient preflight disagreed with inventory consumption.");
         }
 
-        return inv.Add(recipe.Result, recipe.ResultCount) == 0;
+        if (inv.Add(recipe.Result, recipe.ResultCount) != 0)
+            throw new InvalidOperationException(
+                    "Recipe result capacity preflight disagreed with inventory insertion.");
+        return true;
     }
 
     public static string IngredientText(Recipe recipe) =>

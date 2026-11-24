@@ -190,6 +190,8 @@ public static class MobPerceptionTests
             await host.ToSignal(host.GetTree(), SceneTree.SignalName.PhysicsFrame);
             TestAssert.Check(!probe.CanSee(target),
                     "terrain-layer wall blocks creature line of sight");
+            TestAssert.Check(!MobCombatRules.CanAttack(0.0f, probe.CanSee(target)),
+                    "hostile attacks are blocked while a solid arena barrier occludes the target");
             TestAssert.Check(!probe.CanSee(target),
                     "cached blocked visibility remains consistent during its short validity window");
 
@@ -199,6 +201,8 @@ public static class MobPerceptionTests
             await host.ToSignal(host.GetTree(), SceneTree.SignalName.PhysicsFrame);
             TestAssert.Check(probe.CanSee(target),
                     "line of sight refreshes after obstruction removal and target movement");
+            TestAssert.Check(MobCombatRules.CanAttack(0.0f, probe.CanSee(target)),
+                    "hostile attack eligibility returns when the barrier is removed");
 
             TestAssert.Check(Wanderer.FlightProfileFor(chicken).SpeedMultiplier
                             > Wanderer.FlightProfileFor(cow).SpeedMultiplier,

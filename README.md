@@ -22,7 +22,8 @@ The project uses original procedural materials and audio. It is Minecraft-inspir
 - Infinite, seeded chunk streaming with versioned world generation, multiple biomes, rivers, caves, structures and distant terrain LOD.
 - Greedy opaque meshing, a per-face comparison path, pooled mesh payloads and bounded streaming memory.
 - Survival systems for health, hunger, equipment, crafting, cooking, farming, fishing, fluids, boats and storage.
-- Passive herds, hostile creatures, village residents, trading, quests, dungeons and the Ember Warden encounter.
+- Passive herds, bounded hostile populations, village residents, trading, quests, dungeons and the Ember Warden encounter.
+- Transactional inventory, crafting and furnace operations with selected-slot consumption and validated progression state.
 - Baked voxel lighting, day/night, weather, underwater fog blending and six graphics-quality presets.
 - Multi-world saves with atomic writes, rotating backups, import/export and compatibility for older worlds.
 - Keyboard and controller rebinding, minimap, achievements journal, contextual onboarding, photo mode and a developer console.
