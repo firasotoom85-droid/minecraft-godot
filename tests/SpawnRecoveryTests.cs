@@ -26,7 +26,7 @@ public static class SpawnRecoveryTests
         world.Player = player;
 
         CheckWorldSpawnAndFallback(world);
-        CheckFluidReactionGuard(world, player);
+        CheckFluidReactionGuard(host, world, player);
         CheckCurrentChunkCollisionRefresh(world, player);
         CheckTeleportAndRecoveryTransactions(world, player);
         CheckVoxelTraversalAndCrossNormals(world, player);
@@ -86,7 +86,7 @@ public static class SpawnRecoveryTests
         world.SpawnCandidateValidatorForTests = null;
     }
 
-    private static void CheckFluidReactionGuard(VoxelWorld world, Player player)
+    private static void CheckFluidReactionGuard(Node host, VoxelWorld world, Player player)
     {
         Vector3 spawn = world.FindSpawn();
         player.GlobalPosition = spawn;
@@ -98,19 +98,31 @@ public static class SpawnRecoveryTests
                 "fluid reaction fixture places lava inside the player capsule through SetBlock");
 
         FluidSystem fluids = new();
+        host.AddChild(fluids);
         fluids.Setup(world, player);
         typeof(FluidSystem).GetField("_editsRemaining",
                 BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(fluids, 1);
-        int edits = (int)typeof(FluidSystem).GetMethod("ReactAt",
-                BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(fluids, [lavaCell])!;
+        MethodInfo reactAt = typeof(FluidSystem).GetMethod("ReactAt",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+        int edits = (int)reactAt.Invoke(fluids, [lavaCell])!;
         TestAssert.Equal(0, edits,
                 "fluid reaction defers a result that would intersect the player capsule");
         TestAssert.Equal(BlockId.Lava,
                 world.GetBlock(lavaCell.X, lavaCell.Y, lavaCell.Z),
                 "deferred fluid reaction leaves the player's occupied lava voxel unchanged");
 
+        player.GlobalPosition = spawn + Vector3.Right * 3.0f;
+        edits = (int)reactAt.Invoke(fluids, [lavaCell])!;
+        TestAssert.Equal(1, edits,
+                "deferred fluid reaction proceeds once the player clears the occupied voxel");
+        TestAssert.Equal(BlockId.Cobblestone,
+                world.GetBlock(lavaCell.X, lavaCell.Y, lavaCell.Z),
+                "fluid reaction creates its expected solid result after the capsule is clear");
+
         TestAssert.Check(world.SetBlock(lavaCell.X, lavaCell.Y, lavaCell.Z, BlockId.Air),
-                "fluid reaction test removes its lava fixture through SetBlock");
+                "fluid reaction test removes its cobblestone fixture through SetBlock");
+        player.GlobalPosition = spawn;
+        host.RemoveChild(fluids);
         fluids.Free();
     }
 
@@ -167,7 +179,14 @@ public static class SpawnRecoveryTests
                 "near-player geometry mutation is accepted through SetBlock");
         TestAssert.Check(chunk.AppliedEditEpoch > appliedBefore
                         && chunk.AppliedEditEpoch == world.EditEpoch,
-                "near-player collision payload is refreshed to the committed edit epoch");
+                "near-player collision payload is refreshed to the committed edit epoch after placement");
+
+        long placedEpoch = chunk.AppliedEditEpoch;
+        TestAssert.Check(world.SetBlock(x, y, z, BlockId.Air),
+                "near-player solid removal is accepted through SetBlock");
+        TestAssert.Check(chunk.AppliedEditEpoch > placedEpoch
+                        && chunk.AppliedEditEpoch == world.EditEpoch,
+                "near-player collision payload is refreshed to the committed edit epoch after removal");
 
         Vector3 obstructed = new(
                 Mathf.FloorToInt(spawn.X) + 0.5f,
