@@ -26,7 +26,7 @@ public static class SpawnRecoveryTests
         world.Player = player;
 
         CheckWorldSpawnAndFallback(world);
-        CheckFluidReactionGuard(host, world, player);
+        CheckFluidReactionGuard(world, player);
         CheckCurrentChunkCollisionRefresh(world, player);
         CheckTeleportAndRecoveryTransactions(world, player);
         CheckVoxelTraversalAndCrossNormals(world, player);
@@ -68,7 +68,7 @@ public static class SpawnRecoveryTests
         world.SpawnCandidateValidatorForTests = null;
     }
 
-    private static void CheckFluidReactionGuard(Node host, VoxelWorld world, Player player)
+    private static void CheckFluidReactionGuard(VoxelWorld world, Player player)
     {
         Vector3 spawn = world.FindSpawn();
         player.GlobalPosition = spawn;
