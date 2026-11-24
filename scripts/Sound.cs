@@ -316,7 +316,7 @@ public partial class Sound : Node
     {
         if (_exitingTree || _thunderPlayer == null || !GodotObject.IsInstanceValid(_thunderPlayer))
             return;
-        SceneTreeTimer timer = GetTree().CreateTimer(System.Math.Max(delay, 0.05f));
+        SceneTreeTimer timer = GetTree().CreateTimer(System.Math.Max(delay, 0.05f), processAlways: false);
         Action callback = null!;
         callback = () =>
         {
