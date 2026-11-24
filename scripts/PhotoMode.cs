@@ -82,6 +82,13 @@ public partial class PhotoMode : Node
         }
     }
 
+    internal static void ApplyCameraSettings(
+            Camera3D camera, float fov, int viewDistance, float lodRadius)
+    {
+        camera.Fov = Mathf.Clamp(fov, 60.0f, 110.0f);
+        Gfx.ApplyCameraFar(camera, viewDistance, lodRadius);
+    }
+
     internal static bool CanTogglePhotoMode(bool active, bool inputLocked, bool dead, bool treePaused) =>
             active || (!inputLocked && !dead && !treePaused);
 
@@ -107,8 +114,8 @@ public partial class PhotoMode : Node
         _cam.GlobalPosition = PlayerRef.Camera.GlobalPosition;
         _yaw = PlayerRef.Camera.GlobalRotation.Y;
         _pitch = PlayerRef.Camera.Rotation.X;
-        _cam.Fov = Settings.Fov;
-        Gfx.ApplyCameraFar(_cam, Mathf.Max(World!.ViewDistance, Settings.ViewDistance), World.LodRadius);
+        ApplyCameraSettings(_cam, Settings.Fov,
+                Mathf.Max(World!.ViewDistance, Settings.ViewDistance), World.LodRadius);
         _cam.Current = true;
         Input.MouseMode = Input.MouseModeEnum.Captured;
         _skipMotion = true;
