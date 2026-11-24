@@ -59,6 +59,24 @@ public static class GraphicsTests
                 "manual quality choices remain eligible for persistence");
     }
 
+    private static void TestMinimapInvalidationPolicies()
+    {
+        TestAssert.Check(Minimap.HeadingChanged(float.NaN, 0.0f),
+                "minimap performs its initial heading draw");
+        TestAssert.Check(Minimap.HeadingChanged(0.0f, 0.1f),
+                "minimap heading changes independently of player translation");
+        TestAssert.Check(!Minimap.HeadingChanged(0.0f, 0.0005f),
+                "sub-pixel heading noise does not request redraws");
+        TestAssert.Check(Minimap.HeadingChanged(3.13f, -3.13f),
+                "minimap heading detects rotation across the angle wrap boundary");
+        TestAssert.Check(Minimap.IsPositionWithinMap(
+                        new Vector3I(8, 0, -8), Vector2.Zero, 10.0f),
+                "nearby block mutations invalidate the displayed map footprint");
+        TestAssert.Check(!Minimap.IsPositionWithinMap(
+                        new Vector3I(11, 0, 0), Vector2.Zero, 10.0f),
+                "distant block mutations do not invalidate the displayed map");
+    }
+
     private static void TestEnvironmentPresetMatrix()
     {
         for (int i = 0; i < Gfx.Presets.Count; i++)
