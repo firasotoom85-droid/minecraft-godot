@@ -963,22 +963,15 @@ public partial class Hud : CanvasLayer
 
     private string LookingAt()
     {
-        if (PlayerRef!.Ray == null || !PlayerRef.Ray.IsColliding())
-        {
-            return "—";
-        }
+        if (PlayerRef!.World != null
+                && PlayerRef.TryGetTargetBlock(out _, out BlockId id)
+                && BlockDb.IsDefined(id))
+            return BlockDb.NameOf(id);
 
-        if (PlayerRef.Ray.GetCollider() is Mob mob)
-        {
+        if (PlayerRef.Ray != null && PlayerRef.Ray.IsColliding()
+                && PlayerRef.Ray.GetCollider() is Mob mob)
             return mob.DisplayName;
-        }
 
-        if (PlayerRef.World == null)
-        {
-            return "—";
-        }
-
-        return PlayerRef.TryGetTargetBlock(out _, out BlockId id)
-                && BlockDb.IsDefined(id) ? BlockDb.NameOf(id) : "—";
+        return "—";
     }
 }
