@@ -366,6 +366,9 @@ public partial class Sound : Node
                 or BlockId.FlowerRed or BlockId.FlowerYellow or BlockId.Cactus
                 or BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2 or BlockId.Torch => 1.45f,
         BlockId.Glass => 1.35f,
+        BlockId.Log or BlockId.BirchLog or BlockId.Planks or BlockId.PlanksSlab
+                or BlockId.PlanksStairs or BlockId.CraftingTable or BlockId.Chest
+                or BlockId.Bed or BlockId.Ladder => 1.0f,
         BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.EnchantingTable or BlockId.MossyCobblestone
                 or BlockId.WeatheredCobblestone or BlockId.CrackedBrick or BlockId.MossyBrick
                 or BlockId.CobblestoneSlab or BlockId.BrickSlab
