@@ -25,6 +25,7 @@ public static class SpawnRecoveryTests
         world.Player = player;
 
         CheckWorldSpawnAndFallback(world);
+        CheckFluidReactionGuard(host, world, player);
         CheckCurrentChunkCollisionRefresh(world, player);
         CheckTeleportAndRecoveryTransactions(world, player);
         CheckVoxelTraversalAndCrossNormals(world, player);
@@ -64,6 +65,37 @@ public static class SpawnRecoveryTests
                         && failed == Vector3.Zero,
                 "rejecting every candidate reports failure without an unchecked coordinate");
         world.SpawnCandidateValidatorForTests = null;
+    }
+
+    private static void CheckFluidReactionGuard(Node host, VoxelWorld world, Player player)
+    {
+        Vector3 spawn = world.FindSpawn();
+        player.GlobalPosition = spawn;
+        int x = Mathf.FloorToInt(spawn.X);
+        int y = Mathf.FloorToInt(spawn.Y);
+        int z = Mathf.FloorToInt(spawn.Z);
+        Vector3I lavaCell = new(x, y, z);
+        Vector3I waterSource = new(x + 1, y, z);
+
+        TestAssert.Check(world.SetBlock(lavaCell.X, lavaCell.Y, lavaCell.Z, BlockId.Lava),
+                "fluid reaction fixture places lava inside the player capsule through SetBlock");
+        TestAssert.Check(world.SetBlock(waterSource.X, waterSource.Y, waterSource.Z, BlockId.Water),
+                "fluid reaction fixture places adjacent source water through SetBlock");
+
+        FluidSystem fluids = new();
+        host.AddChild(fluids);
+        fluids.Setup(world, player);
+        fluids.SimulateForTests(world, spawn);
+        TestAssert.Equal(BlockId.Lava,
+                world.GetBlock(lavaCell.X, lavaCell.Y, lavaCell.Z),
+                "water cannot react lava into solid cobblestone inside the player capsule");
+
+        TestAssert.Check(world.SetBlock(lavaCell.X, lavaCell.Y, lavaCell.Z, BlockId.Air),
+                "fluid reaction test removes its lava fixture through SetBlock");
+        TestAssert.Check(world.SetBlock(waterSource.X, waterSource.Y, waterSource.Z, BlockId.Air),
+                "fluid reaction test removes its water fixture through SetBlock");
+        host.RemoveChild(fluids);
+        fluids.Free();
     }
 
     private static void CheckCurrentChunkCollisionRefresh(VoxelWorld world, Player player)
