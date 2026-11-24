@@ -2083,28 +2083,28 @@ public partial class Player : CharacterBody3D, IDamageable
         const float epsilon = 0.00001f;
 
         for (int y = 0; y < 2; y++)
-        for (int z = 0; z < 2; z++)
-        for (int x = 0; x < 2; x++)
-        {
-            if ((mask & (1 << (x + z * 2 + y * 4))) == 0) continue;
+            for (int z = 0; z < 2; z++)
+                for (int x = 0; x < 2; x++)
+                {
+                    if ((mask & (1 << (x + z * 2 + y * 4))) == 0) continue;
 
-            float minX = blockOrigin.X + x * 0.5f;
-            float maxX = minX + 0.5f;
-            float minY = blockOrigin.Y + y * 0.5f;
-            float maxY = minY + 0.5f;
-            float minZ = blockOrigin.Z + z * 0.5f;
-            float maxZ = minZ + 0.5f;
+                    float minX = blockOrigin.X + x * 0.5f;
+                    float maxX = minX + 0.5f;
+                    float minY = blockOrigin.Y + y * 0.5f;
+                    float maxY = minY + 0.5f;
+                    float minZ = blockOrigin.Z + z * 0.5f;
+                    float maxZ = minZ + 0.5f;
 
-            float closestX = Mathf.Clamp(capsuleBase.X, minX, maxX);
-            float closestZ = Mathf.Clamp(capsuleBase.Z, minZ, maxZ);
-            float dx = capsuleBase.X - closestX;
-            float dz = capsuleBase.Z - closestZ;
-            float dy = segmentMaxY < minY ? minY - segmentMaxY
-                    : segmentMinY > maxY ? segmentMinY - maxY : 0.0f;
+                    float closestX = Mathf.Clamp(capsuleBase.X, minX, maxX);
+                    float closestZ = Mathf.Clamp(capsuleBase.Z, minZ, maxZ);
+                    float dx = capsuleBase.X - closestX;
+                    float dz = capsuleBase.Z - closestZ;
+                    float dy = segmentMaxY < minY ? minY - segmentMaxY
+                            : segmentMinY > maxY ? segmentMinY - maxY : 0.0f;
 
-            if (dx * dx + dy * dy + dz * dz < radiusSquared - epsilon)
-                return true;
-        }
+                    if (dx * dx + dy * dy + dz * dz < radiusSquared - epsilon)
+                        return true;
+                }
 
         return false;
     }

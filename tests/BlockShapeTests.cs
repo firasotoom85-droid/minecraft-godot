@@ -11,6 +11,8 @@ public static class BlockShapeTests
     {
         Run();
         CheckChunkGeometryAndPersistence(host);
+        CheckStreamingColliderBoundary(host);
+        CheckLightingSnapshotLockAndRetry(host);
     }
 
     public static void Run()
@@ -61,6 +63,20 @@ public static class BlockShapeTests
         TestAssert.Check(BlockShapes.FaceExposed(slab, BlockShapes.SlabBottom, 1, 0, 0,
                     2, BlockId.PlanksSlab, BlockShapes.SlabTop),
                 "upper neighboring slab leaves the lower boundary visible");
+
+        foreach (BlockId foliage in new[]
+        {
+            BlockId.Leaves, BlockId.BirchLeaves, BlockId.SpruceLeaves,
+            BlockId.JungleLeaves, BlockId.SwampLeaves,
+        })
+        {
+            TestAssert.Check(BlockShapes.FaceExposed(slab, BlockShapes.SlabBottom,
+                            1, 0, 0, 2, foliage, 0),
+                    $"{foliage} does not occlude an exposed slab micro-face");
+            TestAssert.Check(BlockShapes.FaceExposed(stairs, 0,
+                            1, 0, 0, 2, foliage, 0),
+                    $"{foliage} does not occlude an exposed stair micro-face");
+        }
 
         TestAssert.Equal(BlockShapes.SlabBottom,
                 BlockShapes.SelectSlabState(Vector3.Up, new Vector3(0.5f, 1.0f, 0.5f)),
@@ -193,6 +209,330 @@ public static class BlockShapeTests
                     $"{item} has a crafting recipe");
     }
 
+    private static void CheckLightingSnapshotLockAndRetry(Node host)
+    {
+        string dir = $"user://tests/light-snapshot-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(dir);
+        WorldStore.WriteManifest(dir, new WorldManifest(
+                "Light snapshot retry", 271828, WorldStore.CurrentGenVersion,
+                WorldStore.DeriveNoiseSeeds(271828), 0, 0, "survival", "normal"));
+        GameSession.Instance.SelectWorld(dir);
+
+        VoxelWorld world = new() { BuildCollision = false };
+        host.AddChild(world);
+        try
+        {
+            world.BuildPreview(Vector3.Zero, 1);
+
+            using System.Threading.ManualResetEventSlim snapshotCaptured = new(false);
+            using System.Threading.ManualResetEventSlim resumeSolve = new(false);
+            int capturedSnapshots = 0;
+            world.SnapshotReleasedTestHook = () =>
+            {
+                int attempt = System.Threading.Interlocked.Increment(ref capturedSnapshots);
+                if (attempt == 1)
+                {
+                    snapshotCaptured.Set();
+                    resumeSolve.Wait(System.TimeSpan.FromSeconds(15));
+                }
+            };
+
+            // Preview radius 1 has already populated centers through (1,1);
+            // center (3,3) guarantees a cache miss while retaining chunk (1,1)
+            // inside the solve's 5x5 snapshot region.
+            System.Threading.Tasks.Task<VoxelLightData[]> solve = System.Threading.Tasks.Task.Run(
+                    () => world.LightDataNeighborhood(new Vector2I(3, 3)));
+            bool reachedSolve = snapshotCaptured.Wait(System.TimeSpan.FromSeconds(10));
+
+            System.Threading.Tasks.Task<bool>? lockProbe = null;
+            bool acquiredDuringSolve = false;
+            if (reachedSolve)
+            {
+                // Start the lock probe only after the worker is paused beyond
+                // its snapshot section; this proves the solve itself is out of lock.
+                lockProbe = System.Threading.Tasks.Task.Run(() =>
+                {
+                    lock (world.SnapshotLock)
+                        return true;
+                });
+                acquiredDuringSolve = lockProbe.Wait(System.TimeSpan.FromSeconds(2));
+            }
+
+            BlockId oldBlock = world.GetBlock(24, 120, 24);
+            BlockId replacement = oldBlock == BlockId.Air ? BlockId.Stone : BlockId.Air;
+            bool mutationSucceeded = reachedSolve && world.SetBlock(24, 120, 24, replacement);
+
+            resumeSolve.Set();
+            bool solveCompleted = solve.Wait(System.TimeSpan.FromSeconds(30));
+            if (solveCompleted)
+                _ = solve.GetAwaiter().GetResult();
+            if (lockProbe != null && !lockProbe.IsCompleted)
+                lockProbe.Wait(System.TimeSpan.FromSeconds(10));
+
+            world.SnapshotReleasedTestHook = null;
+            TestAssert.Check(reachedSolve,
+                    "light neighborhood solve reaches derived work after releasing the snapshot lock");
+            TestAssert.Check(acquiredDuringSolve,
+                    "another thread can acquire SnapshotLock while neighborhood lighting is solving");
+            TestAssert.Check(mutationSucceeded,
+                    "a block edit can complete while the prior light snapshot is being solved");
+            TestAssert.Check(solveCompleted && capturedSnapshots >= 2,
+                    "a light solve captured before an edit is discarded and retried against the new epoch");
+        }
+        finally
+        {
+            world.SnapshotReleasedTestHook = null;
+            host.RemoveChild(world);
+            world.QueueFree();
+            DirAccess.RemoveAbsolute(WorldStore.WorldSavePath(dir));
+            DirAccess.RemoveAbsolute(WorldStore.PlayerSavePath(dir));
+            DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+            DirAccess.RemoveAbsolute(dir);
+        }
+    }
+
+    private static void CheckStreamingColliderBoundary(Node host)
+    {
+        string dir = $"user://tests/collider-frontier-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(dir);
+        WorldStore.WriteManifest(dir, new WorldManifest(
+                "Collider frontier", 314159, WorldStore.CurrentGenVersion,
+                WorldStore.DeriveNoiseSeeds(314159), 0, 0, "survival", "normal"));
+        GameSession.Instance.SelectWorld(dir);
+
+        VoxelWorld world = new() { BuildCollision = true };
+        host.AddChild(world);
+        bool previousGreedy = Mesher.Greedy;
+        Mesher.Greedy = false;
+        try
+        {
+            world.BuildPreview(Vector3.Zero, 1);
+
+            TestAssert.Check((world.MissingColliderBoundaryMask(new Vector2I(1, 0))
+                            & (1 << 2)) != 0,
+                    "east frontier recognizes the generated but unbuilt +X neighbor");
+            TestAssert.Check((world.MissingColliderBoundaryMask(new Vector2I(-1, 0))
+                            & (1 << 3)) != 0,
+                    "west frontier recognizes the generated but unbuilt -X neighbor at negative coordinates");
+            TestAssert.Check((world.MissingColliderBoundaryMask(new Vector2I(0, 1))
+                            & (1 << 4)) != 0,
+                    "south frontier recognizes the generated but unbuilt +Z neighbor");
+            TestAssert.Check((world.MissingColliderBoundaryMask(new Vector2I(0, -1))
+                            & (1 << 5)) != 0,
+                    "north frontier recognizes the generated but unbuilt -Z neighbor");
+
+            CheckMissingColliderEdge(world, new Vector2I(1, 0),
+                    sourceX: 31, sourceZ: 8, neighborX: 32, neighborZ: 8,
+                    face: 2, axis: 0, plane: 16.0f, cellX: 15, cellZ: 8,
+                    "positive X edge");
+            CheckMissingColliderEdge(world, new Vector2I(-1, 0),
+                    sourceX: -16, sourceZ: 8, neighborX: -17, neighborZ: 8,
+                    face: 3, axis: 0, plane: 0.0f, cellX: 0, cellZ: 8,
+                    "negative X edge");
+            CheckMissingColliderEdge(world, new Vector2I(0, 1),
+                    sourceX: 8, sourceZ: 31, neighborX: 8, neighborZ: 32,
+                    face: 4, axis: 2, plane: 16.0f, cellX: 8, cellZ: 15,
+                    "positive Z edge");
+            CheckMissingColliderEdge(world, new Vector2I(0, -1),
+                    sourceX: 8, sourceZ: -16, neighborX: 8, neighborZ: -17,
+                    face: 5, axis: 2, plane: 0.0f, cellX: 8, cellZ: 0,
+                    "negative Z edge");
+
+            Vector2I frontier = new(1, 0);
+            int surfaceY = world.SurfaceHeight(32, 8);
+            int solidY = -1;
+            for (int y = surfaceY; y >= 1; y--)
+            {
+                BlockId candidate = world.GetBlock(32, y, 8);
+                if (BlockDb.IsSolid(candidate) && !BlockDb.IsTransparent(candidate))
+                {
+                    solidY = y;
+                    break;
+                }
+            }
+
+            TestAssert.Check(solidY > 0,
+                    "frontier fixture finds a generated solid block in the unloaded neighbor");
+            if (solidY > 0)
+            {
+                bool frontierSourceChanged = world.SetBlock(31, solidY, 8, BlockId.Stone);
+                TestAssert.Check(frontierSourceChanged
+                                || world.GetBlock(31, solidY, 8) == BlockId.Stone,
+                        "frontier fixture source block is stone through SetBlock");
+
+                MeshPayload frontierPayload = Mesher.Build(world, frontier);
+                try
+                {
+                    TestAssert.Equal(2, CountTrianglesOnPlane(
+                                    frontierPayload.Collision, 0, 16.0f, solidY, 8),
+                            "loaded chunk emits its collision backing face against an unbuilt solid neighbor");
+                    TestAssert.Equal(0, CountTrianglesOnPlane(
+                                    frontierPayload.Opaque.Vertex, 0, 16.0f, solidY, 8),
+                            "collision frontier face does not add duplicate render geometry");
+                }
+                finally
+                {
+                    PayloadPool.Release(frontierPayload);
+                }
+
+                // Loading the neighbor supplies the opposite active collider.
+                // The same boundary face must then disappear from this chunk.
+                world.BuildPreview(new Vector3(32.0f, 100.0f, 0.0f), 1);
+                TestAssert.Equal(0,
+                        world.MissingColliderBoundaryMask(frontier) & (1 << 2),
+                        "loading the neighboring chunk clears the +X missing-collider bit");
+
+                MeshPayload connectedPayload = Mesher.Build(world, frontier);
+                try
+                {
+                    TestAssert.Equal(0, CountTrianglesOnPlane(
+                                    connectedPayload.Collision, 0, 16.0f, solidY, 8),
+                            "connected chunk colliders do not retain a redundant internal boundary wall");
+                }
+                finally
+                {
+                    PayloadPool.Release(connectedPayload);
+                }
+
+                bool sourceBlockChanged = world.SetBlock(31, solidY, 9, BlockId.Stone);
+                TestAssert.Check(sourceBlockChanged
+                                || world.GetBlock(31, solidY, 9) == BlockId.Stone,
+                        "partial-neighbor frontier source block is stone through SetBlock");
+                bool slabChanged = world.SetBlock(32, solidY, 9, BlockId.PlanksSlab,
+                        BlockShapes.SlabBottom);
+                TestAssert.Check(slabChanged
+                                || world.GetBlock(32, solidY, 9) == BlockId.PlanksSlab
+                                        && world.GetBlockState(32, solidY, 9) == BlockShapes.SlabBottom,
+                        "partial generated neighbor slab is present through SetBlock");
+
+                // Move the streaming center so the tested chunk remains at the
+                // unload margin while its +X neighbor falls outside it.
+                world.ViewDistance = 0;
+                world.UnloadFar(new Vector2I(-1, 0));
+                TestAssert.Check(world.HasChunk(frontier)
+                                && !world.HasChunk(frontier + Vector2I.Right),
+                        "unloading the adjacent chunk keeps the tested frontier chunk active");
+                TestAssert.Check((world.MissingColliderBoundaryMask(frontier) & (1 << 2)) != 0,
+                        "unloading the neighbor restores the +X missing-collider boundary bit");
+
+                MeshPayload unloadedPayload = Mesher.Build(world, frontier);
+                try
+                {
+                    TestAssert.Equal(2, CountTrianglesOnPlane(
+                                    unloadedPayload.Collision, 0, 16.0f, solidY, 8),
+                            "remaining chunk restores its collision wall when the neighbor unloads");
+                    TestAssert.Equal(0, CountTrianglesOnPlane(
+                                    unloadedPayload.Opaque.Vertex, 0, 16.0f, solidY, 8),
+                            "unloading a neighbor restores collision without duplicating render geometry");
+                    TestAssert.Equal(2, CountTrianglesOnPlane(
+                                    unloadedPayload.Collision, 0, 16.0f, solidY, 9),
+                            "unbuilt partial-shape neighbor does not leave a half-height collision opening");
+                    TestAssert.Check(CountTrianglesOnPlane(
+                                    unloadedPayload.Opaque.Vertex, 0, 16.0f, solidY, 9) > 0,
+                            "render geometry still clips to the exposed half beside an unbuilt slab");
+                }
+                finally
+                {
+                    PayloadPool.Release(unloadedPayload);
+                }
+            }
+        }
+        finally
+        {
+            Mesher.Greedy = previousGreedy;
+            host.RemoveChild(world);
+            world.QueueFree();
+            DirAccess.RemoveAbsolute(WorldStore.WorldSavePath(dir));
+            DirAccess.RemoveAbsolute(WorldStore.PlayerSavePath(dir));
+            DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+            DirAccess.RemoveAbsolute(dir);
+        }
+    }
+
+    private static void CheckMissingColliderEdge(
+            VoxelWorld world, Vector2I sourceChunk,
+            int sourceX, int sourceZ, int neighborX, int neighborZ,
+            int face, int axis, float plane, int cellX, int cellZ, string label)
+    {
+        TestAssert.Check((world.MissingColliderBoundaryMask(sourceChunk) & (1 << face)) != 0,
+                $"{label} reports a missing adjacent collider");
+
+        int surfaceY = world.SurfaceHeight(neighborX, neighborZ);
+        int solidY = -1;
+        for (int y = surfaceY; y >= 1; y--)
+        {
+            BlockId neighbor = world.GetBlock(neighborX, y, neighborZ);
+            if (BlockDb.IsSolid(neighbor) && !BlockDb.IsTransparent(neighbor))
+            {
+                solidY = y;
+                break;
+            }
+        }
+        TestAssert.Check(solidY > 0,
+                $"{label} fixture finds a generated solid neighbor block");
+        if (solidY <= 0) return;
+
+        bool changed = world.SetBlock(sourceX, solidY, sourceZ, BlockId.Stone);
+        TestAssert.Check(changed || world.GetBlock(sourceX, solidY, sourceZ) == BlockId.Stone,
+                $"{label} source block is stone through SetBlock");
+
+        MeshPayload payload = Mesher.Build(world, sourceChunk);
+        try
+        {
+            TestAssert.Equal(2, CountTrianglesOnCellPlane(
+                            payload.Collision, axis, plane, cellX, solidY, cellZ),
+                    $"{label} emits a full collision boundary face against an unbuilt neighbor");
+            TestAssert.Equal(0, CountTrianglesOnCellPlane(
+                            payload.Opaque.Vertex, axis, plane, cellX, solidY, cellZ),
+                    $"{label} frontier face remains collision-only without duplicate render geometry");
+        }
+        finally
+        {
+            PayloadPool.Release(payload);
+        }
+    }
+
+    private static int CountTrianglesOnCellPlane(
+            System.Collections.Generic.IReadOnlyList<Vector3> vertices,
+            int axis, float coordinate, int x, int y, int z)
+    {
+        int count = 0;
+        for (int i = 0; i + 2 < vertices.Count; i += 3)
+        {
+            bool onPlane = true;
+            for (int vertex = 0; vertex < 3; vertex++)
+            {
+                Vector3 point = vertices[i + vertex];
+                onPlane &= Mathf.IsEqualApprox(point[axis], coordinate)
+                        && point.X >= x && point.X <= x + 1.0f
+                        && point.Y >= y && point.Y <= y + 1.0f
+                        && point.Z >= z && point.Z <= z + 1.0f;
+            }
+            if (onPlane) count++;
+        }
+        return count;
+    }
+
+    private static int CountTrianglesOnPlane(
+            System.Collections.Generic.IReadOnlyList<Vector3> vertices,
+            int axis, float coordinate, int y, int z)
+    {
+        int count = 0;
+        for (int i = 0; i + 2 < vertices.Count; i += 3)
+        {
+            bool onPlane = true;
+            for (int vertex = 0; vertex < 3; vertex++)
+            {
+                Vector3 point = vertices[i + vertex];
+                onPlane &= Mathf.IsEqualApprox(point[axis], coordinate)
+                        && point.Y >= y && point.Y <= y + 1.0f
+                        && point.Z >= z && point.Z <= z + 1.0f;
+            }
+            if (onPlane) count++;
+        }
+        return count;
+    }
+
     private static void CheckChunkGeometryAndPersistence(Node host)
     {
         string dir = $"user://tests/block-shapes-{Time.GetTicksUsec()}";
@@ -219,9 +559,9 @@ public static class BlockShapeTests
 
         // A clean air volume isolates geometry and its boundary interactions.
         for (int y = 99; y <= 102; y++)
-        for (int z = 1; z <= 5; z++)
-        for (int x = 1; x <= 14; x++)
-            world.SetBlock(x, y, z, BlockId.Air);
+            for (int z = 1; z <= 5; z++)
+                for (int x = 1; x <= 14; x++)
+                    world.SetBlock(x, y, z, BlockId.Air);
 
         world.SetBlock(2, 100, 2, BlockId.PlanksSlab, BlockShapes.SlabBottom);
         world.SetBlock(4, 100, 2, BlockId.PlanksSlab, BlockShapes.SlabTop);
@@ -235,9 +575,9 @@ public static class BlockShapeTests
         // Clear the negative-Z/east chunk corner too; these are AO-only
         // neighbours for the final diagonal-seam regression.
         for (int y = 99; y <= 102; y++)
-        for (int z = -1; z <= 0; z++)
-        for (int x = 14; x <= 16; x++)
-            world.SetBlock(x, y, z, BlockId.Air);
+            for (int z = -1; z <= 0; z++)
+                for (int x = 14; x <= 16; x++)
+                    world.SetBlock(x, y, z, BlockId.Air);
 
         // AO must use the actual occupied half of neighbouring shape blocks.
         world.SetBlock(1, 100, 4, BlockId.Stone);
@@ -404,9 +744,9 @@ public static class BlockShapeTests
         // paths. Changing the same slab from bottom to double must invalidate
         // the packed 3x3 neighbourhood; restoring the cavity must relight it.
         for (int y = 100; y <= 102; y++)
-        for (int z = 5; z <= 7; z++)
-        for (int x = 13; x <= 21; x++)
-            world.SetBlock(x, y, z, BlockId.Stone);
+            for (int z = 5; z <= 7; z++)
+                for (int x = 13; x <= 21; x++)
+                    world.SetBlock(x, y, z, BlockId.Stone);
         for (int x = 13; x <= 20; x++)
             world.SetBlock(x, 101, 6, BlockId.Air);
         TestAssert.Check(world.SetBlock(14, 101, 6, BlockId.Torch),

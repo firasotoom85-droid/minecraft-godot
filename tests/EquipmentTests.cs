@@ -1,5 +1,6 @@
 using System.Linq;
 namespace Minecraft;
+
 public static class EquipmentTests
 {
     private static int ExperienceAtLevelForTest(int level) => PlayerStats.ExperienceAtLevel(level);
@@ -15,10 +16,10 @@ public static class EquipmentTests
         TestAssert.Check(!string.IsNullOrWhiteSpace(ItemDb.DescriptionOf(ItemId.DiamondSword)), "weapon description exists");
         Inventory inv = new(); inv.Add(ItemId.DiamondSword, 1); inv.DamageEquipment(0); TestAssert.Equal(899, inv.Get(0).Durability, "weapon wears on hit");
         Inventory loaded = new(); loaded.LoadFrom(inv.ToSave()); TestAssert.Equal(899, loaded.Get(0).Durability, "weapon durability persists");
-        foreach(ItemId id in new[]{ItemId.WoodSword,ItemId.StoneSword,ItemId.IronSword,ItemId.DiamondSword,ItemId.Bow,ItemId.Arrow,ItemId.Shield,ItemId.EmberBlade})
-            TestAssert.Check(Recipes.All.Any(r=>r.Result==id), $"recipe exists for {id}");
-        Inventory mats=new();mats.Add(ItemId.Diamond,1);mats.Add(ItemId.Stick,1);Recipe ds=Recipes.All.First(r=>r.Result==ItemId.DiamondSword);
-        TestAssert.Check(!Recipes.CanCraft(ds,mats), "diamond sword requires two diamonds");mats.Add(ItemId.Diamond,1);TestAssert.Check(Recipes.CanCraft(ds,mats), "diamond sword crafts with two diamonds");
+        foreach (ItemId id in new[] { ItemId.WoodSword, ItemId.StoneSword, ItemId.IronSword, ItemId.DiamondSword, ItemId.Bow, ItemId.Arrow, ItemId.Shield, ItemId.EmberBlade })
+            TestAssert.Check(Recipes.All.Any(r => r.Result == id), $"recipe exists for {id}");
+        Inventory mats = new(); mats.Add(ItemId.Diamond, 1); mats.Add(ItemId.Stick, 1); Recipe ds = Recipes.All.First(r => r.Result == ItemId.DiamondSword);
+        TestAssert.Check(!Recipes.CanCraft(ds, mats), "diamond sword requires two diamonds"); mats.Add(ItemId.Diamond, 1); TestAssert.Check(Recipes.CanCraft(ds, mats), "diamond sword crafts with two diamonds");
         TestAssert.Check(Recipes.All.Any(r => r.Result == ItemId.EnchantingTable), "enchanting table has a crafting recipe");
         TestAssert.Equal(BlockId.EnchantingTable, ItemDb.BlockFor(ItemId.EnchantingTable) ?? BlockId.Air, "enchanting table item maps to block");
         Inventory tableMaterials = new();

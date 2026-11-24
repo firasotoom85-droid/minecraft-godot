@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Development and contribution guide
+    url: https://github.com/firasotoom85-droid/minecraft-godot/blob/main/CONTRIBUTING.md
+    about: Read the setup, compatibility and pull-request requirements before proposing implementation work.
+  - name: Current roadmap
+    url: https://github.com/firasotoom85-droid/minecraft-godot/blob/main/ROADMAP.md
+    about: Check current release gates and planned work.
+  - name: Security reports
+    url: https://github.com/firasotoom85-droid/minecraft-godot/blob/main/SECURITY.md
+    about: Do not disclose exploitable vulnerabilities in public issues.

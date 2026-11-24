@@ -1,0 +1,42 @@
+name: Documentation
+
+on:
+  push:
+    paths:
+      - "README.md"
+      - "ROADMAP.md"
+      - "PLAN.md"
+      - "CONTRIBUTING.md"
+      - "CHANGELOG.md"
+      - "SECURITY.md"
+      - "CODE_OF_CONDUCT.md"
+      - "THIRD_PARTY_NOTICES.md"
+      - "docs/**/*.md"
+      - "scripts/verify-docs.py"
+  pull_request:
+    paths:
+      - "README.md"
+      - "ROADMAP.md"
+      - "PLAN.md"
+      - "CONTRIBUTING.md"
+      - "CHANGELOG.md"
+      - "SECURITY.md"
+      - "CODE_OF_CONDUCT.md"
+      - "THIRD_PARTY_NOTICES.md"
+      - "docs/**/*.md"
+      - "scripts/verify-docs.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  documentation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Verify active documentation and relative links
+        run: python scripts/verify-docs.py

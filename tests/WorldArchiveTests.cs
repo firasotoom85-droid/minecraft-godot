@@ -112,6 +112,18 @@ public static class WorldArchiveTests
                     JsonSerializer.Serialize(before, WorldStore.Json)), "initial restore point writes");
             TestAssert.Check(WorldStore.WriteAtomic(backupSavePath,
                     JsonSerializer.Serialize(after, WorldStore.Json)), "newer save rotates the previous version");
+            string backupPlayerPath = WorldStore.PlayerSavePath(backupWorld);
+            TestAssert.Check(WorldStore.WriteAtomic(backupPlayerPath,
+                    JsonSerializer.Serialize(new PlayerSave([1.0f, 2.0f, 3.0f]), WorldStore.Json)),
+                    "initial player state writes for the complete recovery fixture");
+            TestAssert.Check(WorldStore.WriteAtomic(backupPlayerPath,
+                    JsonSerializer.Serialize(new PlayerSave([4.0f, 5.0f, 6.0f]), WorldStore.Json)),
+                    "second player state rotates the first backup");
+            TestAssert.Check(WorldStore.WriteAtomic(backupPlayerPath,
+                    JsonSerializer.Serialize(new PlayerSave([7.0f, 8.0f, 9.0f]), WorldStore.Json)),
+                    "third player state creates the oldest backup used by access-denial tests");
+            TestAssert.Check(WorldStore.WriteManifest(backupWorld, WorldStore.ReadManifest(backupWorld)!),
+                    "complete recovery fixture records its save history");
             List<WorldBackupInfo> backups = WorldBackupStore.List(backupWorld);
             WorldBackupInfo? selected = backups.Find(item => item.FileName == "world.json.bak" && item.IsValid);
             TestAssert.Check(selected is not null, "backup browser lists dated, validated restore points");
@@ -125,6 +137,108 @@ public static class WorldArchiveTests
                 WorldSave? safety = WorldStore.ReadJson<WorldSave>(backupSavePath + ".bak", WorldStore.Json);
                 TestAssert.Equal(0.875, safety?.Time ?? -1.0,
                         "pre-restore current save is retained as a safety backup");
+            }
+
+            // Reject a null SHA-256 field through the importer's normal
+            // invalid-data path before any destination is published.
+            string nullHashArchive = Path.Combine(absoluteRoot, "null-hash.zip");
+            using (FileStream stream = new(nullHashArchive, FileMode.CreateNew))
+            using (ZipArchive zip = new(stream, ZipArchiveMode.Create))
+            {
+                ZipArchiveEntry metadata = zip.CreateEntry(WorldArchive.ArchiveManifestName);
+                using (StreamWriter writer = new(metadata.Open()))
+                    writer.Write("""{"archiveVersion":1,"exportedUtc":1,"world":{"name":"Bad","seed":1,"genVersion":1,"noiseSeeds":[1,2,3,4,5],"createdUtc":1,"playedUtc":1},"files":[{"path":"world/manifest.json","length":0,"sha256":null}]}""");
+                zip.CreateEntry("world/manifest.json");
+            }
+            int worldsBeforeNullHash = Directory.GetDirectories(worldsRoot).Length;
+            bool nullHashRejected = false;
+            try { WorldArchive.Import(nullHashArchive, worldsRoot); }
+            catch (InvalidDataException) { nullHashRejected = true; }
+            TestAssert.Check(nullHashRejected,
+                    "an archive record with sha256:null is rejected as invalid archive metadata");
+            TestAssert.Equal(worldsBeforeNullHash, Directory.GetDirectories(worldsRoot).Length,
+                    "invalid null-hash metadata does not publish an import destination");
+
+            // An unsupported primary world save must not be replaced by an
+            // older compatible backup during staged archive validation.
+            string futureArchive = Path.Combine(absoluteRoot, "future-save.zip");
+            Dictionary<string, byte[]> futureEntries = new()
+            {
+                ["world/manifest.json"] = System.Text.Encoding.UTF8.GetBytes(
+                        JsonSerializer.Serialize(sourceManifest, WorldStore.ManifestJson)),
+                ["world/world.json"] = System.Text.Encoding.UTF8.GetBytes(
+                        """{"version":999,"edits":{},"time":0.5}"""),
+                ["world/world.json.bak"] = System.Text.Encoding.UTF8.GetBytes(
+                        JsonSerializer.Serialize(new WorldSave(2, null, 0.125), WorldStore.Json)),
+            };
+            List<WorldArchiveFile> futureRecords = [];
+            foreach ((string entryPath, byte[] bytes) in futureEntries)
+                futureRecords.Add(new WorldArchiveFile(entryPath, bytes.LongLength,
+                        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant()));
+            WorldArchiveManifest futureMetadata = new(
+                    WorldArchive.ArchiveVersion, DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    sourceManifest, futureRecords);
+            using (FileStream stream = new(futureArchive, FileMode.CreateNew))
+            using (ZipArchive zip = new(stream, ZipArchiveMode.Create))
+            {
+                foreach ((string entryPath, byte[] bytes) in futureEntries)
+                {
+                    ZipArchiveEntry entry = zip.CreateEntry(entryPath);
+                    using Stream output = entry.Open();
+                    output.Write(bytes, 0, bytes.Length);
+                }
+                ZipArchiveEntry metadata = zip.CreateEntry(WorldArchive.ArchiveManifestName);
+                using (StreamWriter writer = new(metadata.Open()))
+                    writer.Write(JsonSerializer.Serialize(futureMetadata, WorldStore.Json));
+            }
+            int worldsBeforeFutureSave = Directory.GetDirectories(worldsRoot).Length;
+            bool futureSaveRejected = false;
+            try { WorldArchive.Import(futureArchive, worldsRoot); }
+            catch (InvalidDataException) { futureSaveRejected = true; }
+            TestAssert.Check(futureSaveRejected,
+                    "archive import rejects a future primary save rather than downgrading to its v2 backup");
+            TestAssert.Equal(worldsBeforeFutureSave, Directory.GetDirectories(worldsRoot).Length,
+                    "unsupported archive saves are rejected before world publication");
+
+            // One unreadable restore point must not hide valid neighboring files.
+            WorldBackupStore.ReadBackupTextForTests = path =>
+            {
+                if (path.EndsWith("player.json.bak2", StringComparison.Ordinal))
+                    throw new UnauthorizedAccessException("simulated backup read denial");
+                return File.ReadAllText(path);
+            };
+            List<WorldBackupInfo> partialBackups;
+            try { partialBackups = WorldBackupStore.List(backupWorld); }
+            finally { WorldBackupStore.ReadBackupTextForTests = null; }
+            TestAssert.Check(partialBackups.Exists(item => item.FileName == "world.json.bak" && item.IsValid),
+                    "an inaccessible backup does not hide other valid restore points");
+            TestAssert.Check(partialBackups.Exists(item => item.FileName == "player.json.bak2"
+                    && !item.IsValid && item.Status.StartsWith("Unavailable:", StringComparison.Ordinal)),
+                    "an unreadable backup is displayed as unavailable instead of aborting the list");
+
+            WorldBackupStore.EnumerateBackupPathsForTests = _ =>
+                    throw new UnauthorizedAccessException("simulated backup directory denial");
+            List<WorldBackupInfo> inaccessibleBackups;
+            try { inaccessibleBackups = WorldBackupStore.List(backupWorld); }
+            finally { WorldBackupStore.EnumerateBackupPathsForTests = null; }
+            TestAssert.Check(inaccessibleBackups.Count == 0 && WorldBackupStore.LastListError is not null,
+                    "backup-directory access errors are surfaced without escaping the list operation");
+
+            WorldStore.RequireRecovery(backupWorld);
+            TestAssert.Check(!WorldStore.WriteAtomic(backupSavePath,
+                    JsonSerializer.Serialize(after, WorldStore.Json)),
+                    "ordinary writes are blocked while a world is awaiting recovery");
+            WorldBackupInfo? recoveryPoint = WorldBackupStore.List(backupWorld)
+                    .Find(item => item.FileName == "world.json.bak" && item.IsValid);
+            TestAssert.Check(recoveryPoint is not null, "a valid backup remains selectable in recovery mode");
+            if (recoveryPoint is not null)
+            {
+                WorldBackupRestoreResult recoveryRestore = WorldBackupStore.Restore(
+                        backupWorld, recoveryPoint.Path);
+                TestAssert.Check(recoveryRestore.Success,
+                        "explicit backup restore is allowed for a recovery-required world");
+                TestAssert.Check(!WorldStore.IsRecoveryRequired(backupWorld),
+                        "recovery clears only after all required save models validate");
             }
 
             WorldManifest? oldManifest = JsonSerializer.Deserialize<WorldManifest>(

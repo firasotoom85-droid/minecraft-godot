@@ -36,9 +36,9 @@ public static class IntegrationTests
 
         // Clear an isolated volume so terrain cannot satisfy a shape assertion.
         for (int y = 90; y <= 93; y++)
-        for (int z = 1; z <= 4; z++)
-        for (int x = 1; x <= 5; x++)
-            world.SetBlock(x, y, z, BlockId.Air);
+            for (int z = 1; z <= 4; z++)
+                for (int x = 1; x <= 5; x++)
+                    world.SetBlock(x, y, z, BlockId.Air);
 
         TestAssert.Check(world.SetBlock(2, 90, 2, BlockId.PlanksSlab, BlockShapes.SlabTop),
                 "combined world accepts an upper slab edit");
@@ -339,8 +339,8 @@ public static class IntegrationTests
         host.AddChild(world);
         VillageInfo? site = null;
         for (int cellZ = -4; cellZ <= 4 && site == null; cellZ++)
-        for (int cellX = -4; cellX <= 4 && site == null; cellX++)
-            site = world.GetVillageSite(cellX, cellZ);
+            for (int cellX = -4; cellX <= 4 && site == null; cellX++)
+                site = world.GetVillageSite(cellX, cellZ);
         TestAssert.Check(site is not null, "spawn test finds a deterministic village");
         if (site is not { } village)
         {
@@ -428,9 +428,9 @@ public static class IntegrationTests
         host.AddChild(world);
         world.BuildPreview(Vector3.Zero, 1);
         for (int y = 60; y <= 63; y++)
-        for (int z = 1; z <= 4; z++)
-        for (int x = 1; x <= 5; x++)
-            world.SetBlock(x, y, z, BlockId.Air);
+            for (int z = 1; z <= 4; z++)
+                for (int x = 1; x <= 5; x++)
+                    world.SetBlock(x, y, z, BlockId.Air);
         world.SetBlock(2, 60, 2, BlockId.Stone);
         world.SetBlock(3, 60, 2, BlockId.PlanksSlab, BlockShapes.SlabBottom);
         world.SetBlock(2, 61, 2, BlockId.Water);
