@@ -196,12 +196,13 @@ public static class KeybindTests
         {
             TestAssert.Equal("dig_wood", Sound.FamilyFor(id), $"{id} uses wood break sounds");
             TestAssert.Equal("place_wood", Sound.PlaceFamilyFor(id), $"{id} uses wood placement sounds");
+            TestAssert.Equal(1.0f, Sound.PitchFor(id), $"{id} uses the wood pitch");
         }
 
         BlockId[] appendedStone = [BlockId.CobblestoneSlab, BlockId.BrickSlab,
                 BlockId.CobblestoneStairs, BlockId.BrickStairs, BlockId.MossyCobblestone,
                 BlockId.WeatheredCobblestone, BlockId.CrackedBrick, BlockId.MossyBrick,
-                BlockId.EnchantingTable];
+                BlockId.EnchantingTable, BlockId.Furnace];
         foreach (BlockId id in appendedStone)
         {
             TestAssert.Equal("dig_stone", Sound.FamilyFor(id), $"{id} uses stone break sounds");
