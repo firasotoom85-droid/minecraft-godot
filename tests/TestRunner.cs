@@ -20,6 +20,7 @@ public partial class TestRunner : Node
         RunSuite("performance-benchmark", PerformanceBenchmarkTests.Run);
         await RunSuiteAsync("runner-reliability", RunnerReliabilityTests.Run);
         RunSuite("voxel-streaming", VoxelStreamingTests.Run);
+        RunSuite("spawn-recovery", () => SpawnRecoveryTests.Run(this));
         RunSuite("far-lod-lifecycle", FarLodLifecycleTests.Run);
         RunSuite("graphics", GraphicsTests.Run);
         RunSuite("low-cost-shaders", LowCostShaderTests.Run);
