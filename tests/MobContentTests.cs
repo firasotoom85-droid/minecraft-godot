@@ -149,19 +149,14 @@ public static class MobContentTests
         MobProjectile projectile = new();
         projectile.Setup(projectileManager, Vector3.Zero, Vector3.Forward,
                 2.0f, Colors.Cyan, 8.5f, "mobcrystal");
-        RayCast3D terrainRay = projectile.TerrainRayForTests!;
-        projectile.ConfigureTerrainRayForTests(Vector3.Zero, Vector3.Right);
-        projectile.ConfigureTerrainRayForTests(Vector3.One, Vector3.Up);
-        TestAssert.Check(ReferenceEquals(terrainRay, projectile.TerrainRayForTests),
-                "mob projectile reuses one RayCast3D node across physics ticks");
-        TestAssert.Equal(Vector3.One, terrainRay.Position,
-                "reused projectile ray updates its local segment start");
-        TestAssert.Equal(Vector3.Up - Vector3.One, terrainRay.TargetPosition,
-                "reused projectile ray updates its segment endpoint");
-        TestAssert.Equal((uint)PhysicsLayer.Terrain, terrainRay.CollisionMask,
-                "reused projectile ray preserves the terrain collision mask");
-        TestAssert.Check(!terrainRay.CollideWithAreas,
-                "reused projectile ray continues to ignore physics areas");
+        ShapeCast3D sweep = projectile.SweepForTests!;
+        TestAssert.Check(sweep.Shape is SphereShape3D sweepShape
+                        && Mathf.IsEqualApprox(sweepShape.Radius, 0.20f),
+                "mob projectile sweeps its configured 0.20 m spherical collision volume");
+        TestAssert.Equal((uint)(PhysicsLayer.Player | PhysicsLayer.Terrain), sweep.CollisionMask,
+                "mob projectile sweep covers both player and terrain collision layers");
+        TestAssert.Check(!sweep.CollideWithAreas && sweep.CollideWithBodies,
+                "mob projectile sweep queries physical bodies without area noise");
         TestAssert.FreeAll(projectile, projectileManager);
 
         // Wildlife uses the existing food inventory and persisted item ids.
