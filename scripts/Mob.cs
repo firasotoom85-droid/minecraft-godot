@@ -8,6 +8,9 @@ internal static class MobNavigationRules
     public static bool IsGravityObstacle(BlockId id) =>
             id == BlockId.Lava || BlockDb.IsSolid(id);
 
+    public static bool IsGravityDirectionBlocked(BlockId floor, BlockId lower, BlockId upper) =>
+            floor == BlockId.Lava || IsGravityObstacle(lower) || IsGravityObstacle(upper);
+
     public static bool IsHoverObstacle(BlockId id, byte state, Vector3 blockOrigin,
             Vector3 aabbMin, Vector3 aabbMax)
     {
@@ -142,7 +145,7 @@ public partial class Mob : CharacterBody3D, IDamageable
 
     public bool ApplyDamage(in DamageInfo info)
     {
-        if (Dead || info.Amount <= 0.0f)
+        if (Dead || !float.IsFinite(info.Amount) || info.Amount <= 0.0f)
         {
             return false;
         }
@@ -202,11 +205,20 @@ public partial class Mob : CharacterBody3D, IDamageable
         ItemId food = BreedingFood;
         if (IsBaby || food == ItemId.None
                 || player.Selected < 0 || player.Selected >= Inventory.HotbarSize
-                || player.Inventory.Hotbar[player.Selected].Id != food
-                || !player.Inventory.Consume(food, 1))
+                || player.Inventory.Hotbar[player.Selected].Id != food)
         {
             return false;
         }
+
+        if (_breedCooldown > 0.0f)
+        {
+            player.EmitSignal(Player.SignalName.Notice,
+                    $"{DisplayName} needs more time before breeding again");
+            return true;
+        }
+
+        if (!player.Inventory.ConsumeSlot(player.Selected, food, 1))
+            return false;
 
         _loveTime = 14.0f;
         _lovePuffTimer = 0.0;
@@ -601,8 +613,7 @@ public partial class Mob : CharacterBody3D, IDamageable
         BlockId upper = World.GetBlock(x, feetY + 2, z);
         water = BlockDb.IsWater(lower) || BlockDb.IsWater(floor);
         gap = floor == BlockId.Air || BlockDb.IsWater(floor);
-        bool wall = MobNavigationRules.IsGravityObstacle(lower)
-                || MobNavigationRules.IsGravityObstacle(upper);
+        bool wall = MobNavigationRules.IsGravityDirectionBlocked(floor, lower, upper);
         return water || gap || wall;
     }
 

@@ -126,7 +126,21 @@ public partial class TraderUi : CanvasLayer, IModalUi
 
     private void OpenFor(Villager? villager)
     {
+        if (villager != null && (!GodotObject.IsInstanceValid(villager)
+                || villager.Dead || villager.IsQueuedForDeletion()))
+        {
+            _hud.ShowToast("This villager is no longer available");
+            if (_open) Close();
+            return;
+        }
+
+        DetachVillager();
         _villager = villager;
+        if (_villager != null)
+        {
+            _villager.Died += OnVillagerDied;
+            _villager.TreeExiting += OnVillagerTreeExiting;
+        }
         _open = true;
         _root.Visible = true;
         Input.MouseMode = Input.MouseModeEnum.Visible;
@@ -135,8 +149,36 @@ public partial class TraderUi : CanvasLayer, IModalUi
         UiFocus.FocusFirst(_root);
     }
 
+    private void OnVillagerDied(Mob mob)
+    {
+        if (ReferenceEquals(_villager, mob)) Close();
+    }
+
+    private void OnVillagerTreeExiting()
+    {
+        Close();
+    }
+
+    private void DetachVillager()
+    {
+        if (_villager == null || !GodotObject.IsInstanceValid(_villager)) return;
+        _villager.Died -= OnVillagerDied;
+        _villager.TreeExiting -= OnVillagerTreeExiting;
+    }
+
+    private bool EnsureVillagerUsable()
+    {
+        if (_villager == null) return true;
+        if (GodotObject.IsInstanceValid(_villager)
+                && !_villager.Dead && !_villager.IsQueuedForDeletion())
+            return true;
+        Close();
+        return false;
+    }
+
     private void Close()
     {
+        DetachVillager();
         _open = false;
         _root.Visible = false;
         _villager = null;
@@ -150,6 +192,7 @@ public partial class TraderUi : CanvasLayer, IModalUi
 
     private void Refresh()
     {
+        if (!EnsureVillagerUsable()) return;
         foreach (Node child in _offers.GetChildren()) child.QueueFree();
         foreach (Node child in _questRows.GetChildren()) child.QueueFree();
         if (_villager == null)
@@ -197,18 +240,21 @@ public partial class TraderUi : CanvasLayer, IModalUi
 
     private void AcceptQuest(string id)
     {
+        if (!EnsureVillagerUsable()) return;
         if (!_quests.Accept(id)) _hud.ShowToast("Quest could not be accepted");
         Refresh();
     }
 
     private void ClaimQuest(string id)
     {
+        if (!EnsureVillagerUsable()) return;
         if (!_quests.Claim(id)) _hud.ShowToast("Make room in your inventory before claiming the reward");
         Refresh();
     }
 
     private void TryTrade(Offer offer)
     {
+        if (!EnsureVillagerUsable()) return;
         int available = _player.Inventory.CountOf(offer.Give);
         if (available < offer.GiveCount)
         {

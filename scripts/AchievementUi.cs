@@ -7,14 +7,17 @@ public partial class AchievementUi : CanvasLayer, IModalUi
 {
     private Player _player = null!;
     private VoxelWorld _world = null!;
+    private AchievementSystem? _achievements;
     private Control _root = null!;
     private VBoxContainer _list = null!;
     private bool _open;
 
-    public void Setup(Player player, VoxelWorld world)
+    public void Setup(Player player, VoxelWorld world, AchievementSystem achievements)
     {
         _player = player;
         _world = world;
+        _achievements = achievements;
+        _achievements.Unlocked += OnAchievementUnlocked;
         Layer = 12;
         AddToGroup(UiFocus.ModalGroup);
         Build();
@@ -112,6 +115,17 @@ public partial class AchievementUi : CanvasLayer, IModalUi
         {
             Close();
         }
+    }
+
+    private void OnAchievementUnlocked(string id)
+    {
+        if (_open) Refresh();
+    }
+
+    public override void _ExitTree()
+    {
+        if (_achievements != null)
+            _achievements.Unlocked -= OnAchievementUnlocked;
     }
 
     private void Refresh()

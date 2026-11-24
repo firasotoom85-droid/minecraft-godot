@@ -2,12 +2,31 @@ using Godot;
 
 namespace Minecraft;
 
+public static class FxBurstPoolRules
+{
+    public static int FindAvailableIndex(System.ReadOnlySpan<double> busyUntil,
+            double nowSeconds, int startIndex)
+    {
+        if (busyUntil.Length == 0) return -1;
+        int start = ((startIndex % busyUntil.Length) + busyUntil.Length) % busyUntil.Length;
+        for (int offset = 0; offset < busyUntil.Length; offset++)
+        {
+            int index = (start + offset) % busyUntil.Length;
+            if (busyUntil[index] <= nowSeconds) return index;
+        }
+
+        return -1;
+    }
+}
+
 /// <summary>
 /// Block break / place / mining feedback: reusable one-shot GPU particle
 /// systems, tinted with the actual block tile from the atlas.
 /// </summary>
 public partial class Fx : Node
 {
+    private const int BurstPoolSize = 3;
+    private const double BurstReservationSeconds = 0.95;
     private static readonly AtlasTexture?[] BlockTextures = new AtlasTexture?[BlockDb.BlockCount];
     private static readonly GradientTexture1D?[] BlockColorRamps = new GradientTexture1D?[BlockDb.BlockCount];
 
@@ -16,12 +35,33 @@ public partial class Fx : Node
     public GpuParticles3D MiningParticles = null!;
     public GpuParticles3D PuffParticles = null!;
 
+    private GpuParticles3D[] _breakPool = [];
+    private GpuParticles3D[] _placePool = [];
+    private GpuParticles3D[] _miningPool = [];
+    private GpuParticles3D[] _puffPool = [];
+    private double[] _breakBusyUntil = [];
+    private double[] _placeBusyUntil = [];
+    private double[] _miningBusyUntil = [];
+    private double[] _puffBusyUntil = [];
+    private int _breakNext;
+    private int _placeNext;
+    private int _miningNext;
+    private int _puffNext;
+
     public void Setup(Player player)
     {
-        BreakParticles = MakeSystem(24, 3.4f, 0.16f);
-        PlaceParticles = MakeSystem(10, 1.6f, 0.22f);
-        MiningParticles = MakeSystem(6, 1.2f, 0.055f);
-        PuffParticles = MakeSystem(18, 2.4f, 0.11f);
+        _breakPool = MakePool(24, 3.4f, 0.16f);
+        _placePool = MakePool(10, 1.6f, 0.22f);
+        _miningPool = MakePool(6, 1.2f, 0.055f);
+        _puffPool = MakePool(18, 2.4f, 0.11f);
+        _breakBusyUntil = new double[_breakPool.Length];
+        _placeBusyUntil = new double[_placePool.Length];
+        _miningBusyUntil = new double[_miningPool.Length];
+        _puffBusyUntil = new double[_puffPool.Length];
+        BreakParticles = _breakPool[0];
+        PlaceParticles = _placePool[0];
+        MiningParticles = _miningPool[0];
+        PuffParticles = _puffPool[0];
         player.BlockBroken += OnBroken;
         player.BlockPlaced += OnPlaced;
         player.MiningTick += OnMiningTick;
@@ -33,6 +73,24 @@ public partial class Fx : Node
             float k = Mathf.Clamp(impact * 0.06f, 0.0f, 0.5f);
             Puff(pos, new Color(0.62f, 0.60f, 0.56f, 0.35f + k));
         };
+    }
+
+    private GpuParticles3D[] MakePool(int amount, float speed, float scale)
+    {
+        GpuParticles3D[] pool = new GpuParticles3D[BurstPoolSize];
+        for (int i = 0; i < pool.Length; i++)
+            pool[i] = MakeSystem(amount, speed, scale);
+        return pool;
+    }
+
+    private GpuParticles3D? Acquire(GpuParticles3D[] pool, double[] busyUntil, ref int next)
+    {
+        double now = Time.GetTicksMsec() / 1000.0;
+        int index = FxBurstPoolRules.FindAvailableIndex(busyUntil, now, next);
+        if (index < 0) return null;
+        busyUntil[index] = now + BurstReservationSeconds;
+        next = (index + 1) % pool.Length;
+        return pool[index];
     }
 
     private GpuParticles3D MakeSystem(int amount, float speed, float scale)
@@ -141,10 +199,7 @@ public partial class Fx : Node
     private static AtlasTexture TextureFor(BlockId blockId)
     {
         int index = (int)blockId;
-        if (BlockTextures[index] is { } cached)
-        {
-            return cached;
-        }
+        if (BlockTextures[index] is { } cached) return cached;
 
         int tile = BlockDb.IconTile(blockId);
         AtlasTexture texture = new()
@@ -162,42 +217,40 @@ public partial class Fx : Node
     private static GradientTexture1D ColorRampFor(BlockId blockId)
     {
         int index = (int)blockId;
-        if (BlockColorRamps[index] is { } cached)
-        {
-            return cached;
-        }
+        if (BlockColorRamps[index] is { } cached) return cached;
 
         Color color = BlockDb.AverageTileColor(blockId);
         Gradient gradient = new();
         gradient.SetColor(0, color.WithAlpha(1.0f));
         gradient.SetColor(1, color.WithAlpha(0.0f));
-        GradientTexture1D ramp = new()
-        {
-            Gradient = gradient,
-        };
+        GradientTexture1D ramp = new() { Gradient = gradient };
         BlockColorRamps[index] = ramp;
         return ramp;
     }
 
     private void OnBroken(Vector3 pos, int blockId)
     {
-        Emit(BreakParticles, pos, (BlockId)blockId);
+        if (Acquire(_breakPool, _breakBusyUntil, ref _breakNext) is { } particles)
+            Emit(particles, pos, (BlockId)blockId);
     }
 
     private void OnMiningTick(Vector3 pos, int blockId)
     {
-        Emit(MiningParticles, pos, (BlockId)blockId);
+        if (Acquire(_miningPool, _miningBusyUntil, ref _miningNext) is { } particles)
+            Emit(particles, pos, (BlockId)blockId);
     }
 
     private void OnPlaced(Vector3 pos, int blockId)
     {
-        Emit(PlaceParticles, pos + new Vector3(0, -0.35f, 0), (BlockId)blockId);
+        if (Acquire(_placePool, _placeBusyUntil, ref _placeNext) is { } particles)
+            Emit(particles, pos + new Vector3(0, -0.35f, 0), (BlockId)blockId);
     }
 
     /// <summary>Public burst (mobs, other systems): one-shot particle puff tinted by block.</summary>
     public void Burst(Vector3 pos, BlockId blockId)
     {
-        Emit(BreakParticles, pos, blockId);
+        if (Acquire(_breakPool, _breakBusyUntil, ref _breakNext) is { } particles)
+            Emit(particles, pos, blockId);
     }
 
     /// <summary>Plain coloured one-shot puff (mob hit sparks, hearts, smoke…).</summary>
@@ -207,19 +260,22 @@ public partial class Fx : Node
 
     private void EmitPuff(Vector3 pos, Color color, Vector3 gravity)
     {
-        QuadMesh quad = (QuadMesh)PuffParticles.DrawPass1;
+        if (Acquire(_puffPool, _puffBusyUntil, ref _puffNext) is not { } particles)
+            return;
+
+        QuadMesh quad = (QuadMesh)particles.DrawPass1;
         StandardMaterial3D mat = (StandardMaterial3D)quad.Material;
         mat.AlbedoTexture = null;
         Gradient ramp = new();
         ramp.SetColor(0, color.WithAlpha(1.0f));
         ramp.SetColor(1, color.WithAlpha(0.0f));
-        ParticleProcessMaterial process = (ParticleProcessMaterial)PuffParticles.ProcessMaterial;
+        ParticleProcessMaterial process = (ParticleProcessMaterial)particles.ProcessMaterial;
         process.ColorRamp = new GradientTexture1D { Gradient = ramp };
         process.Gravity = gravity;
         process.InitialVelocityMin = gravity.Y > 0.0f ? 0.25f : 1.0f;
         process.InitialVelocityMax = gravity.Y > 0.0f ? 0.9f : 3.6f;
-        PuffParticles.GlobalPosition = pos;
-        PuffParticles.Restart();
-        PuffParticles.Emitting = true;
+        particles.GlobalPosition = pos;
+        particles.Restart();
+        particles.Emitting = true;
     }
 }

@@ -95,7 +95,7 @@ public sealed record BoatSave(float[] Position, float Yaw, float[] Velocity, boo
 /// </summary>
 public static class WorldStore
 {
-    public const int CurrentGenVersion = WorldGenV12.Version;
+    public const int CurrentGenVersion = WorldGenV13.Version;
     public const int WorldFormatVersion = 4;
     public const string WorldsRoot = "user://worlds";
     private const string LegacySavePath = "user://minecraft_save.json";

@@ -11,6 +11,7 @@ public static class VillageTests
     public static void Run()
     {
         CheckBiomeThemes();
+        CheckResidentAndTraderLifecycleRules();
         CheckDeterministicVillageStampAndChunkSeams();
         CheckIrrigatedFarmStaysContained();
         CheckRosterAndSchedules();
@@ -20,6 +21,22 @@ public static class VillageTests
         CheckVillageQuestSaveRoundTrip();
         CheckMerchantQuestReconciliation();
         CheckVillageRemovalScratch();
+    }
+
+    private static void CheckResidentAndTraderLifecycleRules()
+    {
+        TestAssert.Check(VillagerLifecycleRules.CanInteract(false, false),
+                "living village residents remain interactable");
+        TestAssert.Check(!VillagerLifecycleRules.CanInteract(true, false)
+                        && !VillagerLifecycleRules.CanInteract(false, true)
+                        && !VillagerLifecycleRules.CanInteract(true, true),
+                "dead or exiting village residents cannot open trading");
+        TestAssert.Check(TraderLifecycleRules.CanSpawn(false, false),
+                "wandering trader can spawn when no tracked instance exists");
+        TestAssert.Check(!TraderLifecycleRules.CanSpawn(true, false),
+                "wandering trader cannot duplicate an existing live tracked instance");
+        TestAssert.Check(TraderLifecycleRules.CanSpawn(true, true),
+                "queued-for-deletion trader does not permanently block a later visit");
     }
 
     private static void CheckBiomeThemes()

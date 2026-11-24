@@ -47,6 +47,8 @@ disposable internal/test worlds.
 
 **Dependency-local revisions and staged application (integrated W13.2):** each mesh payload captures a target-local revision for the block and lighting data it samples; geometry edits retain edge/corner granularity, while light-affecting edits invalidate the 5×5 target region required by neighboring 3×3 light maps and their 14-voxel propagation halo. Light solves validate only the 5×5 source revisions. The monotonic world `EditEpoch` remains for diagnostics and is no longer the unrelated-payload rejection gate. Main-thread resource creation advances in triangle-aligned slices capped at 8,190 vertices; an existing chunk is not replaced until all mesh and collision resources are prepared. The 2 ms budget is checked between steps, not guaranteed as a hard cap on an individual Godot call. Performance reports include rolling apply-step and collision p50/p95/p99 metrics; controlled MX230 and higher-end runs remain the tuning gate.
 
+**Gameplay state integrity (W14):** hostile population limits are enforced at the common spawn boundary; every herd spawn checks loaded terrain and capsule clearance; damage, breeding, furnace and inventory operations validate inputs before consuming state. Recipe-book outputs are preflighted against post-consumption capacity, achievement unlocks update an open journal, trader sessions expire with their residents, and particle bursts use bounded emitter pools. Generated village wheat is registered through the existing chunk-scan path. Campfire/structure exclusion is generator V13-only so V1–V12 remain frozen.
+
 ## 2. Stable-release quality gates
 
 A release candidate is ready only when all of the following are true:
