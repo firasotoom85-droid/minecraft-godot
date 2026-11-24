@@ -7,6 +7,30 @@ public static class InventoryTests
 {
     public static void Run()
     {
+        Button recipeEntry = new() { FocusMode = Control.FocusModeEnum.All };
+        VBoxContainer recipeList = new();
+        recipeList.AddChild(recipeEntry);
+        TestAssert.Check(ReferenceEquals(UiFocus.FindFocusable(recipeList), recipeEntry),
+                "recipe entries participate in keyboard/controller focus navigation");
+        Button paletteEntry = new() { FocusMode = Control.FocusModeEnum.All };
+        VBoxContainer paletteList = new();
+        paletteList.AddChild(paletteEntry);
+        TestAssert.Check(ReferenceEquals(UiFocus.FindFocusable(paletteList), paletteEntry),
+                "creative palette entries participate in keyboard/controller focus navigation");
+        TestAssert.FreeAll(recipeList, paletteList);
+
+        SceneTree tree = (SceneTree)Engine.GetMainLoop();
+        InvSlot selectedSlot = new();
+        tree.Root.AddChild(selectedSlot);
+        selectedSlot.ShowStack(ItemDb.New(ItemId.Stone, 1), selected: true);
+        selectedSlot.SetHovered(true);
+        TestAssert.Check(selectedSlot.IsSelected,
+                "hovering a selected hotbar slot preserves its selected state");
+        selectedSlot.SetHovered(false);
+        TestAssert.Check(selectedSlot.IsSelected,
+                "leaving a selected hotbar slot preserves its selected state");
+        selectedSlot.Free();
+
         Inventory inv = new();
         TestAssert.Equal(0, inv.Add(ItemId.Stone, 64), "first stack fits");
         TestAssert.Equal(64, inv.Get(0).Count, "hotbar fills first");
