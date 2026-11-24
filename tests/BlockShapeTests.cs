@@ -520,9 +520,9 @@ public static class BlockShapeTests
 
         // A clean air volume isolates geometry and its boundary interactions.
         for (int y = 99; y <= 102; y++)
-        for (int z = 1; z <= 5; z++)
-        for (int x = 1; x <= 14; x++)
-            world.SetBlock(x, y, z, BlockId.Air);
+            for (int z = 1; z <= 5; z++)
+                for (int x = 1; x <= 14; x++)
+                    world.SetBlock(x, y, z, BlockId.Air);
 
         world.SetBlock(2, 100, 2, BlockId.PlanksSlab, BlockShapes.SlabBottom);
         world.SetBlock(4, 100, 2, BlockId.PlanksSlab, BlockShapes.SlabTop);
@@ -536,9 +536,9 @@ public static class BlockShapeTests
         // Clear the negative-Z/east chunk corner too; these are AO-only
         // neighbours for the final diagonal-seam regression.
         for (int y = 99; y <= 102; y++)
-        for (int z = -1; z <= 0; z++)
-        for (int x = 14; x <= 16; x++)
-            world.SetBlock(x, y, z, BlockId.Air);
+            for (int z = -1; z <= 0; z++)
+                for (int x = 14; x <= 16; x++)
+                    world.SetBlock(x, y, z, BlockId.Air);
 
         // AO must use the actual occupied half of neighbouring shape blocks.
         world.SetBlock(1, 100, 4, BlockId.Stone);
@@ -705,9 +705,9 @@ public static class BlockShapeTests
         // paths. Changing the same slab from bottom to double must invalidate
         // the packed 3x3 neighbourhood; restoring the cavity must relight it.
         for (int y = 100; y <= 102; y++)
-        for (int z = 5; z <= 7; z++)
-        for (int x = 13; x <= 21; x++)
-            world.SetBlock(x, y, z, BlockId.Stone);
+            for (int z = 5; z <= 7; z++)
+                for (int x = 13; x <= 21; x++)
+                    world.SetBlock(x, y, z, BlockId.Stone);
         for (int x = 13; x <= 20; x++)
             world.SetBlock(x, 101, 6, BlockId.Air);
         TestAssert.Check(world.SetBlock(14, 101, 6, BlockId.Torch),

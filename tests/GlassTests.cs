@@ -185,9 +185,9 @@ public static class GlassTests
             // Isolate each material at altitude so terrain and adjacent cells
             // cannot accidentally satisfy a surface-routing assertion.
             for (int y = 99; y <= 102; y++)
-            for (int z = 1; z <= 3; z++)
-            for (int x = 1; x <= 12; x++)
-                world.SetBlock(x, y, z, BlockId.Air);
+                for (int z = 1; z <= 3; z++)
+                    for (int x = 1; x <= 12; x++)
+                        world.SetBlock(x, y, z, BlockId.Air);
 
             TestAssert.Check(world.SetBlock(2, 100, 2, BlockId.TallGrass),
                     "cross-plant fixture is placed through VoxelWorld.SetBlock");
@@ -205,9 +205,9 @@ public static class GlassTests
             // Cross-chunk interface: the foliage is the final voxel in chunk 0
             // and the solid backing block is the first voxel in chunk 1.
             for (int y = 99; y <= 102; y++)
-            for (int z = 4; z <= 6; z++)
-            for (int x = 14; x <= 17; x++)
-                world.SetBlock(x, y, z, BlockId.Air);
+                for (int z = 4; z <= 6; z++)
+                    for (int x = 14; x <= 17; x++)
+                        world.SetBlock(x, y, z, BlockId.Air);
             TestAssert.Check(world.SetBlock(15, 100, 5, BlockId.Leaves),
                     "chunk-seam foliage is placed through VoxelWorld.SetBlock");
             TestAssert.Check(world.SetBlock(16, 100, 5, BlockId.Stone),

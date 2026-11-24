@@ -503,13 +503,13 @@ public static class Mesher
 
     private static bool IsMissingColliderBoundary(
             int boundaryMask, int localX, int localZ, int face) => face switch
-    {
-        2 => localX == SX - 1 && (boundaryMask & (1 << 2)) != 0,
-        3 => localX == 0 && (boundaryMask & (1 << 3)) != 0,
-        4 => localZ == SZ - 1 && (boundaryMask & (1 << 4)) != 0,
-        5 => localZ == 0 && (boundaryMask & (1 << 5)) != 0,
-        _ => false,
-    };
+            {
+                2 => localX == SX - 1 && (boundaryMask & (1 << 2)) != 0,
+                3 => localX == 0 && (boundaryMask & (1 << 3)) != 0,
+                4 => localZ == SZ - 1 && (boundaryMask & (1 << 4)) != 0,
+                5 => localZ == 0 && (boundaryMask & (1 << 5)) != 0,
+                _ => false,
+            };
 
     private static void AppendCollisionFace(List<Vector3> collision, Vector3 origin, int face)
     {
@@ -574,25 +574,25 @@ public static class Mesher
         microCell[normalAxis] = BlockDb.FaceDirs[face][normalAxis] > 0.0f ? 1 : 0;
         Span<Vector3> points = stackalloc Vector3[4];
         for (int v = 0; v < 2; v++)
-        for (int u = 0; u < 2; u++)
-        {
-            if (NeighborOccupiesFaceCell(pad, statePad, neighborIndex, face, u, v)) continue;
-            microCell[uAxis] = u;
-            microCell[vAxis] = v;
-            for (int vertex = 0; vertex < 4; vertex++)
+            for (int u = 0; u < 2; u++)
             {
-                Vector3 p = BlockDb.FaceVerts[vi + vertex];
-                p[uAxis] = (u + p[uAxis]) * 0.5f;
-                p[vAxis] = (v + p[vAxis]) * 0.5f;
-                points[vertex] = blockOrigin + p;
+                if (NeighborOccupiesFaceCell(pad, statePad, neighborIndex, face, u, v)) continue;
+                microCell[uAxis] = u;
+                microCell[vAxis] = v;
+                for (int vertex = 0; vertex < 4; vertex++)
+                {
+                    Vector3 p = BlockDb.FaceVerts[vi + vertex];
+                    p[uAxis] = (u + p[uAxis]) * 0.5f;
+                    p[vAxis] = (v + p[vAxis]) * 0.5f;
+                    points[vertex] = blockOrigin + p;
+                }
+                bool wetFace = BlockDb.IsWettable(blockId)
+                        && BlockDb.IsWater((BlockId)pad[neighborIndex]);
+                EmitLitFace(pad, statePad, lightPad, directLightPad, sourceIndex, face, tile,
+                        blockId, blockState, blockOrigin, points, surf, collision,
+                        microCell[0], microCell[1], microCell[2], false, true,
+                        kk, cornerLight, cornerBounce, wetFace, greedy);
             }
-            bool wetFace = BlockDb.IsWettable(blockId)
-                    && BlockDb.IsWater((BlockId)pad[neighborIndex]);
-            EmitLitFace(pad, statePad, lightPad, directLightPad, sourceIndex, face, tile,
-                    blockId, blockState, blockOrigin, points, surf, collision,
-                    microCell[0], microCell[1], microCell[2], false, true,
-                    kk, cornerLight, cornerBounce, wetFace, greedy);
-        }
     }
 
     private static void AddShapeGeometry(
@@ -604,49 +604,49 @@ public static class Mesher
     {
         Span<Vector3> points = stackalloc Vector3[4];
         for (int cy = 0; cy < 2; cy++)
-        for (int cz = 0; cz < 2; cz++)
-        for (int cx = 0; cx < 2; cx++)
-        {
-            if (!BlockShapes.Occupied(id, state, cx, cy, cz)) continue;
-            for (int face = 0; face < 6; face++)
-            {
-                bool externalFace = face switch
+            for (int cz = 0; cz < 2; cz++)
+                for (int cx = 0; cx < 2; cx++)
                 {
-                    0 => cy == 1,
-                    1 => cy == 0,
-                    2 => cx == 1,
-                    3 => cx == 0,
-                    4 => cz == 1,
-                    _ => cz == 0,
-                };
-                int neighborIndex = externalFace ? index + FaceOff[face] : index;
-                BlockId neighbor = externalFace ? (BlockId)pad[neighborIndex] : BlockId.Air;
-                byte neighborState = externalFace ? statePad[neighborIndex] : (byte)0;
-                bool faceExposed = BlockShapes.FaceExposed(
-                        id, state, cx, cy, cz, face, neighbor, neighborState);
-                bool collisionOnly = !faceExposed && collision != null && externalFace
-                        && IsMissingColliderBoundary(boundaryMask, localX, localZ, face);
-                if (!faceExposed && !collisionOnly) continue;
+                    if (!BlockShapes.Occupied(id, state, cx, cy, cz)) continue;
+                    for (int face = 0; face < 6; face++)
+                    {
+                        bool externalFace = face switch
+                        {
+                            0 => cy == 1,
+                            1 => cy == 0,
+                            2 => cx == 1,
+                            3 => cx == 0,
+                            4 => cz == 1,
+                            _ => cz == 0,
+                        };
+                        int neighborIndex = externalFace ? index + FaceOff[face] : index;
+                        BlockId neighbor = externalFace ? (BlockId)pad[neighborIndex] : BlockId.Air;
+                        byte neighborState = externalFace ? statePad[neighborIndex] : (byte)0;
+                        bool faceExposed = BlockShapes.FaceExposed(
+                                id, state, cx, cy, cz, face, neighbor, neighborState);
+                        bool collisionOnly = !faceExposed && collision != null && externalFace
+                                && IsMissingColliderBoundary(boundaryMask, localX, localZ, face);
+                        if (!faceExposed && !collisionOnly) continue;
 
-                int tile = BlockDb.ShapeFaceTile(id, state, face);
-                if (tile < 0) continue;
-                Vector3 cellOrigin = blockOrigin + new Vector3(cx * 0.5f, cy * 0.5f, cz * 0.5f);
-                int vi = face * 4;
-                for (int vertex = 0; vertex < 4; vertex++)
-                    points[vertex] = cellOrigin + BlockDb.FaceVerts[vi + vertex] * 0.5f;
-                if (collisionOnly)
-                {
-                    AppendCollisionFace(collision!, points);
-                    continue;
+                        int tile = BlockDb.ShapeFaceTile(id, state, face);
+                        if (tile < 0) continue;
+                        Vector3 cellOrigin = blockOrigin + new Vector3(cx * 0.5f, cy * 0.5f, cz * 0.5f);
+                        int vi = face * 4;
+                        for (int vertex = 0; vertex < 4; vertex++)
+                            points[vertex] = cellOrigin + BlockDb.FaceVerts[vi + vertex] * 0.5f;
+                        if (collisionOnly)
+                        {
+                            AppendCollisionFace(collision!, points);
+                            continue;
+                        }
+
+                        bool wetFace = externalFace && BlockDb.IsWettable(id)
+                                && BlockDb.IsWater(neighbor);
+                        EmitLitFace(pad, statePad, lightPad, directLightPad, index, face, tile, id, state,
+                                blockOrigin, points, surf, collision,
+                                cx, cy, cz, false, true, kk, cornerLight, cornerBounce, wetFace, greedy);
+                    }
                 }
-
-                bool wetFace = externalFace && BlockDb.IsWettable(id)
-                        && BlockDb.IsWater(neighbor);
-                EmitLitFace(pad, statePad, lightPad, directLightPad, index, face, tile, id, state,
-                        blockOrigin, points, surf, collision,
-                        cx, cy, cz, false, true, kk, cornerLight, cornerBounce, wetFace, greedy);
-            }
-        }
     }
 
     private static void EmitLitFace(
@@ -1153,13 +1153,13 @@ public static class Mesher
             return pad;
 
         for (int y = 0; y < sy; y++)
-        for (int z = 0; z < SZ; z++)
-        {
-            int src = (y * SZ + z) * SX;
-            int dst = ((y + 1) * PZ + (z + 1)) * PX + 1;
-            if (data.Length > 0)
-                System.Array.Copy(data, src, pad, dst, SX);
-        }
+            for (int z = 0; z < SZ; z++)
+            {
+                int src = (y * SZ + z) * SX;
+                int dst = ((y + 1) * PZ + (z + 1)) * PX + 1;
+                if (data.Length > 0)
+                    System.Array.Copy(data, src, pad, dst, SX);
+            }
 
         for (int y = 0; y < sy; y++)
         {
@@ -1262,12 +1262,12 @@ public static class Mesher
         // The sky above the world is a permanent skylight source.
         int topLayer = (sy + 1) * PLANE;
         for (int z = 0; z < PZ; z++)
-        for (int x = 0; x < PX; x++)
-        {
-            int index = topLayer + z * PX + x;
-            pad[index] = 0xF0;
-            directPad[index] = VoxelLighting.MaxLevel;
-        }
+            for (int x = 0; x < PX; x++)
+            {
+                int index = topLayer + z * PX + x;
+                pad[index] = 0xF0;
+                directPad[index] = VoxelLighting.MaxLevel;
+            }
         return pad;
     }
 }

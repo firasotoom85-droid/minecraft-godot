@@ -1816,30 +1816,30 @@ public partial class VoxelWorld : Node3D
                 lock (_mutex)
                 {
                     for (int dz = -1; dz <= 1; dz++)
-                    for (int dx = -1; dx <= 1; dx++)
-                    {
-                        int slot = (dz + 1) * 3 + dx + 1;
-                        if (_voxelLightCache.TryGetValue(center + new Vector2I(dx, dz),
-                                out VoxelLightData? cached))
-                            result[slot] = cached;
-                        else
-                            complete = false;
-                    }
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int slot = (dz + 1) * 3 + dx + 1;
+                            if (_voxelLightCache.TryGetValue(center + new Vector2I(dx, dz),
+                                    out VoxelLightData? cached))
+                                result[slot] = cached;
+                            else
+                                complete = false;
+                        }
                 }
                 if (complete) return result;
 
                 for (int dz = -2; dz <= 2; dz++)
-                for (int dx = -2; dx <= 2; dx++)
-                {
-                    int slot = (dz + 2) * 5 + dx + 2;
-                    byte[] data = ChunkData(center + new Vector2I(dx, dz));
-                    chunks[slot] = (byte[])data.Clone();
-                    byte[] states = ChunkBlockStates(center + new Vector2I(dx, dz));
-                    if (states.Length > 0)
+                    for (int dx = -2; dx <= 2; dx++)
                     {
-                        (stateChunks ??= new byte[25][])[slot] = (byte[])states.Clone();
+                        int slot = (dz + 2) * 5 + dx + 2;
+                        byte[] data = ChunkData(center + new Vector2I(dx, dz));
+                        chunks[slot] = (byte[])data.Clone();
+                        byte[] states = ChunkBlockStates(center + new Vector2I(dx, dz));
+                        if (states.Length > 0)
+                        {
+                            (stateChunks ??= new byte[25][])[slot] = (byte[])states.Clone();
+                        }
                     }
-                }
 
                 const int halo = VoxelLighting.BlockLightRadius;
                 int width = ChunkX * 3 + halo * 2;
@@ -1907,32 +1907,32 @@ public partial class VoxelWorld : Node3D
                     region, lightWidth, Height, lightDepth, sources, regionStates);
             VoxelLightData[] built = new VoxelLightData[9];
             for (int dz = -1; dz <= 1; dz++)
-            for (int dx = -1; dx <= 1; dx++)
-            {
-                int slot = (dz + 1) * 3 + dx + 1;
-                Vector2I cp = center + new Vector2I(dx, dz);
-                byte[] packed = new byte[ChunkX * Height * ChunkZ];
-                byte[] directPacked = new byte[(packed.Length + 1) / 2];
-                int cropX = lightHalo + ChunkX + dx * ChunkX;
-                int cropZ = lightHalo + ChunkZ + dz * ChunkZ;
-                for (int y = 0; y < Height; y++)
-                for (int z = 0; z < ChunkZ; z++)
+                for (int dx = -1; dx <= 1; dx++)
                 {
-                    int source = y * plane + (cropZ + z) * lightWidth + cropX;
-                    int destination = (y * ChunkZ + z) * ChunkX;
-                    for (int x = 0; x < ChunkX; x++)
-                    {
-                        int voxelIndex = destination + x;
-                        packed[voxelIndex] = VoxelLighting.Pack(
-                                sky[source + x], block[source + x]);
-                        int nibbleIndex = voxelIndex >> 1;
-                        int shift = (voxelIndex & 1) * 4;
-                        directPacked[nibbleIndex] |= (byte)(
-                                (directSky[source + x] & 0x0F) << shift);
-                    }
+                    int slot = (dz + 1) * 3 + dx + 1;
+                    Vector2I cp = center + new Vector2I(dx, dz);
+                    byte[] packed = new byte[ChunkX * Height * ChunkZ];
+                    byte[] directPacked = new byte[(packed.Length + 1) / 2];
+                    int cropX = lightHalo + ChunkX + dx * ChunkX;
+                    int cropZ = lightHalo + ChunkZ + dz * ChunkZ;
+                    for (int y = 0; y < Height; y++)
+                        for (int z = 0; z < ChunkZ; z++)
+                        {
+                            int source = y * plane + (cropZ + z) * lightWidth + cropX;
+                            int destination = (y * ChunkZ + z) * ChunkX;
+                            for (int x = 0; x < ChunkX; x++)
+                            {
+                                int voxelIndex = destination + x;
+                                packed[voxelIndex] = VoxelLighting.Pack(
+                                        sky[source + x], block[source + x]);
+                                int nibbleIndex = voxelIndex >> 1;
+                                int shift = (voxelIndex & 1) * 4;
+                                directPacked[nibbleIndex] |= (byte)(
+                                        (directSky[source + x] & 0x0F) << shift);
+                            }
+                        }
+                    built[slot] = new VoxelLightData(packed, directPacked);
                 }
-                built[slot] = new VoxelLightData(packed, directPacked);
-            }
 
             // A block/source edit invalidates the entire affected neighborhood
             // while holding SnapshotLock. Discard stale solves and retry from a
@@ -1945,18 +1945,18 @@ public partial class VoxelWorld : Node3D
                 lock (_mutex)
                 {
                     for (int dz = -1; dz <= 1; dz++)
-                    for (int dx = -1; dx <= 1; dx++)
-                    {
-                        int slot = (dz + 1) * 3 + dx + 1;
-                        Vector2I cp = center + new Vector2I(dx, dz);
-                        if (_voxelLightCache.TryGetValue(cp, out VoxelLightData? cached))
-                            result[slot] = cached;
-                        else
+                        for (int dx = -1; dx <= 1; dx++)
                         {
-                            _voxelLightCache[cp] = built[slot];
-                            result[slot] = built[slot];
+                            int slot = (dz + 1) * 3 + dx + 1;
+                            Vector2I cp = center + new Vector2I(dx, dz);
+                            if (_voxelLightCache.TryGetValue(cp, out VoxelLightData? cached))
+                                result[slot] = cached;
+                            else
+                            {
+                                _voxelLightCache[cp] = built[slot];
+                                result[slot] = built[slot];
+                            }
                         }
-                    }
                 }
                 return result;
             }

@@ -39,9 +39,9 @@ public partial class GlassSortingFixture : Node3D
         // Clear both comparison areas above the generated terrain. The second
         // pair intentionally straddles the X=16 chunk boundary.
         for (int y = 98; y <= 104; y++)
-        for (int z = 6; z <= 12; z++)
-        for (int x = 5; x <= 18; x++)
-            Place(x, y, z, BlockId.Air);
+            for (int z = 6; z <= 12; z++)
+                for (int x = 5; x <= 18; x++)
+                    Place(x, y, z, BlockId.Air);
 
         // Pair A: both panes share chunk (0, 0) and overlap when viewed along Z.
         Place(8, 100, 8, BlockId.Glass);

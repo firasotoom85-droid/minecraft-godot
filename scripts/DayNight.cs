@@ -722,8 +722,8 @@ public partial class DayNight : Node
             Color star = new(brightness * 0.90f, brightness * 0.94f,
                     brightness, 0.88f);
             for (int dy = 0; dy < 2; dy++)
-            for (int dx = 0; dx < 2; dx++)
-                img.SetPixel(x + dx, y + dy, star);
+                for (int dx = 0; dx < 2; dx++)
+                    img.SetPixel(x + dx, y + dy, star);
         }
 
         for (int i = 0; i < 10; i++)
@@ -731,8 +731,8 @@ public partial class DayNight : Node
             int x = rng.RandiRange(1, w - 3);
             int y = rng.RandiRange(1, h - 3);
             for (int dy = 0; dy < 3; dy++)
-            for (int dx = 0; dx < 3; dx++)
-                img.SetPixel(x + dx, y + dy, new Color(0.86f, 0.92f, 1.0f, 0.78f));
+                for (int dx = 0; dx < 3; dx++)
+                    img.SetPixel(x + dx, y + dy, new Color(0.86f, 0.92f, 1.0f, 0.78f));
         }
 
         return img;
