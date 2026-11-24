@@ -26,6 +26,7 @@ public static class SpawnRecoveryTests
         world.Player = player;
 
         CheckWorldSpawnAndFallback(world);
+        CheckPartialBlockSupport(world);
         CheckFluidReactionGuard(host, world, player);
         CheckCurrentChunkCollisionRefresh(world, player);
         CheckTeleportAndRecoveryTransactions(world, player);
@@ -102,6 +103,33 @@ public static class SpawnRecoveryTests
         TestAssert.Check(!world.TryGetSavedOccupiedBoatSeat(spawn + Vector3.Right * 4.0f, out _),
                 "an unrelated occupied boat cannot override the saved player destination");
         world.SavedBoats = null;
+    }
+
+    private static void CheckPartialBlockSupport(VoxelWorld world)
+    {
+        Vector3 spawn = world.FindSpawn();
+        int chunkX = Mathf.FloorToInt(spawn.X / VoxelWorld.ChunkX);
+        int chunkZ = Mathf.FloorToInt(spawn.Z / VoxelWorld.ChunkZ);
+        int x = chunkX * VoxelWorld.ChunkX + 6;
+        int z = chunkZ * VoxelWorld.ChunkZ + 6;
+        int y = world.Height - 8;
+
+        TestAssert.Check(world.SetBlock(x, y, z, BlockId.Air),
+                "partial-support fixture clears its support cell through SetBlock");
+        TestAssert.Check(world.SetBlock(x, y, z, BlockId.PlanksSlab, BlockShapes.SlabBottom),
+                "partial-support fixture places a bottom slab through SetBlock");
+        Vector3 bottomSlabPosition = new(x + 0.5f, y + 1.0f, z + 0.5f);
+        TestAssert.Check(world.IsSafePlayerPosition(bottomSlabPosition),
+                "safe saved-position validation recognizes the top face of a bottom slab");
+
+        TestAssert.Check(world.SetBlock(x, y, z, BlockId.PlanksSlab, BlockShapes.SlabTop),
+                "partial-support fixture changes to a top slab through SetBlock");
+        Vector3 topSlabPosition = new(x + 0.5f, y + 1.5f, z + 0.5f);
+        TestAssert.Check(world.IsSafePlayerPosition(topSlabPosition),
+                "safe saved-position validation recognizes the top face of a top slab");
+
+        TestAssert.Check(world.SetBlock(x, y, z, BlockId.Air),
+                "partial-support fixture removes its slab through SetBlock");
     }
 
     private static void CheckFluidReactionGuard(Node host, VoxelWorld world, Player player)
