@@ -35,7 +35,7 @@ public sealed class PlayerStats
     private double _starveAccum;
     private double _drownAccum;
 
-    private static double Now => Time.GetTicksMsec() / 1000.0;
+    private static double Now => GameplayClock.Now;
 
     public bool Invulnerable => Dead || Now < InvulnUntil;
 
