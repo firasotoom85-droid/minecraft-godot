@@ -138,9 +138,16 @@ public partial class BoatSystem : Node
         ];
         foreach (Vector3 candidate in candidates)
         {
-            if (!CanDismountAt(candidate) || !_world.IsSafePlayerPosition(candidate, allowWater: true))
+            // CanDismountAt validates the loaded feet/head cells. The boat's
+            // hull/water is the external support for this transition; the
+            // shared transaction still validates capsule clearance, hazards,
+            // world bounds and the destination collider before it commits.
+            if (!CanDismountAt(candidate)
+                    || !_world.IsSafePlayerPosition(candidate, allowWater: true,
+                            allowVehicleSupport: true))
                 continue;
-            if (!player.TryTeleportToSafePosition(candidate, allowWater: true))
+            if (!player.TryTeleportToSafePosition(candidate, allowWater: true,
+                    allowVehicleSupport: true))
                 continue;
 
             _world.MarkDirty();
@@ -164,8 +171,10 @@ public partial class BoatSystem : Node
             {
                 Vector3 fallback = boat.GlobalPosition + Vector3.Up * 1.1f;
                 if (!CanDismountAt(fallback)
-                        || !_world.IsSafePlayerPosition(fallback, allowWater: true)
-                        || !rider.TryTeleportToSafePosition(fallback, allowWater: true))
+                        || !_world.IsSafePlayerPosition(fallback, allowWater: true,
+                                allowVehicleSupport: true)
+                        || !rider.TryTeleportToSafePosition(fallback, allowWater: true,
+                                allowVehicleSupport: true))
                     return;
             }
         }
