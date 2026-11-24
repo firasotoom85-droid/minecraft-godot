@@ -19,13 +19,29 @@ public static class WorldEnvironmentFactory
     public const float ContactSsaoRadius = 0.82f;
     public const float ContactSsaoIntensity = 1.30f;
 
-    // Modern worlds keep one camera-depth fog mode through water entry/exit;
-    // immersion changes the depth range rather than switching the fog algorithm.
+    internal readonly record struct FogDepthRange(float Begin, float End);
+
+    public const float CaveFogDepthBegin = 0.0f;
+    public const float CaveFogDepthEnd = 28.0f;
+
+    // Modern worlds stay on depth fog while entering caves. Switching the
+    // shader mode at the first non-zero shelter sample changes the meaning of
+    // FogDensity abruptly; cave visibility is instead controlled by range.
     internal static Godot.Environment.FogModeEnum FogModeFor(
             bool usesDistanceHaze, bool underground) =>
-            usesDistanceHaze && !underground
+            usesDistanceHaze
                     ? Godot.Environment.FogModeEnum.Depth
                     : Godot.Environment.FogModeEnum.Exponential;
+
+    internal static FogDepthRange EvaluateCaveFogRange(
+            float caveDarkness, float baseBegin, float baseEnd)
+    {
+        float darkness = Mathf.Clamp(caveDarkness, 0.0f, 1.0f);
+        float begin = Mathf.Lerp(baseBegin, CaveFogDepthBegin, darkness);
+        float end = Mathf.Lerp(baseEnd, CaveFogDepthEnd, darkness);
+        end = Mathf.Max(begin + 1.0f, end);
+        return new FogDepthRange(begin, end);
+    }
 
     public static Godot.Environment Build(int generatorVersion = WorldStore.CurrentGenVersion, int? presetIndex = null)
     {

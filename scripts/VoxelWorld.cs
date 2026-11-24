@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 using Godot;
 
 namespace Minecraft;
@@ -31,7 +32,7 @@ public partial class VoxelWorld : Node3D
     /// <summary>World height in blocks: 64 for gen v1–v4 (byte-parity), 128 for v5+.</summary>
     public int Height { get; private set; } = 64;
 
-    private const int UnloadMargin = 2;
+    internal const int UnloadMargin = 2;
     private static readonly bool UseThreads = true;
 
     public int ViewDistance = 5;        // chunk radius streamed around the player (gfx presets)
@@ -70,6 +71,9 @@ public partial class VoxelWorld : Node3D
     private readonly FastNoiseLite _islandNoise = new();   // gen v5 sky-island mask
 
     private readonly Dictionary<Vector2I, Chunk> _chunks = new();  // built nodes
+    // Worker-safe snapshot of chunks whose concave terrain collider is active.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Vector2I, byte>
+            _colliderReadyChunks = new();
     public Player? Player;
 
     /// <summary>Raised after a successful main-thread block mutation.</summary>
@@ -104,9 +108,48 @@ public partial class VoxelWorld : Node3D
 
     public int ChunkCount => _chunks.Count;
 
+    public bool IsDirty => _dirty;
+
     public bool HasChunk(Vector2I cp) => _chunks.ContainsKey(cp);
 
+    /// <summary>
+    /// Bit mask for cardinal neighbors that do not currently provide an active
+    /// terrain collider. Mesher uses it only for collision boundary ownership.
+    /// </summary>
+    internal int MissingColliderBoundaryMask(Vector2I cp)
+    {
+        int mask = 0;
+        if (!_colliderReadyChunks.ContainsKey(cp + Vector2I.Right)) mask |= 1 << 2;
+        if (!_colliderReadyChunks.ContainsKey(cp + Vector2I.Left)) mask |= 1 << 3;
+        if (!_colliderReadyChunks.ContainsKey(cp + Vector2I.Down)) mask |= 1 << 4;
+        if (!_colliderReadyChunks.ContainsKey(cp + Vector2I.Up)) mask |= 1 << 5;
+        return mask;
+    }
+
+    private void SetChunkColliderAvailability(Vector2I cp, bool available)
+    {
+        bool changed = available
+                ? _colliderReadyChunks.TryAdd(cp, 1)
+                : _colliderReadyChunks.TryRemove(cp, out _);
+        if (!changed) return;
+
+        // Existing neighbors previously emitted (or omitted) frontier
+        // collision faces based on the opposite collider's presence.
+        foreach (Vector2I offset in new[]
+        {
+            Vector2I.Right, Vector2I.Left, Vector2I.Down, Vector2I.Up,
+        })
+        {
+            Vector2I neighbor = cp + offset;
+            if (_chunks.ContainsKey(neighbor))
+                EnqueueRebuild(neighbor);
+        }
+    }
+
     private readonly Dictionary<Vector2I, byte[]> _dataCache = new();
+    // Lazy reservations coalesce concurrent cache misses without holding the
+    // world mutex during expensive terrain generation.
+    private readonly ChunkGenerationReservations _generationInFlight = new();
     private readonly Dictionary<Vector2I, Dictionary<int, BlockId>> _edits = new();  // persisted block IDs
     private readonly Dictionary<Vector2I, Dictionary<int, byte>> _blockStateEdits = new(); // optional persisted shape state
     private readonly Dictionary<Vector2I, byte[]> _blockStateCache = new();
@@ -115,9 +158,13 @@ public partial class VoxelWorld : Node3D
     private readonly Dictionary<Vector2I, byte[]> _skyLightCache = [];
     private readonly Dictionary<Vector2I, byte[]> _blockLightCache = [];
     private readonly Dictionary<Vector2I, VoxelLightData> _voxelLightCache = [];
-    private readonly HashSet<Vector3I> _crops = [];  // placed wheat, for growth ticks
+    private readonly HashSet<Vector3I> _crops = [];  // generated and placed wheat, for growth ticks
+    private readonly HashSet<Vector2I> _cropScannedChunks = [];
     private readonly Lock _mutex = new();           // guards _dataCache, _edits, EditEpoch
     public Lock SnapshotLock { get; } = new();      // serialises edits vs mesher snapshots
+
+    /// <summary>Optional deterministic hook for snapshot-lock regression tests.</summary>
+    internal Action? SnapshotReleasedTestHook { get; set; }
 
     // Nearest-first build queues: .NET's PriorityQueue replaces the
     // "sort a candidate list" bookkeeping, and the side sets keep them unique.
@@ -130,6 +177,10 @@ public partial class VoxelWorld : Node3D
     private readonly PriorityQueue<Vector2I, float> _rebuildQueue = new();
     private readonly HashSet<Vector2I> _rebuildQueued = new();
     private readonly Lock _queueLock = new();
+    private readonly ChunkWorkTracker _workTracker = new();
+    private const int MaxWorkerBuildAttempts = 3;
+    private Vector2I _streamCenter;
+    private int _streamRetentionLimit;
     private long _group;                    // active WorkerThreadPool group
     private bool _groupActive;
     // Worker payloads wait here until the main thread applies them, a few per
@@ -148,6 +199,7 @@ public partial class VoxelWorld : Node3D
     private readonly CancellationTokenSource _workerShutdown = new();
     private double _memorySampleTimer;
     private Vector3 _velocityDir;           // smoothed player velocity (prefetch bias)
+    private Vector3 _lastPriorityDirection;
     private Vector3 _lastPlayerPos;
     private Vector2I _lastPlayerChunk = new(999999, 999999);
     private Vector3 _lastSavedPos = Vector3.Zero;
@@ -155,6 +207,15 @@ public partial class VoxelWorld : Node3D
     private bool _dirty;
     private double _autosaveTimer;
     private double _unsavedPlaytimeSeconds;
+    private long _saveRevision;
+    private bool _saveRequested;
+    private Task<WorldSaveWorkerResult>? _pendingSave;
+    private WorldSaveSnapshot? _pendingSaveSnapshot;
+    private Player? _persistenceEventsPlayer;
+    private string? _worldReadOnlyReason;
+    private bool _readOnlyWarningShown;
+
+    public bool IsReadOnly => _worldReadOnlyReason != null;
 
     public override void _Ready()
     {
@@ -279,24 +340,70 @@ public partial class VoxelWorld : Node3D
     /// <summary>Bind to the GameSession world: folder, manifest, seeds, gen version.</summary>
     private void ResolveWorld()
     {
-        string dir = GameSession.Instance?.EnsureWorld() ?? "";
+        GameSession? session = GameSession.Instance;
+        string selectedDir = session?.WorldDir ?? "";
+        if (selectedDir.Length > 0 && WorldStore.ReadManifest(selectedDir) == null
+                && HasWorldMetadataOrSaveFiles(selectedDir))
+        {
+            throw new InvalidOperationException(
+                    $"World '{selectedDir}' has save data but no readable manifest. " +
+                    "The files were left untouched; restore a compatible manifest before opening it.");
+        }
+
+        string dir = session?.EnsureWorld() ?? "";
         if (dir.Length == 0)
         {
             dir = $"{WorldStore.WorldsRoot}/default";
         }
 
         _worldDir = dir;
-        _manifest = WorldStore.ReadManifest(dir) ?? WorldStore.DefaultFor(dir);
+        WorldManifest? manifest = WorldStore.ReadManifest(dir);
+        if (manifest == null)
+        {
+            if (HasWorldMetadataOrSaveFiles(dir))
+            {
+                throw new InvalidOperationException(
+                        $"World '{dir}' has existing data but no readable manifest. " +
+                        "The files were left untouched.");
+            }
+
+            manifest = WorldStore.DefaultFor(dir);
+        }
+
+        if (!WorldCompatibilityPolicy.IsSupportedGeneratorVersion(
+                manifest.GenVersion, WorldStore.CurrentGenVersion))
+        {
+            throw new InvalidOperationException(
+                    $"World '{manifest.Name}' uses generator V{manifest.GenVersion}; " +
+                    $"this build supports V1–V{WorldStore.CurrentGenVersion}. " +
+                    "No world files were modified.");
+        }
+
+        if (!WorldCompatibilityPolicy.HasValidNoiseSeeds(manifest.NoiseSeeds))
+        {
+            throw new InvalidOperationException(
+                    $"World '{manifest.Name}' has incomplete generator noise metadata. " +
+                    "No replacement seeds were generated and no world files were modified.");
+        }
+
+        _manifest = manifest;
         _genVersion = _manifest.GenVersion;
-        _noiseSeeds = _manifest.NoiseSeeds is { Length: 5 } seeds
-                ? seeds
-                : WorldStore.DeriveNoiseSeeds(_manifest.Seed);
+        _noiseSeeds = (int[])_manifest.NoiseSeeds.Clone();
 
         // Gen v5 worlds are taller and can carry a shape preset; earlier gens
         // keep Height 64 and sea level 28 so their terrain stays byte-identical.
         Height = _genVersion >= 5 ? 128 : 64;
         SeaLevel = _genVersion >= 5 ? 40 : 28;
         _preset = _genVersion >= 5 ? _manifest.Preset ?? "normal" : "normal";
+    }
+
+    private static bool HasWorldMetadataOrSaveFiles(string dir)
+    {
+        bool manifestExists = HasSaveCandidate(WorldStore.ManifestPath(dir));
+        bool worldSaveExists = HasSaveCandidate(WorldStore.WorldSavePath(dir));
+        bool playerSaveExists = HasSaveCandidate(WorldStore.PlayerSavePath(dir));
+        return WorldCompatibilityPolicy.MustRejectMissingManifest(
+                manifestExists, worldSaveExists, playerSaveExists);
     }
 
     // -----------------------------------------------------------------------
@@ -391,6 +498,13 @@ public partial class VoxelWorld : Node3D
     {
         if (_genVersion >= WorldGenV8.Version)
         {
+            if (_genVersion >= WorldGenV12.Version
+                    && WorldGenV12.ShouldCarveSurfaceEntrance(y, h, SeaLevel, _preset,
+                            y > 0 && GeneratorV8.IsCave(x, y - 1, z, h)))
+            {
+                return true;
+            }
+
             return GeneratorV8.IsCave(x, y, z, h);
         }
 
@@ -441,7 +555,20 @@ public partial class VoxelWorld : Node3D
     }
 
     /// <summary>Temperature/moisture biome map (pure function of x,z).</summary>
-    public Biome BiomeAt(int x, int z) => BiomeAt(x, z, SurfaceHeight(x, z));
+    public Biome BiomeAt(int x, int z)
+    {
+        if (_genVersion >= WorldGenV8.Version)
+        {
+            return GeneratorV8.SampleSurface(x, z, SeaLevel).Biome;
+        }
+
+        if (_genVersion >= WorldGenV7.Version)
+        {
+            return GeneratorV7.SampleSurface(x, z, SeaLevel).Biome;
+        }
+
+        return BiomeAt(x, z, SurfaceHeight(x, z));
+    }
 
     /// <summary>Biome with a known surface height — skips the internal
     /// SurfaceHeight call for callers that already paid for it (minimap,
@@ -724,6 +851,18 @@ public partial class VoxelWorld : Node3D
         if (h <= SeaLevel + 1 || biome != Biome.Desert)
         {
             return null;
+        }
+
+        if (_genVersion >= WorldGenV12.Version)
+        {
+            uint seededHash = WorldGenV12.CactusHash(GeneratorV8, tx, tz);
+            if (seededHash % 120u != 0u)
+            {
+                return null;
+            }
+
+            return new CactusInfo(tx, tz, h + 1,
+                    2 + (int)((seededHash >> 8) % 3u));
         }
 
         long r = Hash2(tx + 77, tz - 31);
@@ -1052,6 +1191,12 @@ public partial class VoxelWorld : Node3D
     private byte[] GenerateChunkData(Vector2I cp)
     {
         byte[] data = new byte[ChunkX * Height * ChunkZ];
+        if (_genVersion >= WorldGenV12.Version && !WorldGenV12.ContainsChunk(cp))
+        {
+            Array.Fill(data, (byte)BlockId.Bedrock);
+            return data;
+        }
+
         int ox = cp.X * ChunkX;
         int oz = cp.Y * ChunkZ;
         int strideY = ChunkX * ChunkZ;
@@ -1130,7 +1275,12 @@ public partial class VoxelWorld : Node3D
                             }
 
                             int i = lx + lz * ChunkX + wy * strideY;
-                            if ((BlockId)data[i] == BlockId.Air)
+                            if (_genVersion >= WorldGenV12.Version)
+                            {
+                                data[i] = (byte)WorldGenV12.MergeTreeBlock(
+                                        (BlockId)data[i], id);
+                            }
+                            else if ((BlockId)data[i] == BlockId.Air)
                             {
                                 data[i] = (byte)id;
                             }
@@ -1317,6 +1467,50 @@ public partial class VoxelWorld : Node3D
                 gy = Mathf.Clamp(gy, 2, Height - 2);
             }
         }
+    }
+
+    private bool IsV12NaturalStone(int x, int y, int z,
+            byte[] data, int strideY, int ox, int oz,
+            Dictionary<Vector2I, (WorldGenV7.SurfaceSample Surface, bool IsIsland)> columnCache)
+    {
+        if (y < 0 || y >= Height
+                || !WorldGenV12.ContainsWorldPosition(x, z))
+        {
+            return false;
+        }
+
+        int localX = x - ox;
+        int localZ = z - oz;
+        if (localX >= 0 && localX < ChunkX && localZ >= 0 && localZ < ChunkZ)
+        {
+            int index = localX + localZ * ChunkX + y * strideY;
+            return (BlockId)data[index] == BlockId.Stone;
+        }
+
+        // Each output chunk replays the same neighboring ore paths. Cache one
+        // surface/climate sample per remote column instead of resampling it for
+        // each Y position visited by different veins.
+        Vector2I column = new(x, z);
+        if (!columnCache.TryGetValue(column, out var cached))
+        {
+            WorldGenV7.SurfaceSample surface = GeneratorV8.SampleSurface(x, z, SeaLevel);
+            bool isIsland = _preset != "sky" || GeneratorV8.IsIsland(x, z);
+            cached = (surface, isIsland);
+            columnCache.Add(column, cached);
+        }
+
+        int height = cached.Surface.Height;
+        if (y > height - 4 || (_preset == "sky"
+                && (!cached.IsIsland || y < height - 26)))
+        {
+            return false;
+        }
+
+        // These are the remaining V8 block-classifier conditions for a natural
+        // Stone voxel below the topsoil. Avoid calling the full BlockAt path,
+        // which would resample the column and repeat its surface noise layers.
+        return GeneratorV8.OreAt(x, y, z, cached.Surface.Biome) == BlockId.Stone
+                && !GeneratorV8.IsCave(x, y, z, height);
     }
 
     private void StampOre(int gx, int gy, int gz, BlockId ore, byte[] data, int strideY, int ox, int oz)
@@ -1552,35 +1746,62 @@ public partial class VoxelWorld : Node3D
     /// </summary>
     public byte[] ChunkData(Vector2I cp)
     {
+        Lazy<byte[]> generation;
         lock (_mutex)
         {
             if (_dataCache.TryGetValue(cp, out byte[]? cached))
             {
                 RegisterLightSourcesLocked(cp, cached);
+                RegisterCropSourcesLocked(cp, cached);
                 return cached;
             }
+
+            generation = _generationInFlight.GetOrCreate(cp, () => GenerateChunkData(cp));
         }
 
-        byte[] data = GenerateChunkData(cp);
+        byte[] data;
+        try
+        {
+            // Exactly one caller generates this coordinate. Other workers wait
+            // on the same Lazy while unrelated coordinates remain parallel.
+            data = generation.Value;
+        }
+        catch
+        {
+            lock (_mutex)
+            {
+                _generationInFlight.Complete(cp, generation);
+            }
+
+            throw;
+        }
+
         lock (_mutex)
         {
             if (_dataCache.TryGetValue(cp, out byte[]? existing))
             {
                 RegisterLightSourcesLocked(cp, existing);
+                RegisterCropSourcesLocked(cp, existing);
+                _generationInFlight.Complete(cp, generation);
                 return existing;
             }
 
             _dataCache[cp] = data;
             RegisterLightSourcesLocked(cp, data);
+            RegisterCropSourcesLocked(cp, data);
+            _generationInFlight.Complete(cp, generation);
+            return data;
         }
-
-        return data;
     }
 
     /// <summary>Cache a chunk's emitter positions once, including natural lava and saved edits.</summary>
     private void RegisterLightSourcesLocked(Vector2I cp, byte[] blocks)
     {
         if (!_sourceScannedChunks.Add(cp)) return;
+        if (_genVersion >= WorldGenV12.Version && !WorldGenV12.ContainsChunk(cp))
+        {
+            return;
+        }
         int stride = ChunkX * ChunkZ;
         int ox = cp.X * ChunkX;
         int oz = cp.Y * ChunkZ;
@@ -1614,21 +1835,21 @@ public partial class VoxelWorld : Node3D
         int maxCellZ = Mathf.FloorToInt((oz + ChunkZ - 1) / (float)Campfires.Cell);
 
         for (int cellZ = minCellZ; cellZ <= maxCellZ; cellZ++)
-        for (int cellX = minCellX; cellX <= maxCellX; cellX++)
-        {
-            if (GetCampfireSite(cellX, cellZ) is not { } site) continue;
+            for (int cellX = minCellX; cellX <= maxCellX; cellX++)
+            {
+                if (GetCampfireSite(cellX, cellZ) is not { } site) continue;
 
-            int localX = site.X - ox;
-            int localZ = site.Z - oz;
-            if ((uint)localX >= ChunkX || (uint)localZ >= ChunkZ
-                    || (uint)site.Y >= Height)
-                continue;
+                int localX = site.X - ox;
+                int localZ = site.Z - oz;
+                if ((uint)localX >= ChunkX || (uint)localZ >= ChunkZ
+                        || (uint)site.Y >= Height)
+                    continue;
 
-            int index = localX + localZ * ChunkX + site.Y * stride;
-            Vector3I flame = new(site.X, site.Y + 1, site.Z);
-            if (blocks[index] == (byte)BlockId.Log && flame.Y < Height)
-                _lightSources[flame] = VoxelLighting.CampfireEmission;
-        }
+                int index = localX + localZ * ChunkX + site.Y * stride;
+                Vector3I flame = new(site.X, site.Y + 1, site.Z);
+                if (blocks[index] == (byte)BlockId.Log && flame.Y < Height)
+                    _lightSources[flame] = VoxelLighting.CampfireEmission;
+            }
     }
 
     private byte[] SkyLightBase(Vector2I cp)
@@ -1668,69 +1889,92 @@ public partial class VoxelWorld : Node3D
     /// </summary>
     public VoxelLightData[] LightDataNeighborhood(Vector2I center)
     {
-        lock (SnapshotLock)
+        while (true)
         {
+            long snapshotEpoch;
             VoxelLightData[] result = new VoxelLightData[9];
-            bool complete = true;
-            lock (_mutex)
-            {
-                for (int dz = -1; dz <= 1; dz++)
-                for (int dx = -1; dx <= 1; dx++)
-                {
-                    int slot = (dz + 1) * 3 + dx + 1;
-                    if (_voxelLightCache.TryGetValue(center + new Vector2I(dx, dz), out VoxelLightData? cached))
-                        result[slot] = cached;
-                    else
-                        complete = false;
-                }
-            }
-            if (complete) return result;
-
-            const int halo = VoxelLighting.BlockLightRadius;
-            const int coreWidth = ChunkX * 3;
-            int width = coreWidth + halo * 2;
-            int depth = ChunkZ * 3 + halo * 2;
-            int originX = center.X * ChunkX - halo - ChunkX;
-            int originZ = center.Y * ChunkZ - halo - ChunkZ;
-
             byte[][] chunks = new byte[25][];
             byte[][]? stateChunks = null;
-            bool hasNonDefaultStates = false;
-            for (int dz = -2; dz <= 2; dz++)
-            for (int dx = -2; dx <= 2; dx++)
+            List<VoxelLightSource> sources;
+
+            // Capture immutable inputs and the emitter set in one short
+            // snapshot section. Chunk generation and array cloning are kept
+            // here because they establish the exact inputs for this epoch.
+            lock (SnapshotLock)
             {
-                int slot = (dz + 2) * 5 + dx + 2;
-                Vector2I cp = center + new Vector2I(dx, dz);
-                chunks[slot] = ChunkData(cp);
-                byte[] states = ChunkBlockStates(cp);
-                if (states.Length > 0)
+                snapshotEpoch = EditEpoch;
+                bool complete = true;
+                lock (_mutex)
                 {
-                    (stateChunks ??= new byte[25][])[slot] = states;
-                    hasNonDefaultStates = true;
+                    for (int dz = -1; dz <= 1; dz++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int slot = (dz + 1) * 3 + dx + 1;
+                            if (_voxelLightCache.TryGetValue(center + new Vector2I(dx, dz),
+                                    out VoxelLightData? cached))
+                                result[slot] = cached;
+                            else
+                                complete = false;
+                        }
                 }
+                if (complete) return result;
+
+                for (int dz = -2; dz <= 2; dz++)
+                    for (int dx = -2; dx <= 2; dx++)
+                    {
+                        int slot = (dz + 2) * 5 + dx + 2;
+                        byte[] data = ChunkData(center + new Vector2I(dx, dz));
+                        chunks[slot] = (byte[])data.Clone();
+                        byte[] states = ChunkBlockStates(center + new Vector2I(dx, dz));
+                        if (states.Length > 0)
+                        {
+                            (stateChunks ??= new byte[25][])[slot] = (byte[])states.Clone();
+                        }
+                    }
+
+                const int halo = VoxelLighting.BlockLightRadius;
+                int width = ChunkX * 3 + halo * 2;
+                int depth = ChunkZ * 3 + halo * 2;
+                int originX = center.X * ChunkX - halo - ChunkX;
+                int originZ = center.Y * ChunkZ - halo - ChunkZ;
+                sources = NearbyLightSources(
+                        originX, originX + width - 1, originZ, originZ + depth - 1);
             }
 
-            byte[] region = new byte[width * Height * depth];
-            byte[]? regionStates = hasNonDefaultStates ? new byte[region.Length] : null;
-            for (int z = 0; z < depth; z++)
+            // Test-only hook runs after SnapshotLock has been released, before
+            // the expensive region assembly/propagation work begins.
+            SnapshotReleasedTestHook?.Invoke();
+
+            // Region assembly and both propagation algorithms operate solely
+            // on the immutable arrays above. No global snapshot lock is held.
+            const int lightHalo = VoxelLighting.BlockLightRadius;
+            const int lightCoreWidth = ChunkX * 3;
+            int lightWidth = lightCoreWidth + lightHalo * 2;
+            int lightDepth = ChunkZ * 3 + lightHalo * 2;
+            int lightOriginX = center.X * ChunkX - lightHalo - ChunkX;
+            int lightOriginZ = center.Y * ChunkZ - lightHalo - ChunkZ;
+
+            byte[] region = new byte[lightWidth * Height * lightDepth];
+            byte[]? regionStates = stateChunks == null ? null : new byte[region.Length];
+            for (int z = 0; z < lightDepth; z++)
             {
-                int wz = originZ + z;
+                int wz = lightOriginZ + z;
                 int cz = Mathf.FloorToInt(wz / (float)ChunkZ);
                 int lz = wz - cz * ChunkZ;
-                for (int x = 0; x < width; x++)
+                for (int x = 0; x < lightWidth; x++)
                 {
-                    int wx = originX + x;
+                    int wx = lightOriginX + x;
                     int cx = Mathf.FloorToInt(wx / (float)ChunkX);
                     int lx = wx - cx * ChunkX;
                     int slot = (cz - center.Y + 2) * 5 + cx - center.X + 2;
                     byte[] source = chunks[slot];
                     byte[]? sourceStates = stateChunks?[slot];
-                    int srcColumn = lx + lz * ChunkX;
-                    int dstColumn = x + z * width;
+                    int sourceColumn = lx + lz * ChunkX;
+                    int destinationColumn = x + z * lightWidth;
                     for (int y = 0; y < Height; y++)
                     {
-                        int sourceIndex = srcColumn + y * ChunkX * ChunkZ;
-                        int destinationIndex = dstColumn + y * width * depth;
+                        int sourceIndex = sourceColumn + y * ChunkX * ChunkZ;
+                        int destinationIndex = destinationColumn + y * lightWidth * lightDepth;
                         region[destinationIndex] = source[sourceIndex];
                         if (regionStates != null && sourceStates != null)
                             regionStates[destinationIndex] = sourceStates[sourceIndex];
@@ -1739,59 +1983,74 @@ public partial class VoxelWorld : Node3D
             }
 
             byte[] sky = VoxelLighting.BuildSkyLight(
-                    region, width, Height, depth, regionStates, out byte[] directSky);
-            int plane = width * depth;
-            List<VoxelLightSource> sources = NearbyLightSources(
-                    originX, originX + width - 1, originZ, originZ + depth - 1);
+                    region, lightWidth, Height, lightDepth, regionStates, out byte[] directSky);
+            int plane = lightWidth * lightDepth;
             for (int i = 0; i < sources.Count; i++)
             {
                 VoxelLightSource source = sources[i];
                 Vector3I position = source.Position;
                 sources[i] = new VoxelLightSource(
-                        new Vector3I(position.X - originX, position.Y, position.Z - originZ),
-                        source.Level);
+                        new Vector3I(position.X - lightOriginX, position.Y,
+                                position.Z - lightOriginZ), source.Level);
             }
 
-            byte[] block = VoxelLighting.PropagateBlockLight(region, width, Height, depth, sources, regionStates);
-
+            byte[] block = VoxelLighting.PropagateBlockLight(
+                    region, lightWidth, Height, lightDepth, sources, regionStates);
+            VoxelLightData[] built = new VoxelLightData[9];
             for (int dz = -1; dz <= 1; dz++)
-            for (int dx = -1; dx <= 1; dx++)
-            {
-                int slot = (dz + 1) * 3 + dx + 1;
-                Vector2I cp = center + new Vector2I(dx, dz);
-                byte[] packed = new byte[ChunkX * Height * ChunkZ];
-                byte[] directPacked = new byte[(packed.Length + 1) / 2];
-                int cropX = halo + ChunkX + dx * ChunkX;
-                int cropZ = halo + ChunkZ + dz * ChunkZ;
-                for (int y = 0; y < Height; y++)
-                for (int z = 0; z < ChunkZ; z++)
+                for (int dx = -1; dx <= 1; dx++)
                 {
-                    int src = y * plane + (cropZ + z) * width + cropX;
-                    int dst = (y * ChunkZ + z) * ChunkX;
-                    for (int x = 0; x < ChunkX; x++)
-                    {
-                        int voxelIndex = dst + x;
-                        packed[voxelIndex] = VoxelLighting.Pack(sky[src + x], block[src + x]);
-                        int nibbleIndex = voxelIndex >> 1;
-                        int shift = (voxelIndex & 1) * 4;
-                        directPacked[nibbleIndex] |= (byte)((directSky[src + x] & 0x0F) << shift);
-                    }
+                    int slot = (dz + 1) * 3 + dx + 1;
+                    Vector2I cp = center + new Vector2I(dx, dz);
+                    byte[] packed = new byte[ChunkX * Height * ChunkZ];
+                    byte[] directPacked = new byte[(packed.Length + 1) / 2];
+                    int cropX = lightHalo + ChunkX + dx * ChunkX;
+                    int cropZ = lightHalo + ChunkZ + dz * ChunkZ;
+                    for (int y = 0; y < Height; y++)
+                        for (int z = 0; z < ChunkZ; z++)
+                        {
+                            int source = y * plane + (cropZ + z) * lightWidth + cropX;
+                            int destination = (y * ChunkZ + z) * ChunkX;
+                            for (int x = 0; x < ChunkX; x++)
+                            {
+                                int voxelIndex = destination + x;
+                                packed[voxelIndex] = VoxelLighting.Pack(
+                                        sky[source + x], block[source + x]);
+                                int nibbleIndex = voxelIndex >> 1;
+                                int shift = (voxelIndex & 1) * 4;
+                                directPacked[nibbleIndex] |= (byte)(
+                                        (directSky[source + x] & 0x0F) << shift);
+                            }
+                        }
+                    built[slot] = new VoxelLightData(packed, directPacked);
                 }
 
-                VoxelLightData data = new(packed, directPacked);
+            // A block/source edit invalidates the entire affected neighborhood
+            // while holding SnapshotLock. Discard stale solves and retry from a
+            // fresh snapshot before any map is made visible to another worker.
+            lock (SnapshotLock)
+            {
+                if (EditEpoch != snapshotEpoch)
+                    continue;
+
                 lock (_mutex)
                 {
-                    if (_voxelLightCache.TryGetValue(cp, out VoxelLightData? cached))
-                        result[slot] = cached;
-                    else
-                    {
-                        _voxelLightCache[cp] = data;
-                        result[slot] = data;
-                    }
+                    for (int dz = -1; dz <= 1; dz++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int slot = (dz + 1) * 3 + dx + 1;
+                            Vector2I cp = center + new Vector2I(dx, dz);
+                            if (_voxelLightCache.TryGetValue(cp, out VoxelLightData? cached))
+                                result[slot] = cached;
+                            else
+                            {
+                                _voxelLightCache[cp] = built[slot];
+                                result[slot] = built[slot];
+                            }
+                        }
                 }
+                return result;
             }
-
-            return result;
         }
     }
 
@@ -1888,49 +2147,57 @@ public partial class VoxelWorld : Node3D
         bool hasNonDefaultStates = false;
 
         for (int dz = -1; dz <= 1; dz++)
-        for (int dx = -1; dx <= 1; dx++)
-        {
-            Vector2I cp = center + new Vector2I(dx, dz);
-            int slot = (dz + 1) * 3 + dx + 1;
-            if (!_voxelLightCache.TryGetValue(cp, out VoxelLightData? map)
-                    || !_dataCache.TryGetValue(cp, out byte[]? blocks))
-                return false;
-            maps[slot] = map;
-            chunks[slot] = blocks;
-            byte[] states = ChunkBlockStates(cp);
-            if (states.Length > 0)
+            for (int dx = -1; dx <= 1; dx++)
             {
-                (stateChunks ??= new byte[9][])[slot] = states;
-                hasNonDefaultStates = true;
+                Vector2I cp = center + new Vector2I(dx, dz);
+                int slot = (dz + 1) * 3 + dx + 1;
+                if (!_voxelLightCache.TryGetValue(cp, out VoxelLightData? map)
+                        || !_dataCache.TryGetValue(cp, out byte[]? blocks))
+                    return false;
+                maps[slot] = map;
+                chunks[slot] = blocks;
+                byte[] states = ChunkBlockStates(cp);
+                if (states.Length > 0)
+                {
+                    (stateChunks ??= new byte[9][])[slot] = states;
+                    hasNonDefaultStates = true;
+                }
             }
-        }
 
         byte[] regionBlocks = ArrayPool<byte>.Shared.Rent(volume);
         byte[] regionLight = ArrayPool<byte>.Shared.Rent(volume);
-        byte[]? regionStates = hasNonDefaultStates ? new byte[volume] : null;
+        byte[]? regionStates = hasNonDefaultStates
+                ? ArrayPool<byte>.Shared.Rent(volume) : null;
         try
         {
-            for (int dz = -1; dz <= 1; dz++)
-            for (int dx = -1; dx <= 1; dx++)
+            if (regionStates != null)
             {
-                int slot = (dz + 1) * 3 + dx + 1;
-                byte[] chunkBlocks = chunks[slot];
-                byte[] packed = maps[slot].Packed;
-                for (int yLocal = 0; yLocal < Height; yLocal++)
-                for (int zLocal = 0; zLocal < ChunkZ; zLocal++)
-                {
-                    int source = (yLocal * ChunkZ + zLocal) * ChunkX;
-                    int target = yLocal * plane
-                            + (dz + 1) * ChunkZ * width
-                            + zLocal * width
-                            + (dx + 1) * ChunkX;
-                    Array.Copy(chunkBlocks, source, regionBlocks, target, ChunkX);
-                    if (regionStates != null && stateChunks?[slot] is { Length: > 0 } chunkStates)
-                        Array.Copy(chunkStates, source, regionStates, target, ChunkX);
-                    for (int xLocal = 0; xLocal < ChunkX; xLocal++)
-                        regionLight[target + xLocal] = (byte)(packed[source + xLocal] & 0x0F);
-                }
+                // Rented arrays may contain data from an earlier use. States
+                // are sparse, so clear the complete active volume before copy.
+                ChunkStreamingPolicy.ClearUsedBuffer(regionStates, volume);
             }
+
+            for (int dz = -1; dz <= 1; dz++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int slot = (dz + 1) * 3 + dx + 1;
+                    byte[] chunkBlocks = chunks[slot];
+                    byte[] packed = maps[slot].Packed;
+                    for (int yLocal = 0; yLocal < Height; yLocal++)
+                        for (int zLocal = 0; zLocal < ChunkZ; zLocal++)
+                        {
+                            int source = (yLocal * ChunkZ + zLocal) * ChunkX;
+                            int target = yLocal * plane
+                                    + (dz + 1) * ChunkZ * width
+                                    + zLocal * width
+                                    + (dx + 1) * ChunkX;
+                            Array.Copy(chunkBlocks, source, regionBlocks, target, ChunkX);
+                            if (regionStates != null && stateChunks?[slot] is { Length: > 0 } chunkStates)
+                                Array.Copy(chunkStates, source, regionStates, target, ChunkX);
+                            for (int xLocal = 0; xLocal < ChunkX; xLocal++)
+                                regionLight[target + xLocal] = (byte)(packed[source + xLocal] & 0x0F);
+                        }
+                }
 
             int localX = worldX - (center.X - 1) * ChunkX;
             int localZ = worldZ - (center.Y - 1) * ChunkZ;
@@ -1939,30 +2206,34 @@ public partial class VoxelWorld : Node3D
                     regionBlocks, width, Height, depth, regionLight, changedIndex, emission, regionStates);
 
             for (int dz = -1; dz <= 1; dz++)
-            for (int dx = -1; dx <= 1; dx++)
-            {
-                int slot = (dz + 1) * 3 + dx + 1;
-                byte[] packed = maps[slot].Packed;
-                for (int yLocal = 0; yLocal < Height; yLocal++)
-                for (int zLocal = 0; zLocal < ChunkZ; zLocal++)
+                for (int dx = -1; dx <= 1; dx++)
                 {
-                    int source = yLocal * plane
-                            + (dz + 1) * ChunkZ * width
-                            + zLocal * width
-                            + (dx + 1) * ChunkX;
-                    int target = (yLocal * ChunkZ + zLocal) * ChunkX;
-                    for (int xLocal = 0; xLocal < ChunkX; xLocal++)
-                        packed[target + xLocal] = (byte)((packed[target + xLocal] & 0xF0)
-                                | regionLight[source + xLocal]);
-                }
+                    int slot = (dz + 1) * 3 + dx + 1;
+                    byte[] packed = maps[slot].Packed;
+                    for (int yLocal = 0; yLocal < Height; yLocal++)
+                        for (int zLocal = 0; zLocal < ChunkZ; zLocal++)
+                        {
+                            int source = yLocal * plane
+                                    + (dz + 1) * ChunkZ * width
+                                    + zLocal * width
+                                    + (dx + 1) * ChunkX;
+                            int target = (yLocal * ChunkZ + zLocal) * ChunkX;
+                            for (int xLocal = 0; xLocal < ChunkX; xLocal++)
+                                packed[target + xLocal] = (byte)((packed[target + xLocal] & 0xF0)
+                                        | regionLight[source + xLocal]);
+                        }
 
-                _blockLightCache.Remove(center + new Vector2I(dx, dz));
-            }
+                    _blockLightCache.Remove(center + new Vector2I(dx, dz));
+                }
         }
         finally
         {
             ArrayPool<byte>.Shared.Return(regionBlocks);
             ArrayPool<byte>.Shared.Return(regionLight);
+            if (regionStates != null)
+            {
+                ArrayPool<byte>.Shared.Return(regionStates);
+            }
         }
         return true;
     }
@@ -2001,6 +2272,13 @@ public partial class VoxelWorld : Node3D
     {
         id = BlockId.Air;
         if (y < 0 || y >= Height) return false;
+        if (_genVersion >= WorldGenV12.Version
+                && !WorldGenV12.ContainsWorldPosition(x, z))
+        {
+            id = BlockId.Bedrock;
+            return true;
+        }
+
         Vector2I cp = new(Mathf.FloorToInt(x / (float)ChunkX), Mathf.FloorToInt(z / (float)ChunkZ));
         if (!_chunks.TryGetValue(cp, out Chunk? chunk)) return false;
         int lx = x - cp.X * ChunkX;
@@ -2018,6 +2296,12 @@ public partial class VoxelWorld : Node3D
             return BlockId.Air;
         }
 
+        if (_genVersion >= WorldGenV12.Version
+                && !WorldGenV12.ContainsWorldPosition(x, z))
+        {
+            return BlockId.Bedrock;
+        }
+
         Vector2I cp = new(Mathf.FloorToInt(x / (float)ChunkX), Mathf.FloorToInt(z / (float)ChunkZ));
         int lx = x - cp.X * ChunkX;
         int lz = z - cp.Y * ChunkZ;
@@ -2028,6 +2312,8 @@ public partial class VoxelWorld : Node3D
     public byte GetBlockState(int x, int y, int z)
     {
         if (y < 0 || y >= Height) return 0;
+        if (_genVersion >= WorldGenV12.Version
+                && !WorldGenV12.ContainsWorldPosition(x, z)) return 0;
         Vector2I cp = new(Mathf.FloorToInt(x / (float)ChunkX), Mathf.FloorToInt(z / (float)ChunkZ));
         int lx = x - cp.X * ChunkX;
         int lz = z - cp.Y * ChunkZ;
@@ -2059,10 +2345,31 @@ public partial class VoxelWorld : Node3D
 
     public bool SetBlock(int x, int y, int z, BlockId id) => SetBlock(x, y, z, id, 0);
 
+    internal static bool IsMutationBlockIdDefined(BlockId id)
+    {
+        // Unit tests and tools may call the mutation boundary before the world
+        // node enters the scene tree; ensure the shared lookup tables exist.
+        BlockDb.EnsureTables();
+        return BlockDb.IsDefined(id);
+    }
+
     /// <summary>All block and shape-state edits pass through this mutation seam.</summary>
     public bool SetBlock(int x, int y, int z, BlockId id, byte state)
     {
+        // BlockId values are persisted and index several definition tables.
+        // Reject unknown values before normalization or any mutation side effect.
+        if (IsReadOnly || !IsMutationBlockIdDefined(id))
+        {
+            return false;
+        }
+
         state = BlockShapes.NormalizeState(id, state);
+        if (_genVersion >= WorldGenV12.Version
+                && !WorldGenV12.ContainsWorldPosition(x, z))
+        {
+            return false;
+        }
+
         if (y <= 0 || y >= Height)
         {
             return false;
@@ -2083,6 +2390,7 @@ public partial class VoxelWorld : Node3D
         int lz = z - cp.Y * ChunkZ;
         int i = lx + lz * ChunkZ + y * ChunkX * ChunkZ;
         bool isCampfireCell = IsCampfireSiteCell(x, y, z);
+        bool lightingChanged = false;
         lock (SnapshotLock)
         {
             // Chunk.Blocks is also read by worker meshing. Mutate it while
@@ -2140,6 +2448,10 @@ public partial class VoxelWorld : Node3D
 
                 bool sourcePositionChanged = oldEmission > 0 && newEmission > 0
                         && oldCampfireEmitter != newCampfireEmitter;
+                lightingChanged = oldOpacity != newOpacity
+                        || oldLightFaces != newLightFaces
+                        || sourcePositionChanged
+                        || oldEmission != newEmission;
                 Vector3I changedSource = oldEmission > 0
                         ? new Vector3I(x, y + (oldCampfireEmitter ? 1 : 0), z)
                         : new Vector3I(x, y + (newCampfireEmitter ? 1 : 0), z);
@@ -2171,17 +2483,29 @@ public partial class VoxelWorld : Node3D
             }
         }
 
-        _dirty = true;
+        MarkDirty();
         BlockChanged?.Invoke(new Vector3I(x, y, z));
 
-        // A blocker or emitter can affect every adjacent chunk within the
-        // 14-voxel light radius, including chunks not sharing the edited edge.
+        // The edited chunk always changes. Geometry-only dependencies are
+        // limited to the sampled edge/corner; light-affecting edits retain the
+        // full existing 3x3 region for the 14-voxel propagation halo.
         for (int dz = -1; dz <= 1; dz++)
+        {
             for (int dx = -1; dx <= 1; dx++)
             {
+                if (!ChunkStreamingPolicy.AffectsChunk(dx, dz, lx, lz,
+                        ChunkX, ChunkZ, lightingChanged))
+                {
+                    continue;
+                }
+
                 Vector2I affected = cp + new Vector2I(dx, dz);
-                if (_chunks.ContainsKey(affected)) EnqueueRebuild(affected);
+                if (_chunks.ContainsKey(affected))
+                {
+                    EnqueueRebuild(affected);
+                }
             }
+        }
 
         return true;
     }
@@ -2291,21 +2615,55 @@ public partial class VoxelWorld : Node3D
         }
     }
 
+    private void RegisterCropSourcesLocked(Vector2I cp, byte[] blocks)
+    {
+        if (!_cropScannedChunks.Add(cp))
+        {
+            return;
+        }
+
+        int stride = ChunkX * ChunkZ;
+        int ox = cp.X * ChunkX;
+        int oz = cp.Y * ChunkZ;
+        for (int i = 0; i < blocks.Length; i++)
+        {
+            if (!BlockDb.IsWheat((BlockId)blocks[i]))
+            {
+                continue;
+            }
+
+            int y = i / stride;
+            int rem = i - y * stride;
+            int z = rem / ChunkX;
+            int x = rem - z * ChunkX;
+            _crops.Add(new Vector3I(ox + x, y, oz + z));
+        }
+    }
+
     private void UpdateCropSource(int x, int y, int z, BlockId id)
     {
         Vector3I cell = new(x, y, z);
-        if (BlockDb.IsWheat(id))
+        lock (_mutex)
         {
-            _crops.Add(cell);
-        }
-        else
-        {
-            _crops.Remove(cell);
+            if (BlockDb.IsWheat(id))
+            {
+                _crops.Add(cell);
+            }
+            else
+            {
+                _crops.Remove(cell);
+            }
         }
     }
 
     /// <summary>Snapshot for the growth tick (avoids mutating the set mid-loop).</summary>
-    public Vector3I[] CropSnapshot() => [.. _crops];
+    public Vector3I[] CropSnapshot()
+    {
+        lock (_mutex)
+        {
+            return [.. _crops];
+        }
+    }
 
     // -----------------------------------------------------------------------
     // Edit-aware surface heights: per-chunk topmost solid block of every
@@ -2383,13 +2741,11 @@ public partial class VoxelWorld : Node3D
     public void SetupInitial()
     {
         Vector2I pcp = PlayerChunk();
-        for (int dz = -1; dz <= 1; dz++)
-        {
-            for (int dx = -1; dx <= 1; dx++)
-            {
-                BuildNow(pcp + new Vector2I(dx, dz));
-            }
-        }
+
+        // Only the player's current chunk is required before the first physics
+        // step. Its floor/collider is ready synchronously; surrounding chunks
+        // enter the existing bounded worker pipeline immediately afterwards.
+        BuildNow(pcp);
 
         _lastPlayerChunk = pcp;
         _lastPlayerPos = Player?.GlobalPosition ?? Vector3.Zero;
@@ -2397,8 +2753,9 @@ public partial class VoxelWorld : Node3D
     }
 
     /// <summary>
-    /// Synchronous chunk build for the menu backdrop. No player is required;
-    /// the camera orbits this centre while the menu is open.
+    /// Synchronous preview builder retained for deterministic fixtures and
+    /// callers that require the complete requested square before returning.
+    /// The live main-menu backdrop uses BuildPreviewStreaming instead.
     /// </summary>
     public void BuildPreview(Vector3 center, int radius)
     {
@@ -2416,6 +2773,46 @@ public partial class VoxelWorld : Node3D
 
         _lastPlayerChunk = pcp;
         _lastPlayerPos = center;
+        _streamCenter = pcp;
+        _streamRetentionLimit = r + UnloadMargin;
+    }
+
+    /// <summary>
+    /// Render-only preview path for live menus. Builds the focal chunk
+    /// synchronously, then streams the surrounding square through bounded
+    /// worker and main-thread payload queues.
+    /// </summary>
+    public void BuildPreviewStreaming(Vector3 center, int radius)
+    {
+        Vector2I pcp = new(
+                Mathf.FloorToInt(center.X / ChunkX),
+                Mathf.FloorToInt(center.Z / ChunkZ));
+        int r = Mathf.Clamp(radius, 1, 5);
+        BuildNow(pcp);
+
+        _lastPlayerChunk = pcp;
+        _lastPlayerPos = center;
+        _velocityDir = Vector3.Zero;
+        _lastPriorityDirection = Vector3.Zero;
+
+        lock (_queueLock)
+        {
+            _streamCenter = pcp;
+            _streamRetentionLimit = r + UnloadMargin;
+            _queue.Clear();
+            _queued.Clear();
+            for (int dz = -r; dz <= r; dz++)
+            {
+                for (int dx = -r; dx <= r; dx++)
+                {
+                    Vector2I cp = pcp + new Vector2I(dx, dz);
+                    if (!_chunks.ContainsKey(cp))
+                    {
+                        QueueFreshLocked(cp, pcp);
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>Change the streamed radius (gfx presets / F7-F8) and re-evaluate the queue.</summary>
@@ -2444,14 +2841,38 @@ public partial class VoxelWorld : Node3D
     }
 
     /// <summary>
-    /// Snapshot managed voxel-cache byte arrays and estimates for edit/light
-    /// metadata. Array sizes are exact; dictionary entry sizes are estimates.
-    /// Applied mesh bytes describe source arrays, not driver-specific VRAM.
+    /// Snapshot world-owned managed memory. Byte-array payloads and edit-top
+    /// arrays are exact; collection storage and saved-object registries are
+    /// capacity/key-based estimates, not deep object-graph measurements.
+    /// W10 owns this diagnostic-only cross-owner extension to W01's VoxelWorld:
+    /// it reads existing private collections and changes no world, streaming or
+    /// persistence behavior.
     /// </summary>
     public VoxelCacheMemorySnapshot GetCacheMemorySnapshot()
     {
         long blocks = 0, states = 0, sky = 0, block = 0, packed = 0;
-        long editMetadata = 0, lightSourceEstimate = 0;
+        long generatorSeedArrayBytes = _noiseSeeds.LongLength * sizeof(int);
+        long editMetadata = 0;
+        long cacheIndexEstimate = 0;
+        long lightSourceEstimate;
+        long sourceScanEstimate;
+        long cropScanEstimate;
+        long campfireSiteEstimate;
+        long structureSiteEstimate;
+        long villageSiteEstimate;
+        long editTopArrayBytes = 0;
+        long editTopIndexEstimate;
+        long worldStateRegistryEstimate =
+                EstimateStringDictionaryBytes(Containers, 40)
+                + EstimateStringDictionaryBytes(Furnaces, 40)
+                + EstimateStringDictionaryBytes(Flags, 32)
+                + EstimateStringDictionaryBytes(Villagers, 40)
+                + EstimateStringDictionaryBytes(Quests, 40)
+                + EstimateListBytes(SavedInventory, 40)
+                + EstimateListBytes(SavedBoats, 64);
+        long cropRegistryEstimate;
+        long streamingQueueBytesEstimate;
+
         lock (_mutex)
         {
             foreach (byte[] data in _dataCache.Values) blocks += data.LongLength;
@@ -2460,20 +2881,101 @@ public partial class VoxelWorld : Node3D
             foreach (byte[] data in _blockLightCache.Values) block += data.LongLength;
             foreach (VoxelLightData data in _voxelLightCache.Values)
                 packed += data.Packed.LongLength + data.DirectSkyPacked.LongLength;
+
             foreach (Dictionary<int, BlockId> edits in _edits.Values)
-                editMetadata += 64L + edits.Count * 24L;
+                editMetadata += EstimateDictionaryBytes(edits, 24);
             foreach (Dictionary<int, byte> edits in _blockStateEdits.Values)
-                editMetadata += 64L + edits.Count * 16L;
-            lightSourceEstimate = _lightSources.Count * 32L;
+                editMetadata += EstimateDictionaryBytes(edits, 16);
+
+            cacheIndexEstimate =
+                    EstimateDictionaryBytes(_dataCache, 40)
+                    + EstimateDictionaryBytes(_blockStateCache, 40)
+                    + EstimateDictionaryBytes(_skyLightCache, 40)
+                    + EstimateDictionaryBytes(_blockLightCache, 40)
+                    + EstimateDictionaryBytes(_voxelLightCache, 40)
+                    + EstimateDictionaryBytes(_edits, 48)
+                    + EstimateDictionaryBytes(_blockStateEdits, 48);
+            lightSourceEstimate = EstimateDictionaryBytes(_lightSources, 48);
+            // Source scanning and crop scanning are separate registries with
+            // different responsibilities; account for each independently.
+            sourceScanEstimate = EstimateHashSetBytes(_sourceScannedChunks, 32);
+            cropScanEstimate = EstimateHashSetBytes(_cropScannedChunks, 32);
+            cropRegistryEstimate = EstimateHashSetBytes(_crops, 40);
+            campfireSiteEstimate = EstimateDictionaryBytes(_campfireCache, 48);
+            structureSiteEstimate = EstimateDictionaryBytes(_structureCache, 56);
+            villageSiteEstimate = EstimateDictionaryBytes(_villageCache, 56);
+
+            foreach (byte[] data in _editTops.Values) editTopArrayBytes += data.LongLength;
+            foreach (byte[] data in _editTopBlocks.Values) editTopArrayBytes += data.LongLength;
+            editTopIndexEstimate = EstimateDictionaryBytes(_editTops, 40)
+                    + EstimateDictionaryBytes(_editTopBlocks, 40);
         }
 
+        // ConcurrentDictionary exposes Count but not capacity; estimate its
+        // bucket/reference overhead from the live entry count without probing.
+        long chunkIndexEstimate = EstimateDictionaryBytes(_chunks, 40)
+                + 128L + _colliderReadyChunks.Count * 40L;
         long appliedMeshBytes = 0;
         foreach (Chunk chunk in _chunks.Values) appliedMeshBytes += chunk.EstimatedMeshBytes;
+        lock (_queueLock)
+        {
+            streamingQueueBytesEstimate =
+                    EstimatePriorityQueueBytes(_queue, 24)
+                    + EstimateHashSetBytes(_queued, 32)
+                    + EstimatePriorityQueueBytes(_rebuildQueue, 24)
+                    + EstimateHashSetBytes(_rebuildQueued, 32);
+        }
+        // ConcurrentQueue has no public capacity API. Count its node/reference
+        // overhead as an estimate; payload contents remain in the profiler's
+        // separate pending-payload byte counters.
+        streamingQueueBytesEstimate += 128L + (_applyFresh.Count + (long)_applyRebuild.Count) * 48L;
+
         long budget = StreamingMemoryBudget.EstimateVoxelArrayBudgetBytes(
                 ViewDistance, UnloadMargin, ChunkX, Height, ChunkZ);
-        return new VoxelCacheMemorySnapshot(blocks, states, sky, block, packed,
-                editMetadata, lightSourceEstimate, appliedMeshBytes,
-                PayloadPool.RetainedBufferBytes, budget);
+
+        return new VoxelCacheMemorySnapshot(
+                blocks, states, sky, block, packed, generatorSeedArrayBytes,
+                cacheIndexEstimate, cropRegistryEstimate, sourceScanEstimate, cropScanEstimate,
+                campfireSiteEstimate, structureSiteEstimate, villageSiteEstimate,
+                editTopArrayBytes, editTopIndexEstimate, worldStateRegistryEstimate,
+                chunkIndexEstimate, editMetadata, lightSourceEstimate,
+                appliedMeshBytes, PayloadPool.RetainedBufferBytes, streamingQueueBytesEstimate, budget);
+    }
+
+    // EnsureCapacity(0) can initialize default backing arrays. Probe capacity
+    // only for non-empty collections so diagnostics never allocate collection
+    // storage just to measure an otherwise empty world.
+    private static long EstimateDictionaryBytes<TKey, TValue>(
+            Dictionary<TKey, TValue> dictionary, int estimatedBytesPerEntry)
+            where TKey : notnull
+    {
+        int capacity = dictionary.Count == 0 ? 0 : dictionary.EnsureCapacity(dictionary.Count);
+        return 64L + capacity * (long)estimatedBytesPerEntry;
+    }
+
+    private static long EstimateHashSetBytes<T>(HashSet<T> set, int estimatedBytesPerEntry)
+    {
+        int capacity = set.Count == 0 ? 0 : set.EnsureCapacity(set.Count);
+        return 64L + capacity * (long)estimatedBytesPerEntry;
+    }
+
+    private static long EstimatePriorityQueueBytes<TElement, TPriority>(
+            PriorityQueue<TElement, TPriority> queue, int estimatedBytesPerEntry)
+    {
+        int capacity = queue.Count == 0 ? 0 : queue.EnsureCapacity(queue.Count);
+        return 64L + capacity * (long)estimatedBytesPerEntry;
+    }
+
+    private static long EstimateListBytes<T>(List<T>? list, int estimatedBytesPerEntry) =>
+            list is null ? 0L : 32L + list.Capacity * (long)estimatedBytesPerEntry;
+
+    private static long EstimateStringDictionaryBytes<T>(
+            Dictionary<string, T> dictionary, int estimatedBytesPerEntry)
+    {
+        long bytes = EstimateDictionaryBytes(dictionary, estimatedBytesPerEntry);
+        foreach (string key in dictionary.Keys)
+            bytes += 24L + key.Length * sizeof(char);
+        return bytes;
     }
 
     /// <summary>Synchronous build (startup / when a node must exist immediately).</summary>
@@ -2489,9 +2991,11 @@ public partial class VoxelWorld : Node3D
         c.Setup(this, cp);
         c.Generate();
         MeshPayload payload = Mesher.Build(this, cp);
+        bool hasCollider = payload.Collision.Count > 0;
         c.ApplyPayload(payload);
         PayloadPool.Release(payload);
         _chunks[cp] = c;
+        SetChunkColliderAvailability(cp, hasCollider);
         return c;
     }
 
@@ -2509,66 +3013,182 @@ public partial class VoxelWorld : Node3D
             bool rebuild;
             lock (_queueLock)
             {
-                if (_rebuildQueue.TryDequeue(out cp, out _))
+                if (!TryDequeueWorkLocked(out cp, out rebuild))
                 {
-                    _rebuildQueued.Remove(cp);
-                    rebuild = true;
+                    return;
                 }
-                else if (_queue.TryDequeue(out cp, out _))
+            }
+
+            ExecuteChunkWork(cp, rebuild);
+        }
+    }
+
+    private struct ChunkWorkerOperation : IChunkWorkerOperation<MeshPayload>
+    {
+        private readonly VoxelWorld _world;
+        private readonly Vector2I _coordinate;
+        private readonly bool _rebuild;
+        private int _attempts;
+
+        public ChunkWorkerOperation(VoxelWorld world, Vector2I coordinate, bool rebuild)
+        {
+            _world = world;
+            _coordinate = coordinate;
+            _rebuild = rebuild;
+            _attempts = 0;
+        }
+
+        public bool CanContinue() =>
+                _world._alive && _world.IsWithinCurrentRetention(_coordinate);
+
+        public void ReservePayloadSlot() =>
+                _world._completedPayloadSlots.Wait(_world._workerShutdown.Token);
+
+        public MeshPayload Build()
+        {
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            MeshPayload payload = Mesher.Build(_world, _coordinate);
+            Profiler.RecordBuild(
+                    System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            return payload;
+        }
+
+        public bool Publish(MeshPayload payload)
+        {
+            // Publish under the same lock used to change the streaming center
+            // so obsolete work cannot enter an apply queue.
+            lock (_world._queueLock)
+            {
+                if (!_world._alive || !ChunkStreamingPolicy.IsWithinRetention(
+                        _coordinate, _world._streamCenter, _world._streamRetentionLimit))
                 {
-                    _queued.Remove(cp);
-                    rebuild = false;
+                    return false;
+                }
+
+                _world._workTracker.ForgetFailure(_coordinate);
+                Profiler.RecordPayloadEnqueued(payload.EstimatedBufferBytes);
+                (_rebuild ? _world._applyRebuild : _world._applyFresh)
+                        .Enqueue((_coordinate, payload));
+                return true;
+            }
+        }
+
+        public void DiscardPayload(MeshPayload payload) => PayloadPool.Release(payload);
+
+        public void ReleasePayloadSlot() => _world._completedPayloadSlots.Release();
+
+        public bool RequestRetry(Exception error)
+        {
+            lock (_world._queueLock)
+            {
+                bool withinRetention = ChunkStreamingPolicy.IsWithinRetention(
+                        _coordinate, _world._streamCenter, _world._streamRetentionLimit);
+                return _world._workTracker.TryRecordFailure(
+                        _coordinate, _world._alive, withinRetention,
+                        MaxWorkerBuildAttempts, out _attempts);
+            }
+        }
+
+        public void ReportFailure(Exception error, bool retryRequested)
+        {
+            string retryText = retryRequested
+                    ? $" (retry {_attempts}/{MaxWorkerBuildAttempts})"
+                    : _attempts > 0
+                            ? $" (gave up after {_attempts} attempts; a later streaming/edit request can retry)"
+                            : " (request abandoned because the world stopped or the chunk left retention)";
+            GD.PushError(
+                    $"minecraft: chunk worker failed at ({_coordinate.X},{_coordinate.Y}){retryText}: {error}");
+        }
+    }
+
+    /// <summary>
+    /// Executes one dequeued request through the same value-type lifecycle used
+    /// by deterministic regression tests. No per-chunk delegates are allocated.
+    /// </summary>
+    private void ExecuteChunkWork(Vector2I cp, bool rebuild)
+    {
+        ChunkWorkerOperation operation = new(this, cp, rebuild);
+        ChunkWorkerExecutionResult execution =
+                ChunkWorkerLifecycle.Execute<MeshPayload, ChunkWorkerOperation>(ref operation);
+
+        bool outsideRetention;
+        lock (_queueLock)
+        {
+            bool withinRetention = ChunkStreamingPolicy.IsWithinRetention(
+                    cp, _streamCenter, _streamRetentionLimit);
+            bool rebuildRequested = _workTracker.Complete(cp, withinRetention);
+            outsideRetention = !withinRetention;
+
+            if (_alive && withinRetention && (rebuildRequested || execution.RetryRequested))
+            {
+                if (ChunkWorkTracker.ShouldQueueAsRebuild(rebuild, rebuildRequested))
+                {
+                    QueueRebuildLocked(cp, _streamCenter);
                 }
                 else
                 {
-                    return;
+                    QueueFreshLocked(cp, _streamCenter);
                 }
             }
+        }
 
-            bool reserved = false;
-            bool published = false;
-            MeshPayload? payload = null;
-            try
+        // A build can populate a halo cache after UnloadFar has already
+        // evicted it. Re-prune against the latest center after abandoning it.
+        if (_alive && outsideRetention)
+        {
+            PruneWorldCachesForCurrentRegion();
+        }
+    }
+
+    /// <summary>Removes stale heap entries and claims one coordinate exactly once.</summary>
+    private bool TryDequeueWorkLocked(out Vector2I cp, out bool rebuild)
+    {
+        while (true)
+        {
+            if (_rebuildQueue.TryDequeue(out cp, out _))
             {
-                // Capacity is released by the main thread after applying a
-                // payload. Cancellation unblocks workers on scene shutdown.
-                _completedPayloadSlots.Wait(_workerShutdown.Token);
-                reserved = true;
-                if (!_alive) return;
-
-                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
-                payload = Mesher.Build(this, cp);
-                Profiler.RecordBuild(System.Diagnostics.Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
-                if (!_alive)
+                if (!_rebuildQueued.Remove(cp))
                 {
-                    PayloadPool.Release(payload);
-                    payload = null;
-                    return;
+                    continue; // stale heap entry superseded by a newer request
                 }
 
-                Profiler.RecordPayloadEnqueued(payload.EstimatedBufferBytes);
-                (rebuild ? _applyRebuild : _applyFresh).Enqueue((cp, payload));
-                payload = null;
-                published = true;
+                rebuild = true;
             }
-            catch (OperationCanceledException)
+            else if (_queue.TryDequeue(out cp, out _))
             {
-                return;
-            }
-            catch (Exception exception)
-            {
-                GD.PushError($"minecraft: chunk worker failed at ({cp.X},{cp.Y}): {exception}");
-                if (payload != null)
+                if (!_queued.Remove(cp))
                 {
-                    PayloadPool.Release(payload);
-                    payload = null;
+                    continue; // e.g. a rebuild superseded this fresh request
                 }
+
+                rebuild = false;
             }
-            finally
+            else
             {
-                if (reserved && !published)
-                    _completedPayloadSlots.Release();
+                rebuild = false;
+                return false;
             }
+
+            if (_workTracker.TryBegin(cp))
+            {
+                return true;
+            }
+
+            // Defensive recovery if duplicate heap entries ever survive a
+            // queue transition while another worker owns the coordinate.
+            if (rebuild)
+            {
+                _workTracker.RequestRebuild(cp);
+            }
+        }
+    }
+
+    private bool IsWithinCurrentRetention(Vector2I cp)
+    {
+        lock (_queueLock)
+        {
+            return _alive && ChunkStreamingPolicy.IsWithinRetention(
+                    cp, _streamCenter, _streamRetentionLimit);
         }
     }
 
@@ -2582,12 +3202,16 @@ public partial class VoxelWorld : Node3D
         {
             if (!_alive) return;
 
-            Vector2I pcp = PlayerChunk();
-            int limit = ViewDistance + UnloadMargin;
-            if (Mathf.Abs(cp.X - pcp.X) > limit || Mathf.Abs(cp.Y - pcp.Y) > limit)
+            Vector2I pcp = Player != null ? PlayerChunk() : _streamCenter;
+            int limit = Player != null ? ViewDistance + UnloadMargin : _streamRetentionLimit;
+            if (!ChunkStreamingPolicy.IsWithinRetention(cp, pcp, limit))
                 return;
 
-            if (payload.Epoch != EditEpoch)
+            bool epochCurrent;
+            lock (SnapshotLock)
+                epochCurrent = payload.Epoch == EditEpoch;
+            if (!epochCurrent || !Mesher.IsConfigurationCurrent(payload.MeshingRevision)
+                    || payload.BoundaryMask != MissingColliderBoundaryMask(cp))
             {
                 EnqueueRebuild(cp);
                 return;
@@ -2596,6 +3220,7 @@ public partial class VoxelWorld : Node3D
             if (_chunks.TryGetValue(cp, out Chunk? existing))
             {
                 existing.ApplyPayload(payload);   // player-edit remesh
+                SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
                 return;
             }
 
@@ -2606,6 +3231,7 @@ public partial class VoxelWorld : Node3D
             c.ApplyPayload(payload);
             c.FadeIn();
             _chunks[cp] = c;
+            SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
         }
         finally
         {
@@ -2613,29 +3239,248 @@ public partial class VoxelWorld : Node3D
         }
     }
 
-    /// <summary>Nearest dry-land column to the origin, so the player never spawns in water.</summary>
-    public Vector3 FindSpawn()
+    internal readonly record struct SpawnCandidate(int X, int Z, int SurfaceY, long DistanceSquared);
+
+    /// <summary>Nearest validated dry-land column to the origin.</summary>
+    public Vector3 FindSpawn() => FindSpawn(null);
+
+    /// <summary>
+    /// Testable candidate validator seam. Production callers use the actual
+    /// world/capsule validator; regression tests can deterministically reject
+    /// every candidate to verify the no-safe-spawn failure path.
+    /// </summary>
+    internal Vector3 FindSpawn(Func<SpawnCandidate, bool>? candidateValidatorOverride)
     {
-        Vector3 best = new(0.5f, 40.5f, 0.5f);
-        long bestD = 1L << 60;
-        for (int x = -64; x <= 64; x += 4)
+        List<SpawnCandidate> candidates = [];
+        HashSet<long> tested = [];
+        HashSet<long> seen = [];
+
+        SearchSpawnCandidates(64, 4, candidates, seen);
+        if (TryFindSafeSpawn(candidates, tested, out Vector3 spawn, candidateValidatorOverride))
         {
-            for (int z = -64; z <= 64; z += 4)
+            return spawn;
+        }
+
+        // If the origin search has no physically safe candidate, expand
+        // deterministically. Keep all original candidates and avoid rechecking
+        // their already-tested coordinates.
+        SearchSpawnCandidates(512, 8, candidates, seen);
+        if (TryFindSafeSpawn(candidates, tested, out spawn, candidateValidatorOverride))
+        {
+            return spawn;
+        }
+
+        throw new InvalidOperationException(
+                "Unable to find a safe spawn location within 512 blocks of the world origin.");
+    }
+
+    private void SearchSpawnCandidates(
+            int radius,
+            int step,
+            List<SpawnCandidate> candidates,
+            HashSet<long> seen)
+    {
+        for (int x = -radius; x <= radius; x += step)
+        {
+            for (int z = -radius; z <= radius; z += step)
             {
                 int h = SurfaceHeight(x, z);
-                if (h > SeaLevel + 1 && (!IsSky || IslandAt(x, z)) && !SpawnBlocked(x, z))
+                if (h <= SeaLevel + 1 || h >= Height - 2
+                        || IsSky && !IslandAt(x, z) || SpawnBlocked(x, z))
                 {
-                    int d2 = x * x + z * z;
-                    if (d2 < bestD)
+                    continue;
+                }
+
+                long key = ((long)x << 32) ^ (uint)z;
+                if (!seen.Add(key))
+                {
+                    continue;
+                }
+
+                long distanceSquared = (long)x * x + (long)z * z;
+                candidates.Add(new SpawnCandidate(x, z, h, distanceSquared));
+            }
+        }
+    }
+
+    private bool TryFindSafeSpawn(
+            List<SpawnCandidate> candidates,
+            HashSet<long> tested,
+            out Vector3 spawn,
+            Func<SpawnCandidate, bool>? candidateValidatorOverride = null)
+    {
+        candidates.Sort(static (a, b) =>
+        {
+            int distance = a.DistanceSquared.CompareTo(b.DistanceSquared);
+            if (distance != 0) return distance;
+            int x = a.X.CompareTo(b.X);
+            return x != 0 ? x : a.Z.CompareTo(b.Z);
+        });
+
+        foreach (SpawnCandidate candidate in candidates)
+        {
+            long key = ((long)candidate.X << 32) ^ (uint)candidate.Z;
+            if (!tested.Add(key))
+            {
+                continue;
+            }
+
+            bool isSafe = candidateValidatorOverride != null
+                    ? candidateValidatorOverride(candidate)
+                    : IsSafeSpawnCandidate(candidate);
+            if (!isSafe)
+            {
+                continue;
+            }
+
+            spawn = new Vector3(candidate.X + 0.5f,
+                    candidate.SurfaceY + 1.5f, candidate.Z + 0.5f);
+            return true;
+        }
+
+        spawn = Vector3.Zero;
+        return false;
+    }
+
+    /// <summary>
+    /// Validate the actual generated support block and the complete player
+    /// capsule, including partial block shapes and fluid hazards.
+    /// Player.tscn uses a 0.35 m radius / 1.8 m capsule whose base is the root.
+    /// </summary>
+    internal bool IsSafeSpawnPosition(Vector3 position)
+    {
+        if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z))
+        {
+            return false;
+        }
+
+        int x = Mathf.FloorToInt(position.X);
+        int z = Mathf.FloorToInt(position.Z);
+        int surfaceY = Mathf.FloorToInt(position.Y - 1.5f);
+        return Mathf.Abs(position.X - (x + 0.5f)) < 0.0001f
+                && Mathf.Abs(position.Z - (z + 0.5f)) < 0.0001f
+                && Mathf.Abs(position.Y - (surfaceY + 1.5f)) < 0.0001f
+                && IsSafeSpawnCandidate(new SpawnCandidate(
+                        x, z, surfaceY, (long)x * x + (long)z * z));
+    }
+
+    private bool IsSafeSpawnCandidate(SpawnCandidate candidate)
+    {
+        if (candidate.SurfaceY < 0 || candidate.SurfaceY >= Height - 2)
+        {
+            return false;
+        }
+
+        BlockId support = GetBlock(candidate.X, candidate.SurfaceY, candidate.Z);
+        byte supportMask = BlockShapes.OccupancyMask(support,
+                GetBlockState(candidate.X, candidate.SurfaceY, candidate.Z));
+        if ((supportMask & 0xF0) != 0xF0)
+        {
+            return false;
+        }
+
+        Vector3 feet = new(candidate.X + 0.5f,
+                candidate.SurfaceY + 1.5f, candidate.Z + 0.5f);
+        return IsSpawnCapsuleClear(feet);
+    }
+
+    private bool IsSpawnCapsuleClear(Vector3 feet)
+    {
+        const float radius = 0.35f;
+        const float height = 1.8f;
+        if (feet.Y < 0.0f || feet.Y + height > Height)
+        {
+            return false;
+        }
+
+        int minX = Mathf.FloorToInt(feet.X - radius);
+        int maxX = Mathf.FloorToInt(feet.X + radius);
+        int minY = Mathf.FloorToInt(feet.Y);
+        int maxY = Mathf.FloorToInt(feet.Y + height);
+        int minZ = Mathf.FloorToInt(feet.Z - radius);
+        int maxZ = Mathf.FloorToInt(feet.Z + radius);
+
+        for (int y = minY; y <= maxY; y++)
+        {
+            for (int z = minZ; z <= maxZ; z++)
+            {
+                for (int x = minX; x <= maxX; x++)
+                {
+                    BlockId id = GetBlock(x, y, z);
+                    Vector3 blockOrigin = new(x, y, z);
+
+                    if (id == BlockId.Lava
+                            && CapsuleIntersectsVoxelAabb(feet, radius, height,
+                                    blockOrigin, blockOrigin + Vector3.One))
                     {
-                        bestD = d2;
-                        best = new Vector3(x + 0.5f, h + 1.5f, z + 0.5f);
+                        return false;
+                    }
+
+                    if (BlockDb.IsWater(id))
+                    {
+                        float waterHeight = BlockDb.WaterHeight(id);
+                        Vector3 waterMax = new(x + 1.0f, y + waterHeight, z + 1.0f);
+                        if (CapsuleIntersectsVoxelAabb(feet, radius, height,
+                                blockOrigin, waterMax))
+                        {
+                            return false;
+                        }
+                    }
+
+                    byte mask = BlockShapes.OccupancyMask(id, GetBlockState(x, y, z));
+                    if (mask == 0)
+                    {
+                        continue;
+                    }
+
+                    for (int halfY = 0; halfY < 2; halfY++)
+                    {
+                        for (int halfZ = 0; halfZ < 2; halfZ++)
+                        {
+                            for (int halfX = 0; halfX < 2; halfX++)
+                            {
+                                int bit = halfX + halfZ * 2 + halfY * 4;
+                                if ((mask & (1 << bit)) == 0)
+                                {
+                                    continue;
+                                }
+
+                                Vector3 cellMin = blockOrigin
+                                        + new Vector3(halfX * 0.5f, halfY * 0.5f, halfZ * 0.5f);
+                                Vector3 cellMax = cellMin + new Vector3(0.5f, 0.5f, 0.5f);
+                                if (CapsuleIntersectsVoxelAabb(feet, radius, height, cellMin, cellMax))
+                                {
+                                    return false;
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
-        return best;
+        return true;
+    }
+
+    /// <summary>Exact vertical-capsule versus AABB distance check.</summary>
+    internal static bool CapsuleIntersectsVoxelAabb(
+            Vector3 feet, float radius, float height, Vector3 boxMin, Vector3 boxMax)
+    {
+        if (radius <= 0.0f || height < radius * 2.0f)
+        {
+            return false;
+        }
+
+        float segmentMinY = feet.Y + radius;
+        float segmentMaxY = feet.Y + height - radius;
+        float closestX = Mathf.Clamp(feet.X, boxMin.X, boxMax.X);
+        float closestZ = Mathf.Clamp(feet.Z, boxMin.Z, boxMax.Z);
+        float dx = feet.X - closestX;
+        float dz = feet.Z - closestZ;
+        float dy = segmentMaxY < boxMin.Y ? boxMin.Y - segmentMaxY
+                : segmentMinY > boxMax.Y ? segmentMinY - boxMax.Y : 0.0f;
+        const float epsilon = 0.00001f;
+        return dx * dx + dy * dy + dz * dz < radius * radius - epsilon;
     }
 
     /// <summary>
@@ -2661,9 +3506,22 @@ public partial class VoxelWorld : Node3D
             return true;
         }
 
-        return CachedStructureSite(Mathf.FloorToInt(x / (float)StructureCell),
+        if (CachedStructureSite(Mathf.FloorToInt(x / (float)StructureCell),
                 Mathf.FloorToInt(z / (float)StructureCell)) is { } site
-                && Mathf.Abs(site.X - x) <= 6 && Mathf.Abs(site.Z - z) <= 6;
+                && Mathf.Abs(site.X - x) <= 6 && Mathf.Abs(site.Z - z) <= 6)
+        {
+            return true;
+        }
+
+        if (_genVersion >= 8
+                && GetVillageSite(Mathf.FloorToInt(x / (float)VillageCell),
+                        Mathf.FloorToInt(z / (float)VillageCell)) is { } village
+                && Mathf.Abs(village.X - x) <= 52 && Mathf.Abs(village.Z - z) <= 52)
+        {
+            return true;
+        }
+
+        return false;
     }
 
     public Vector2I PlayerChunk()
@@ -2680,31 +3538,47 @@ public partial class VoxelWorld : Node3D
 
     public override void _Process(double delta)
     {
-        _unsavedPlaytimeSeconds += Math.Max(0.0, delta);
-        if (Player == null)
+        PollBackgroundSave();
+        bool hasPlayer = Player != null;
+        if (hasPlayer)
         {
-            return;
+            EnsurePlayerPersistenceEventsWired();
+            _unsavedPlaytimeSeconds += Math.Max(0.0, delta);
+
+            // Smoothed velocity drives the prefetch bias: chunks ahead of a moving
+            // player jump the queue, so flying toward new terrain streams faster.
+            Vector3 pos = Player!.GlobalPosition;
+            if (delta > 0.0)
+            {
+                Vector3 displacement = pos - _lastPlayerPos;
+                displacement.Y = 0.0f;
+                Vector3 vel = displacement / (float)delta;
+                // A discontinuous relocation is not movement intent. Normal
+                // walking/sprinting/flying remains well below this threshold.
+                _velocityDir = displacement.LengthSquared() > 256.0f
+                        || vel.LengthSquared() > 400.0f
+                        ? Vector3.Zero
+                        : vel.LengthSquared() > 1.0f ? vel.Normalized() : Vector3.Zero;
+            }
+
+            _lastPlayerPos = pos;
         }
 
-        // Smoothed velocity drives the prefetch bias: chunks ahead of a moving
-        // player jump the queue, so flying toward new terrain streams faster.
-        Vector3 pos = Player.GlobalPosition;
-        if (delta > 0.0)
-        {
-            Vector3 vel = (pos - _lastPlayerPos) / (float)delta;
-            vel.Y = 0.0f;
-            _velocityDir = vel.LengthSquared() > 1.0f ? vel.Normalized() : Vector3.Zero;
-        }
-
-        _lastPlayerPos = pos;
-
-        Vector2I pcp = PlayerChunk();
-        if (pcp != _lastPlayerChunk)
+        Vector2I pcp = hasPlayer ? PlayerChunk() : _lastPlayerChunk;
+        bool centerChanged = pcp != _lastPlayerChunk;
+        bool priorityChanged = ChunkStreamingPolicy.DirectionChanged(
+                _lastPriorityDirection, _velocityDir);
+        if (centerChanged)
         {
             _lastPlayerChunk = pcp;
             RebuildQueue(pcp);
             UnloadFar(pcp);
             _farLod?.UpdateAround(pcp);
+        }
+        else if (priorityChanged)
+        {
+            RefreshFreshQueuePriorities(pcp);
+            _lastPriorityDirection = _velocityDir;
         }
 
         if (_groupActive && WorkerThreadPool.IsGroupTaskCompleted(_group))
@@ -2768,14 +3642,17 @@ public partial class VoxelWorld : Node3D
         if (_autosaveTimer >= AutosaveInterval)
         {
             _autosaveTimer = 0.0;
-            if (Player.GlobalPosition.DistanceTo(_lastSavedPos) > 8.0f)
+            if (hasPlayer)
             {
-                _dirty = true;
-            }
+                if (Player!.GlobalPosition.DistanceTo(_lastSavedPos) > 8.0f)
+                {
+                    MarkDirty();
+                }
 
-            if (_dirty)
-            {
-                SaveNow();
+                if (_dirty || _unsavedPlaytimeSeconds >= AutosaveInterval)
+                {
+                    QueueBackgroundSave();
+                }
             }
         }
     }
@@ -2783,26 +3660,87 @@ public partial class VoxelWorld : Node3D
     /// <summary>Queue every missing chunk inside the streamed square, nearest-first.</summary>
     private void RebuildQueue(Vector2I pcp)
     {
+        int limit = ViewDistance + UnloadMargin;
+        int r = ViewDistance;
         lock (_queueLock)
         {
-            _queue.Clear();
-            _queued.Clear();
-            int r = ViewDistance;
-            // A LINQ query reads like the rule it encodes: every (dx,dz) offset in
-            // the square that has no built chunk yet.
-            IEnumerable<Vector2I> missing =
-                    from dz in Enumerable.Range(-r, 2 * r + 1)
-                    from dx in Enumerable.Range(-r, 2 * r + 1)
-                    let cp = pcp + new Vector2I(dx, dz)
-                    where !_chunks.ContainsKey(cp) && !_rebuildQueued.Contains(cp)
-                    select cp;
-            foreach (Vector2I cp in missing)
+            _streamCenter = pcp;
+            _streamRetentionLimit = limit;
+            _lastPriorityDirection = _velocityDir;
+
+            // Rebuild requests are only useful while their coordinates remain
+            // in the retained region. Reconstructing the bounded heap also
+            // removes stale entries that were superseded by fresh requests.
+            foreach (Vector2I stale in _rebuildQueued.ToArray())
             {
-                if (_queued.Add(cp))
+                if (!ChunkStreamingPolicy.IsWithinRetention(stale, pcp, limit))
                 {
-                    _queue.Enqueue(cp, Priority(cp, pcp));
+                    _rebuildQueued.Remove(stale);
+                    _workTracker.ForgetFollowUp(stale);
+                    _workTracker.ForgetFailureIfNotRequeued(stale, willBeRequeued: false);
                 }
             }
+
+            // Preserve retry counts only for fresh requests that will actually
+            // survive the new view-distance queue reconstruction. A chunk can
+            // remain inside the unload margin while no longer being scheduled.
+            foreach (Vector2I stale in _queued.ToArray())
+            {
+                bool willBeRequeued = Mathf.Abs(stale.X - pcp.X) <= r
+                        && Mathf.Abs(stale.Y - pcp.Y) <= r
+                        && !_chunks.ContainsKey(stale)
+                        && !_rebuildQueued.Contains(stale)
+                        && !_workTracker.IsInFlight(stale);
+                _workTracker.ForgetFailureIfNotRequeued(stale, willBeRequeued);
+            }
+
+            _rebuildQueue.Clear();
+            foreach (Vector2I cp in _rebuildQueued)
+            {
+                _rebuildQueue.Enqueue(cp, Priority(cp, pcp));
+            }
+
+            _queue.Clear();
+            _queued.Clear();
+            for (int dz = -r; dz <= r; dz++)
+            {
+                for (int dx = -r; dx <= r; dx++)
+                {
+                    Vector2I cp = pcp + new Vector2I(dx, dz);
+                    if (!_chunks.ContainsKey(cp)
+                            && !_rebuildQueued.Contains(cp)
+                            && !_workTracker.IsInFlight(cp))
+                    {
+                        QueueFreshLocked(cp, pcp);
+                    }
+                }
+            }
+        }
+
+        // Completed rebuilds are bounded by the payload semaphore. Release
+        // obsolete results now so they cannot sit ahead of current-area work.
+        PrunePendingRebuildPayloads(pcp, limit);
+    }
+
+    private void PrunePendingRebuildPayloads(Vector2I center, int limit)
+    {
+        int pending = _applyRebuild.Count;
+        for (int i = 0; i < pending; i++)
+        {
+            if (!_applyRebuild.TryDequeue(out var item))
+            {
+                break;
+            }
+
+            if (ChunkStreamingPolicy.IsWithinRetention(item.Cp, center, limit))
+            {
+                _applyRebuild.Enqueue(item);
+                continue;
+            }
+
+            Profiler.RecordPayloadDequeued(item.Payload.EstimatedBufferBytes);
+            PayloadPool.Release(item.Payload);
+            _completedPayloadSlots.Release();
         }
     }
 
@@ -2824,10 +3762,17 @@ public partial class VoxelWorld : Node3D
     {
         lock (_queueLock)
         {
-            if (!_rebuildQueued.Contains(cp) && _queued.Add(cp))
-            {
-                _queue.Enqueue(cp, Priority(cp, pcp));
-            }
+            QueueFreshLocked(cp, pcp);
+        }
+    }
+
+    private void QueueFreshLocked(Vector2I cp, Vector2I pcp)
+    {
+        if (!_workTracker.IsInFlight(cp)
+                && !_rebuildQueued.Contains(cp)
+                && _queued.Add(cp))
+        {
+            _queue.Enqueue(cp, Priority(cp, pcp));
         }
     }
 
@@ -2836,10 +3781,40 @@ public partial class VoxelWorld : Node3D
     {
         lock (_queueLock)
         {
-            if (_rebuildQueued.Add(cp))
+            QueueRebuildLocked(cp, _streamCenter);
+        }
+    }
+
+    private void QueueRebuildLocked(Vector2I cp, Vector2I center)
+    {
+        if (!ChunkStreamingPolicy.IsWithinRetention(cp, center, _streamRetentionLimit))
+        {
+            return;
+        }
+
+        if (_workTracker.IsInFlight(cp))
+        {
+            _workTracker.RequestRebuild(cp);
+            return;
+        }
+
+        if (_rebuildQueued.Add(cp))
+        {
+            // The stale heap node in _queue is harmless: TryDequeueWorkLocked
+            // verifies side-set membership before assigning work.
+            _queued.Remove(cp);
+            _rebuildQueue.Enqueue(cp, Priority(cp, center));
+        }
+    }
+
+    private void RefreshFreshQueuePriorities(Vector2I pcp)
+    {
+        lock (_queueLock)
+        {
+            _queue.Clear();
+            foreach (Vector2I cp in _queued)
             {
-                _queued.Remove(cp);
-                _rebuildQueue.Enqueue(cp, Priority(cp, PlayerChunk()));
+                _queue.Enqueue(cp, Priority(cp, pcp));
             }
         }
     }
@@ -2886,27 +3861,35 @@ public partial class VoxelWorld : Node3D
                 Vector2I cp;
                 lock (_queueLock)
                 {
-                    if (_rebuildQueue.TryDequeue(out cp, out _))
-                    {
-                        _rebuildQueued.Remove(cp);
-                    }
-                    else if (_queue.TryDequeue(out cp, out _))
-                    {
-                        _queued.Remove(cp);
-                    }
-                    else
+                    if (!TryDequeueWorkLocked(out cp, out _))
                     {
                         break;
                     }
                 }
 
-                MeshPayload payload = Mesher.Build(this, cp);
-                ApplyBuild(cp, payload);
+                try
+                {
+                    MeshPayload payload = Mesher.Build(this, cp);
+                    ApplyBuild(cp, payload);
+                }
+                finally
+                {
+                    lock (_queueLock)
+                    {
+                        bool withinRetention = ChunkStreamingPolicy.IsWithinRetention(
+                                cp, _streamCenter, _streamRetentionLimit);
+                        bool rebuildRequested = _workTracker.Complete(cp, withinRetention);
+                        if (_alive && withinRetention && rebuildRequested)
+                        {
+                            QueueRebuildLocked(cp, _streamCenter);
+                        }
+                    }
+                }
             }
         }
     }
 
-    private void UnloadFar(Vector2I pcp)
+    internal void UnloadFar(Vector2I pcp)
     {
         int limit = ViewDistance + UnloadMargin;
 
@@ -2917,25 +3900,68 @@ public partial class VoxelWorld : Node3D
             {
                 Chunk c = _chunks[cp];
                 _chunks.Remove(cp);
+                SetChunkColliderAvailability(cp, false);
                 c.QueueFree();
             }
         }
 
-        // Keep a one-chunk data/light halo for boundary propagation. Emitter
-        // registrations outside it are re-discovered from voxel data on reload.
+        // Keep the one-chunk data/light halo required for neighbour snapshots.
+        PruneWorldCaches(pcp, limit + 1);
+    }
+
+    /// <summary>
+    /// Evict generated data and deterministic spatial lookup caches outside
+    /// the retained region. Active snapshots/chunks retain their own array
+    /// references, so removing a cache entry does not invalidate in-flight work.
+    /// </summary>
+    private void PruneWorldCachesForCurrentRegion()
+    {
+        lock (_queueLock)
+        {
+            PruneWorldCaches(_streamCenter, _streamRetentionLimit + 1);
+        }
+    }
+
+    private void PruneWorldCaches(Vector2I center, int limit)
+    {
         lock (_mutex)
         {
-            bool Outside(Vector2I cp) => Mathf.Abs(cp.X - pcp.X) > limit + 1 || Mathf.Abs(cp.Y - pcp.Y) > limit + 1;
+            bool Outside(Vector2I cp) =>
+                    !ChunkStreamingPolicy.IsWithinRetention(cp, center, limit);
             foreach (Vector2I cp in _dataCache.Keys.Where(Outside).ToArray()) _dataCache.Remove(cp);
             foreach (Vector2I cp in _blockStateCache.Keys.Where(Outside).ToArray()) _blockStateCache.Remove(cp);
             foreach (Vector2I cp in _skyLightCache.Keys.Where(Outside).ToArray()) _skyLightCache.Remove(cp);
             foreach (Vector2I cp in _blockLightCache.Keys.Where(Outside).ToArray()) _blockLightCache.Remove(cp);
             foreach (Vector2I cp in _voxelLightCache.Keys.Where(Outside).ToArray()) _voxelLightCache.Remove(cp);
             foreach (Vector2I cp in _sourceScannedChunks.Where(Outside).ToArray()) _sourceScannedChunks.Remove(cp);
+            foreach (Vector2I cp in _cropScannedChunks.Where(Outside).ToArray()) _cropScannedChunks.Remove(cp);
+            foreach (Vector3I crop in _crops.Where(pos =>
+                    Outside(new Vector2I(
+                            Mathf.FloorToInt(pos.X / (float)ChunkX),
+                            Mathf.FloorToInt(pos.Z / (float)ChunkZ)))).ToArray())
+                _crops.Remove(crop);
             foreach (Vector3I pos in _lightSources.Keys.Where(pos =>
-                    Mathf.Abs(Mathf.FloorToInt(pos.X / (float)ChunkX) - pcp.X) > limit + 1
-                    || Mathf.Abs(Mathf.FloorToInt(pos.Z / (float)ChunkZ) - pcp.Y) > limit + 1).ToArray())
+                    Outside(new Vector2I(
+                            Mathf.FloorToInt(pos.X / (float)ChunkX),
+                            Mathf.FloorToInt(pos.Z / (float)ChunkZ)))).ToArray())
                 _lightSources.Remove(pos);
+
+            // Procedural site lookups, including cached null results, are
+            // deterministic and may be safely recomputed after spatial eviction.
+            bool SiteOutside(long key, int cellSize) =>
+                    ChunkStreamingPolicy.IsSiteCellOutsideRetention(
+                            unchecked((int)(key >> 32)),
+                            unchecked((int)(uint)key),
+                            cellSize, center, limit, ChunkX);
+            foreach (long key in _campfireCache.Keys
+                    .Where(key => SiteOutside(key, Campfires.Cell)).ToArray())
+                _campfireCache.Remove(key);
+            foreach (long key in _structureCache.Keys
+                    .Where(key => SiteOutside(key, StructureCell)).ToArray())
+                _structureCache.Remove(key);
+            foreach (long key in _villageCache.Keys
+                    .Where(key => SiteOutside(key, VillageCell)).ToArray())
+                _villageCache.Remove(key);
         }
     }
 
@@ -2943,7 +3969,7 @@ public partial class VoxelWorld : Node3D
     // Persistence
     // -----------------------------------------------------------------------
 
-    public void SaveNow()
+    private WorldSaveSnapshot CaptureSaveSnapshot()
     {
         BeforeSave?.Invoke();
         Dictionary<string, Dictionary<string, BlockId>> editsOut = [];
@@ -2992,70 +4018,232 @@ public partial class VoxelWorld : Node3D
 
         Dictionary<string, Dictionary<string, byte>> blockStatesOut = [];
         foreach ((Vector2I cp, Dictionary<int, byte> states) in _blockStateEdits)
+        {
             if (states.Count > 0)
-                blockStatesOut[$"{cp.X},{cp.Y}"] = states.ToDictionary(e => e.Key.ToString(), e => e.Value);
+            {
+                blockStatesOut[$"{cp.X},{cp.Y}"] =
+                        states.ToDictionary(e => e.Key.ToString(), e => e.Value);
+            }
+        }
+
+        Dictionary<string, bool>? flagsOut = Flags.Count == 0
+                ? null : new Dictionary<string, bool>(Flags);
+        Dictionary<string, VillagerSave>? villagersOut = Villagers.Count == 0
+                ? null
+                : Villagers.ToDictionary(
+                        pair => pair.Key,
+                        pair => pair.Value with
+                        {
+                            Position = (float[])pair.Value.Position.Clone(),
+                            Home = (float[])pair.Value.Home.Clone(),
+                            Work = (float[])pair.Value.Work.Clone(),
+                        });
+        Dictionary<string, QuestProgressSave>? questsOut = Quests.Count == 0
+                ? null : new Dictionary<string, QuestProgressSave>(Quests);
+
+        List<BoatSave>? boats = BoatSystem != null ? BoatSystem.ToSave() : SavedBoats;
+        List<BoatSave>? boatsOut = boats?.Select(boat => boat with
+        {
+            Position = (float[])boat.Position.Clone(),
+            Velocity = (float[])boat.Velocity.Clone(),
+        }).ToList();
 
         WorldSave world = new(
                 WorldStore.WorldFormatVersion,
                 editsOut,
                 TimeOfDay,
                 containers,
-                Flags.Count == 0 ? null : Flags,
+                flagsOut,
                 furnaces,
                 blockStatesOut.Count == 0 ? null : blockStatesOut,
-                Villagers.Count == 0 ? null : Villagers,
-                Quests.Count == 0 ? null : Quests,
-                BoatSystem != null ? BoatSystem.ToSave() : SavedBoats);
-        bool worldSaved = WorldStore.WriteAtomic(
-                WorldStore.WorldSavePath(_worldDir),
-                JsonSerializer.Serialize(world, WorldStore.Json));
+                villagersOut,
+                questsOut,
+                boatsOut);
 
         float[] playerPos = Player is null
                 ? []
                 : [Player.GlobalPosition.X, Player.GlobalPosition.Y, Player.GlobalPosition.Z];
         float[]? respawn = Player?.RespawnPoint is { } rp ? [rp.X, rp.Y, rp.Z] : null;
-        bool playerSaved = WorldStore.WriteAtomic(
-                WorldStore.PlayerSavePath(_worldDir),
-                JsonSerializer.Serialize(
-                        new PlayerSave(
-                                playerPos,
-                                Player?.Selected ?? 0,
-                                Player?.Inventory.ToSave(),
-                                Player?.SaveMode,
-                                Player?.Stats.Health ?? 0.0f,
-                                Player?.Stats.Hunger ?? 0.0f,
-                                respawn,
-                                Player?.Stats.Experience ?? 0),
-                        WorldStore.Json));
+        PlayerSave player = new(
+                playerPos,
+                Player?.Selected ?? 0,
+                Player?.Inventory.ToSave(),
+                Player?.SaveMode,
+                Player?.Stats.Health ?? 0.0f,
+                Player?.Stats.Hunger ?? 0.0f,
+                respawn,
+                Player?.Stats.Experience ?? 0);
 
         long elapsedPlaytime = (long)_unsavedPlaytimeSeconds;
         WorldManifest updatedManifest = _manifest with
         {
+            NoiseSeeds = (int[])_manifest.NoiseSeeds.Clone(),
             PlayedUtc = WorldStore.NowUtc(),
             PlaytimeSeconds = _manifest.PlaytimeSeconds + elapsedPlaytime,
+            HasSavedData = true,
         };
-        bool manifestSaved = WorldStore.WriteManifest(_worldDir, updatedManifest);
-        if (worldSaved && playerSaved && manifestSaved)
+
+        // Globalize paths before dispatch. The worker receives only immutable
+        // save models and ordinary filesystem paths, never Godot objects/APIs.
+        return new WorldSaveSnapshot(
+                world,
+                player,
+                updatedManifest,
+                ProjectSettings.GlobalizePath(WorldStore.WorldSavePath(_worldDir)),
+                ProjectSettings.GlobalizePath(WorldStore.PlayerSavePath(_worldDir)),
+                ProjectSettings.GlobalizePath(WorldStore.ManifestPath(_worldDir)),
+                _saveRevision,
+                elapsedPlaytime);
+    }
+
+    private void CompleteSave(WorldSaveSnapshot snapshot, WorldSaveWorkerResult result)
+    {
+        if (result.Success)
         {
-            _manifest = updatedManifest;
-            _unsavedPlaytimeSeconds = Math.Max(0.0, _unsavedPlaytimeSeconds - elapsedPlaytime);
-            _dirty = false;
-            if (Player != null)
+            _manifest = snapshot.Manifest;
+            _unsavedPlaytimeSeconds = Math.Max(
+                    0.0, _unsavedPlaytimeSeconds - snapshot.ElapsedPlaytimeSeconds);
+            _dirty = _saveRevision != snapshot.DirtyRevision;
+            if (snapshot.Player.Pos is { Length: 3 } position)
             {
-                _lastSavedPos = Player.GlobalPosition;
+                _lastSavedPos = new Vector3(position[0], position[1], position[2]);
             }
         }
         else
         {
             _dirty = true;
-            GD.PushWarning("minecraft: save incomplete; it will be retried on the next autosave");
+            GD.PushWarning(
+                    $"minecraft: background save incomplete; it will be retried on the next autosave ({result.Error})");
+        }
+    }
+
+    private void QueueBackgroundSave()
+    {
+        if (_worldReadOnlyReason != null)
+        {
+            if (!_readOnlyWarningShown)
+            {
+                GD.PushWarning($"minecraft: world is read-only: {_worldReadOnlyReason}");
+                _readOnlyWarningShown = true;
+            }
+
+            return;
+        }
+
+        if (_pendingSave != null)
+        {
+            _saveRequested = true;
+            return;
+        }
+
+        try
+        {
+            WorldSaveSnapshot snapshot = CaptureSaveSnapshot();
+            _pendingSaveSnapshot = snapshot;
+            _pendingSave = WorldSaveWorker.WriteAsync(snapshot);
+        }
+        catch (Exception error)
+        {
+            _dirty = true;
+            GD.PushWarning($"minecraft: could not capture autosave snapshot ({error.Message})");
+        }
+    }
+
+    private void PollBackgroundSave()
+    {
+        if (_pendingSave is not { IsCompleted: true } task)
+        {
+            return;
+        }
+
+        WorldSaveSnapshot? snapshot = _pendingSaveSnapshot;
+        _pendingSave = null;
+        _pendingSaveSnapshot = null;
+
+        if (snapshot != null)
+        {
+            try
+            {
+                CompleteSave(snapshot, task.GetAwaiter().GetResult());
+            }
+            catch (Exception error)
+            {
+                _dirty = true;
+                GD.PushWarning($"minecraft: background save worker failed ({error.Message})");
+            }
+        }
+
+        bool saveAgain = _saveRequested;
+        _saveRequested = false;
+        if (saveAgain && (_dirty || _unsavedPlaytimeSeconds >= AutosaveInterval))
+        {
+            QueueBackgroundSave();
+        }
+    }
+
+    private void FlushBackgroundSave()
+    {
+        Task<WorldSaveWorkerResult>? task = _pendingSave;
+        WorldSaveSnapshot? snapshot = _pendingSaveSnapshot;
+        if (task == null)
+        {
+            return;
+        }
+
+        _pendingSave = null;
+        _pendingSaveSnapshot = null;
+        _saveRequested = false;
+        if (snapshot == null)
+        {
+            return;
+        }
+
+        try
+        {
+            CompleteSave(snapshot, task.GetAwaiter().GetResult());
+        }
+        catch (Exception error)
+        {
+            _dirty = true;
+            GD.PushWarning($"minecraft: background save worker failed during flush ({error.Message})");
+        }
+    }
+
+    public bool SaveNow()
+    {
+        if (_worldReadOnlyReason != null)
+        {
+            if (!_readOnlyWarningShown)
+            {
+                GD.PushWarning($"minecraft: world is read-only: {_worldReadOnlyReason}");
+                _readOnlyWarningShown = true;
+            }
+
+            return false;
+        }
+
+        try
+        {
+            // Explicit save/quit keeps its synchronous durability contract. Finish
+            // the older snapshot first, then capture and write the latest state.
+            FlushBackgroundSave();
+            WorldSaveSnapshot snapshot = CaptureSaveSnapshot();
+            WorldSaveWorkerResult result = WorldSaveWorker.WriteSynchronously(snapshot);
+            CompleteSave(snapshot, result);
+            return result.Success;
+        }
+        catch (Exception error)
+        {
+            _dirty = true;
+            GD.PushWarning($"minecraft: could not complete explicit save ({error.Message})");
+            return false;
         }
     }
 
     /// <summary>Focus-loss hook: write only when something actually changed.</summary>
     public void SaveIfDirty()
     {
-        if (_dirty)
+        if (_dirty || _unsavedPlaytimeSeconds > 0.0)
         {
             SaveNow();
         }
@@ -3064,12 +4252,64 @@ public partial class VoxelWorld : Node3D
     public void MarkDirty()
     {
         _dirty = true;
+        _saveRevision++;
+    }
+
+    /// <summary>
+    /// Attach persistence notifications after Main has loaded the player's
+    /// saved values. PlayerStats.Load raises Changed, so wiring in the Player
+    /// property setter would incorrectly dirty every freshly loaded world.
+    /// </summary>
+    internal void EnsurePlayerPersistenceEventsWired()
+    {
+        if (ReferenceEquals(_persistenceEventsPlayer, Player))
+        {
+            return;
+        }
+
+        if (_persistenceEventsPlayer != null)
+        {
+            _persistenceEventsPlayer.Stats.Changed -= MarkDirty;
+            _persistenceEventsPlayer.CampfireUsed -= OnPlayerCampfireUsed;
+        }
+
+        _persistenceEventsPlayer = Player;
+        if (_persistenceEventsPlayer != null)
+        {
+            _persistenceEventsPlayer.Stats.Changed += MarkDirty;
+            _persistenceEventsPlayer.CampfireUsed += OnPlayerCampfireUsed;
+        }
+    }
+
+    private void OnPlayerCampfireUsed(string message) => MarkDirty();
+
+    private static bool HasSaveCandidate(string path) =>
+            FileAccess.FileExists(path)
+            || FileAccess.FileExists(path + ".bak")
+            || FileAccess.FileExists(path + ".bak2");
+
+    private void SetWorldReadOnly(string reason)
+    {
+        _worldReadOnlyReason ??= reason;
     }
 
     private void LoadSave()
     {
-        WorldSave? world = WorldStore.ReadJson<WorldSave>(
-                WorldStore.WorldSavePath(_worldDir), WorldStore.Json);
+        string worldSavePath = WorldStore.WorldSavePath(_worldDir);
+        WorldSave? world = WorldStore.ReadJson<WorldSave>(worldSavePath, WorldStore.Json);
+        if (world == null && HasSaveCandidate(worldSavePath))
+        {
+            SetWorldReadOnly(
+                    "world save is unreadable in the primary file and both backups; saving is disabled");
+        }
+        else if (world != null && !WorldCompatibilityPolicy.IsSupportedSaveVersion(
+                world.Version, WorldStore.WorldFormatVersion))
+        {
+            SetWorldReadOnly(
+                    $"world save format V{world.Version} is unsupported; " +
+                    $"this build supports V1–V{WorldStore.WorldFormatVersion}");
+        }
+
         if (world?.Edits != null)
         {
             foreach ((string key, Dictionary<string, BlockId> inner) in world.Edits)
@@ -3093,7 +4333,10 @@ public partial class VoxelWorld : Node3D
 
                     if (!BlockDb.IsDefined(id))
                     {
-                        GD.PushWarning($"minecraft: ignoring unknown block id {(int)id} in {_worldDir}");
+                        SetWorldReadOnly(
+                                $"saved block ID {(int)id} is not registered by this build; saving is disabled");
+                        GD.PushWarning(
+                                $"minecraft: unknown saved block ID {(int)id} in {_worldDir}; world opened read-only");
                         continue;
                     }
 
@@ -3152,7 +4395,8 @@ public partial class VoxelWorld : Node3D
 
         // _editTops is normally maintained by SetBlock only; rebuild it from
         // the loaded edits so far LOD and the minimap show builds immediately
-        // after a restart.
+        // after a restart. Use the normal cache so the first later stream does
+        // not generate the same terrain a second time.
         foreach ((Vector2I cp, Dictionary<int, BlockId> edits) in _edits)
         {
             if (edits.Count == 0)
@@ -3160,7 +4404,7 @@ public partial class VoxelWorld : Node3D
                 continue;
             }
 
-            byte[] data = GenerateChunkData(cp);
+            byte[] data = ChunkData(cp);
             int stride = ChunkX * ChunkZ;
             foreach (int index in edits.Keys)
             {
@@ -3171,11 +4415,6 @@ public partial class VoxelWorld : Node3D
 
         if (world != null)
         {
-            if (world.Version > WorldStore.WorldFormatVersion)
-            {
-                GD.PushWarning($"minecraft: world save version {world.Version} is newer than {WorldStore.WorldFormatVersion}; loading known fields only");
-            }
-
             TimeOfDay = Mathf.Clamp(world.Time, 0.0, 1.0);
             SavedBoats = world.Boats;
             if (world.Containers != null)
