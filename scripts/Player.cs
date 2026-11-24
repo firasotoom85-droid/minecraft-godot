@@ -966,7 +966,7 @@ public partial class Player : CharacterBody3D, IDamageable
     /// <summary>One melee swing: tool tier picks the damage, swing cadence is capped.</summary>
     private void Swing(IDamageable target)
     {
-        double now = Time.GetTicksMsec() / 1000.0;
+        double now = GameplayClock.Now;
         ItemStack held = Inventory.Hotbar[Selected];
         WeaponInfo? weapon = ItemDb.WeaponOf(held.Id);
         ToolInfo? tool = ItemDb.ToolOf(held.Id);
@@ -1427,9 +1427,9 @@ public partial class Player : CharacterBody3D, IDamageable
         }
 
         bool rested = false;
-        if (Time.GetTicksMsec() / 1000.0 - _lastRest >= 3.0)
+        if (GameplayClock.Now - _lastRest >= 3.0)
         {
-            _lastRest = Time.GetTicksMsec() / 1000.0;
+            _lastRest = GameplayClock.Now;
             rested = true;
             Vector3I bp = TargetBlock();
             RespawnPoint = new Vector3(bp.X + 0.5f, bp.Y + 1.0f, bp.Z + 0.5f);
@@ -1465,12 +1465,12 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        if (Time.GetTicksMsec() / 1000.0 - _lastEat < 0.7)
+        if (GameplayClock.Now - _lastEat < 0.7)
         {
             return;
         }
 
-        _lastEat = Time.GetTicksMsec() / 1000.0;
+        _lastEat = GameplayClock.Now;
         Inventory.Consume(stack.Id, 1);
         Stats.AddHunger(food.Hunger);
         Stats.Heal(food.Heal);
@@ -1659,7 +1659,7 @@ public partial class Player : CharacterBody3D, IDamageable
     private void FireBow()
     {
         if (Inventory.Hotbar[Selected].Id != ItemId.Bow) return;
-        double now = Time.GetTicksMsec() / 1000.0;
+        double now = GameplayClock.Now;
         if (now - _lastSwing < 0.8) return;
         if (Mode == GameMode.Survival && !Inventory.Consume(ItemId.Arrow, 1))
         {
@@ -2572,7 +2572,7 @@ public partial class Player : CharacterBody3D, IDamageable
         }
 
         bool active = !InputLocked && !Stats.Dead;
-        double now = Time.GetTicksMsec() / 1000.0;
+        double now = GameplayClock.Now;
         float bowTarget = active && held.Id == ItemId.Bow
                 && Input.IsActionPressed("break_block") && now - _lastSwing > 0.16
                 ? 1.0f : 0.0f;
