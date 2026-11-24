@@ -131,6 +131,8 @@ public static class BoatBucketTests
         world.SetBlock(8, 49, 8, BlockId.Water);
         Player player = MakeTestPlayer();
         host.AddChild(player);
+        player.World = world;
+        world.Player = player;
         world.SavedBoats = [new BoatSave([40.5f, 50.0f, 40.5f], 0.25f, [0.0f, 0.0f, 0.0f])];
         BoatSystem deferredBoats = new();
         host.AddChild(deferredBoats);
