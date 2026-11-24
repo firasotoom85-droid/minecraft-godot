@@ -29,6 +29,8 @@ The project uses original procedural materials and audio. It is Minecraft-inspir
 
 Autosaving captures an immutable save snapshot on the main thread; serialization and the three ordered atomic file writes run on the background save worker, so `_Process()` does not serialize or perform disk I/O. Explicit save and quit flush older work before writing the latest state synchronously.
 
+Settings currently exposes Master, Effects and Ambience volume controls. Authored music is deferred, so there is no nonfunctional Music slider or unused Music bus; the legacy music-volume value remains readable in settings files for compatibility.
+
 See the [documentation index](docs/README.md) for subsystem details, test procedures, visual references and historical engineering reports.
 
 ## Persistence and recovery
