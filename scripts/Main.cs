@@ -57,9 +57,18 @@ public partial class Main : Node3D
 
         try
         {
-            if (!_player.TryTeleportToSafePosition(_world.SavedPlayerPos))
+            // A saved-dead player resumes from the saved bed/campfire anchor,
+            // not from the last death position. For living saves, retain a
+            // validated anchor as the alternate if the saved position became
+            // obstructed after the last save.
+            Vector3? startupPosition = _world.SavedPlayerDead == true
+                    ? _world.SavedRespawn : _world.SavedPlayerPos;
+            Vector3? alternatePosition = _world.SavedPlayerDead == true
+                    ? null : _world.SavedRespawn;
+            if (!_player.TryTeleportToSafePosition(startupPosition,
+                        alternatePosition: alternatePosition))
             {
-                ShowSpawnFailure("The saved position and deterministic world spawn could not be prepared safely.");
+                ShowSpawnFailure("The saved position, respawn anchor and deterministic world spawn could not be prepared safely.");
                 return;
             }
         }
