@@ -7,6 +7,13 @@ public static class MiningTests
 {
     public static void Run()
     {
+        TestAssert.Check(Player.ShouldEmitMiningTick(0.85f, 0.0),
+                "periodic mining feedback plays while the block is still being mined");
+        TestAssert.Check(!Player.ShouldEmitMiningTick(1.0f, 0.0),
+                "the completion tick suppresses periodic feedback before BlockBroken");
+        TestAssert.Check(!Player.ShouldEmitMiningTick(1.0f, 0.2),
+                "a non-expired mining sound timer remains silent on completion");
+
         BlockDb.EnsureTables();
 
         BlockDb.BlockDef stone = BlockDb.DefOf(BlockId.Stone);
