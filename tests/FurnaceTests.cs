@@ -126,6 +126,19 @@ public static class FurnaceTests
                 "furnace rejects NaN elapsed time");
         TestAssert.Equal(1, invalidDelta.Fuel.Count,
                 "invalid elapsed time cannot consume furnace fuel");
+
+        FurnaceData invalidFuelProgress = new()
+        {
+            Input = ItemDb.New(ItemId.RawIron, 1),
+            Fuel = ItemDb.New(ItemId.Diamond, 1),
+            SmeltTime = 4.0f,
+        };
+        TestAssert.Check(invalidFuelProgress.Tick(0.1f),
+                "furnace clears partial progress when its fuel stack is invalid");
+        TestAssert.Equal(0.0f, invalidFuelProgress.SmeltTime,
+                "invalid fuel does not preserve smelt progress without active burn time");
+        TestAssert.Equal(1, invalidFuelProgress.Fuel.Count,
+                "invalid fuel is never consumed during validation");
     }
 }
 
