@@ -146,8 +146,8 @@ public partial class Chunk : StaticBody3D
 
         // Collision resources are optional too: most render-only chunks and
         // many empty preview chunks never need a physics child at all.
-        CollisionPayloadApplied = World?.BuildCollision == true;
-        if (CollisionPayloadApplied)
+        CollisionPayloadApplied = false;
+        if (World?.BuildCollision == true)
         {
             long collisionStart = Stopwatch.GetTimestamp();
             int collisionVertices = payload.Collision.Count;
@@ -167,6 +167,7 @@ public partial class Chunk : StaticBody3D
 
             Profiler.RecordCollision(Stopwatch.GetElapsedTime(collisionStart).TotalMilliseconds,
                     collisionVertices);
+            CollisionPayloadApplied = true;
         }
     }
 
