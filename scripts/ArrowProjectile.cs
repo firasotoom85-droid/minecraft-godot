@@ -45,8 +45,10 @@ public partial class ArrowProjectile : Area3D
         };
         AddChild(_sweep);
         BodyEntered += OnBodyEntered;
-        GlobalPosition = origin;
-        LookAt(origin + _velocity, Vector3.Up);
+        if (IsInsideTree()) GlobalPosition = origin;
+        else Position = origin;
+        if (IsInsideTree()) LookAt(origin + _velocity, Vector3.Up);
+        else LookAtFromPosition(origin, origin + _velocity, Vector3.Up);
     }
 
     public static Vector3 AdvanceVelocity(Vector3 velocity, float delta) => velocity + Vector3.Down * (9.8f * delta);
