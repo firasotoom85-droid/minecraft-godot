@@ -889,7 +889,9 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
 
         bool respawningFromBoat = CurrentBoat is { } boat
-                && GodotObject.IsInstanceValid(boat);
+                && GodotObject.IsInstanceValid(boat)
+                && RespawnPoint is Vector3 boatAnchor
+                && boat.GlobalPosition.DistanceSquaredTo(boatAnchor) <= 9.0f;
         bool allowBoatSupport = respawningFromBoat;
         if (RespawnPoint is { } anchor && World != null
                 && !World.IsSafePlayerPosition(anchor, allowWater: allowBoatSupport,
