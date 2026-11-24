@@ -25,6 +25,8 @@ and performs the three atomic file writes, so `_Process()` performs no
 serialization or disk I/O. Explicit save and quit flush older work before
 writing the latest state synchronously.
 
+**Persistence recovery (integrated W05):** world and player manifests and saves use model-specific validation with ordered backup fallback. A damaged selected world is retained in recovery rather than silently replaced, and ordinary writes are blocked until a valid world/player pair is restored. The optional `hasSavedData` manifest marker distinguishes a never-saved world from lost save history. Archive imports validate metadata and candidates; duplication and deletion do not traverse links or other reparse points.
+
 ## 2. Stable-release quality gates
 
 A release candidate is ready only when all of the following are true:

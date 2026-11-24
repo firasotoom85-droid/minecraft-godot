@@ -31,6 +31,12 @@ Autosaving captures an immutable save snapshot on the main thread; serialization
 
 See the [documentation index](docs/README.md) for subsystem details, test procedures, visual references and historical engineering reports.
 
+## Persistence and recovery
+
+World and player writes use sibling temporary files and rotating recovery candidates. Candidates are structurally validated before loading; a malformed primary falls back to the next valid backup, while unsupported future versions are never downgraded to an older save. The optional manifest `hasSavedData` marker records that a complete save pair has existed. If a previously saved world loses every primary and backup, or its metadata is unreadable, it is retained for recovery instead of being silently initialized or redirected to another save; ordinary writes are blocked while recovery is required. Older manifests without playtime or save-history fields load with legacy defaults.
+
+World imports are extracted to a staging directory, checked against the archive's SHA-256 file index, and only then moved into the worlds folder. Existing worlds are not overwritten; duplicate names receive a suffix. Unsafe paths, links, unsupported save/generator versions, structurally invalid records, corrupt data without a valid backup, and excessive expanded size are rejected. World duplication and deletion do not traverse symbolic links, junctions or other filesystem reparse points; failed copies are discarded instead of being published.
+
 ## Requirements
 
 - **Godot 4.7.2 .NET / Mono editor**. The standard non-.NET editor cannot build this C# project.
