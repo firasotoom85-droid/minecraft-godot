@@ -10,6 +10,7 @@ public static class SurvivalProgressionTests
     private static void CheckInputLockAndFlightTransitions()
     {
         Player player = new();
+        player.Mode = GameMode.Creative;
         FieldInfo coyote = typeof(Player).GetField("_coyote",
                 BindingFlags.Instance | BindingFlags.NonPublic)!;
         FieldInfo jumpBuffer = typeof(Player).GetField("_jumpBuffer",
