@@ -16,13 +16,32 @@ public partial class MobProjectile : Area3D
     private Vector3 _source;
     private float _life = 4.0f;
     private Mobs? _manager;
+    private RayCast3D? _terrainRay;
     private string _sound = "mobcrystal";
     private Color _color = Colors.White;
+
+    internal RayCast3D? TerrainRayForTests => _terrainRay;
+
+    internal void ConfigureTerrainRayForTests(Vector3 from, Vector3 to)
+    {
+        if (_terrainRay == null) return;
+        _terrainRay.Position = from;
+        _terrainRay.TargetPosition = to - from;
+        if (_terrainRay.IsInsideTree())
+            _terrainRay.ForceRaycastUpdate();
+    }
 
     public void Setup(Mobs manager, Vector3 origin, Vector3 target, float damage,
             Color color, float speed, string sound)
     {
         _manager = manager;
+        _terrainRay = new RayCast3D
+        {
+            CollisionMask = (uint)PhysicsLayer.Terrain,
+            CollideWithAreas = false,
+            TargetPosition = Vector3.Zero,
+        };
+        AddChild(_terrainRay);
         _damage = damage;
         _source = origin;
         _sound = sound;
@@ -74,10 +93,15 @@ public partial class MobProjectile : Area3D
         }
 
         Vector3 nextPosition = GlobalPosition + _velocity * (float)delta;
-        PhysicsRayQueryParameters3D query = PhysicsRayQueryParameters3D.Create(
-                GlobalPosition, nextPosition, (uint)PhysicsLayer.Terrain);
-        query.CollideWithAreas = false;
-        bool terrainHit = GetWorld3D().DirectSpaceState.IntersectRay(query).Count > 0;
+        if (_terrainRay == null)
+        {
+            QueueFree();
+            return;
+        }
+        _terrainRay.Position = Vector3.Zero;
+        _terrainRay.TargetPosition = nextPosition - GlobalPosition;
+        _terrainRay.ForceRaycastUpdate();
+        bool terrainHit = _terrainRay.IsColliding();
         if (MobProjectileRules.ShouldStopOnTerrain(terrainHit))
         {
             _manager?.Puff(nextPosition, _color);

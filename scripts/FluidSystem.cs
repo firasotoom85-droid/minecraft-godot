@@ -16,6 +16,7 @@ public partial class FluidSystem : Node
     private const int MaxActiveCellsPerTick = 96;
     private const int MaxEditsPerTick = 6;
     private const double TickInterval = 0.28;
+    private const double DiscoveryRetryInterval = 2.0;
 
     private readonly Queue<Vector3I> _active = new();
     private readonly HashSet<Vector3I> _queued = [];
@@ -24,6 +25,7 @@ public partial class FluidSystem : Node
     private VoxelWorld? _world;
     private Player? _player;
     private double _accumulator;
+    private double _discoveryRetryTimer;
     private Vector2I _lastDiscoveryChunk = new(int.MinValue, int.MinValue);
     private int _lastDiscoveryYBand = int.MinValue;
     private int _sourcePulse;
@@ -56,21 +58,14 @@ public partial class FluidSystem : Node
     public override void _Process(double delta)
     {
         if (_world == null || _player == null) return;
+        _discoveryRetryTimer -= System.Math.Min(delta, 0.5);
         _accumulator += System.Math.Min(delta, 0.5);
         if (_accumulator < TickInterval) return;
         _accumulator = 0.0;
 
         Vector3 position = _player.GlobalPosition;
-        Vector2I chunk = new(
-                Mathf.FloorToInt(position.X / VoxelWorld.ChunkX),
-                Mathf.FloorToInt(position.Z / VoxelWorld.ChunkZ));
-        int yBand = Mathf.FloorToInt(position.Y / 8.0f);
-        if (chunk != _lastDiscoveryChunk || yBand != _lastDiscoveryYBand)
-        {
-            _lastDiscoveryChunk = chunk;
-            _lastDiscoveryYBand = yBand;
+        if (ShouldDiscoverLoadedWater(position))
             DiscoverLoadedWater(position);
-        }
 
         if (++_sourcePulse >= 4)
         {
@@ -78,6 +73,29 @@ public partial class FluidSystem : Node
             foreach (Vector3I source in _sources) Enqueue(source);
         }
         ProcessActiveCells(MaxActiveCellsPerTick, MaxEditsPerTick);
+    }
+
+    private bool ShouldDiscoverLoadedWater(Vector3 position)
+    {
+        Vector2I chunk = new(
+                Mathf.FloorToInt(position.X / VoxelWorld.ChunkX),
+                Mathf.FloorToInt(position.Z / VoxelWorld.ChunkZ));
+        int yBand = Mathf.FloorToInt(position.Y / 8.0f);
+        if (chunk == _lastDiscoveryChunk && yBand == _lastDiscoveryYBand
+                && _discoveryRetryTimer > 0.0)
+            return false;
+
+        _lastDiscoveryChunk = chunk;
+        _lastDiscoveryYBand = yBand;
+        _discoveryRetryTimer = DiscoveryRetryInterval;
+        return true;
+    }
+
+    internal void DiscoverForTests(VoxelWorld world, Vector3 center, double elapsed)
+    {
+        AttachWorld(world);
+        _discoveryRetryTimer -= System.Math.Min(elapsed, 0.5);
+        if (ShouldDiscoverLoadedWater(center)) DiscoverLoadedWater(center);
     }
 
     private void DiscoverLoadedWater(Vector3 center)
@@ -98,18 +116,18 @@ public partial class FluidSystem : Node
         int oy = Mathf.FloorToInt(center.Y) - DiscoveryBelow;
         int oz = Mathf.FloorToInt(center.Z) - DiscoveryRadius;
         for (int y = 0; y < DiscoveryBelow + DiscoveryAbove + 1; y++)
-        for (int z = 0; z < DiscoveryRadius * 2 + 1; z++)
-        for (int x = 0; x < DiscoveryRadius * 2 + 1; x++)
-        {
-            int wx = ox + x;
-            int wy = oy + y;
-            int wz = oz + z;
-            if (!_world.TryGetLoadedBlock(wx, wy, wz, out BlockId id)
-                    || !BlockDb.IsWater(id)) continue;
-            Vector3I cell = new(wx, wy, wz);
-            if (BlockDb.WaterLevel(id) == 0) _sources.Add(cell);
-            EnqueueWithNeighbours(cell);
-        }
+            for (int z = 0; z < DiscoveryRadius * 2 + 1; z++)
+                for (int x = 0; x < DiscoveryRadius * 2 + 1; x++)
+                {
+                    int wx = ox + x;
+                    int wy = oy + y;
+                    int wz = oz + z;
+                    if (!_world.TryGetLoadedBlock(wx, wy, wz, out BlockId id)
+                            || !BlockDb.IsWater(id)) continue;
+                    Vector3I cell = new(wx, wy, wz);
+                    if (BlockDb.WaterLevel(id) == 0) _sources.Add(cell);
+                    EnqueueWithNeighbours(cell);
+                }
     }
 
     private void ProcessActiveCells(int budget, int editBudget)
@@ -171,13 +189,17 @@ public partial class FluidSystem : Node
 
         int best = -1;
         bool unknownNeighbour = false;
-        AccumulateSupport(cell + Vector3I.Up, ref best, ref unknownNeighbour);
+        int aboveLevel = -1;
+        if (!TryGetLoaded(cell + Vector3I.Up, out BlockId aboveId))
+            unknownNeighbour = true;
+        else
+            aboveLevel = BlockDb.WaterLevel(aboveId);
         AccumulateSupport(cell + Vector3I.Left, ref best, ref unknownNeighbour);
         AccumulateSupport(cell + Vector3I.Right, ref best, ref unknownNeighbour);
         AccumulateSupport(cell + new Vector3I(0, 0, -1), ref best, ref unknownNeighbour);
         AccumulateSupport(cell + new Vector3I(0, 0, 1), ref best, ref unknownNeighbour);
 
-        if (best < 0)
+        if (best < 0 && aboveLevel < 0)
         {
             if (unknownNeighbour) return 0;
             if (SetFluidBlock(cell, BlockId.Air))
@@ -188,7 +210,7 @@ public partial class FluidSystem : Node
             return 0;
         }
 
-        int desired = best + 1;
+        int desired = aboveLevel >= 0 ? 1 : best + 1;
         if (desired > FluidRules.MaxFlowLevel)
         {
             if (unknownNeighbour) return 0;
@@ -199,6 +221,8 @@ public partial class FluidSystem : Node
             }
             return 0;
         }
+
+        if (unknownNeighbour && desired > level) return 0;
 
         int edits = 0;
         BlockId desiredBlock = FluidRules.BlockForLevel(desired);

@@ -3,6 +3,20 @@ using Godot;
 
 namespace Minecraft;
 
+internal static class MobNavigationRules
+{
+    public static bool IsGravityObstacle(BlockId id) =>
+            id == BlockId.Lava || BlockDb.IsSolid(id);
+
+    public static bool IsHoverObstacle(BlockId id, byte state, Vector3 blockOrigin,
+            Vector3 aabbMin, Vector3 aabbMax)
+    {
+        if (!BlockDb.IsSolid(id)) return false;
+        return !BlockShapes.IsShape(id)
+                || BlockShapes.IntersectsAabb(id, state, blockOrigin, aabbMin, aabbMax);
+    }
+}
+
 /// <summary>
 /// Shared creature runtime: bounded-rate AI, voxel-aware steering, locomotion,
 /// hit feedback, breeding timers and the existing damage/loot event seam.
@@ -34,6 +48,7 @@ public partial class Mob : CharacterBody3D, IDamageable
     protected bool Walking;
     protected double FlashTime;
     private bool _deathRaised;
+    private bool _terrainSimulationEnabled = true;
     protected Vector3 Push;
     private Vector3 _moveDirection;
     protected float MovementMultiplier = 1.0f;
@@ -78,6 +93,30 @@ public partial class Mob : CharacterBody3D, IDamageable
     public virtual ItemId BreedingFood => ItemId.None;
     protected virtual bool UsesGravity => true;
     protected virtual bool UsesVoxelSteering => true;
+
+    internal bool TerrainSimulationEnabled => _terrainSimulationEnabled;
+
+    /// <summary>
+    /// Suspends AI/physics while the mob's current terrain chunk is absent.
+    /// The population manager periodically calls this again to resume on reload.
+    /// </summary>
+    public void RefreshTerrainSimulation()
+    {
+        if (World == null || Dead || IsQueuedForDeletion()) return;
+        Vector2I chunk = ChunkForBlock(Mathf.FloorToInt(GlobalPosition.X),
+                Mathf.FloorToInt(GlobalPosition.Z));
+        bool loaded = World.HasChunk(chunk);
+        if (loaded == _terrainSimulationEnabled) return;
+
+        _terrainSimulationEnabled = loaded;
+        if (!loaded)
+        {
+            Velocity = Vector3.Zero;
+            _moveDirection = Vector3.Zero;
+            Push = Vector3.Zero;
+        }
+        SetPhysicsProcess(loaded);
+    }
 
     public void Setup(VoxelWorld world, Mobs manager, Vector3 home)
     {
@@ -290,6 +329,9 @@ public partial class Mob : CharacterBody3D, IDamageable
         {
             return;
         }
+
+        RefreshTerrainSimulation();
+        if (!_terrainSimulationEnabled) return;
 
         float dt = (float)delta;
         FlashStep(dt);
@@ -527,8 +569,18 @@ public partial class Mob : CharacterBody3D, IDamageable
         int z = Mathf.FloorToInt(probe.Z);
         int bodyY = Mathf.FloorToInt(GlobalPosition.Y + 0.35f);
         int headY = Mathf.FloorToInt(GlobalPosition.Y + 0.95f);
-        return BlockDb.DefOf(World.GetBlock(x, bodyY, z)).Solid
-                || BlockDb.DefOf(World.GetBlock(x, headY, z)).Solid;
+        Vector3 aabbMin = probe + new Vector3(-0.48f, 0.17f, -0.48f);
+        Vector3 aabbMax = probe + new Vector3(0.48f, 1.13f, 0.48f);
+        return IsHoverObstacleAt(x, bodyY, z, aabbMin, aabbMax)
+                || IsHoverObstacleAt(x, headY, z, aabbMin, aabbMax);
+    }
+
+    private bool IsHoverObstacleAt(int x, int y, int z, Vector3 aabbMin, Vector3 aabbMax)
+    {
+        if (World == null) return true;
+        BlockId id = World.GetBlock(x, y, z);
+        return MobNavigationRules.IsHoverObstacle(id, World.GetBlockState(x, y, z),
+                new Vector3(x, y, z), aabbMin, aabbMax);
     }
 
     private bool IsDirectionBlocked(Vector3 direction, out bool water, out bool gap)
@@ -549,8 +601,8 @@ public partial class Mob : CharacterBody3D, IDamageable
         BlockId upper = World.GetBlock(x, feetY + 2, z);
         water = BlockDb.IsWater(lower) || BlockDb.IsWater(floor);
         gap = floor == BlockId.Air || BlockDb.IsWater(floor);
-        bool wall = (lower != BlockId.Air && !BlockDb.IsWater(lower))
-                || (upper != BlockId.Air && !BlockDb.IsWater(upper));
+        bool wall = MobNavigationRules.IsGravityObstacle(lower)
+                || MobNavigationRules.IsGravityObstacle(upper);
         return water || gap || wall;
     }
 

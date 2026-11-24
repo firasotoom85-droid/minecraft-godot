@@ -52,6 +52,30 @@ public static class QuestCatalog
 
 public static class QuestProgression
 {
+    public static int CountExploredBiomes(IReadOnlyDictionary<string, bool> flags)
+    {
+        int count = 0;
+        foreach ((string key, bool explored) in flags)
+        {
+            const string prefix = "explored/";
+            if (!explored || !key.StartsWith(prefix, StringComparison.Ordinal)) continue;
+            if (Enum.TryParse<Biome>(key.AsSpan(prefix.Length), out Biome biome)
+                    && Enum.IsDefined(typeof(Biome), biome))
+                count++;
+        }
+
+        return count;
+    }
+
+    public static QuestProgressSave ReconcileExploredBiomes(QuestProgressSave progress,
+            QuestDefinition definition, int discoveredCount)
+    {
+        if (definition.Stages.Length == 0
+                || definition.Stages[0].Objective.Kind != QuestObjectiveKind.ExploreBiome)
+            return progress;
+        return Apply(progress, definition, QuestObjectiveKind.ExploreBiome, "any", discoveredCount);
+    }
+
     public static QuestProgressSave Apply(QuestProgressSave progress, QuestDefinition definition,
             QuestObjectiveKind kind, string target, int amount = 1)
     {
@@ -94,12 +118,20 @@ public partial class QuestSystem : Node
         _exploreTimer = 1.5;
         Biome biome = _world.BiomeAt(Mathf.FloorToInt(_player.GlobalPosition.X),
                 Mathf.FloorToInt(_player.GlobalPosition.Z));
+        RecordBiomeDiscovery(biome);
+    }
+
+    private void RecordBiomeDiscovery(Biome biome)
+    {
+        if (_world == null) return;
         string flag = $"explored/{biome}";
         if (_world.Flags.GetValueOrDefault(flag)) return;
         _world.Flags[flag] = true;
         _world.MarkDirty();
         Report(QuestObjectiveKind.ExploreBiome, biome.ToString(), 1);
     }
+
+    internal void DiscoverBiomeForTests(Biome biome) => RecordBiomeDiscovery(biome);
 
     public IReadOnlyList<QuestDefinition> AvailableFor(VillagerProfession profession)
     {
@@ -127,8 +159,13 @@ public partial class QuestSystem : Node
     {
         if (_world == null || QuestCatalog.Find(questId) is not { } definition
                 || _world.Quests.ContainsKey(questId)) return false;
-        _world.Quests[questId] = new QuestProgressSave(0, 0);
+        QuestProgressSave state = new(0, 0);
+        if (definition.Stages[0].Objective.Kind == QuestObjectiveKind.ExploreBiome)
+            state = QuestProgression.ReconcileExploredBiomes(state, definition,
+                    QuestProgression.CountExploredBiomes(_world.Flags));
+        _world.Quests[questId] = state;
         _world.MarkDirty();
+        if (state.Stage > 0) StageCompleted?.Invoke(definition, state);
         ProgressChanged?.Invoke();
         return true;
     }

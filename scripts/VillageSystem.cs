@@ -12,6 +12,7 @@ public partial class VillageSystem : Node
     private Player? _player;
     private Mobs? _mobs;
     private readonly Dictionary<string, Villager> _active = [];
+    private readonly List<string> _removeScratch = [];
     private double _scanTimer;
     private double _saveTimer;
 
@@ -44,24 +45,33 @@ public partial class VillageSystem : Node
             SyncResidents();
         }
 
-        Vector3 playerPosition = _player.GlobalPosition;
-        List<string> remove = [];
+        RemoveDistantResidents(_player.GlobalPosition);
+    }
+
+    private void RemoveDistantResidents(Vector3 playerPosition)
+    {
+        _removeScratch.Clear();
         foreach ((string id, Villager villager) in _active)
         {
             if (!GodotObject.IsInstanceValid(villager))
             {
-                remove.Add(id);
+                _removeScratch.Add(id);
                 continue;
             }
+            villager.RefreshTerrainSimulation();
             if (villager.GlobalPosition.DistanceSquaredTo(playerPosition) > DespawnRadius * DespawnRadius)
             {
                 SaveResident(villager);
                 villager.QueueFree();
-                remove.Add(id);
+                _removeScratch.Add(id);
             }
         }
-        foreach (string id in remove) _active.Remove(id);
+        foreach (string id in _removeScratch) _active.Remove(id);
     }
+
+    internal List<string> RemovalScratchForTests => _removeScratch;
+    internal void RunRemovalPassForTests(Vector3 playerPosition) =>
+            RemoveDistantResidents(playerPosition);
 
     private void EnsureResidents(VillageInfo village)
     {
