@@ -86,11 +86,6 @@ public partial class MobProjectile : Area3D
         }
 
         Vector3 nextPosition = GlobalPosition + _velocity * (float)delta;
-        if (_terrainRay == null)
-        {
-            QueueFree();
-            return;
-        }
         if (_sweep == null)
         {
             QueueFree();
