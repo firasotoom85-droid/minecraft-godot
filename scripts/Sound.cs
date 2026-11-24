@@ -240,7 +240,7 @@ public partial class Sound : Node
                 or BlockId.Bedrock or BlockId.Furnace => "dig_stone",
         BlockId.Log or BlockId.BirchLog or BlockId.Planks or BlockId.PlanksSlab or BlockId.PlanksStairs
                 or BlockId.CraftingTable or BlockId.Chest or BlockId.Bed or BlockId.Ladder => "dig_wood",
-        BlockId.Sand or BlockId.Gravel or BlockId.Snow or BlockId.Ash => "dig_sand",
+        BlockId.Sand or BlockId.Gravel or BlockId.Snow or BlockId.SnowGrass or BlockId.Ash => "dig_sand",
         _ => "dig_dirt",
     };
 
@@ -250,6 +250,7 @@ public partial class Sound : Node
         BlockId.Leaves or BlockId.BirchLeaves or BlockId.SpruceLeaves or BlockId.JungleLeaves
                 or BlockId.SwampLeaves or BlockId.RiverReeds or BlockId.TallGrass
                 or BlockId.FlowerRed or BlockId.FlowerYellow or BlockId.Cactus
+                or BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2
                 or BlockId.Torch => "place_leaves",
         BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.EnchantingTable or BlockId.MossyCobblestone
                 or BlockId.WeatheredCobblestone or BlockId.CrackedBrick or BlockId.MossyBrick
@@ -259,7 +260,7 @@ public partial class Sound : Node
                 or BlockId.Bedrock or BlockId.Furnace => "place_stone",
         BlockId.Log or BlockId.BirchLog or BlockId.Planks or BlockId.PlanksSlab or BlockId.PlanksStairs
                 or BlockId.CraftingTable or BlockId.Chest or BlockId.Bed or BlockId.Ladder => "place_wood",
-        BlockId.Sand or BlockId.Gravel or BlockId.Snow or BlockId.Ash => "place_sand",
+        BlockId.Sand or BlockId.Gravel or BlockId.Snow or BlockId.SnowGrass or BlockId.Ash => "place_sand",
         _ => "place_dirt",
     };
 
@@ -364,13 +365,19 @@ public partial class Sound : Node
                 or BlockId.Snow or BlockId.SnowGrass or BlockId.Ash => 1.25f,
         BlockId.Leaves or BlockId.BirchLeaves or BlockId.SpruceLeaves or BlockId.JungleLeaves
                 or BlockId.SwampLeaves or BlockId.RiverReeds or BlockId.TallGrass
-                or BlockId.FlowerRed or BlockId.FlowerYellow => 1.45f,
+                or BlockId.FlowerRed or BlockId.FlowerYellow or BlockId.Cactus
+                or BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2 or BlockId.Torch => 1.45f,
         BlockId.Glass => 1.35f,
         BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.EnchantingTable or BlockId.MossyCobblestone
                 or BlockId.WeatheredCobblestone or BlockId.CrackedBrick or BlockId.MossyBrick
                 or BlockId.CobblestoneSlab or BlockId.BrickSlab
                 or BlockId.CobblestoneStairs or BlockId.BrickStairs
-                or BlockId.CoalOre or BlockId.IronOre or BlockId.GoldOre or BlockId.DiamondOre or BlockId.Bedrock => 0.75f,
+                or BlockId.CoalOre or BlockId.IronOre or BlockId.GoldOre or BlockId.DiamondOre
+                or BlockId.Bedrock or BlockId.Furnace => 0.75f,
+        // Wood has a neutral pitch; enumerate appended plank shapes so their
+        // material classification does not depend on the generic fallback.
+        BlockId.Log or BlockId.BirchLog or BlockId.Planks or BlockId.PlanksSlab or BlockId.PlanksStairs
+                or BlockId.CraftingTable or BlockId.Chest or BlockId.Bed or BlockId.Ladder => 1.0f,
         _ => 1.0f,
     };
 
