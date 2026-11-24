@@ -64,6 +64,18 @@ public static class WorldArchive
 
         WorldManifest manifest = ReadBestManifest(source)
             ?? throw new InvalidDataException("The world manifest is missing or corrupt.");
+        bool worldValid = ValidateSaveCandidates(source, "world.json", isWorldSave: true,
+                manifest.SnapshotId, out bool hasWorld);
+        bool playerValid = ValidateSaveCandidates(source, "player.json", isWorldSave: false,
+                manifest.SnapshotId, out bool hasPlayer);
+        bool knownSavedHistory = manifest.HasSavedData || manifest.SnapshotId is not null
+                || manifest.PlaytimeSeconds > 0 || manifest.PlayedUtc > manifest.CreatedUtc;
+        bool anyWorldFile = HasAnyArchiveCandidate(source, "world.json");
+        bool anyPlayerFile = HasAnyArchiveCandidate(source, "player.json");
+        if ((knownSavedHistory && (!hasWorld || !hasPlayer))
+                || (!hasWorld && hasPlayer)
+                || (anyWorldFile && !hasWorld) || (anyPlayerFile && !hasPlayer))
+            throw new InvalidDataException("The source world has no consistent world/player save generation.");
 
         List<(string Absolute, string Relative, long Length)> files = [];
         long totalBytes = 0;
@@ -365,13 +377,41 @@ public static class WorldArchive
 
     private static WorldManifest? ReadBestManifest(string directory)
     {
-        foreach (string suffix in new[] { "", ".bak", ".bak2" })
+        List<string> candidates = [
+            Path.Combine(directory, "manifest.json"),
+            Path.Combine(directory, "manifest.json.bak"),
+            Path.Combine(directory, "manifest.json.bak2"),
+        ];
+        string snapshotRoot = Path.Combine(directory, ".snapshots");
+        try
         {
-            string path = Path.Combine(directory, "manifest.json" + suffix);
+            if (Directory.Exists(snapshotRoot)
+                    && (File.GetAttributes(snapshotRoot) & (FileAttributes.Directory | FileAttributes.ReparsePoint))
+                    == FileAttributes.Directory)
+            {
+                foreach (string generation in Directory.GetDirectories(snapshotRoot)
+                        .Where(path =>
+                        {
+                            string key = Path.GetFileName(path);
+                            return key == "legacy" || Guid.TryParseExact(key, "N", out _);
+                        })
+                        .OrderByDescending(Directory.GetCreationTimeUtc))
+                {
+                    if ((File.GetAttributes(generation) & (FileAttributes.Directory | FileAttributes.ReparsePoint))
+                            != FileAttributes.Directory) continue;
+                    candidates.Add(Path.Combine(generation, "manifest.json"));
+                }
+            }
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+
+        foreach (string path in candidates)
+        {
             if (!File.Exists(path)) continue;
             try
             {
-                if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                if ((File.GetAttributes(path) & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
                     continue;
                 string json = File.ReadAllText(path);
                 if (!WorldStore.IsValidBackupModel("manifest.json", json))
@@ -380,6 +420,7 @@ public static class WorldArchive
                 if (value is not null) return value;
             }
             catch (JsonException) { }
+            catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
         return null;
@@ -404,11 +445,23 @@ public static class WorldArchive
         bool recovered = !IsValidManifestFile(Path.Combine(worldDirectory, "manifest.json"));
         if (recovered)
             File.WriteAllText(Path.Combine(worldDirectory, "manifest.json"),
-                    JsonSerializer.Serialize(archivedManifest, WorldStore.Json));
+                    JsonSerializer.Serialize(archivedManifest, WorldStore.ManifestJson));
 
-        recovered |= ValidateSaveCandidates(worldDirectory, "world.json", isWorldSave: true);
-        recovered |= ValidateSaveCandidates(worldDirectory, "player.json", isWorldSave: false);
-        return recovered;
+        bool worldRecovered = ValidateSaveCandidates(worldDirectory, "world.json",
+                isWorldSave: true, archivedManifest.SnapshotId, out bool hasWorldSave);
+        bool playerRecovered = ValidateSaveCandidates(worldDirectory, "player.json",
+                isWorldSave: false, archivedManifest.SnapshotId, out bool hasPlayerSave);
+        bool knownSavedHistory = archivedManifest.HasSavedData || archivedManifest.SnapshotId is not null
+                || archivedManifest.PlaytimeSeconds > 0
+                || archivedManifest.PlayedUtc > archivedManifest.CreatedUtc;
+        bool anyWorldFile = HasAnyArchiveCandidate(worldDirectory, "world.json");
+        bool anyPlayerFile = HasAnyArchiveCandidate(worldDirectory, "player.json");
+        if ((knownSavedHistory && (!hasWorldSave || !hasPlayerSave))
+                || (!hasWorldSave && hasPlayerSave)
+                || (anyWorldFile && !hasWorldSave) || (anyPlayerFile && !hasPlayerSave))
+            throw new InvalidDataException(
+                    "The archive manifest indicates inconsistent or mismatched saved history.");
+        return recovered || worldRecovered || playerRecovered;
     }
 
     private static bool IsValidManifestFile(string path)
@@ -424,10 +477,40 @@ public static class WorldArchive
         catch (UnauthorizedAccessException) { return false; }
     }
 
-    private static bool ValidateSaveCandidates(string directory, string fileName, bool isWorldSave)
+    private static bool HasAnyArchiveCandidate(string directory, string fileName)
+    {
+        foreach (string suffix in new[] { "", ".bak", ".bak2" })
+            if (File.Exists(Path.Combine(directory, fileName + suffix))) return true;
+
+        string snapshotRoot = Path.Combine(directory, ".snapshots");
+        try
+        {
+            if (!Directory.Exists(snapshotRoot)
+                    || (File.GetAttributes(snapshotRoot) & (FileAttributes.Directory | FileAttributes.ReparsePoint))
+                    != FileAttributes.Directory) return false;
+            foreach (string generation in Directory.GetDirectories(snapshotRoot))
+            {
+                string key = Path.GetFileName(generation);
+                if (key != "legacy" && !Guid.TryParseExact(key, "N", out _)) continue;
+                if ((File.GetAttributes(generation) & (FileAttributes.Directory | FileAttributes.ReparsePoint))
+                        != FileAttributes.Directory) continue;
+                if (File.Exists(Path.Combine(generation, fileName))) return true;
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException
+                or System.Security.SecurityException) { return true; }
+        return false;
+    }
+
+    private static bool ValidateSaveCandidates(
+            string directory, string fileName, bool isWorldSave, string? expectedSnapshotId,
+            out bool hasMatchingCandidate)
     {
         bool found = false;
-        string[] candidates = [fileName, fileName + ".bak", fileName + ".bak2"];
+        hasMatchingCandidate = false;
+        string snapshotKey = expectedSnapshotId ?? "legacy";
+        string[] candidates = [fileName, fileName + ".bak", fileName + ".bak2",
+            Path.Combine(".snapshots", snapshotKey, fileName)];
         for (int i = 0; i < candidates.Length; i++)
         {
             string path = Path.Combine(directory, candidates[i]);
@@ -461,6 +544,14 @@ public static class WorldArchive
                                 $"The imported {fileName} uses an unsupported save version: {candidateError}");
                     continue;
                 }
+
+                string? candidateSnapshotId = isWorldSave
+                        ? ((WorldSave?)JsonSerializer.Deserialize<WorldSave>(json, WorldStore.Json))?.SnapshotId
+                        : ((PlayerSave?)JsonSerializer.Deserialize<PlayerSave>(json, WorldStore.Json))?.SnapshotId;
+                if (!string.Equals(candidateSnapshotId, expectedSnapshotId, StringComparison.Ordinal))
+                    continue;
+
+                hasMatchingCandidate = true;
                 return i > 0;
             }
             catch (JsonException) { }
@@ -481,6 +572,7 @@ public static class WorldArchive
         && a.Mode == b.Mode && a.Preset == b.Preset
         && a.PlaytimeSeconds == b.PlaytimeSeconds
         && a.HasSavedData == b.HasSavedData
+        && a.SnapshotId == b.SnapshotId
         && a.NoiseSeeds.SequenceEqual(b.NoiseSeeds);
 
     private static string FindUniqueWorldName(string root, string requested)
@@ -488,21 +580,17 @@ public static class WorldArchive
         HashSet<string> names = new(StringComparer.OrdinalIgnoreCase);
         foreach (string directory in Directory.EnumerateDirectories(root))
         {
-            string path = Path.Combine(directory, "manifest.json");
-            if (!File.Exists(path)) continue;
             try
             {
-                if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0
-                        || (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                if ((File.GetAttributes(directory) & (FileAttributes.Directory | FileAttributes.ReparsePoint))
+                        != FileAttributes.Directory)
                     continue;
-                string json = File.ReadAllText(path);
-                if (!WorldStore.IsValidBackupModel("manifest.json", json))
-                    continue;
-                WorldManifest? manifest = JsonSerializer.Deserialize<WorldManifest>(json, WorldStore.ManifestJson);
+                // Match world management: a recovered manifest still owns its display name.
+                WorldManifest? manifest = ReadBestManifest(directory);
                 if (!string.IsNullOrWhiteSpace(manifest?.Name))
                     names.Add(manifest.Name);
             }
-            catch (JsonException) { }
+            catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
 
@@ -617,22 +705,99 @@ public static class WorldBackupStore
         if (!SaveFiles.Contains(baseName, StringComparer.Ordinal))
             return new WorldBackupRestoreResult(false, "The selected file is not a recognized world backup.");
 
-        string target = worldDirectory.TrimEnd('/') + "/" + baseName;
         string content;
-        try { content = File.ReadAllText(ProjectSettings.GlobalizePath(selected.Path)); }
+        string? snapshotId;
+        try
+        {
+            content = File.ReadAllText(ProjectSettings.GlobalizePath(selected.Path));
+            snapshotId = WorldStore.SnapshotIdOf(baseName, content);
+        }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException
-                or System.Security.SecurityException)
+                or System.Security.SecurityException or JsonException)
         {
             return new WorldBackupRestoreResult(false, $"The backup could not be read: {e.Message}");
         }
 
-        if (!WorldStore.WriteAtomic(target, content, allowRecovery: true))
+        string absoluteDirectory = ProjectSettings.GlobalizePath(worldDirectory);
+        if (!TryFindMatchingCandidate(absoluteDirectory, "manifest.json", snapshotId, out string manifestJson)
+                || !TryFindMatchingCandidate(absoluteDirectory, "world.json", snapshotId, out string worldJson)
+                || !TryFindMatchingCandidate(absoluteDirectory, "player.json", snapshotId, out string playerJson))
             return new WorldBackupRestoreResult(false,
-                    "Restore failed. The current save was left in place; check available disk space and permissions.");
+                    "This backup has no complete matching world/player/manifest generation. No files were changed.");
+
+        // Use the exact selected candidate for its owner. The companion files
+        // must carry the same generation identity before anything is replaced.
+        if (baseName == "manifest.json") manifestJson = content;
+        else if (baseName == "world.json") worldJson = content;
+        else if (baseName == "player.json") playerJson = content;
+
+        // Publish data first and the manifest commit pointer last. If either
+        // data write fails, the old manifest still selects its own generation.
+        if (!WorldStore.WriteAtomic(WorldStore.WorldSavePath(worldDirectory), worldJson, allowRecovery: true)
+                || !WorldStore.WriteAtomic(WorldStore.PlayerSavePath(worldDirectory), playerJson, allowRecovery: true)
+                || !WorldStore.WriteAtomic(WorldStore.ManifestPath(worldDirectory), manifestJson, allowRecovery: true))
+            return new WorldBackupRestoreResult(false,
+                    "Restore failed before its manifest commit. The previous committed generation remains recoverable.");
 
         WorldStore.TryClearRecoveryRequired(worldDirectory);
         return new WorldBackupRestoreResult(true,
-                $"Restored {baseName}. The previous current file was retained as a safety backup.");
+                "Restored the matching world/player generation. The previous committed generation remains recoverable.");
+    }
+
+    private static bool TryFindMatchingCandidate(
+            string directory, string baseName, string? expectedSnapshotId, out string content)
+    {
+        content = "";
+        List<string> candidates =
+        [
+            Path.Combine(directory, baseName),
+            Path.Combine(directory, baseName + ".bak"),
+            Path.Combine(directory, baseName + ".bak2"),
+        ];
+        try
+        {
+            FileAttributes worldAttributes = File.GetAttributes(directory);
+            if ((worldAttributes & (FileAttributes.Directory | FileAttributes.ReparsePoint))
+                    != FileAttributes.Directory) return false;
+            string snapshotRoot = Path.Combine(directory, ".snapshots");
+            if (Directory.Exists(snapshotRoot))
+            {
+                FileAttributes rootAttributes = File.GetAttributes(snapshotRoot);
+                if ((rootAttributes & (FileAttributes.Directory | FileAttributes.ReparsePoint))
+                        != FileAttributes.Directory) return false;
+                string snapshotKey = expectedSnapshotId ?? "legacy";
+                string generationDirectory = Path.Combine(snapshotRoot, snapshotKey);
+                if (Directory.Exists(generationDirectory))
+                {
+                    FileAttributes generationAttributes = File.GetAttributes(generationDirectory);
+                    if ((generationAttributes & (FileAttributes.Directory | FileAttributes.ReparsePoint))
+                            != FileAttributes.Directory) return false;
+                    candidates.Add(Path.Combine(generationDirectory, baseName));
+                }
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException
+                or System.Security.SecurityException) { return false; }
+
+        foreach (string path in candidates)
+        {
+            try
+            {
+                if (!File.Exists(path)) continue;
+                if ((File.GetAttributes(path) & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0)
+                    continue;
+                string candidate = File.ReadAllText(path);
+                if (!WorldStore.IsValidBackupModel(baseName, candidate)
+                        || !string.Equals(WorldStore.SnapshotIdOf(baseName, candidate),
+                                expectedSnapshotId, StringComparison.Ordinal))
+                    continue;
+                content = candidate;
+                return true;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException
+                    or System.Security.SecurityException or JsonException) { }
+        }
+        return false;
     }
 
     private static bool ValidateBackup(string path, string baseName, out string status)

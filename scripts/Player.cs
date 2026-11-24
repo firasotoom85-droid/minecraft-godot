@@ -53,6 +53,8 @@ public partial class Player : CharacterBody3D, IDamageable
     [Signal] public delegate void NoticeEventHandler(string text);
 
     public event System.Action<Villager>? VillagerInteracted;
+    /// <summary>Raised when persisted player fields change during gameplay.</summary>
+    public event Action? PersistenceChanged;
     public event System.Action<ItemId, int>? ItemGathered;
     public event System.Action<ItemId, int>? ItemCrafted;
     public event System.Action<int>? TradeCompleted;
@@ -824,7 +826,9 @@ public partial class Player : CharacterBody3D, IDamageable
 
     public void SetMode(GameMode mode)
     {
+        bool changed = Mode != mode;
         Mode = mode;
+        if (changed) PersistenceChanged?.Invoke();
         if (Mode != GameMode.Creative)
         {
             SetFlying(false);
@@ -2143,8 +2147,11 @@ public partial class Player : CharacterBody3D, IDamageable
     {
         int next = Mathf.Wrap(i, 0, Inventory.HotbarSize);
         if (next != Selected)
+        {
             StartPunch(FirstPersonAction.Select);
-        Selected = next;
+            Selected = next;
+            PersistenceChanged?.Invoke();
+        }
         EmitSignal(SignalName.HotbarChanged, Selected, (int)Inventory.Hotbar[Selected].Id);
     }
 

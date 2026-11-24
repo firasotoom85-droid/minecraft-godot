@@ -42,6 +42,18 @@ public partial class Main : Node3D
     private FluidSystem _fluids = null!;
     private BoatSystem _boats = null!;
 
+    public override void _EnterTree()
+    {
+        // Cancel the engine's default close before we can synchronously save.
+        GetTree().AutoAcceptQuit = false;
+    }
+
+    public override void _ExitTree()
+    {
+        // The menu has its own quit path and should retain the normal behavior.
+        GetTree().AutoAcceptQuit = true;
+    }
+
     public override void _Ready()
     {
         _world = GetNode<VoxelWorld>("World");
@@ -72,6 +84,11 @@ public partial class Main : Node3D
         _player.LoadFromSave(_world.SavedMode ?? _world.DefaultMode, _world.SavedHealth,
                 _world.SavedHunger, _world.SavedRespawn, _world.SavedExperience, _world.SavedPlayerDead);
         _player.RestoreOrientation(_world.SavedPlayerYaw, _world.SavedPlayerPitch);
+
+        // Loading raises Stats.Changed, so attach persistence listeners only
+        // after saved values have been restored to avoid a synthetic dirty save.
+        _world.EnsurePlayerPersistenceEventsWired();
+        _player.PersistenceChanged += _world.MarkDirty;
 
         _gfx = AddSystem(new Gfx());
         _gfx.Setup(_world, _sun, _worldEnv);
@@ -243,16 +260,20 @@ public partial class Main : Node3D
 
     public override void _Notification(int what)
     {
-        if (_world == null)
-        {
-            return;
-        }
-
         if (what == (int)NotificationWMCloseRequest)
         {
-            _world.SaveNow();
+            if (_world == null || _world.SaveNow())
+            {
+                GetTree().Quit();
+            }
+            else
+            {
+                const string message = "Save failed. The game remains open so you can retry; check storage space and permissions.";
+                if (_hud != null) _hud.ShowToast(message);
+                GD.PushWarning($"minecraft: {message}");
+            }
         }
-        else if (what == (int)NotificationApplicationFocusOut)
+        else if (what == (int)NotificationApplicationFocusOut && _world != null)
         {
             _world.SaveIfDirty();
         }

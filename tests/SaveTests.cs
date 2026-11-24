@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Directory = System.IO.Directory;
 using File = System.IO.File;
 using Path = System.IO.Path;
@@ -397,8 +398,16 @@ public static class SaveTests
             TestAssert.Check(!DirAccess.DirExistsAbsolute(copyDir), "copy folder is gone");
         }
 
-        TestAssert.Check(WorldStore.Delete(worldDir), "world can be deleted");
-        TestAssert.Check(!DirAccess.DirExistsAbsolute(worldDir), "world folder is gone");
+        TestAssert.Check(WorldStore.Delete(worldDir), "world can be moved out of the active library");
+        TestAssert.Check(!DirAccess.DirExistsAbsolute(worldDir), "quarantined world is absent from the active library");
+        TestAssert.Check(DirAccess.DirExistsAbsolute(WorldStore.DeletedWorldPath(worldDir)),
+                "deleted world remains intact in the recovery quarantine");
+        TestAssert.Check(WorldStore.RestoreDeletedWorld(worldDir),
+                "a quarantined world can be restored to its original identity");
+        TestAssert.Check(DirAccess.DirExistsAbsolute(worldDir),
+                "restored world is visible at its original path");
+        TestAssert.Check(WorldStore.Delete(worldDir), "restored world can be quarantined again");
+        PurgeQuarantinedTestWorld(worldDir);
         TestAssert.Check(!WorldStore.Delete("user://settings.cfg"), "delete refuses paths outside worlds");
 
         string escapeDir = WorldStore.WorldsRoot + "/../delete-escape-world";
@@ -631,12 +640,19 @@ public static class SaveTests
                     "world deletion removes links at every depth without descending into their targets");
             TestAssert.Equal("external data", System.IO.File.ReadAllText(externalMarker),
                     "external target contents survive linked-world duplication and deletion");
+            PurgeQuarantinedTestWorld(linkedWorld);
         }
         else
         {
             TestAssert.Check(true, "symbolic-link creation is unavailable on this test platform");
             WorldStore.Delete(linkedWorld);
         }
+
+        VerifyCanonicalSaveValidation();
+        VerifyCommittedSnapshotPairRecovery();
+        VerifyQuarantineFailureIsNonDestructive();
+        VerifyPlayerPersistenceDirtySignals();
+        VerifyLegacyCombinedSaveMigration();
 
         // A world-directory access failure must not masquerade as an empty library.
         WorldStore.EnumerateWorldDirectoriesForTests = _ =>
@@ -813,11 +829,16 @@ public static class SaveTests
 
         foreach (string testWorld in new[]
                 {
-                    collisionFirst, collisionSecond, duplicateFailureSource,
+                    worldDir, copyDir ?? "", collisionFirst, collisionSecond, duplicateFailureSource,
                     corruptManifestWorld, otherValidWorld, damagedWorld, savedHistoryWorld,
                     legacyPlayedWorld, singleFileWorld, populatedDefault, emptyDefault,
+                    WorldStore.WorldsRoot + "/" + failedCreateId,
                 })
+        {
+            if (testWorld.Length == 0) continue;
             WorldStore.Delete(testWorld);
+            PurgeQuarantinedTestWorld(testWorld);
+        }
 
         DirAccess.RemoveAbsolute(backupPath + ".bak2");
         DirAccess.RemoveAbsolute(backupPath + ".bak");
@@ -832,4 +853,384 @@ public static class SaveTests
         if (System.IO.Directory.Exists(ProjectSettings.GlobalizePath(root)))
             System.IO.Directory.Delete(ProjectSettings.GlobalizePath(root), recursive: true);
     }
+    private static void VerifyCanonicalSaveValidation()
+    {
+        PlayerSave cursorSave = new([0.0f, 0.0f, 0.0f],
+                Items: [new ItemStackSave(Inventory.CursorSaveSlot, (int)ItemId.Stone, 4)]);
+        TestAssert.Check(WorldStore.ValidateModel(cursorSave, out _, out _),
+                "player save validation accepts persistent cursor slots beyond runtime inventory slots");
+
+        PlayerSave overstacked = cursorSave with
+        {
+            Items = [new ItemStackSave(0, (int)ItemId.Stone, ItemDb.MaxStack(ItemId.Stone) + 1)],
+        };
+        TestAssert.Check(!WorldStore.ValidateModel(overstacked, out _, out _),
+                "canonical validation rejects known item stacks above their maximum");
+
+        PlayerSave unknownFutureItem = cursorSave with
+        {
+            Items = [new ItemStackSave(0, 110, 3)],
+        };
+        TestAssert.Check(WorldStore.ValidateModel(unknownFutureItem, out _, out _),
+                "unknown future byte-range items remain preserved as opaque save data");
+
+        PlayerSave wrongArmorSlot = cursorSave with
+        {
+            Items = [new ItemStackSave(Inventory.SlotCount, (int)ItemId.Stone, 1)],
+        };
+        TestAssert.Check(!WorldStore.ValidateModel(wrongArmorSlot, out _, out _),
+                "inventory validation rejects non-armor items in persisted armor slots");
+
+        WorldSave negativeChunk = new(WorldStore.WorldFormatVersion,
+                new Dictionary<string, Dictionary<string, BlockId>>
+                {
+                    ["-12,5"] = new() { ["7"] = BlockId.Stone },
+                }, 0.5);
+        TestAssert.Check(WorldStore.ValidateModel(negativeChunk, out _, out _),
+                "negative chunk coordinates remain valid with registered block IDs");
+        WorldSave unknownBlockId = negativeChunk with
+        {
+            Edits = new Dictionary<string, Dictionary<string, BlockId>>
+            {
+                ["-12,5"] = new() { ["7"] = (BlockId)220 },
+            },
+        };
+        TestAssert.Check(!WorldStore.ValidateModel(unknownBlockId, out _, out _),
+                "unknown persisted block IDs are rejected instead of entering the block registry");
+
+        WorldSave wrongChunkDimensions = negativeChunk with
+        {
+            Edits = new Dictionary<string, Dictionary<string, BlockId>>
+            {
+                ["-12,5,1"] = new() { ["7"] = BlockId.Stone },
+            },
+        };
+        TestAssert.Check(!WorldStore.ValidateModel(wrongChunkDimensions, out _, out _),
+                "chunk edit keys require exactly two canonical signed coordinates");
+
+        WorldSave wrongContainerKey = new(WorldStore.WorldFormatVersion, null, 0.5,
+                Containers: new Dictionary<string, List<ItemStackSave>>
+                {
+                    ["1,2"] = [new ItemStackSave(0, (int)ItemId.Stone, 1)],
+                });
+        TestAssert.Check(!WorldStore.ValidateModel(wrongContainerKey, out _, out _),
+                "container keys require exactly three canonical signed coordinates");
+
+        WorldSave invalidFurnaceSlot = new(WorldStore.WorldFormatVersion, null, 0.5,
+                Furnaces: new Dictionary<string, FurnaceSave>
+                {
+                    ["1,2,3"] = new([
+                        new ItemStackSave(0, (int)ItemId.Coal, 1),
+                    ]),
+                });
+        TestAssert.Check(!WorldStore.ValidateModel(invalidFurnaceSlot, out _, out _),
+                "save validation rejects fuel stored in a furnace input slot");
+
+        WorldSave invalidBlockStates = new(WorldStore.WorldFormatVersion, null, 0.5,
+                BlockStates: new Dictionary<string, Dictionary<string, byte>>
+                {
+                    ["1,2,3"] = new() { ["7"] = BlockShapes.SlabTop },
+                });
+        TestAssert.Check(!WorldStore.ValidateModel(invalidBlockStates, out _, out _),
+                "block-state maps reject malformed chunk coordinate keys");
+
+        PlayerSave invalidIdentity = cursorSave with { SnapshotId = "not-a-guid" };
+        TestAssert.Check(!WorldStore.ValidateModel(invalidIdentity, out _, out _),
+                "snapshot IDs must use the compact GUID representation");
+
+        TestAssert.Check(ItemStackSaveValidator.FitsFurnaceSlot(0, ItemDb.New(ItemId.RawIron, 1)),
+                "furnace input accepts a registered smeltable item");
+        TestAssert.Check(!ItemStackSaveValidator.FitsFurnaceSlot(0, ItemDb.New(ItemId.Coal, 1)),
+                "furnace input rejects fuel-only items");
+        TestAssert.Check(ItemStackSaveValidator.FitsFurnaceSlot(1, ItemDb.New(ItemId.Coal, 1)),
+                "furnace fuel accepts a registered fuel item");
+        TestAssert.Check(!ItemStackSaveValidator.FitsFurnaceSlot(1, ItemDb.New(ItemId.RawIron, 1)),
+                "furnace fuel rejects smeltable input items");
+    }
+
+    private static void VerifyCommittedSnapshotPairRecovery()
+    {
+        string worldDirectory = WorldStore.Create("Snapshot Pair Regression", 1207);
+        string worldPath = ProjectSettings.GlobalizePath(WorldStore.WorldSavePath(worldDirectory));
+        string playerPath = ProjectSettings.GlobalizePath(WorldStore.PlayerSavePath(worldDirectory));
+        string manifestPath = ProjectSettings.GlobalizePath(WorldStore.ManifestPath(worldDirectory));
+        string generationA = Guid.NewGuid().ToString("N");
+        string generationB = Guid.NewGuid().ToString("N");
+        WorldManifest originalManifest = WorldStore.ReadManifest(worldDirectory)!;
+
+        WorldSaveSnapshot MakeSnapshot(string generation, double time, float health,
+                WorldManifest previousManifest) =>
+                new(
+                    new WorldSave(WorldStore.WorldFormatVersion, null, time, SnapshotId: generation),
+                    new PlayerSave([time, 2.0f, 3.0f], Health: health, SnapshotId: generation),
+                    previousManifest with { HasSavedData = true, SnapshotId = generation },
+                    worldPath,
+                    playerPath,
+                    manifestPath,
+                    DirtyRevision: 1,
+                    ElapsedPlaytimeSeconds: 0.0,
+                    PreviousManifest: previousManifest);
+
+        try
+        {
+            WorldSaveSnapshot first = MakeSnapshot(generationA, 0.25, 18.0f, originalManifest);
+            WorldSaveWorkerResult mismatch = WorldSaveWorker.WriteSynchronously(first with
+            {
+                Player = first.Player with { SnapshotId = generationB },
+            });
+            TestAssert.Check(!mismatch.Success && !File.Exists(worldPath) && !File.Exists(playerPath),
+                    "worker rejects a mismatched save generation before writing any file");
+
+            WorldSaveWorkerResult initial = WorldSaveWorker.WriteSynchronously(first);
+            TestAssert.Check(initial.Success, "worker commits a matching world/player/manifest generation");
+            WorldManifest committedA = WorldStore.ReadManifest(worldDirectory)!;
+
+            Directory.CreateDirectory(playerPath + ".bak");
+            WorldSaveWorkerResult playerFailure = WorldSaveWorker.WriteSynchronously(
+                    MakeSnapshot(generationB, 0.5, 12.0f, committedA));
+            TestAssert.Check(!playerFailure.Success,
+                    "a player-file rotation failure prevents advancing the manifest generation");
+            Directory.Delete(playerPath + ".bak");
+
+            WorldReadResult<WorldSave> recoveredWorld = WorldStore.ReadJsonResult<WorldSave>(
+                    WorldStore.WorldSavePath(worldDirectory), WorldStore.Json);
+            WorldReadResult<PlayerSave> recoveredPlayer = WorldStore.ReadJsonResult<PlayerSave>(
+                    WorldStore.PlayerSavePath(worldDirectory), WorldStore.Json);
+            TestAssert.Equal(generationA, recoveredWorld.Value?.SnapshotId,
+                    "a partial world write recovers the manifest-selected world generation");
+            TestAssert.Equal(generationA, recoveredPlayer.Value?.SnapshotId,
+                    "a partial player write does not mix the committed player generation");
+
+            // Fail several manifest rotations to age the old generation out of
+            // .bak2; its stable pair directory must remain independently readable.
+            Directory.CreateDirectory(manifestPath + ".bak2");
+            for (int retry = 0; retry < 4; retry++)
+            {
+                WorldSaveWorkerResult failedCommit = WorldSaveWorker.WriteSynchronously(
+                        MakeSnapshot(generationB, 0.75, 9.0f, committedA));
+                TestAssert.Check(!failedCommit.Success,
+                        $"injected manifest publication failure {retry + 1} is reported");
+            }
+
+            recoveredWorld = WorldStore.ReadJsonResult<WorldSave>(
+                    WorldStore.WorldSavePath(worldDirectory), WorldStore.Json);
+            recoveredPlayer = WorldStore.ReadJsonResult<PlayerSave>(
+                    WorldStore.PlayerSavePath(worldDirectory), WorldStore.Json);
+            TestAssert.Equal(generationA, recoveredWorld.Value?.SnapshotId,
+                    "stable snapshot recovery retains the committed world after repeated failures");
+            TestAssert.Equal(generationA, recoveredPlayer.Value?.SnapshotId,
+                    "stable snapshot recovery retains the matching player after repeated failures");
+            Directory.Delete(manifestPath + ".bak2");
+
+            WorldSaveWorkerResult committedB = WorldSaveWorker.WriteSynchronously(
+                    MakeSnapshot(generationB, 0.75, 9.0f, committedA));
+            TestAssert.Check(committedB.Success, "a later retry commits the replacement generation");
+            WorldReadResult<WorldSave> newestWorld = WorldStore.ReadJsonResult<WorldSave>(
+                    WorldStore.WorldSavePath(worldDirectory), WorldStore.Json);
+            WorldReadResult<PlayerSave> newestPlayer = WorldStore.ReadJsonResult<PlayerSave>(
+                    WorldStore.PlayerSavePath(worldDirectory), WorldStore.Json);
+            TestAssert.Equal(generationB, newestWorld.Value?.SnapshotId,
+                    "the committed manifest selects the new world generation");
+            TestAssert.Equal(generationB, newestPlayer.Value?.SnapshotId,
+                    "the committed manifest selects the matching new player generation");
+        }
+        finally
+        {
+            WorldStore.Delete(worldDirectory);
+            PurgeQuarantinedTestWorld(worldDirectory);
+        }
+
+        string firstSaveDirectory = WorldStore.Create("Interrupted First Save", 1208);
+        string firstWorldPath = ProjectSettings.GlobalizePath(WorldStore.WorldSavePath(firstSaveDirectory));
+        string firstPlayerPath = ProjectSettings.GlobalizePath(WorldStore.PlayerSavePath(firstSaveDirectory));
+        string firstManifestPath = ProjectSettings.GlobalizePath(WorldStore.ManifestPath(firstSaveDirectory));
+        string firstGeneration = Guid.NewGuid().ToString("N");
+        WorldManifest neverSaved = WorldStore.ReadManifest(firstSaveDirectory)!;
+        Directory.CreateDirectory(firstPlayerPath + ".bak");
+        try
+        {
+            WorldSaveSnapshot firstSave = new(
+                    new WorldSave(WorldStore.WorldFormatVersion, null, 0.4, SnapshotId: firstGeneration),
+                    new PlayerSave([1.0f, 2.0f, 3.0f], SnapshotId: firstGeneration),
+                    neverSaved with { HasSavedData = true, SnapshotId = firstGeneration },
+                    firstWorldPath, firstPlayerPath, firstManifestPath, 1, 0.0,
+                    PreviousManifest: neverSaved);
+            WorldSaveWorkerResult failed = WorldSaveWorker.WriteSynchronously(firstSave);
+            TestAssert.Check(!failed.Success, "an interrupted first save is reported as incomplete");
+            WorldReadResult<WorldSave> orphan = WorldStore.ReadJsonResult<WorldSave>(
+                    WorldStore.WorldSavePath(firstSaveDirectory), WorldStore.Json);
+            TestAssert.Equal(WorldReadStatus.Corrupt, orphan.Status,
+                    "an orphan first-save file cannot be loaded under an uncommitted manifest");
+            TestAssert.Check(WorldStore.ReadManifest(firstSaveDirectory) is
+                    { HasSavedData: false, SnapshotId: null },
+                    "an interrupted first save leaves its previous manifest untouched");
+        }
+        finally
+        {
+            Directory.Delete(firstPlayerPath + ".bak");
+            WorldStore.Delete(firstSaveDirectory);
+            PurgeQuarantinedTestWorld(firstSaveDirectory);
+        }
+    }
+
+    private static void VerifyQuarantineFailureIsNonDestructive()
+    {
+        string worldDirectory = WorldStore.Create("Quarantine Failure Regression", 1209);
+        string marker = ProjectSettings.GlobalizePath(worldDirectory) + "/keep.bin";
+        string quarantinedMarker = ProjectSettings.GlobalizePath(
+                WorldStore.DeletedWorldPath(worldDirectory)) + "/keep.bin";
+        File.WriteAllText(marker, "world bytes");
+        WorldStore.MoveDirectoryForTests = (_, _) =>
+                throw new System.IO.IOException("injected quarantine rename failure");
+        bool failureReported;
+        try { failureReported = !WorldStore.Delete(worldDirectory); }
+        finally { WorldStore.MoveDirectoryForTests = null; }
+        TestAssert.Check(failureReported, "failed quarantine rename is reported to the caller");
+        TestAssert.Equal("world bytes", File.ReadAllText(marker),
+                "failed deletion leaves all source files in their original location");
+
+        TestAssert.Check(WorldStore.Delete(worldDirectory),
+                "deletion succeeds after the filesystem operation recovers");
+        TestAssert.Check(File.Exists(quarantinedMarker),
+                "successful deletion preserves the complete world payload in quarantine");
+        TestAssert.Check(WorldStore.RestoreDeletedWorld(worldDirectory),
+                "quarantined world can be restored after deletion");
+        TestAssert.Equal("world bytes", File.ReadAllText(marker),
+                "restoration preserves the original file bytes");
+        WorldStore.Delete(worldDirectory);
+        PurgeQuarantinedTestWorld(worldDirectory);
+    }
+
+    private static void VerifyLegacyCombinedSaveMigration()
+    {
+        string legacyPath = ProjectSettings.GlobalizePath("user://minecraft_save.json");
+        string legacyDirectory = Path.GetDirectoryName(legacyPath)!;
+        string? previousLegacy = File.Exists(legacyPath) ? File.ReadAllText(legacyPath) : null;
+        HashSet<string> previousArchives = Directory.GetFiles(legacyDirectory,
+                "minecraft_save.json.migrated*").ToHashSet(StringComparer.Ordinal);
+        string existingWorld = WorldStore.Create("My World", 1210);
+        string migratedWorld = "";
+
+        try
+        {
+            LegacySave combined = new(
+                    new Dictionary<string, Dictionary<string, BlockId>>
+                    {
+                        ["-3,4"] = new() { ["123"] = BlockId.Stone },
+                    },
+                    [11.5f, 72.0f, -4.25f],
+                    0.625);
+            File.WriteAllText(legacyPath, JsonSerializer.Serialize(combined, WorldStore.Json));
+
+            WorldStore.MigrateLegacyIfNeeded();
+
+            string[] newArchives = Directory.GetFiles(legacyDirectory,
+                            "minecraft_save.json.migrated*")
+                    .Where(path => !previousArchives.Contains(path))
+                    .ToArray();
+            TestAssert.Check(!File.Exists(legacyPath) && newArchives.Length == 1,
+                    "legacy combined save is archived only after the pair migration commits");
+
+            List<(string Dir, WorldManifest Manifest)> listedWorlds = WorldStore.List();
+            int migratedIndex = listedWorlds.FindIndex(item => item.Manifest.Name == "My World (Legacy)");
+            TestAssert.Check(migratedIndex >= 0,
+                    "legacy migration still runs when other worlds already exist and resolves name collisions");
+            if (migratedIndex >= 0)
+            {
+                (string Dir, WorldManifest Manifest) migrated = listedWorlds[migratedIndex];
+                migratedWorld = migrated.Dir;
+                WorldReadResult<WorldSave> worldRead = WorldStore.ReadJsonResult<WorldSave>(
+                        WorldStore.WorldSavePath(migratedWorld), WorldStore.Json);
+                WorldReadResult<PlayerSave> playerRead = WorldStore.ReadJsonResult<PlayerSave>(
+                        WorldStore.PlayerSavePath(migratedWorld), WorldStore.Json);
+                TestAssert.Equal(WorldReadStatus.Valid, worldRead.Status,
+                        "migrated combined world data reads as one valid committed generation");
+                TestAssert.Equal(WorldReadStatus.Valid, playerRead.Status,
+                        "migrated combined player data reads as the matching committed generation");
+                TestAssert.Equal(0.625, worldRead.Value?.Time ?? -1.0,
+                        "legacy world clock is preserved during migration");
+                TestAssert.Equal(11.5f, playerRead.Value?.Pos[0] ?? -1.0f,
+                        "legacy player position is preserved during migration");
+                TestAssert.Check(migrated.Manifest.HasSavedData,
+                        "legacy migration commits saved-history metadata");
+            }
+        }
+        finally
+        {
+            if (migratedWorld.Length > 0)
+            {
+                WorldStore.Delete(migratedWorld);
+                PurgeQuarantinedTestWorld(migratedWorld);
+            }
+            WorldStore.Delete(existingWorld);
+            PurgeQuarantinedTestWorld(existingWorld);
+            foreach (string archive in Directory.GetFiles(legacyDirectory,
+                    "minecraft_save.json.migrated*"))
+                if (!previousArchives.Contains(archive)) File.Delete(archive);
+            if (previousLegacy is null)
+            {
+                if (File.Exists(legacyPath)) File.Delete(legacyPath);
+            }
+            else
+            {
+                File.WriteAllText(legacyPath, previousLegacy);
+            }
+        }
+    }
+
+    private static void VerifyPlayerPersistenceDirtySignals()
+    {
+        VoxelWorld statsWorld = new();
+        Player statsPlayer = new();
+        statsWorld.Player = statsPlayer;
+        statsWorld.EnsurePlayerPersistenceEventsWired();
+        statsWorld.EnsurePlayerPersistenceEventsWired();
+        TestAssert.Check(!statsWorld.IsDirty, "attaching listeners after load does not mark a clean world dirty");
+        statsPlayer.Stats.SetHunger(9.0f);
+        TestAssert.Check(statsWorld.IsDirty, "player-stat changes mark the owning world dirty");
+
+        VoxelWorld anchorWorld = new();
+        Player anchorPlayer = new();
+        anchorWorld.Player = anchorPlayer;
+        anchorWorld.EnsurePlayerPersistenceEventsWired();
+        anchorPlayer.EmitSignal(Player.SignalName.CampfireUsed, "rested");
+        TestAssert.Check(anchorWorld.IsDirty, "campfire respawn-anchor changes mark the owning world dirty");
+
+        VoxelWorld hotbarWorld = new();
+        Player hotbarPlayer = new();
+        hotbarWorld.Player = hotbarPlayer;
+        hotbarPlayer.PersistenceChanged += hotbarWorld.MarkDirty;
+        hotbarPlayer.Select(1);
+        TestAssert.Check(hotbarWorld.IsDirty,
+                "hotbar selection changes mark the owning world dirty without requiring movement");
+
+        VoxelWorld modeWorld = new();
+        Player modePlayer = new();
+        modeWorld.Player = modePlayer;
+        int changes = 0;
+        modePlayer.PersistenceChanged += modeWorld.MarkDirty;
+        modePlayer.PersistenceChanged += () => changes++;
+        modePlayer.SetMode(GameMode.Survival);
+        modePlayer.SetMode(GameMode.Survival);
+        TestAssert.Check(modeWorld.IsDirty,
+                "game-mode changes mark the owning world dirty");
+        TestAssert.Equal(1, changes, "game-mode persistence notifications fire only when mode changes");
+    }
+
+    private static void PurgeQuarantinedTestWorld(string directory)
+    {
+        if (string.IsNullOrEmpty(directory)) return;
+        try
+        {
+            string quarantine = ProjectSettings.GlobalizePath(WorldStore.DeletedWorldPath(directory));
+            if (Directory.Exists(quarantine))
+                Directory.Delete(quarantine, recursive: true);
+        }
+        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException
+                or System.Security.SecurityException)
+        {
+            GD.PushWarning($"minecraft tests: temporary quarantine cleanup failed ({e.Message})");
+        }
+    }
+
 }

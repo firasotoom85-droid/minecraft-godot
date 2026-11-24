@@ -66,8 +66,8 @@ public partial class GameSession : Node
 
             bool incompletePair = (worldRead.Status == WorldReadStatus.Missing)
                     != (playerRead.Status == WorldReadStatus.Missing);
-            bool knownSavedHistory = manifest.HasSavedData || manifest.PlaytimeSeconds > 0
-                    || manifest.PlayedUtc > manifest.CreatedUtc;
+            bool knownSavedHistory = manifest.HasSavedData || manifest.SnapshotId is not null
+                    || manifest.PlaytimeSeconds > 0 || manifest.PlayedUtc > manifest.CreatedUtc;
             if (incompletePair && knownSavedHistory)
             {
                 WorldStore.RequireRecovery(WorldDir);
@@ -76,8 +76,8 @@ public partial class GameSession : Node
             }
 
             if (worldRead.Status == WorldReadStatus.Missing && playerRead.Status == WorldReadStatus.Missing
-                    && (manifest.HasSavedData || manifest.PlaytimeSeconds > 0
-                    || manifest.PlayedUtc > manifest.CreatedUtc))
+                    && (manifest.HasSavedData || manifest.SnapshotId is not null
+                    || manifest.PlaytimeSeconds > 0 || manifest.PlayedUtc > manifest.CreatedUtc))
             {
                 WorldStore.RequireRecovery(WorldDir);
                 throw new System.IO.InvalidDataException(

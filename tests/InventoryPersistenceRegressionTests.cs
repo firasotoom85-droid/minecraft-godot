@@ -9,9 +9,58 @@ public static class InventoryPersistenceRegressionTests
     public static void Run()
     {
         ValidateInventoryContainerAndFurnaceLoads();
+        ValidateCanonicalSavePolicy();
         KeepCraftingResultsAtomic();
         PersistCursorAndCraftingGridItems();
         PreserveContainerTransferRemainders();
+    }
+
+    private static void ValidateCanonicalSavePolicy()
+    {
+        TestAssert.Check(Inventory.PersistentSlotCount > Inventory.SaveSlotCount,
+                "persistent inventory capacity includes crafting and cursor ownership slots");
+
+        PlayerSave persistentCursor = new([0.0f, 0.0f, 0.0f],
+                Items: [new ItemStackSave(Inventory.CursorSaveSlot, (int)ItemId.Planks, 7)]);
+        TestAssert.Check(WorldStore.ValidateModel(persistentCursor, out _, out _),
+                "central save validation accepts a valid cursor-held stack");
+
+        PlayerSave malformedEquipment = persistentCursor with
+        {
+            Items = [new ItemStackSave(Inventory.SlotCount, (int)ItemId.Stone, 1)],
+        };
+        TestAssert.Check(!WorldStore.ValidateModel(malformedEquipment, out _, out _),
+                "central save validation applies the same armor-slot policy as Inventory.LoadFrom");
+
+        PlayerSave invalidMetadata = persistentCursor with
+        {
+            Items = [new ItemStackSave(0, (int)ItemId.Stone, 1, Durability: 1)],
+        };
+        TestAssert.Check(!WorldStore.ValidateModel(invalidMetadata, out _, out _),
+                "central save validation rejects metadata invalid for a non-equipment item");
+
+        PlayerSave opaqueFutureItem = persistentCursor with
+        {
+            Items = [new ItemStackSave(0, 110, 5)],
+        };
+        TestAssert.Check(WorldStore.ValidateModel(opaqueFutureItem, out _, out _),
+                "central save validation preserves opaque future item IDs supported by runtime loaders");
+
+        WorldSave malformedFurnace = new(WorldStore.WorldFormatVersion, null, 0.5,
+                Furnaces: new Dictionary<string, FurnaceSave>
+                {
+                    ["-4,2,8"] = new([new ItemStackSave(0, (int)ItemId.Coal, 1)]),
+                });
+        TestAssert.Check(!WorldStore.ValidateModel(malformedFurnace, out _, out _),
+                "central save validation rejects a fuel item in the furnace input slot");
+
+        WorldSave validNegativeCoordinate = new(WorldStore.WorldFormatVersion, null, 0.5,
+                Containers: new Dictionary<string, List<ItemStackSave>>
+                {
+                    ["-4,2,8"] = [new ItemStackSave(0, (int)ItemId.Stone, 12)],
+                });
+        TestAssert.Check(WorldStore.ValidateModel(validNegativeCoordinate, out _, out _),
+                "container save keys accept canonical negative world coordinates");
     }
 
     private static void ValidateInventoryContainerAndFurnaceLoads()

@@ -2,7 +2,7 @@
 
 This is the **current forward plan**, not a running implementation diary. Completed work, integration records and historical audits are preserved under docs/history and the relevant subsystem folders.
 
-**Status date:** 2026-11-23  
+**Status date:** 2026-11-24  
 **Current engine baseline:** Godot 4.7.2 .NET  
 **Current framework target:** .NET 10  
 **Latest published build:** [v1.1.0-beta.1](https://github.com/firasotoom85-droid/minecraft-godot/releases/tag/v1.1.0-beta.1)
@@ -16,16 +16,29 @@ This is the **current forward plan**, not a running implementation diary. Comple
 | .NET lifecycle | Migration in this change | Verify .NET 10 through CI and the Godot 4.7.2 export path before treating it as released |
 | Release packaging | Being automated | Exercise tag-triggered Linux/Windows export packaging on a beta tag |
 | Performance baselines | Partial | Benchmark/soak reports now expose persistent managed-memory categories and high-water marks; record a fresh controlled Release baseline, with the comparable RTX 4060 run still outstanding |
+| Persistence/data integrity (W11) | In progress | Generation-paired world/player commits, snapshot recovery, canonical validation, dirty-state autosave and deletion quarantine are implemented on the W11 branch; run the full Godot headless suite and CI before closing |
 | Gameplay/visual sign-off | Partial | Complete human playtesting across mining, building, combat, quests, saves and low/high graphics presets |
 | Public project profile | Incomplete | Repository is already public; add a description and relevant topics in GitHub Settings |
 
 **Persistence contract (integrated W01):** autosave captures an immutable save
-snapshot on the main thread; one ordered background save worker serializes it
-and performs the three atomic file writes, so `_Process()` performs no
-serialization or disk I/O. Explicit save and quit flush older work before
-writing the latest state synchronously.
+snapshot on the main thread; the ordered background worker serializes it and
+writes world, player, and manifest files without doing serialization or disk I/O
+inside `_Process()`. Explicit save and quit flush older work before writing the
+latest state synchronously.
 
-**Persistence recovery (integrated W05):** world and player manifests and saves use model-specific validation with ordered backup fallback. A damaged selected world is retained in recovery rather than silently replaced, and ordinary writes are blocked until a valid world/player pair is restored. The optional `hasSavedData` manifest marker distinguishes a never-saved world from lost save history. Archive imports validate metadata and candidates; duplication and deletion do not traverse links or other reparse points.
+**Persistence recovery (integrated W05):** structurally validated saves retain
+ordered backup fallback, unsupported future formats never downgrade, and
+previously saved worlds are kept in recovery rather than silently replaced.
+
+**Persistence integrity (W11 implementation):** each committed save pair shares
+one snapshot identity with its manifest. The worker preserves the old committed
+pair in a stable generation directory before rotating files, and the manifest is
+published last. Reads, archive imports, and backup restoration reject mismatched
+generations. Canonical item-stack and coordinate-key validation is shared with
+runtime rules; player mutation events and elapsed world-clock/playtime progress
+drive autosave without requiring movement. Deletion moves the complete world
+into a recoverable same-volume quarantine. Headless Debug/Release verification
+is still required before marking this milestone complete.
 
 **Gameplay lifecycle guard (integrated W08):** crop growth validates loaded-only farmland and open space, pausing without generating terrain. Merchant biome progress reconciles unique `explored/<Biome>` flags. Mob and village simulation suspend when their terrain chunk is unavailable; projectile queries reuse a configured terrain ray cast. Water columns retain level 1 at their foot, and unknown neighbours cannot weaken flow. Mob steering respects plants, lava and stateful slab/stair occupancy.
 

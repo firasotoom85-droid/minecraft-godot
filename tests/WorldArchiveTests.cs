@@ -19,6 +19,7 @@ public static class WorldArchiveTests
         string? importedOne = null;
         string? importedTwo = null;
         string? backupWorld = null;
+        string? mismatchRestoreWorld = null;
         try
         {
             sourceWorld = WorldStore.Create("Portable Test", 8675309);
@@ -139,6 +140,48 @@ public static class WorldArchiveTests
                         "pre-restore current save is retained as a safety backup");
             }
 
+
+            // A structurally valid file is not restorable unless its manifest,
+            // world and player all identify the same committed generation.
+            mismatchRestoreWorld = WorldStore.Create("Mismatched Restore", 1235);
+            string mismatchWorldPath = ProjectSettings.GlobalizePath(
+                    WorldStore.WorldSavePath(mismatchRestoreWorld));
+            string mismatchPlayerPath = ProjectSettings.GlobalizePath(
+                    WorldStore.PlayerSavePath(mismatchRestoreWorld));
+            string mismatchManifestPath = ProjectSettings.GlobalizePath(
+                    WorldStore.ManifestPath(mismatchRestoreWorld));
+            string restoreGeneration = Guid.NewGuid().ToString("N");
+            WorldManifest restoreBase = WorldStore.ReadManifest(mismatchRestoreWorld)!;
+            WorldSaveSnapshot restoreFixture = new(
+                    new WorldSave(WorldStore.WorldFormatVersion, null, 0.25,
+                            SnapshotId: restoreGeneration),
+                    new PlayerSave([1.0f, 2.0f, 3.0f], SnapshotId: restoreGeneration),
+                    restoreBase with { HasSavedData = true, SnapshotId = restoreGeneration },
+                    mismatchWorldPath, mismatchPlayerPath, mismatchManifestPath, 1, 0.0);
+            TestAssert.Check(WorldSaveWorker.WriteSynchronously(restoreFixture).Success,
+                    "mismatched-restore fixture commits its baseline generation");
+            string unrelatedGeneration = Guid.NewGuid().ToString("N");
+            string unrelatedGenerationTwo = Guid.NewGuid().ToString("N");
+            TestAssert.Check(WorldStore.WriteAtomic(WorldStore.WorldSavePath(mismatchRestoreWorld),
+                    JsonSerializer.Serialize(new WorldSave(WorldStore.WorldFormatVersion, null, 0.9,
+                            SnapshotId: unrelatedGeneration), WorldStore.Json)),
+                    "an uncommitted world generation is available as an individual restore candidate");
+            TestAssert.Check(WorldStore.WriteAtomic(WorldStore.WorldSavePath(mismatchRestoreWorld),
+                    JsonSerializer.Serialize(new WorldSave(WorldStore.WorldFormatVersion, null, 0.95,
+                            SnapshotId: unrelatedGenerationTwo), WorldStore.Json)),
+                    "a second uncommitted generation rotates the mismatched candidate into the backup list");
+            WorldBackupInfo? mismatchedPoint = WorldBackupStore.List(mismatchRestoreWorld)
+                    .Find(item => item.FileName == "world.json.bak" && item.IsValid);
+            TestAssert.Check(mismatchedPoint is not null,
+                    "backup browser can inspect a structurally valid but uncommitted save file");
+            if (mismatchedPoint is not null)
+            {
+                WorldBackupRestoreResult rejectedRestore = WorldBackupStore.Restore(
+                        mismatchRestoreWorld, mismatchedPoint.Path);
+                TestAssert.Check(!rejectedRestore.Success,
+                        "backup restore refuses a world file without a matching player/manifest generation");
+            }
+
             // Reject a null SHA-256 field through the importer's normal
             // invalid-data path before any destination is published.
             string nullHashArchive = Path.Combine(absoluteRoot, "null-hash.zip");
@@ -158,6 +201,54 @@ public static class WorldArchiveTests
                     "an archive record with sha256:null is rejected as invalid archive metadata");
             TestAssert.Equal(worldsBeforeNullHash, Directory.GetDirectories(worldsRoot).Length,
                     "invalid null-hash metadata does not publish an import destination");
+
+
+            string mismatchedArchive = Path.Combine(absoluteRoot, "mismatched-generation.zip");
+            string generationManifestId = Guid.NewGuid().ToString("N");
+            string generationWorldId = Guid.NewGuid().ToString("N");
+            WorldManifest mismatchedManifest = sourceManifest with
+            {
+                HasSavedData = true,
+                SnapshotId = generationManifestId,
+            };
+            Dictionary<string, byte[]> mismatchedEntries = new()
+            {
+                ["world/manifest.json"] = System.Text.Encoding.UTF8.GetBytes(
+                        JsonSerializer.Serialize(mismatchedManifest, WorldStore.ManifestJson)),
+                ["world/world.json"] = System.Text.Encoding.UTF8.GetBytes(
+                        JsonSerializer.Serialize(new WorldSave(WorldStore.WorldFormatVersion, null, 0.5,
+                                SnapshotId: generationWorldId), WorldStore.Json)),
+                ["world/player.json"] = System.Text.Encoding.UTF8.GetBytes(
+                        JsonSerializer.Serialize(new PlayerSave([1.0f, 2.0f, 3.0f],
+                                SnapshotId: generationManifestId), WorldStore.Json)),
+            };
+            List<WorldArchiveFile> mismatchedRecords = [];
+            foreach ((string entryPath, byte[] bytes) in mismatchedEntries)
+                mismatchedRecords.Add(new WorldArchiveFile(entryPath, bytes.LongLength,
+                        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant()));
+            WorldArchiveManifest mismatchedMetadata = new(WorldArchive.ArchiveVersion,
+                    DateTimeOffset.UtcNow.ToUnixTimeSeconds(), mismatchedManifest, mismatchedRecords);
+            using (FileStream stream = new(mismatchedArchive, FileMode.CreateNew))
+            using (ZipArchive zip = new(stream, ZipArchiveMode.Create))
+            {
+                foreach ((string entryPath, byte[] bytes) in mismatchedEntries)
+                {
+                    ZipArchiveEntry entry = zip.CreateEntry(entryPath);
+                    using Stream output = entry.Open();
+                    output.Write(bytes, 0, bytes.Length);
+                }
+                ZipArchiveEntry metadata = zip.CreateEntry(WorldArchive.ArchiveManifestName);
+                using (StreamWriter writer = new(metadata.Open()))
+                    writer.Write(JsonSerializer.Serialize(mismatchedMetadata, WorldStore.Json));
+            }
+            int worldsBeforeMismatchedPair = Directory.GetDirectories(worldsRoot).Length;
+            bool mismatchedPairRejected = false;
+            try { WorldArchive.Import(mismatchedArchive, worldsRoot); }
+            catch (InvalidDataException) { mismatchedPairRejected = true; }
+            TestAssert.Check(mismatchedPairRejected,
+                    "archive import rejects individually valid saves from different commit generations");
+            TestAssert.Equal(worldsBeforeMismatchedPair, Directory.GetDirectories(worldsRoot).Length,
+                    "mismatched archive generations are rejected before world publication");
 
             // An unsupported primary world save must not be replaced by an
             // older compatible backup during staged archive validation.
@@ -249,12 +340,29 @@ public static class WorldArchiveTests
         }
         finally
         {
-            if (backupWorld is not null) WorldStore.Delete(backupWorld);
-            if (importedOne is not null) WorldStore.Delete(importedOne);
-            if (importedTwo is not null) WorldStore.Delete(importedTwo);
-            if (sourceWorld is not null) WorldStore.Delete(sourceWorld);
+            if (backupWorld is not null) DeleteTestWorld(backupWorld);
+            if (mismatchRestoreWorld is not null) DeleteTestWorld(mismatchRestoreWorld);
+            if (importedOne is not null) DeleteTestWorld(importedOne);
+            if (importedTwo is not null) DeleteTestWorld(importedTwo);
+            if (sourceWorld is not null) DeleteTestWorld(sourceWorld);
             if (Directory.Exists(absoluteRoot))
                 Directory.Delete(absoluteRoot, recursive: true);
         }
     }
+    private static void DeleteTestWorld(string directory)
+    {
+        WorldStore.Delete(directory);
+        try
+        {
+            string quarantine = ProjectSettings.GlobalizePath(WorldStore.DeletedWorldPath(directory));
+            if (Directory.Exists(quarantine))
+                Directory.Delete(quarantine, recursive: true);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException
+                or System.Security.SecurityException)
+        {
+            GD.PushWarning($"minecraft tests: could not clean quarantined world ({e.Message})");
+        }
+    }
+
 }

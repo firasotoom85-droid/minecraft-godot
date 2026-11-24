@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using Godot;
@@ -19,7 +20,8 @@ public sealed record WorldManifest(
     string? Mode = null,
     string? Preset = null,
     long PlaytimeSeconds = 0,
-    bool HasSavedData = false);
+    bool HasSavedData = false,
+    string? SnapshotId = null);
 
 /// <summary>Legacy combined save (v1). Read only while migrating an old save.</summary>
 public sealed record LegacySave(
@@ -41,7 +43,8 @@ public sealed record WorldSave(
     Dictionary<string, Dictionary<string, byte>>? BlockStates = null,
     Dictionary<string, VillagerSave>? Villagers = null,
     Dictionary<string, QuestProgressSave>? Quests = null,
-    List<BoatSave>? Boats = null);
+    List<BoatSave>? Boats = null,
+    string? SnapshotId = null);
 
 /// <summary>Per-player state. Experience is optional and defaults to zero for legacy saves.</summary>
 public sealed record PlayerSave(
@@ -55,7 +58,8 @@ public sealed record PlayerSave(
     int Experience = 0,
     float? Yaw = null,
     float? Pitch = null,
-    bool Dead = false);
+    bool Dead = false,
+    string? SnapshotId = null);
 
 public enum WorldReadStatus { Missing, Valid, Recovered, Corrupt, Unsupported, Inaccessible }
 
@@ -114,6 +118,7 @@ public static class WorldStore
     internal static Func<string, bool>? CopyFileAllowedForTests;
     internal static Func<string, bool>? CopyFileWriteAllowedForTests;
     internal static Func<string, string[]>? EnumerateWorldDirectoriesForTests;
+    internal static Action<string, string>? MoveDirectoryForTests;
 
     public static long NowUtc() => (long)Time.GetUnixTimeFromSystem();
 
@@ -122,6 +127,15 @@ public static class WorldStore
     public static string WorldSavePath(string dir) => $"{dir}/world.json";
 
     public static string PlayerSavePath(string dir) => $"{dir}/player.json";
+
+    public static string DeletedWorldPath(string dir)
+    {
+        string prefix = WorldsRoot + "/";
+        string id = dir.StartsWith(prefix, StringComparison.Ordinal) ? dir[prefix.Length..] : "";
+        if (id.Length == 0 || id.Contains('/') || id.Contains('\\') || id is "." or "..")
+            throw new System.ArgumentException("The world directory is not a direct child of the worlds root.", nameof(dir));
+        return $"{WorldsRoot}/.quarantine/{id}";
+    }
 
     /// <summary>One master seed maps to five noise seeds (splitmix-style mix, frozen forever).</summary>
     public static int[] DeriveNoiseSeeds(int seed)
@@ -229,7 +243,7 @@ public static class WorldStore
         {
             string name = System.IO.Path.GetFileName(absolute.TrimEnd(
                     System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
-            if (string.IsNullOrWhiteSpace(name)) continue;
+            if (string.IsNullOrWhiteSpace(name) || name == ".quarantine") continue;
             string dir = $"{WorldsRoot}/{name}";
             try
             {
@@ -251,8 +265,8 @@ public static class WorldStore
                             or WorldReadStatus.Unsupported or WorldReadStatus.Inaccessible;
                     bool incompletePair = (worldSave.Status == WorldReadStatus.Missing)
                             != (playerSave.Status == WorldReadStatus.Missing);
-                    bool knownSavedHistory = value.HasSavedData || value.PlaytimeSeconds > 0
-                            || value.PlayedUtc > value.CreatedUtc;
+                    bool knownSavedHistory = value.HasSavedData || value.SnapshotId is not null
+                            || value.PlaytimeSeconds > 0 || value.PlayedUtc > value.CreatedUtc;
                     bool missingHistory = worldSave.Status == WorldReadStatus.Missing
                             && playerSave.Status == WorldReadStatus.Missing && knownSavedHistory;
                     bool unexplainedIncompletePair = incompletePair && knownSavedHistory;
@@ -348,6 +362,9 @@ public static class WorldStore
                     || id is "." or "..")
                 throw new System.IO.InvalidDataException("The world ID provider returned an invalid identifier.");
             string dir = $"{WorldsRoot}/{id}";
+            string quarantined = ProjectSettings.GlobalizePath(DeletedWorldPath(dir));
+            if (System.IO.Directory.Exists(quarantined) || System.IO.File.Exists(quarantined))
+                continue;
             Error created = DirAccess.MakeDirAbsolute(dir);
             if (created == Error.Ok) return dir;
             string absolute = ProjectSettings.GlobalizePath(dir);
@@ -447,9 +464,92 @@ public static class WorldStore
             return false;
         }
 
-        bool deleted = DeleteDirectoryAbsolute(target);
-        if (deleted) RecoveryRequiredDirectories.Remove(dir.TrimEnd('/'));
-        return deleted;
+        try
+        {
+            System.IO.FileAttributes targetAttributes = System.IO.File.GetAttributes(target);
+            if ((targetAttributes & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint))
+                    != System.IO.FileAttributes.Directory)
+                return false;
+
+            string quarantineRoot = System.IO.Path.Combine(root, ".quarantine");
+            if (System.IO.Directory.Exists(quarantineRoot))
+            {
+                System.IO.FileAttributes quarantineAttributes = System.IO.File.GetAttributes(quarantineRoot);
+                if ((quarantineAttributes & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint))
+                        != System.IO.FileAttributes.Directory)
+                    return false;
+            }
+            else
+            {
+                System.IO.Directory.CreateDirectory(quarantineRoot);
+            }
+
+            string quarantineTarget = System.IO.Path.Combine(quarantineRoot, relative);
+            if (System.IO.Directory.Exists(quarantineTarget) || System.IO.File.Exists(quarantineTarget))
+                return false;
+
+            // One same-volume directory rename is the deletion transaction. Keep
+            // the complete save tree intact if the filesystem operation fails.
+            if (MoveDirectoryForTests is { } move)
+                move(target, quarantineTarget);
+            else
+                System.IO.Directory.Move(target, quarantineTarget);
+
+            RecoveryRequiredDirectories.Remove(dir.TrimEnd('/'));
+            return true;
+        }
+        catch (Exception e) when (e is System.IO.IOException
+                or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            GD.PushWarning($"minecraft: could not quarantine world directory {dir}: {e.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>Restore a world previously moved into the deletion quarantine.</summary>
+    public static bool RestoreDeletedWorld(string dir)
+    {
+        string prefix = WorldsRoot + "/";
+        if (!dir.StartsWith(prefix, StringComparison.Ordinal)) return false;
+        string relative = dir[prefix.Length..];
+        if (relative.Length == 0 || relative.Contains('/') || relative.Contains('\\')
+                || relative is "." or "..") return false;
+
+        string root = System.IO.Path.GetFullPath(ProjectSettings.GlobalizePath(WorldsRoot));
+        string target = System.IO.Path.GetFullPath(ProjectSettings.GlobalizePath(dir));
+        string quarantineRoot = System.IO.Path.GetFullPath(
+                ProjectSettings.GlobalizePath(WorldsRoot + "/.quarantine"));
+        string quarantine = System.IO.Path.Combine(quarantineRoot, relative);
+        string rootPrefix = root.TrimEnd(System.IO.Path.DirectorySeparatorChar,
+                System.IO.Path.AltDirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
+        if (!target.StartsWith(rootPrefix, OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            return false;
+
+        try
+        {
+            if (System.IO.Directory.Exists(target) || System.IO.File.Exists(target)) return false;
+            System.IO.FileAttributes rootAttributes = System.IO.File.GetAttributes(root);
+            System.IO.FileAttributes quarantineAttributes = System.IO.File.GetAttributes(quarantineRoot);
+            System.IO.FileAttributes sourceAttributes = System.IO.File.GetAttributes(quarantine);
+            if ((rootAttributes & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint))
+                        != System.IO.FileAttributes.Directory
+                    || (quarantineAttributes & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint))
+                        != System.IO.FileAttributes.Directory
+                    || (sourceAttributes & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint))
+                        != System.IO.FileAttributes.Directory)
+                return false;
+
+            System.IO.Directory.Move(quarantine, target);
+            RecoveryRequiredDirectories.Remove(dir.TrimEnd('/'));
+            return true;
+        }
+        catch (Exception e) when (e is System.IO.IOException
+                or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            GD.PushWarning($"minecraft: could not restore quarantined world {dir}: {e.Message}");
+            return false;
+        }
     }
 
     private static bool DeleteDirectoryAbsolute(string directory)
@@ -590,7 +690,7 @@ public static class WorldStore
             return;
 
         List<(string Dir, WorldManifest Manifest)> worlds = List();
-        if (LastListError is not null || UnreadableWorldDirectories.Count > 0 || worlds.Count > 0)
+        if (LastListError is not null || UnreadableWorldDirectories.Count > 0)
             return;
 
         LegacySave? save;
@@ -604,34 +704,60 @@ public static class WorldStore
             return;
         }
 
-        if (save == null)
+        if (save is null)
+            return;
+
+        string dir;
+        try
         {
+            dir = ReserveWorldDirectory();
+        }
+        catch (System.IO.IOException e)
+        {
+            GD.PushWarning($"minecraft: legacy migration could not reserve a world directory ({e.Message}); original save left untouched");
             return;
         }
 
-        string dir = $"{WorldsRoot}/default";
-        DirAccess.MakeDirRecursiveAbsolute(dir);
-        bool worldWritten = WriteAtomic(
-                WorldSavePath(dir), JsonSerializer.Serialize(new WorldSave(
-                        WorldFormatVersion, save.Edits, save.Time), Json));
-        bool playerWritten = WriteAtomic(
-                PlayerSavePath(dir), JsonSerializer.Serialize(new PlayerSave(save.Player ?? []), Json));
-        if (!worldWritten || !playerWritten)
+        long migratedUtc = NowUtc();
+        HashSet<string> existingNames = worlds.Select(world => world.Manifest.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        string name = "My World";
+        for (int suffix = 1; existingNames.Contains(name); suffix++)
         {
-            GD.PushWarning("minecraft: legacy migration failed to write; original save left untouched");
+            string tail = suffix == 1 ? " (Legacy)" : $" (Legacy {suffix})";
+            name = "My World"[..Math.Min(8, 128 - tail.Length)] + tail;
+        }
+
+        string migrationSnapshotId = Guid.NewGuid().ToString("N");
+        WorldSave legacyWorld = new(WorldFormatVersion, save.Edits, save.Time,
+                SnapshotId: migrationSnapshotId);
+        PlayerSave legacyPlayer = new(save.Player ?? [], SnapshotId: migrationSnapshotId);
+        WorldManifest legacyManifest = new(name, LegacyNoiseSeeds[0], 1,
+                LegacyNoiseSeeds, migratedUtc, migratedUtc, HasSavedData: true,
+                SnapshotId: migrationSnapshotId);
+        WorldSaveSnapshot migration = new(
+                legacyWorld,
+                legacyPlayer,
+                legacyManifest,
+                ProjectSettings.GlobalizePath(WorldSavePath(dir)),
+                ProjectSettings.GlobalizePath(PlayerSavePath(dir)),
+                ProjectSettings.GlobalizePath(ManifestPath(dir)),
+                DirtyRevision: 0,
+                ElapsedPlaytimeSeconds: 0.0);
+        WorldSaveWorkerResult migrationResult = WorldSaveWorker.WriteSynchronously(migration);
+        if (!migrationResult.Success)
+        {
+            GD.PushWarning($"minecraft: legacy migration failed to commit a complete save pair ({migrationResult.Error}); original save left untouched");
+            Delete(dir);
             return;
         }
 
-        if (!WriteManifest(dir, new WorldManifest(
-                "My World", LegacyNoiseSeeds[0], 1, LegacyNoiseSeeds, NowUtc(), NowUtc())))
+        string migratedPath = LegacySavePath + ".migrated";
+        if (FileAccess.FileExists(migratedPath))
+            migratedPath += "-" + migratedUtc.ToString(CultureInfo.InvariantCulture);
+        if (DirAccess.RenameAbsolute(LegacySavePath, migratedPath) != Error.Ok)
         {
-            GD.PushWarning("minecraft: legacy migration could not write the manifest; original save left untouched");
-            return;
-        }
-
-        if (DirAccess.RenameAbsolute(LegacySavePath, LegacySavePath + ".migrated") != Error.Ok)
-        {
-            GD.PushWarning("minecraft: legacy save was imported, but the original file could not be archived");
+            GD.PushWarning("minecraft: legacy save was imported, but the original file could not be archived; it was left untouched");
             return;
         }
 
@@ -849,6 +975,29 @@ public static class WorldStore
             }
         }
 
+        string snapshotRoot = System.IO.Path.Combine(
+                ProjectSettings.GlobalizePath(worldDirectory), ".snapshots");
+        try
+        {
+            if (System.IO.Directory.Exists(snapshotRoot))
+            {
+                if ((System.IO.File.GetAttributes(snapshotRoot)
+                        & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint))
+                        != System.IO.FileAttributes.Directory)
+                    return $"world snapshot storage is not a regular directory: {snapshotRoot}";
+                foreach (string generationDirectory in System.IO.Directory.GetDirectories(snapshotRoot))
+                    if ((System.IO.File.GetAttributes(generationDirectory)
+                            & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint))
+                            != System.IO.FileAttributes.Directory)
+                        return $"world snapshot generation is not a regular directory: {generationDirectory}";
+            }
+        }
+        catch (Exception e) when (e is System.IO.IOException
+                or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return $"world snapshot storage cannot be inspected: {e.Message}";
+        }
+
         return null;
     }
 
@@ -856,19 +1005,112 @@ public static class WorldStore
     public static T? ReadJson<T>(string path, JsonSerializerOptions options)
         where T : class => ReadJsonResult<T>(path, options).Value;
 
+    private static bool HasSaveCandidate(string path)
+    {
+        if (FileAccess.FileExists(path) || FileAccess.FileExists(path + ".bak")
+                || FileAccess.FileExists(path + ".bak2")) return true;
+        string? worldDirectory = ParentWorldDirectory(path);
+        if (worldDirectory is null) return false;
+
+        string snapshotRoot = System.IO.Path.Combine(
+                ProjectSettings.GlobalizePath(worldDirectory), ".snapshots");
+        try
+        {
+            if (!System.IO.Directory.Exists(snapshotRoot)
+                    || (System.IO.File.GetAttributes(snapshotRoot)
+                    & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint))
+                    != System.IO.FileAttributes.Directory) return false;
+            string fileName = System.IO.Path.GetFileName(path);
+            foreach (string generationDirectory in System.IO.Directory.GetDirectories(snapshotRoot))
+            {
+                string generation = System.IO.Path.GetFileName(generationDirectory);
+                if (generation != "legacy" && !Guid.TryParseExact(generation, "N", out _)) continue;
+                if ((System.IO.File.GetAttributes(generationDirectory)
+                        & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint))
+                        != System.IO.FileAttributes.Directory) continue;
+                if (System.IO.File.Exists(System.IO.Path.Combine(generationDirectory, fileName)))
+                    return true;
+            }
+            return false;
+        }
+        catch (Exception e) when (e is System.IO.IOException
+                or UnauthorizedAccessException or System.Security.SecurityException) { return true; }
+    }
+
     public static WorldReadResult<T> ReadJsonResult<T>(string path, JsonSerializerOptions options)
         where T : class
     {
         bool found = false;
         bool inaccessible = false;
         string? lastError = null;
+        string? expectedSnapshotId = null;
+        string? stableSnapshotPath = null;
+        bool validateSnapshotPair = typeof(T) == typeof(WorldSave) || typeof(T) == typeof(PlayerSave);
+        if (validateSnapshotPair && ParentWorldDirectory(path) is { } worldDirectory)
+        {
+            WorldReadResult<WorldManifest> manifestRead = ReadManifestResult(worldDirectory);
+            if (manifestRead.Value is not { } committedManifest)
+            {
+                bool saveExists = HasSaveCandidate(path);
+                if (!saveExists && manifestRead.Status == WorldReadStatus.Missing)
+                    return new WorldReadResult<T>(null, WorldReadStatus.Missing, null);
+                MarkRecoveryRequired(path);
+                WorldReadStatus pairStatus = manifestRead.Status switch
+                {
+                    WorldReadStatus.Unsupported => WorldReadStatus.Unsupported,
+                    WorldReadStatus.Inaccessible => WorldReadStatus.Inaccessible,
+                    _ => WorldReadStatus.Corrupt,
+                };
+                return new WorldReadResult<T>(null, pairStatus,
+                        $"The save cannot be matched to a readable commit manifest ({manifestRead.Error}).");
+            }
+
+            expectedSnapshotId = committedManifest.SnapshotId;
+            string snapshotKey = expectedSnapshotId ?? "legacy";
+            stableSnapshotPath = $"{worldDirectory}/.snapshots/{snapshotKey}/{System.IO.Path.GetFileName(path)}";
+        }
         if (ValidateWorldReadDirectory(path) is { } directoryError)
         {
             MarkRecoveryRequired(path);
             return new WorldReadResult<T>(null, WorldReadStatus.Inaccessible, directoryError);
         }
 
-        foreach (string candidate in new[] { path, path + ".bak", path + ".bak2" })
+        List<string> candidates = [path, path + ".bak", path + ".bak2"];
+        if (stableSnapshotPath is not null) candidates.Add(stableSnapshotPath);
+        if (typeof(T) == typeof(WorldManifest) && ParentWorldDirectory(path) is { } manifestDirectory)
+        {
+            string snapshotRoot = System.IO.Path.Combine(
+                    ProjectSettings.GlobalizePath(manifestDirectory), ".snapshots");
+            try
+            {
+                if (System.IO.Directory.Exists(snapshotRoot)
+                        && (System.IO.File.GetAttributes(snapshotRoot)
+                        & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint))
+                        == System.IO.FileAttributes.Directory)
+                {
+                    foreach (string generationDirectory in System.IO.Directory.GetDirectories(snapshotRoot)
+                            .Where(directory =>
+                            {
+                                string generation = System.IO.Path.GetFileName(directory);
+                                return generation == "legacy" || Guid.TryParseExact(generation, "N", out _);
+                            })
+                            .OrderByDescending(System.IO.Directory.GetCreationTimeUtc))
+                    {
+                        if ((System.IO.File.GetAttributes(generationDirectory)
+                                & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint))
+                                != System.IO.FileAttributes.Directory) continue;
+                        candidates.Add($"{manifestDirectory}/.snapshots/{System.IO.Path.GetFileName(generationDirectory)}/manifest.json");
+                    }
+                }
+            }
+            catch (Exception e) when (e is System.IO.IOException
+                    or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                inaccessible = true;
+                lastError = $"could not enumerate stable save snapshots ({e.Message})";
+            }
+        }
+        foreach (string candidate in candidates)
         {
             if (!TryGetCandidateAttributes(candidate, out System.IO.FileAttributes attributes,
                     out bool exists, out string? attributeError))
@@ -921,6 +1163,21 @@ public static class WorldStore
                     continue;
                 }
 
+                if (validateSnapshotPair)
+                {
+                    string candidateSnapshotId = value switch
+                    {
+                        WorldSave worldSave => worldSave.SnapshotId ?? "",
+                        PlayerSave playerSave => playerSave.SnapshotId ?? "",
+                        _ => "",
+                    };
+                    if (!string.Equals(candidateSnapshotId, expectedSnapshotId ?? "", StringComparison.Ordinal))
+                    {
+                        lastError = $"{candidate}: save generation does not match the committed manifest";
+                        continue;
+                    }
+                }
+
                 if (candidate != path)
                     GD.PushWarning($"minecraft: recovered {path} from {candidate}");
                 return new WorldReadResult<T>(value,
@@ -951,7 +1208,8 @@ public static class WorldStore
         {
             case WorldManifest manifest:
                 if (manifest.Name is null || string.IsNullOrWhiteSpace(manifest.Name)
-                        || manifest.Name.Length > 128 || manifest.NoiseSeeds is not { Length: 5 })
+                        || manifest.Name.Length > 128 || manifest.NoiseSeeds is not { Length: 5 }
+                        || !ValidSnapshotId(manifest.SnapshotId))
                     return false;
                 if (manifest.GenVersion > CurrentGenVersion)
                 {
@@ -973,37 +1231,63 @@ public static class WorldStore
                     error = $"world save version {save.Version} is newer than {WorldFormatVersion}";
                     return false;
                 }
-                if (save.Version < 1 || !double.IsFinite(save.Time)) return false;
+                if (save.Version < 1 || !double.IsFinite(save.Time)
+                        || !ValidSnapshotId(save.SnapshotId)) return false;
                 if (save.Edits is not null)
                 {
+                    HashSet<Vector2I> coordinatesSeen = [];
                     foreach ((string chunk, Dictionary<string, BlockId> inner) in save.Edits)
                     {
-                        if (string.IsNullOrWhiteSpace(chunk) || inner is null) return false;
+                        if (!TryParseCoordinateKey(chunk, 2, out int[] coordinates)
+                                || !coordinatesSeen.Add(new Vector2I(coordinates[0], coordinates[1]))
+                                || inner is null) return false;
+                        HashSet<int> indicesSeen = [];
                         foreach ((string index, BlockId id) in inner)
-                            if (!int.TryParse(index, out int parsed) || parsed < 0 || parsed >= 16 * 128 * 16
-                                    || !BlockDb.IsDefined(id))
+                        {
+                            if (!int.TryParse(index, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
+                                    || parsed < 0 || parsed >= 16 * 128 * 16
+                                    || index != parsed.ToString(CultureInfo.InvariantCulture)
+                                    || !indicesSeen.Add(parsed) || !BlockDb.IsDefined(id))
                                 return false;
+                        }
                     }
                 }
                 if (save.Containers is not null)
+                {
+                    HashSet<Vector3I> coordinatesSeen = [];
                     foreach ((string key, List<ItemStackSave> items) in save.Containers)
-                        if (string.IsNullOrWhiteSpace(key) || !ValidStacks(items, Container.Size)) return false;
+                        if (!TryParseCoordinateKey(key, 3, out int[] coordinates)
+                                || !coordinatesSeen.Add(new Vector3I(coordinates[0], coordinates[1], coordinates[2]))
+                                || !ValidStacks(items, Container.Size)) return false;
+                }
                 if (save.Flags is not null && save.Flags.Keys.Any(string.IsNullOrWhiteSpace)) return false;
                 if (save.Furnaces is not null)
+                {
+                    HashSet<Vector3I> coordinatesSeen = [];
                     foreach ((string key, FurnaceSave furnace) in save.Furnaces)
-                        if (string.IsNullOrWhiteSpace(key) || furnace is null
-                                || !ValidStacks(furnace.Slots, 3)
+                        if (!TryParseCoordinateKey(key, 3, out int[] coordinates)
+                                || !coordinatesSeen.Add(new Vector3I(coordinates[0], coordinates[1], coordinates[2]))
+                                || furnace is null
+                                || !ValidStacks(furnace.Slots, 3, validateFurnaceSlots: true)
                                 || !float.IsFinite(furnace.BurnTime) || furnace.BurnTime < 0
                                 || !float.IsFinite(furnace.BurnMax) || furnace.BurnMax < 0
                                 || !float.IsFinite(furnace.SmeltTime) || furnace.SmeltTime < 0)
                             return false;
+                }
                 if (save.BlockStates is not null)
+                {
+                    HashSet<Vector2I> coordinatesSeen = [];
                     foreach ((string chunk, Dictionary<string, byte> inner) in save.BlockStates)
                     {
-                        if (string.IsNullOrWhiteSpace(chunk) || inner is null) return false;
-                        if (inner.Keys.Any(key => !int.TryParse(key, out int index)
-                                || index < 0 || index >= 16 * 128 * 16)) return false;
+                        if (!TryParseCoordinateKey(chunk, 2, out int[] coordinates)
+                                || !coordinatesSeen.Add(new Vector2I(coordinates[0], coordinates[1]))
+                                || inner is null) return false;
+                        if (inner.Keys.Any(key => !int.TryParse(key, NumberStyles.Integer,
+                                        CultureInfo.InvariantCulture, out int index)
+                                || index < 0 || index >= 16 * 128 * 16
+                                || key != index.ToString(CultureInfo.InvariantCulture))) return false;
                     }
+                }
                 if (save.Villagers is not null)
                     foreach ((string key, VillagerSave villager) in save.Villagers)
                         if (string.IsNullOrWhiteSpace(key) || villager is null || villager.Id != key
@@ -1033,7 +1317,9 @@ public static class WorldStore
                 if ((player.Pos is not { Length: 0 } && !ValidVector(player.Pos))
                         || player.Selected < 0
                         || player.Selected >= Inventory.HotbarSize
-                        || (player.Items is not null && !ValidStacks(player.Items, Inventory.SaveSlotCount))
+                        || !ValidSnapshotId(player.SnapshotId)
+                        || (player.Items is not null && !ValidStacks(player.Items,
+                                Inventory.PersistentSlotCount, validateInventorySlots: true))
                         || (player.Mode is not null && player.Mode is not ("survival" or "creative"))
                         || !float.IsFinite(player.Health) || player.Health < 0
                         || (player.Hunger is { } hunger && (!float.IsFinite(hunger) || hunger < 0 || hunger > 20))
@@ -1047,21 +1333,58 @@ public static class WorldStore
         }
     }
 
-    private static bool ValidStacks(List<ItemStackSave>? items, int slotCount)
+    private static bool ValidStacks(
+            List<ItemStackSave>? items, int slotCount,
+            bool validateInventorySlots = false, bool validateFurnaceSlots = false)
     {
         if (items is null) return false;
         HashSet<int> occupied = [];
         foreach (ItemStackSave stack in items)
         {
-            if (stack is null || stack.Slot < 0 || stack.Slot >= slotCount
-                    || !occupied.Add(stack.Slot) || stack.Id < 0
-                    || !Enum.IsDefined(typeof(ItemId), (ItemId)stack.Id)
-                    || stack.Count <= 0 || stack.Durability < 0
-                    || stack.Sharpness < 0 || stack.Protection < 0 || stack.Unbreaking < 0)
+            if (stack is null || stack.Slot < 0 || stack.Slot >= slotCount || !occupied.Add(stack.Slot))
+                return false;
+            if (ItemStackSaveValidator.IsUnrecognizedItemId(stack.Id))
+            {
+                if (stack.Count <= 0 || stack.Durability < 0 || stack.Sharpness < 0
+                        || stack.Protection < 0 || stack.Unbreaking < 0) return false;
+                continue;
+            }
+            if (!ItemStackSaveValidator.TryCreate(stack, out ItemStack item, out _))
+                return false;
+            if (validateInventorySlots && !ItemStackSaveValidator.FitsInventorySlot(stack.Slot, item))
+                return false;
+            if (validateFurnaceSlots && !ItemStackSaveValidator.FitsFurnaceSlot(stack.Slot, item))
                 return false;
         }
         return true;
     }
+
+    private static bool ValidSnapshotId(string? snapshotId) =>
+            snapshotId is null || Guid.TryParseExact(snapshotId, "N", out _);
+
+    private static bool TryParseCoordinateKey(string? key, int dimensions, out int[] coordinates)
+    {
+        coordinates = [];
+        if (string.IsNullOrEmpty(key)) return false;
+        string[] parts = key.Split(',');
+        if (parts.Length != dimensions) return false;
+        int[] parsed = new int[dimensions];
+        for (int i = 0; i < dimensions; i++)
+        {
+            if (!int.TryParse(parts[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed[i])
+                    || parts[i] != parsed[i].ToString(CultureInfo.InvariantCulture)) return false;
+        }
+        coordinates = parsed;
+        return true;
+    }
+
+    internal static string? SnapshotIdOf(string baseName, string json) => baseName switch
+    {
+        "manifest.json" => JsonSerializer.Deserialize<WorldManifest>(json, ManifestJson)?.SnapshotId,
+        "world.json" => JsonSerializer.Deserialize<WorldSave>(json, Json)?.SnapshotId,
+        "player.json" => JsonSerializer.Deserialize<PlayerSave>(json, Json)?.SnapshotId,
+        _ => null,
+    };
 
     private static bool ValidVector(float[]? vector) =>
         vector is { Length: 3 } && float.IsFinite(vector[0])
@@ -1101,9 +1424,8 @@ public static class WorldStore
         bool bothMissing = world.Status == WorldReadStatus.Missing
                 && player.Status == WorldReadStatus.Missing;
         bool bothPresent = world.Value is not null && player.Value is not null;
-        bool knownPreviouslySaved = manifest.Value.HasSavedData
-                || manifest.Value.PlaytimeSeconds > 0
-                || manifest.Value.PlayedUtc > manifest.Value.CreatedUtc;
+        bool knownPreviouslySaved = manifest.Value.HasSavedData || manifest.Value.SnapshotId is not null
+                || manifest.Value.PlaytimeSeconds > 0 || manifest.Value.PlayedUtc > manifest.Value.CreatedUtc;
         if ((bothMissing && !knownPreviouslySaved) || bothPresent)
             ClearRecoveryRequired(dir);
     }

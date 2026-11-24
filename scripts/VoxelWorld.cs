@@ -3647,18 +3647,16 @@ public partial class VoxelWorld : Node3D
         if (_autosaveTimer >= AutosaveInterval)
         {
             _autosaveTimer = 0.0;
-            if (hasPlayer && HasUnsavedPlayerChanges(includeSmallPositionChanges: false))
+            if (hasPlayer && HasUnsavedPlayerChanges(includeSmallPositionChanges: false)
+                    && Player!.GlobalPosition.DistanceTo(_lastSavedPos) > 8.0f)
             {
-                if (Player!.GlobalPosition.DistanceTo(_lastSavedPos) > 8.0f)
-                {
-                    MarkDirty();
-                }
-
-                if (_dirty || _unsavedPlaytimeSeconds >= AutosaveInterval)
-                {
-                    QueueBackgroundSave();
-                }
+                MarkDirty();
             }
+
+            // World dirtiness, player pose changes, and elapsed metadata are
+            // independent save triggers. Pose stability must not gate edits.
+            if (hasPlayer && (_dirty || _unsavedPlaytimeSeconds >= AutosaveInterval))
+                QueueBackgroundSave();
         }
     }
 
@@ -4071,6 +4069,7 @@ public partial class VoxelWorld : Node3D
             Velocity = (float[])boat.Velocity.Clone(),
         }).ToList();
 
+        string snapshotId = Guid.NewGuid().ToString("N");
         WorldSave world = new(
                 WorldStore.WorldFormatVersion,
                 editsOut,
@@ -4081,7 +4080,8 @@ public partial class VoxelWorld : Node3D
                 blockStatesOut.Count == 0 ? null : blockStatesOut,
                 villagersOut,
                 questsOut,
-                boatsOut);
+                boatsOut,
+                snapshotId);
 
         float[] playerPos = Player is null
                 ? []
@@ -4098,7 +4098,8 @@ public partial class VoxelWorld : Node3D
                 Player?.Stats.Experience ?? 0,
                 Player?.Rotation.Y,
                 Player?.Camera?.Rotation.X,
-                Player?.Stats.Dead ?? false);
+                Player?.Stats.Dead ?? false,
+                snapshotId);
 
         long elapsedPlaytime = (long)_unsavedPlaytimeSeconds;
         WorldManifest updatedManifest = _manifest with
@@ -4107,6 +4108,7 @@ public partial class VoxelWorld : Node3D
             PlayedUtc = WorldStore.NowUtc(),
             PlaytimeSeconds = _manifest.PlaytimeSeconds + elapsedPlaytime,
             HasSavedData = true,
+            SnapshotId = snapshotId,
         };
 
         // Globalize paths before dispatch. The worker receives only immutable
@@ -4119,7 +4121,8 @@ public partial class VoxelWorld : Node3D
                 ProjectSettings.GlobalizePath(WorldStore.PlayerSavePath(_worldDir)),
                 ProjectSettings.GlobalizePath(WorldStore.ManifestPath(_worldDir)),
                 _saveRevision,
-                elapsedPlaytime);
+                elapsedPlaytime,
+                _manifest with { NoiseSeeds = (int[])_manifest.NoiseSeeds.Clone() });
     }
 
     private void CompleteSave(WorldSaveSnapshot snapshot, WorldSaveWorkerResult result)
@@ -4314,10 +4317,38 @@ public partial class VoxelWorld : Node3D
 
     private void OnPlayerCampfireUsed(string message) => MarkDirty();
 
-    private static bool HasSaveCandidate(string path) =>
-            FileAccess.FileExists(path)
-            || FileAccess.FileExists(path + ".bak")
-            || FileAccess.FileExists(path + ".bak2");
+    private static bool HasSaveCandidate(string path)
+    {
+        if (FileAccess.FileExists(path) || FileAccess.FileExists(path + ".bak")
+                || FileAccess.FileExists(path + ".bak2")) return true;
+        string? worldDirectory = path.StartsWith(WorldStore.WorldsRoot + "/", StringComparison.Ordinal)
+                ? path[..path.LastIndexOf('/')] : null;
+        if (worldDirectory is null) return false;
+
+        string snapshotRoot = System.IO.Path.Combine(
+                ProjectSettings.GlobalizePath(worldDirectory), ".snapshots");
+        try
+        {
+            if (!System.IO.Directory.Exists(snapshotRoot)
+                    || (System.IO.File.GetAttributes(snapshotRoot)
+                    & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint))
+                    != System.IO.FileAttributes.Directory) return false;
+            string fileName = System.IO.Path.GetFileName(path);
+            foreach (string generationDirectory in System.IO.Directory.GetDirectories(snapshotRoot))
+            {
+                string generation = System.IO.Path.GetFileName(generationDirectory);
+                if (generation != "legacy" && !Guid.TryParseExact(generation, "N", out _)) continue;
+                if ((System.IO.File.GetAttributes(generationDirectory)
+                        & (System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReparsePoint))
+                        != System.IO.FileAttributes.Directory) continue;
+                if (System.IO.File.Exists(System.IO.Path.Combine(generationDirectory, fileName)))
+                    return true;
+            }
+            return false;
+        }
+        catch (Exception e) when (e is System.IO.IOException
+                or UnauthorizedAccessException or System.Security.SecurityException) { return true; }
+    }
 
     private void SetWorldReadOnly(string reason)
     {

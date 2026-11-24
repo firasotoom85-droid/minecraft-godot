@@ -732,17 +732,11 @@ public partial class InventoryUi : CanvasLayer, IModalUi
                 break;
             case SlotKind.FurnaceInput:
                 if (_furnace != null)
-                {
-                    ClickStack(ref _furnace.Input, button);
-                }
-
+                    ClickFurnaceSlot(0, ref _furnace.Input, button);
                 break;
             case SlotKind.FurnaceFuel:
                 if (_furnace != null)
-                {
-                    ClickStack(ref _furnace.Fuel, button);
-                }
-
+                    ClickFurnaceSlot(1, ref _furnace.Fuel, button);
                 break;
             case SlotKind.FurnaceOutput:
                 TakeFurnaceOutput(button);
@@ -798,8 +792,30 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _ => ItemStack.Empty,
     };
 
+    private bool AcceptsTypedSlot(InvSlot slot, ItemStack stack)
+    {
+        if (stack.IsEmpty) return true;
+        return slot.Kind switch
+        {
+            SlotKind.FurnaceInput => ItemStackSaveValidator.FitsFurnaceSlot(0, stack),
+            SlotKind.FurnaceFuel => ItemStackSaveValidator.FitsFurnaceSlot(1, stack),
+            _ => true,
+        };
+    }
+
+    private void ClickFurnaceSlot(int furnaceSlot, ref ItemStack slot, MouseButton button)
+    {
+        // Picking up a stack or merging like-for-like does not introduce a new
+        // slot type. Empty-slot placement and swaps must satisfy furnace policy.
+        if (!_cursor.IsEmpty && (slot.IsEmpty || slot.Id != _cursor.Id)
+                && !ItemStackSaveValidator.FitsFurnaceSlot(furnaceSlot, _cursor))
+            return;
+        ClickStack(ref slot, button);
+    }
+
     private void WriteSlot(InvSlot slot, ItemStack stack)
     {
+        if (!AcceptsTypedSlot(slot, stack)) return;
         switch (slot.Kind)
         {
             case SlotKind.Craft:
@@ -850,6 +866,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         int targetArmorSlot = target.Kind == SlotKind.Armor ? target.Index : -1;
         if (!InventoryStackTransfer.TryTransfer(ref moving, ref destination,
                     sourceArmorSlot, targetArmorSlot))
+            return;
+        if (!AcceptsTypedSlot(source, moving) || !AcceptsTypedSlot(target, destination))
             return;
 
         WriteSlot(source, moving);
