@@ -118,15 +118,19 @@ public static class SpawnRecoveryTests
                 "partial-support fixture clears its support cell through SetBlock");
         TestAssert.Check(world.SetBlock(x, y, z, BlockId.PlanksSlab, BlockShapes.SlabBottom),
                 "partial-support fixture places a bottom slab through SetBlock");
-        Vector3 bottomSlabPosition = new(x + 0.5f, y + 1.0f, z + 0.5f);
+        Vector3 bottomSlabPosition = new(x + 0.5f, y + 0.5f, z + 0.5f);
         TestAssert.Check(world.IsSafePlayerPosition(bottomSlabPosition),
-                "safe saved-position validation recognizes the top face of a bottom slab");
+                "safe saved-position validation recognizes a grounded player on a bottom slab");
+        TestAssert.Check(world.IsSafePlayerPosition(bottomSlabPosition + Vector3.Up * 0.5f),
+                "safe saved-position validation accepts the established initial-spawn offset above a bottom slab");
 
         TestAssert.Check(world.SetBlock(x, y, z, BlockId.PlanksSlab, BlockShapes.SlabTop),
                 "partial-support fixture changes to a top slab through SetBlock");
-        Vector3 topSlabPosition = new(x + 0.5f, y + 1.5f, z + 0.5f);
+        Vector3 topSlabPosition = new(x + 0.5f, y + 1.0f, z + 0.5f);
         TestAssert.Check(world.IsSafePlayerPosition(topSlabPosition),
-                "safe saved-position validation recognizes the top face of a top slab");
+                "safe saved-position validation recognizes a grounded player on a top slab");
+        TestAssert.Check(world.IsSafePlayerPosition(topSlabPosition + Vector3.Up * 0.5f),
+                "safe saved-position validation accepts the established initial-spawn offset above a top slab");
 
         TestAssert.Check(world.SetBlock(x, y, z, BlockId.Air),
                 "partial-support fixture removes its slab through SetBlock");
