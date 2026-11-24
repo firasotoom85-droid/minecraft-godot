@@ -4,6 +4,13 @@ using Godot;
 
 namespace Minecraft;
 
+/// <summary>Shared epoch/readiness predicate for authoritative terrain collision.</summary>
+internal static class ChunkCollisionReadiness
+{
+    public static bool IsReady(long appliedEditEpoch, long worldEditEpoch, bool hasCollider) =>
+            hasCollider && appliedEditEpoch == worldEditEpoch;
+}
+
 /// <summary>
 /// A built chunk node: block data reference, three render surfaces
 /// (opaque terrain / alpha-blended glass / animated water) and one trimesh
