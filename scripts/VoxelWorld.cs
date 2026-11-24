@@ -3013,7 +3013,7 @@ public partial class VoxelWorld : Node3D
         {
             chunk = BuildNow(cp);
             return chunk.AppliedEditEpoch == EditEpoch
-                    && _colliderReadyChunks.ContainsKey(cp);
+                    && chunk.CollisionPayloadApplied;
         }
 
         for (int attempt = 0; attempt < 2; attempt++)
