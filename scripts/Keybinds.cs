@@ -56,12 +56,17 @@ public static class Keybinds
         Dictionary<string, Key> resolved = ResolveSavedBindings(cfg);
         foreach ((string action, _) in Bindable)
         {
-            if (!resolved.TryGetValue(action, out Key key) || key == Key.None)
+            if (!cfg.HasSectionKey("keys", action))
                 continue;
 
-            if (cfg.HasSectionKey("keys", action)
-                    && TryReadKey(cfg.GetValue("keys", action, (int)Key.None), out Key requested)
-                    && requested != key)
+            Variant stored = cfg.GetValue("keys", action, (int)Key.None);
+            if (!TryReadKey(stored, out Key requested))
+            {
+                GD.PushWarning($"Ignoring invalid keyboard binding in keys/{action}: expected a defined key code.");
+                continue;
+            }
+
+            if (resolved.TryGetValue(action, out Key key) && requested != key)
                 GD.PushWarning($"Ignoring conflicting keyboard binding in keys/{action}: {requested} is already reserved.");
         }
 
