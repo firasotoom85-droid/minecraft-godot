@@ -3349,6 +3349,41 @@ public partial class VoxelWorld : Node3D
     }
 
     /// <summary>
+    /// Find the occupied saved boat that actually contained the player at the
+    /// last save. The seat offset mirrors Player.EnterBoat; unrelated nearby
+    /// occupied records must not hijack normal saved-position restoration.
+    /// </summary>
+    internal bool TryGetSavedOccupiedBoatSeat(Vector3 savedPlayerPosition, out Vector3 seat)
+    {
+        seat = Vector3.Zero;
+        if (SavedBoats == null || !float.IsFinite(savedPlayerPosition.X)
+                || !float.IsFinite(savedPlayerPosition.Y)
+                || !float.IsFinite(savedPlayerPosition.Z))
+            return false;
+
+        float closestDistanceSquared = 1.0f;
+        bool found = false;
+        foreach (BoatSave savedBoat in SavedBoats)
+        {
+            if (!savedBoat.Occupied || savedBoat.Position is not { Length: 3 } position
+                    || !float.IsFinite(position[0]) || !float.IsFinite(position[1])
+                    || !float.IsFinite(position[2]) || !float.IsFinite(savedBoat.Yaw))
+                continue;
+
+            Vector3 candidate = new(position[0], position[1] + 0.48f, position[2]);
+            float distanceSquared = candidate.DistanceSquaredTo(savedPlayerPosition);
+            if (distanceSquared > closestDistanceSquared)
+                continue;
+
+            closestDistanceSquared = distanceSquared;
+            seat = candidate;
+            found = true;
+        }
+
+        return found;
+    }
+
+    /// <summary>
     /// Resolve a requested saved/respawn position or use the deterministic
     /// world spawn. Failure is explicit and never returns an unchecked default.
     /// </summary>
