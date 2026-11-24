@@ -10,7 +10,7 @@ Use the narrowest test that proves the behavior, then run the full registered su
 
 scripts/verify.sh performs a Debug build and launches tests/TestRunner.tscn in headless mode. The default test timeout is 300 seconds and can be changed with GODOT_TEST_TIMEOUT.
 
-The test runner prints suite-level PASS/FAIL messages and a final assertion/failure count. Do not copy a historical check count into current documentation; the current CI run and current TestRunner.cs are authoritative.
+The test runner prints suite-level PASS/FAIL messages and a final assertion/failure count. Do not copy a historical check count into current documentation; the current CI run and current TestRunner.cs are authoritative. The `runner-reliability` suite drives the real benchmark and survival-soak completion lifecycles, including pre-await and post-await failures, repeated finish triggers, scene teardown, worker drain before temporary-world deletion, and idempotent cleanup.
 
 ## Test categories
 

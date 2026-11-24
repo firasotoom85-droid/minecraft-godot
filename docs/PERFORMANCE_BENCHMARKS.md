@@ -140,9 +140,45 @@ field is explicitly null. The engine process/physics monitor values can lag
 their corresponding frames; use the runner's captured frame deltas as the
 authoritative frame-time distribution. Godot's static-memory monitor is
 Debug-only; use process RSS and managed heap for cross-configuration memory
-comparisons. These measurements are snapshots/high-water marks, not exact
-per-chunk memory ownership; a detailed cache/payload byte budget remains a
-separate task.
+comparisons.
+
+World-cache accounting reports exact byte-array lengths for voxel block,
+shape-state, sky-light, block-light and packed-light arrays, plus the edit-top
+and generator seed arrays. For non-empty collections it reports capacity-based
+estimates for dictionary indexes, the crop registry, the separate source-scan
+and crop-scan chunk registries, campfire/structure/village site caches,
+edit-top indexes, saved string-keyed registries and the built-chunk index.
+Nested object graphs inside containers, furnaces, villagers and quest records
+are not recursively sized; collection/key estimates are deliberately
+identified as estimates, not exact heap measurements. The generator-v8
+village-site dictionary is accounted for as a separate capacity-based
+estimate. Applied mesh source arrays, retained mesh-pool buffers, pending
+worker payloads, process RSS, managed heap and video memory remain separate
+fields to avoid double-counting unlike resources.
+
+Every category also has a sampled high-water mark. Clearing or trimming a
+collection lowers its current estimate; retained high-water values do not
+decrease, so a later snapshot cannot hide an earlier peak. Sampling uses the
+existing one-second benchmark/soak interval, so these diagnostics add no
+per-frame scan or steady-state allocation.
+
+Streaming priority queues and their uniqueness sets are measured from retained
+collection capacities. The two concurrent apply queues report an estimated
+node/reference overhead from their current item counts; pending payload byte
+contents remain in the existing pending-payload counters and are not counted
+again here. The saved inventory/boat staging lists are measured from list
+capacity, not from deep object graphs.
+
+Empty dictionary/HashSet/priority-queue backing storage is not exposed through
+a read-only public capacity API, so it is omitted when a collection has zero
+entries rather than allocating backing storage during measurement.
+
+These remain sampled snapshots/high-water marks, not a complete CLR/native
+allocator or per-object ownership trace. Scene-tree/native allocations,
+VoxelLighting's thread-static scratch queues/buffers and renderer-driver memory
+are not included in the managed-cache estimate; use process RSS and the
+Godot/video monitors alongside the detailed cache fields when diagnosing total
+process retention.
 
 The runner is also safe to smoke-test with `--headless`, but headless timing
 does not include real rendering and must never be used as a GPU/FPS baseline.
