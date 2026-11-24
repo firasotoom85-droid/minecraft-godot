@@ -3355,12 +3355,20 @@ public partial class VoxelWorld : Node3D
     internal bool TryResolvePlayerDestination(Vector3? preferredPosition,
             out Vector3 destination,
             bool allowWater = false,
-            Func<SpawnCandidate, bool>? candidateValidatorOverride = null)
+            Func<SpawnCandidate, bool>? candidateValidatorOverride = null,
+            Vector3? alternatePosition = null)
     {
         if (preferredPosition is Vector3 preferred
                 && IsSafePlayerPosition(preferred, allowWater))
         {
             destination = preferred;
+            return true;
+        }
+
+        if (alternatePosition is Vector3 alternate
+                && IsSafePlayerPosition(alternate, allowWater))
+        {
+            destination = alternate;
             return true;
         }
 
