@@ -510,6 +510,11 @@ public static class BlockDb
             return true;
         }
 
+        // Cutout foliage writes depth where its texels survive, but its alpha
+        // holes must reveal the opaque surface behind it.
+        if (IsFoliage(neighborId))
+            return !IsFoliage(selfId) && !IsTransparent(selfId);
+
         if (IsTransparent(neighborId))
         {
             return selfId != neighborId;
@@ -834,6 +839,7 @@ void fragment() {
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
     EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a;
+    ALPHA_ANTIALIASING_EDGE = 0.4;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
     vec3 response = surface_response(family);
     ALBEDO *= wet_tint;
@@ -1123,6 +1129,7 @@ void fragment() {
     ALBEDO = tex.rgb * illumination * shade * tint.rgb;
     EMISSION = tex.rgb * warm_block_emission(warm_response);
     ALPHA = tex.a;
+    ALPHA_ANTIALIASING_EDGE = 0.4;
     ALPHA_SCISSOR_THRESHOLD = 0.5;
     vec3 response = surface_response(family);
     ALBEDO *= wet_tint;
@@ -1262,7 +1269,8 @@ void fragment() {
     // Preserve the distinct lava core, but derive its strength exclusively
     // from the packed block-light nibble baked into COLOR.g.
     EMISSION = tex.rgb * warm * lava_emission * 0.9;
-    ALPHA = tex.a;
+    // Do not write ALPHA: an ALPHA output routes this fully opaque atlas tile
+    // through Godot's transparent pipeline and prevents opaque depth writes.
     ROUGHNESS = 1.0;
 }
 ";
@@ -1398,8 +1406,8 @@ void fragment() {
                 Color c = Jitter(rng, baseColor, amount);
                 c.A *= alpha;
                 for (int dy = 0; dy < TextureDetailPx; dy++)
-                for (int dx = 0; dx < TextureDetailPx; dx++)
-                    Px(img, tile, x + dx, y + dy, c);
+                    for (int dx = 0; dx < TextureDetailPx; dx++)
+                        Px(img, tile, x + dx, y + dy, c);
             }
         }
     }
@@ -1447,41 +1455,41 @@ void fragment() {
         Color mossDark = new(0.20f, 0.30f, 0.15f);
         Color mossLight = new(0.34f, 0.45f, 0.22f);
         for (int cy = 0; cy < 4; cy++)
-        for (int cx = 0; cx < 4; cx++)
-        {
-            Color stone = Jitter(rng, baseColor, 0.075f);
-            int ox = cx * cell;
-            int oy = cy * cell;
-            for (int py = 0; py < cell; py++)
-            for (int px = 0; px < cell; px++)
+            for (int cx = 0; cx < 4; cx++)
             {
-                bool joint = px == 0 || py == 0;
-                Color color = joint ? mortar : Jitter(rng, stone, 0.025f);
-                if (!joint && (px == 1 || py == 1))
-                    color = color.Darkened(0.08f);
-                Px(img, tile, ox + px, oy + py, color);
-            }
+                Color stone = Jitter(rng, baseColor, 0.075f);
+                int ox = cx * cell;
+                int oy = cy * cell;
+                for (int py = 0; py < cell; py++)
+                    for (int px = 0; px < cell; px++)
+                    {
+                        bool joint = px == 0 || py == 0;
+                        Color color = joint ? mortar : Jitter(rng, stone, 0.025f);
+                        if (!joint && (px == 1 || py == 1))
+                            color = color.Darkened(0.08f);
+                        Px(img, tile, ox + px, oy + py, color);
+                    }
 
-            if (mossy && rng.Randf() < 0.42f)
-            {
-                int width = rng.RandiRange(2, 4);
-                int height = rng.RandiRange(2, 3);
-                int mx = ox + rng.RandiRange(1, cell - width - 1);
-                int my = oy + rng.RandiRange(1, cell - height - 1);
-                for (int py = 0; py < height; py++)
-                for (int px = 0; px < width; px++)
-                    if (rng.Randf() > 0.18f)
-                        Px(img, tile, mx + px, my + py,
-                                Jitter(rng, (px + py) % 3 == 0 ? mossLight : mossDark, 0.035f));
+                if (mossy && rng.Randf() < 0.42f)
+                {
+                    int width = rng.RandiRange(2, 4);
+                    int height = rng.RandiRange(2, 3);
+                    int mx = ox + rng.RandiRange(1, cell - width - 1);
+                    int my = oy + rng.RandiRange(1, cell - height - 1);
+                    for (int py = 0; py < height; py++)
+                        for (int px = 0; px < width; px++)
+                            if (rng.Randf() > 0.18f)
+                                Px(img, tile, mx + px, my + py,
+                                        Jitter(rng, (px + py) % 3 == 0 ? mossLight : mossDark, 0.035f));
+                }
+                else if (!mossy && rng.Randf() < 0.28f)
+                {
+                    int chipX = ox + rng.RandiRange(1, 6);
+                    int chipY = oy + rng.RandiRange(1, 6);
+                    Px(img, tile, chipX, chipY, mortar);
+                    Px(img, tile, chipX + 1, chipY, stone.Darkened(0.18f));
+                }
             }
-            else if (!mossy && rng.Randf() < 0.28f)
-            {
-                int chipX = ox + rng.RandiRange(1, 6);
-                int chipY = oy + rng.RandiRange(1, 6);
-                Px(img, tile, chipX, chipY, mortar);
-                Px(img, tile, chipX + 1, chipY, stone.Darkened(0.18f));
-            }
-        }
     }
 
     /// <summary>Muted brick courses with fine cracks or moss-grown mortar.</summary>
@@ -1551,8 +1559,8 @@ void fragment() {
             int y = rng.RandiRange(0, TilePx / TextureDetailPx - 1) * TextureDetailPx;
             Color speckle = Jitter(rng, c, amount);
             for (int dy = 0; dy < TextureDetailPx; dy++)
-            for (int dx = 0; dx < TextureDetailPx; dx++)
-                Px(img, tile, x + dx, y + dy, speckle);
+                for (int dx = 0; dx < TextureDetailPx; dx++)
+                    Px(img, tile, x + dx, y + dy, speckle);
         }
     }
 
@@ -1697,12 +1705,12 @@ void fragment() {
             uint salt, float strength, Vector3 channelWeights)
     {
         for (int y = 0; y < TilePx; y++)
-        for (int x = 0; x < TilePx; x++)
-        {
-            Color color = CalmSurfaceColor(x + 0.5f, y + 0.5f,
-                    baseColor, salt, strength, channelWeights);
-            Px(img, tile, x, y, color);
-        }
+            for (int x = 0; x < TilePx; x++)
+            {
+                Color color = CalmSurfaceColor(x + 0.5f, y + 0.5f,
+                        baseColor, salt, strength, channelWeights);
+                Px(img, tile, x, y, color);
+            }
     }
 
     private static Color CalmSurfaceColor(float x, float y, Color baseColor,
@@ -1820,14 +1828,14 @@ void fragment() {
             int cx = rng.RandiRange(5, TilePx - 6);
             int cy = rng.RandiRange(4, TilePx - 5);
             for (int y = -2; y <= 2; y++)
-            for (int x = -2; x <= 2; x++)
-            {
-                float d = new Vector2(x, y).Length();
-                if (d <= 2.2f)
-                    Px(img, TLogSide, cx + x, cy + y,
-                            d < 0.9f ? new Color(0.31f, 0.22f, 0.13f)
-                                    : new Color(0.47f, 0.35f, 0.21f));
-            }
+                for (int x = -2; x <= 2; x++)
+                {
+                    float d = new Vector2(x, y).Length();
+                    if (d <= 2.2f)
+                        Px(img, TLogSide, cx + x, cy + y,
+                                d < 0.9f ? new Color(0.31f, 0.22f, 0.13f)
+                                        : new Color(0.47f, 0.35f, 0.21f));
+                }
         }
     }
 
@@ -1842,30 +1850,30 @@ void fragment() {
     {
         float center = (TilePx - 1) * 0.5f;
         for (int y = 0; y < TilePx; y++)
-        for (int x = 0; x < TilePx; x++)
-        {
-            float dx = x - center;
-            float dy = y - center;
-            float angle = Mathf.Atan2(dy, dx);
-            float radius = Mathf.Sqrt(dx * dx * 0.94f + dy * dy * 1.08f);
-            float warp = Mathf.Sin(angle * 3.0f + 0.45f) * 0.38f
-                    + Mathf.Sin(angle * 5.0f - 0.8f) * 0.16f;
-            float rings = Mathf.Sin((radius + warp) * 1.75f + Mathf.Sin(angle * 2.0f) * 0.12f);
-            Color c = sapwood.Lerp(rings < 0.0f ? ringDark : ringLight, 0.42f + Mathf.Abs(rings) * 0.18f);
-            if (radius > TilePx * 0.5f - 2.2f)
-                c = new Color(0.31f, 0.225f, 0.14f);
-            else if (radius < 1.15f)
-                c = new Color(0.34f, 0.245f, 0.15f);
+            for (int x = 0; x < TilePx; x++)
+            {
+                float dx = x - center;
+                float dy = y - center;
+                float angle = Mathf.Atan2(dy, dx);
+                float radius = Mathf.Sqrt(dx * dx * 0.94f + dy * dy * 1.08f);
+                float warp = Mathf.Sin(angle * 3.0f + 0.45f) * 0.38f
+                        + Mathf.Sin(angle * 5.0f - 0.8f) * 0.16f;
+                float rings = Mathf.Sin((radius + warp) * 1.75f + Mathf.Sin(angle * 2.0f) * 0.12f);
+                Color c = sapwood.Lerp(rings < 0.0f ? ringDark : ringLight, 0.42f + Mathf.Abs(rings) * 0.18f);
+                if (radius > TilePx * 0.5f - 2.2f)
+                    c = new Color(0.31f, 0.225f, 0.14f);
+                else if (radius < 1.15f)
+                    c = new Color(0.34f, 0.245f, 0.15f);
 
-            // Three fine radial checks and faint rays keep the rings organic.
-            float ray = Mathf.Abs(Mathf.Sin(angle * 3.0f + 0.18f));
-            if (radius > 3.0f && radius < 13.8f && ray < 0.035f)
-                c = c.Lerp(ringDark, 0.38f);
-            else if (radius > 4.0f && ray < 0.11f)
-                c = c.Lerp(ringLight, 0.12f);
+                // Three fine radial checks and faint rays keep the rings organic.
+                float ray = Mathf.Abs(Mathf.Sin(angle * 3.0f + 0.18f));
+                if (radius > 3.0f && radius < 13.8f && ray < 0.035f)
+                    c = c.Lerp(ringDark, 0.38f);
+                else if (radius > 4.0f && ray < 0.11f)
+                    c = c.Lerp(ringLight, 0.12f);
 
-            Px(img, tile, x, y, Jitter(rng, c, 0.012f));
-        }
+                Px(img, tile, x, y, Jitter(rng, c, 0.012f));
+            }
     }
 
     /// <summary>Soft white wool: fluffy noise with scattered curl marks.</summary>
@@ -1887,11 +1895,11 @@ void fragment() {
     {
         FillNoise(img, TBirchSide, new Color(0.87f, 0.86f, 0.80f), 0.02f, 1.0f, rng);
         for (int x = 2; x < TilePx; x += 7)
-        for (int y = 0; y < TilePx; y++)
-        {
-            if (rng.Randf() < 0.55f)
-                Px(img, TBirchSide, x, y, new Color(0.81f, 0.80f, 0.74f));
-        }
+            for (int y = 0; y < TilePx; y++)
+            {
+                if (rng.Randf() < 0.55f)
+                    Px(img, TBirchSide, x, y, new Color(0.81f, 0.80f, 0.74f));
+            }
         for (int i = 0; i < 12; i++)
         {
             int x = rng.RandiRange(0, TilePx - 1);
@@ -1914,26 +1922,26 @@ void fragment() {
         Color dark = new(0.66f, 0.62f, 0.52f);
         Color light = new(0.95f, 0.92f, 0.84f);
         for (int y = 0; y < TilePx; y++)
-        for (int x = 0; x < TilePx; x++)
-        {
-            float dx = x - center;
-            float dy = y - center;
-            float angle = Mathf.Atan2(dy, dx);
-            float radius = Mathf.Sqrt(dx * dx + dy * dy * 1.06f);
-            float warp = Mathf.Sin(angle * 3.0f + 0.3f) * 0.34f
-                    + Mathf.Sin(angle * 5.0f) * 0.14f;
-            float rings = Mathf.Sin((radius + warp) * 1.65f);
-            Color c = pale.Lerp(rings < 0.0f ? dark : light, 0.28f + Mathf.Abs(rings) * 0.2f);
-            if (radius > TilePx * 0.5f - 2.0f)
-                c = new Color(0.72f, 0.68f, 0.58f);
-            else if (radius < 1.15f)
-                c = new Color(0.60f, 0.56f, 0.47f);
+            for (int x = 0; x < TilePx; x++)
+            {
+                float dx = x - center;
+                float dy = y - center;
+                float angle = Mathf.Atan2(dy, dx);
+                float radius = Mathf.Sqrt(dx * dx + dy * dy * 1.06f);
+                float warp = Mathf.Sin(angle * 3.0f + 0.3f) * 0.34f
+                        + Mathf.Sin(angle * 5.0f) * 0.14f;
+                float rings = Mathf.Sin((radius + warp) * 1.65f);
+                Color c = pale.Lerp(rings < 0.0f ? dark : light, 0.28f + Mathf.Abs(rings) * 0.2f);
+                if (radius > TilePx * 0.5f - 2.0f)
+                    c = new Color(0.72f, 0.68f, 0.58f);
+                else if (radius < 1.15f)
+                    c = new Color(0.60f, 0.56f, 0.47f);
 
-            if (radius > 3.0f && radius < 13.8f
-                    && Mathf.Abs(Mathf.Sin(angle * 3.0f + 0.18f)) < 0.032f)
-                c = c.Lerp(dark, 0.34f);
-            Px(img, TBirchTop, x, y, Jitter(rng, c, 0.01f));
-        }
+                if (radius > 3.0f && radius < 13.8f
+                        && Mathf.Abs(Mathf.Sin(angle * 3.0f + 0.18f)) < 0.032f)
+                    c = c.Lerp(dark, 0.34f);
+                Px(img, TBirchTop, x, y, Jitter(rng, c, 0.01f));
+            }
     }
 
     /// <summary>Procedural emergent reed stalks with transparent gaps and warm seed heads.</summary>
@@ -1965,8 +1973,8 @@ void fragment() {
             // Warm, narrow seed heads remain identifiable after mip reduction.
             int headX = originX + (TilePx - 1 - stemTop) / 12 * lean;
             for (int y = Math.Max(0, stemTop - 5); y < stemTop; y++)
-            for (int dx = -1; dx <= 1; dx++)
-                Px(img, tile, headX + dx, y, dx == -1 ? seedLight : seedHead);
+                for (int dx = -1; dx <= 1; dx++)
+                    Px(img, tile, headX + dx, y, dx == -1 ? seedLight : seedHead);
         }
     }
 
@@ -1978,24 +1986,24 @@ void fragment() {
             RandomNumberGenerator rng)
     {
         for (int y = 0; y < TilePx; y++)
-        for (int x = 0; x < TilePx; x++)
-        {
-            // Keep transparent gaps irregular but clustered so distant canopies
-            // read as leaf masses rather than a uniformly perforated grid.
-            int clusterX = x / 4;
-            int clusterY = y / 4;
-            float holeChance = ((clusterX * 7 + clusterY * 11) % 5 == 0) ? 0.22f : 0.12f;
-            if (rng.Randf() < holeChance)
+            for (int x = 0; x < TilePx; x++)
             {
-                Px(img, tile, x, y, new Color(0, 0, 0, 0));
-                continue;
-            }
+                // Keep transparent gaps irregular but clustered so distant canopies
+                // read as leaf masses rather than a uniformly perforated grid.
+                int clusterX = x / 4;
+                int clusterY = y / 4;
+                float holeChance = ((clusterX * 7 + clusterY * 11) % 5 == 0) ? 0.22f : 0.12f;
+                if (rng.Randf() < holeChance)
+                {
+                    Px(img, tile, x, y, new Color(0, 0, 0, 0));
+                    continue;
+                }
 
-            float palette = rng.Randf();
-            Color source = palette < 0.18f ? dark : palette > 0.84f ? light : baseColor;
-            Color c = Jitter(rng, source, source == baseColor ? 0.045f : 0.025f);
-            Px(img, tile, x, y, c);
-        }
+                float palette = rng.Randf();
+                Color source = palette < 0.18f ? dark : palette > 0.84f ? light : baseColor;
+                Color c = Jitter(rng, source, source == baseColor ? 0.045f : 0.025f);
+                Px(img, tile, x, y, c);
+            }
     }
 
     private static void PaintWater(Image img, RandomNumberGenerator rng)
@@ -2040,21 +2048,21 @@ void fragment() {
             new Color(0.63f, 0.46f, 0.28f),
         ];
         for (int y = 0; y < TilePx; y++)
-        for (int x = 0; x < TilePx; x++)
-        {
-            int board = y / 8;
-            int localY = y % 8;
-            Color baseColor = boards[board];
-            float grain = Mathf.Sin(y * 2.1f + Mathf.Sin(x * 0.21f + board) * 0.45f) * 0.018f;
-            float fleck = Mathf.Sin(x * 0.73f + y * 0.37f) * 0.006f;
-            Color c = new(baseColor.R + grain + fleck, baseColor.G + grain * 0.82f + fleck,
-                    baseColor.B + grain * 0.55f + fleck * 0.7f);
-            if (localY == 0 || localY == 7)
-                c = new Color(0.39f, 0.275f, 0.16f);
-            else if (localY == 1)
-                c = c.Lerp(new Color(0.80f, 0.62f, 0.39f), 0.18f);
-            Px(img, tile, x, y, Jitter(rng, c, 0.008f));
-        }
+            for (int x = 0; x < TilePx; x++)
+            {
+                int board = y / 8;
+                int localY = y % 8;
+                Color baseColor = boards[board];
+                float grain = Mathf.Sin(y * 2.1f + Mathf.Sin(x * 0.21f + board) * 0.45f) * 0.018f;
+                float fleck = Mathf.Sin(x * 0.73f + y * 0.37f) * 0.006f;
+                Color c = new(baseColor.R + grain + fleck, baseColor.G + grain * 0.82f + fleck,
+                        baseColor.B + grain * 0.55f + fleck * 0.7f);
+                if (localY == 0 || localY == 7)
+                    c = new Color(0.39f, 0.275f, 0.16f);
+                else if (localY == 1)
+                    c = c.Lerp(new Color(0.80f, 0.62f, 0.39f), 0.18f);
+                Px(img, tile, x, y, Jitter(rng, c, 0.008f));
+            }
 
         // Tiny low-contrast knots are aligned to board courses rather than
         // scattered noise, and remain readable after nearest minification.
@@ -2063,14 +2071,14 @@ void fragment() {
             int cx = rng.RandiRange(5, TilePx - 6);
             int cy = rng.RandiRange(0, 3) * 8 + 4;
             for (int y = -1; y <= 1; y++)
-            for (int x = -2; x <= 2; x++)
-            {
-                float distance = new Vector2(x / 2.0f, y).Length();
-                if (distance <= 1.0f)
-                    Px(img, tile, cx + x, cy + y,
-                            distance < 0.3f ? new Color(0.42f, 0.30f, 0.18f)
-                                    : new Color(0.71f, 0.53f, 0.32f));
-            }
+                for (int x = -2; x <= 2; x++)
+                {
+                    float distance = new Vector2(x / 2.0f, y).Length();
+                    if (distance <= 1.0f)
+                        Px(img, tile, cx + x, cy + y,
+                                distance < 0.3f ? new Color(0.42f, 0.30f, 0.18f)
+                                        : new Color(0.71f, 0.53f, 0.32f));
+                }
         }
     }
 
@@ -2084,18 +2092,18 @@ void fragment() {
             new Color(0.56f, 0.40f, 0.235f),
         ];
         for (int y = 0; y < TilePx; y++)
-        for (int x = 0; x < TilePx; x++)
-        {
-            int board = y / 8;
-            int localY = y % 8;
-            float grain = Mathf.Sin(x * 0.55f + Mathf.Sin(x * 0.12f + board) * 0.6f) * 0.012f;
-            Color c = boards[board] + new Color(grain, grain * 0.8f, grain * 0.5f);
-            if (localY == 0 || localY == 7)
-                c = new Color(0.35f, 0.245f, 0.145f);
-            else if (localY == 1)
-                c = c.Lerp(new Color(0.69f, 0.49f, 0.29f), 0.1f);
-            Px(img, tile, x, y, Jitter(rng, c, 0.006f));
-        }
+            for (int x = 0; x < TilePx; x++)
+            {
+                int board = y / 8;
+                int localY = y % 8;
+                float grain = Mathf.Sin(x * 0.55f + Mathf.Sin(x * 0.12f + board) * 0.6f) * 0.012f;
+                Color c = boards[board] + new Color(grain, grain * 0.8f, grain * 0.5f);
+                if (localY == 0 || localY == 7)
+                    c = new Color(0.35f, 0.245f, 0.145f);
+                else if (localY == 1)
+                    c = c.Lerp(new Color(0.69f, 0.49f, 0.29f), 0.1f);
+                Px(img, tile, x, y, Jitter(rng, c, 0.006f));
+            }
 
         for (int knot = 0; knot < 2; knot++)
         {
@@ -2111,26 +2119,26 @@ void fragment() {
     {
         // Four board ends occupy the same vertical courses as the side-grain tile.
         for (int y = 0; y < TilePx; y++)
-        for (int x = 0; x < TilePx; x++)
-        {
-            int board = y / 8;
-            float dx = (x - 15.5f) * 0.9f;
-            float dy = (y % 8 - 3.5f) * 1.8f;
-            float radius = Mathf.Sqrt(dx * dx + dy * dy);
-            float rings = Mathf.Sin(radius * 1.5f + Mathf.Sin(Mathf.Atan2(dy, dx) * 3.0f) * 0.2f);
-            Color baseColor = board % 2 == 0
-                    ? new Color(0.62f, 0.45f, 0.27f)
-                    : new Color(0.59f, 0.42f, 0.25f);
-            Color c = baseColor.Lerp(rings < 0.0f
-                    ? new Color(0.43f, 0.30f, 0.18f)
-                    : new Color(0.72f, 0.53f, 0.32f), 0.22f + Mathf.Abs(rings) * 0.16f);
-            if (radius < 0.9f) c = new Color(0.39f, 0.275f, 0.16f);
-            if (y % 8 == 0 || y % 8 == 7) c = new Color(0.36f, 0.25f, 0.15f);
-            if (radius > 4.0f && radius < 7.5f
-                    && Mathf.Abs(Mathf.Sin(Mathf.Atan2(dy, dx) * 2.0f)) < 0.035f)
-                c = c.Lerp(new Color(0.38f, 0.265f, 0.15f), 0.28f);
-            Px(img, tile, x, y, Jitter(rng, c, 0.008f));
-        }
+            for (int x = 0; x < TilePx; x++)
+            {
+                int board = y / 8;
+                float dx = (x - 15.5f) * 0.9f;
+                float dy = (y % 8 - 3.5f) * 1.8f;
+                float radius = Mathf.Sqrt(dx * dx + dy * dy);
+                float rings = Mathf.Sin(radius * 1.5f + Mathf.Sin(Mathf.Atan2(dy, dx) * 3.0f) * 0.2f);
+                Color baseColor = board % 2 == 0
+                        ? new Color(0.62f, 0.45f, 0.27f)
+                        : new Color(0.59f, 0.42f, 0.25f);
+                Color c = baseColor.Lerp(rings < 0.0f
+                        ? new Color(0.43f, 0.30f, 0.18f)
+                        : new Color(0.72f, 0.53f, 0.32f), 0.22f + Mathf.Abs(rings) * 0.16f);
+                if (radius < 0.9f) c = new Color(0.39f, 0.275f, 0.16f);
+                if (y % 8 == 0 || y % 8 == 7) c = new Color(0.36f, 0.25f, 0.15f);
+                if (radius > 4.0f && radius < 7.5f
+                        && Mathf.Abs(Mathf.Sin(Mathf.Atan2(dy, dx) * 2.0f)) < 0.035f)
+                    c = c.Lerp(new Color(0.38f, 0.265f, 0.15f), 0.28f);
+                Px(img, tile, x, y, Jitter(rng, c, 0.008f));
+            }
     }
 
     /// <summary>Crafting table top: planks with a 3x3 grid carved in.</summary>
@@ -2275,32 +2283,32 @@ void fragment() {
             Color highlight = oreColor.Lerp(Colors.White, 0.22f);
 
             for (int y = -1; y <= h; y++)
-            for (int x = -1; x <= w; x++)
-            {
-                int px = cx + x;
-                int py = cy + y;
-                if ((uint)px >= TilePx || (uint)py >= TilePx) continue;
-
-                bool inside = x >= 0 && x < w && y >= 0 && y < h;
-                if (!inside)
+                for (int x = -1; x <= w; x++)
                 {
-                    // One-pixel mineral shadow separates the deposit from stone.
-                    if (x == -1 || x == w || y == -1 || y == h)
-                        Px(img, tile, px, py, Jitter(rng, shadow, 0.025f));
-                    continue;
+                    int px = cx + x;
+                    int py = cy + y;
+                    if ((uint)px >= TilePx || (uint)py >= TilePx) continue;
+
+                    bool inside = x >= 0 && x < w && y >= 0 && y < h;
+                    if (!inside)
+                    {
+                        // One-pixel mineral shadow separates the deposit from stone.
+                        if (x == -1 || x == w || y == -1 || y == h)
+                            Px(img, tile, px, py, Jitter(rng, shadow, 0.025f));
+                        continue;
+                    }
+
+                    // Small stepped cuts keep the deposits crystalline rather than
+                    // reading as rounded blobs; the center remains broad at distance.
+                    bool cutCorner = (x == 0 || x == w - 1) && (y == 0 || y == h - 1)
+                            && rng.Randf() < 0.55f;
+                    if (cutCorner) continue;
+
+                    Color deposit = oreColor;
+                    if (y == 0 || (x == 1 && y > 0)) deposit = highlight;
+                    else if (x == w - 1 || y == h - 1) deposit = shadow;
+                    Px(img, tile, px, py, Jitter(rng, deposit, 0.035f));
                 }
-
-                // Small stepped cuts keep the deposits crystalline rather than
-                // reading as rounded blobs; the center remains broad at distance.
-                bool cutCorner = (x == 0 || x == w - 1) && (y == 0 || y == h - 1)
-                        && rng.Randf() < 0.55f;
-                if (cutCorner) continue;
-
-                Color deposit = oreColor;
-                if (y == 0 || (x == 1 && y > 0)) deposit = highlight;
-                else if (x == w - 1 || y == h - 1) deposit = shadow;
-                Px(img, tile, px, py, Jitter(rng, deposit, 0.035f));
-            }
         }
     }
 

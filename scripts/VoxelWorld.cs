@@ -71,6 +71,9 @@ public partial class VoxelWorld : Node3D
     private readonly FastNoiseLite _islandNoise = new();   // gen v5 sky-island mask
 
     private readonly Dictionary<Vector2I, Chunk> _chunks = new();  // built nodes
+    // Worker-safe snapshot of chunks whose concave terrain collider is active.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Vector2I, byte>
+            _colliderReadyChunks = new();
     public Player? Player;
 
     /// <summary>Raised after a successful main-thread block mutation.</summary>
@@ -109,6 +112,40 @@ public partial class VoxelWorld : Node3D
 
     public bool HasChunk(Vector2I cp) => _chunks.ContainsKey(cp);
 
+    /// <summary>
+    /// Bit mask for cardinal neighbors that do not currently provide an active
+    /// terrain collider. Mesher uses it only for collision boundary ownership.
+    /// </summary>
+    internal int MissingColliderBoundaryMask(Vector2I cp)
+    {
+        int mask = 0;
+        if (!_colliderReadyChunks.ContainsKey(cp + Vector2I.Right)) mask |= 1 << 2;
+        if (!_colliderReadyChunks.ContainsKey(cp + Vector2I.Left)) mask |= 1 << 3;
+        if (!_colliderReadyChunks.ContainsKey(cp + Vector2I.Down)) mask |= 1 << 4;
+        if (!_colliderReadyChunks.ContainsKey(cp + Vector2I.Up)) mask |= 1 << 5;
+        return mask;
+    }
+
+    private void SetChunkColliderAvailability(Vector2I cp, bool available)
+    {
+        bool changed = available
+                ? _colliderReadyChunks.TryAdd(cp, 1)
+                : _colliderReadyChunks.TryRemove(cp, out _);
+        if (!changed) return;
+
+        // Existing neighbors previously emitted (or omitted) frontier
+        // collision faces based on the opposite collider's presence.
+        foreach (Vector2I offset in new[]
+        {
+            Vector2I.Right, Vector2I.Left, Vector2I.Down, Vector2I.Up,
+        })
+        {
+            Vector2I neighbor = cp + offset;
+            if (_chunks.ContainsKey(neighbor))
+                EnqueueRebuild(neighbor);
+        }
+    }
+
     private readonly Dictionary<Vector2I, byte[]> _dataCache = new();
     // Lazy reservations coalesce concurrent cache misses without holding the
     // world mutex during expensive terrain generation.
@@ -125,6 +162,9 @@ public partial class VoxelWorld : Node3D
     private readonly HashSet<Vector2I> _cropScannedChunks = [];
     private readonly Lock _mutex = new();           // guards _dataCache, _edits, EditEpoch
     public Lock SnapshotLock { get; } = new();      // serialises edits vs mesher snapshots
+
+    /// <summary>Optional deterministic hook for snapshot-lock regression tests.</summary>
+    internal Action? SnapshotReleasedTestHook { get; set; }
 
     // Nearest-first build queues: .NET's PriorityQueue replaces the
     // "sort a candidate list" bookkeeping, and the side sets keep them unique.
@@ -1758,69 +1798,92 @@ public partial class VoxelWorld : Node3D
     /// </summary>
     public VoxelLightData[] LightDataNeighborhood(Vector2I center)
     {
-        lock (SnapshotLock)
+        while (true)
         {
+            long snapshotEpoch;
             VoxelLightData[] result = new VoxelLightData[9];
-            bool complete = true;
-            lock (_mutex)
-            {
-                for (int dz = -1; dz <= 1; dz++)
-                    for (int dx = -1; dx <= 1; dx++)
-                    {
-                        int slot = (dz + 1) * 3 + dx + 1;
-                        if (_voxelLightCache.TryGetValue(center + new Vector2I(dx, dz), out VoxelLightData? cached))
-                            result[slot] = cached;
-                        else
-                            complete = false;
-                    }
-            }
-            if (complete) return result;
-
-            const int halo = VoxelLighting.BlockLightRadius;
-            const int coreWidth = ChunkX * 3;
-            int width = coreWidth + halo * 2;
-            int depth = ChunkZ * 3 + halo * 2;
-            int originX = center.X * ChunkX - halo - ChunkX;
-            int originZ = center.Y * ChunkZ - halo - ChunkZ;
-
             byte[][] chunks = new byte[25][];
             byte[][]? stateChunks = null;
-            bool hasNonDefaultStates = false;
-            for (int dz = -2; dz <= 2; dz++)
-                for (int dx = -2; dx <= 2; dx++)
-                {
-                    int slot = (dz + 2) * 5 + dx + 2;
-                    Vector2I cp = center + new Vector2I(dx, dz);
-                    chunks[slot] = ChunkData(cp);
-                    byte[] states = ChunkBlockStates(cp);
-                    if (states.Length > 0)
-                    {
-                        (stateChunks ??= new byte[25][])[slot] = states;
-                        hasNonDefaultStates = true;
-                    }
-                }
+            List<VoxelLightSource> sources;
 
-            byte[] region = new byte[width * Height * depth];
-            byte[]? regionStates = hasNonDefaultStates ? new byte[region.Length] : null;
-            for (int z = 0; z < depth; z++)
+            // Capture immutable inputs and the emitter set in one short
+            // snapshot section. Chunk generation and array cloning are kept
+            // here because they establish the exact inputs for this epoch.
+            lock (SnapshotLock)
             {
-                int wz = originZ + z;
+                snapshotEpoch = EditEpoch;
+                bool complete = true;
+                lock (_mutex)
+                {
+                    for (int dz = -1; dz <= 1; dz++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int slot = (dz + 1) * 3 + dx + 1;
+                            if (_voxelLightCache.TryGetValue(center + new Vector2I(dx, dz),
+                                    out VoxelLightData? cached))
+                                result[slot] = cached;
+                            else
+                                complete = false;
+                        }
+                }
+                if (complete) return result;
+
+                for (int dz = -2; dz <= 2; dz++)
+                    for (int dx = -2; dx <= 2; dx++)
+                    {
+                        int slot = (dz + 2) * 5 + dx + 2;
+                        byte[] data = ChunkData(center + new Vector2I(dx, dz));
+                        chunks[slot] = (byte[])data.Clone();
+                        byte[] states = ChunkBlockStates(center + new Vector2I(dx, dz));
+                        if (states.Length > 0)
+                        {
+                            (stateChunks ??= new byte[25][])[slot] = (byte[])states.Clone();
+                        }
+                    }
+
+                const int halo = VoxelLighting.BlockLightRadius;
+                int width = ChunkX * 3 + halo * 2;
+                int depth = ChunkZ * 3 + halo * 2;
+                int originX = center.X * ChunkX - halo - ChunkX;
+                int originZ = center.Y * ChunkZ - halo - ChunkZ;
+                sources = NearbyLightSources(
+                        originX, originX + width - 1, originZ, originZ + depth - 1);
+            }
+
+            // Test-only hook runs after SnapshotLock has been released, before
+            // the expensive region assembly/propagation work begins.
+            SnapshotReleasedTestHook?.Invoke();
+
+            // Region assembly and both propagation algorithms operate solely
+            // on the immutable arrays above. No global snapshot lock is held.
+            const int lightHalo = VoxelLighting.BlockLightRadius;
+            const int lightCoreWidth = ChunkX * 3;
+            int lightWidth = lightCoreWidth + lightHalo * 2;
+            int lightDepth = ChunkZ * 3 + lightHalo * 2;
+            int lightOriginX = center.X * ChunkX - lightHalo - ChunkX;
+            int lightOriginZ = center.Y * ChunkZ - lightHalo - ChunkZ;
+
+            byte[] region = new byte[lightWidth * Height * lightDepth];
+            byte[]? regionStates = stateChunks == null ? null : new byte[region.Length];
+            for (int z = 0; z < lightDepth; z++)
+            {
+                int wz = lightOriginZ + z;
                 int cz = Mathf.FloorToInt(wz / (float)ChunkZ);
                 int lz = wz - cz * ChunkZ;
-                for (int x = 0; x < width; x++)
+                for (int x = 0; x < lightWidth; x++)
                 {
-                    int wx = originX + x;
+                    int wx = lightOriginX + x;
                     int cx = Mathf.FloorToInt(wx / (float)ChunkX);
                     int lx = wx - cx * ChunkX;
                     int slot = (cz - center.Y + 2) * 5 + cx - center.X + 2;
                     byte[] source = chunks[slot];
                     byte[]? sourceStates = stateChunks?[slot];
-                    int srcColumn = lx + lz * ChunkX;
-                    int dstColumn = x + z * width;
+                    int sourceColumn = lx + lz * ChunkX;
+                    int destinationColumn = x + z * lightWidth;
                     for (int y = 0; y < Height; y++)
                     {
-                        int sourceIndex = srcColumn + y * ChunkX * ChunkZ;
-                        int destinationIndex = dstColumn + y * width * depth;
+                        int sourceIndex = sourceColumn + y * ChunkX * ChunkZ;
+                        int destinationIndex = destinationColumn + y * lightWidth * lightDepth;
                         region[destinationIndex] = source[sourceIndex];
                         if (regionStates != null && sourceStates != null)
                             regionStates[destinationIndex] = sourceStates[sourceIndex];
@@ -1829,21 +1892,20 @@ public partial class VoxelWorld : Node3D
             }
 
             byte[] sky = VoxelLighting.BuildSkyLight(
-                    region, width, Height, depth, regionStates, out byte[] directSky);
-            int plane = width * depth;
-            List<VoxelLightSource> sources = NearbyLightSources(
-                    originX, originX + width - 1, originZ, originZ + depth - 1);
+                    region, lightWidth, Height, lightDepth, regionStates, out byte[] directSky);
+            int plane = lightWidth * lightDepth;
             for (int i = 0; i < sources.Count; i++)
             {
                 VoxelLightSource source = sources[i];
                 Vector3I position = source.Position;
                 sources[i] = new VoxelLightSource(
-                        new Vector3I(position.X - originX, position.Y, position.Z - originZ),
-                        source.Level);
+                        new Vector3I(position.X - lightOriginX, position.Y,
+                                position.Z - lightOriginZ), source.Level);
             }
 
-            byte[] block = VoxelLighting.PropagateBlockLight(region, width, Height, depth, sources, regionStates);
-
+            byte[] block = VoxelLighting.PropagateBlockLight(
+                    region, lightWidth, Height, lightDepth, sources, regionStates);
+            VoxelLightData[] built = new VoxelLightData[9];
             for (int dz = -1; dz <= 1; dz++)
                 for (int dx = -1; dx <= 1; dx++)
                 {
@@ -1851,37 +1913,53 @@ public partial class VoxelWorld : Node3D
                     Vector2I cp = center + new Vector2I(dx, dz);
                     byte[] packed = new byte[ChunkX * Height * ChunkZ];
                     byte[] directPacked = new byte[(packed.Length + 1) / 2];
-                    int cropX = halo + ChunkX + dx * ChunkX;
-                    int cropZ = halo + ChunkZ + dz * ChunkZ;
+                    int cropX = lightHalo + ChunkX + dx * ChunkX;
+                    int cropZ = lightHalo + ChunkZ + dz * ChunkZ;
                     for (int y = 0; y < Height; y++)
                         for (int z = 0; z < ChunkZ; z++)
                         {
-                            int src = y * plane + (cropZ + z) * width + cropX;
-                            int dst = (y * ChunkZ + z) * ChunkX;
+                            int source = y * plane + (cropZ + z) * lightWidth + cropX;
+                            int destination = (y * ChunkZ + z) * ChunkX;
                             for (int x = 0; x < ChunkX; x++)
                             {
-                                int voxelIndex = dst + x;
-                                packed[voxelIndex] = VoxelLighting.Pack(sky[src + x], block[src + x]);
+                                int voxelIndex = destination + x;
+                                packed[voxelIndex] = VoxelLighting.Pack(
+                                        sky[source + x], block[source + x]);
                                 int nibbleIndex = voxelIndex >> 1;
                                 int shift = (voxelIndex & 1) * 4;
-                                directPacked[nibbleIndex] |= (byte)((directSky[src + x] & 0x0F) << shift);
+                                directPacked[nibbleIndex] |= (byte)(
+                                        (directSky[source + x] & 0x0F) << shift);
                             }
                         }
-
-                    VoxelLightData data = new(packed, directPacked);
-                    lock (_mutex)
-                    {
-                        if (_voxelLightCache.TryGetValue(cp, out VoxelLightData? cached))
-                            result[slot] = cached;
-                        else
-                        {
-                            _voxelLightCache[cp] = data;
-                            result[slot] = data;
-                        }
-                    }
+                    built[slot] = new VoxelLightData(packed, directPacked);
                 }
 
-            return result;
+            // A block/source edit invalidates the entire affected neighborhood
+            // while holding SnapshotLock. Discard stale solves and retry from a
+            // fresh snapshot before any map is made visible to another worker.
+            lock (SnapshotLock)
+            {
+                if (EditEpoch != snapshotEpoch)
+                    continue;
+
+                lock (_mutex)
+                {
+                    for (int dz = -1; dz <= 1; dz++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int slot = (dz + 1) * 3 + dx + 1;
+                            Vector2I cp = center + new Vector2I(dx, dz);
+                            if (_voxelLightCache.TryGetValue(cp, out VoxelLightData? cached))
+                                result[slot] = cached;
+                            else
+                            {
+                                _voxelLightCache[cp] = built[slot];
+                                result[slot] = built[slot];
+                            }
+                        }
+                }
+                return result;
+            }
         }
     }
 
@@ -2721,7 +2799,10 @@ public partial class VoxelWorld : Node3D
                     + EstimateDictionaryBytes(_editTopBlocks, 40);
         }
 
-        long chunkIndexEstimate = EstimateDictionaryBytes(_chunks, 40);
+        // ConcurrentDictionary exposes Count but not capacity; estimate its
+        // bucket/reference overhead from the live entry count without probing.
+        long chunkIndexEstimate = EstimateDictionaryBytes(_chunks, 40)
+                + 128L + _colliderReadyChunks.Count * 40L;
         long appliedMeshBytes = 0;
         foreach (Chunk chunk in _chunks.Values) appliedMeshBytes += chunk.EstimatedMeshBytes;
         lock (_queueLock)
@@ -2798,9 +2879,11 @@ public partial class VoxelWorld : Node3D
         c.Setup(this, cp);
         c.Generate();
         MeshPayload payload = Mesher.Build(this, cp);
+        bool hasCollider = payload.Collision.Count > 0;
         c.ApplyPayload(payload);
         PayloadPool.Release(payload);
         _chunks[cp] = c;
+        SetChunkColliderAvailability(cp, hasCollider);
         return c;
     }
 
@@ -3012,7 +3095,11 @@ public partial class VoxelWorld : Node3D
             if (!ChunkStreamingPolicy.IsWithinRetention(cp, pcp, limit))
                 return;
 
-            if (payload.Epoch != EditEpoch)
+            bool epochCurrent;
+            lock (SnapshotLock)
+                epochCurrent = payload.Epoch == EditEpoch;
+            if (!epochCurrent || !Mesher.IsConfigurationCurrent(payload.MeshingRevision)
+                    || payload.BoundaryMask != MissingColliderBoundaryMask(cp))
             {
                 EnqueueRebuild(cp);
                 return;
@@ -3021,6 +3108,7 @@ public partial class VoxelWorld : Node3D
             if (_chunks.TryGetValue(cp, out Chunk? existing))
             {
                 existing.ApplyPayload(payload);   // player-edit remesh
+                SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
                 return;
             }
 
@@ -3031,6 +3119,7 @@ public partial class VoxelWorld : Node3D
             c.ApplyPayload(payload);
             c.FadeIn();
             _chunks[cp] = c;
+            SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
         }
         finally
         {
@@ -3688,7 +3777,7 @@ public partial class VoxelWorld : Node3D
         }
     }
 
-    private void UnloadFar(Vector2I pcp)
+    internal void UnloadFar(Vector2I pcp)
     {
         int limit = ViewDistance + UnloadMargin;
 
@@ -3699,6 +3788,7 @@ public partial class VoxelWorld : Node3D
             {
                 Chunk c = _chunks[cp];
                 _chunks.Remove(cp);
+                SetChunkColliderAvailability(cp, false);
                 c.QueueFree();
             }
         }

@@ -147,7 +147,8 @@ shape-state, sky-light, block-light and packed-light arrays, plus the edit-top
 and generator seed arrays. For non-empty collections it reports capacity-based
 estimates for dictionary indexes, the crop registry, the separate source-scan
 and crop-scan chunk registries, campfire/structure/village site caches,
-edit-top indexes, saved string-keyed registries and the built-chunk index.
+edit-top indexes, saved string-keyed registries, the built-chunk index and the
+collider-ready chunk index.
 Nested object graphs inside containers, furnaces, villagers and quest records
 are not recursively sized; collection/key estimates are deliberately
 identified as estimates, not exact heap measurements. The generator-v8

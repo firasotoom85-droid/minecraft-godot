@@ -306,6 +306,7 @@ public static class RunnerReliabilityTests
             "_skyLightCache", "_blockLightCache", "_voxelLightCache", "_crops", "_queue", "_queued",
             "_rebuildQueue", "_rebuildQueued", "_applyFresh", "_applyRebuild",
             "_campfireCache", "_structureCache", "_villageCache", "_editTops", "_editTopBlocks",
+            "_colliderReadyChunks",
         ];
         foreach (FieldInfo field in typeof(VoxelWorld).GetFields(
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
