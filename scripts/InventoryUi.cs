@@ -110,16 +110,16 @@ public partial class InvSlot : DurabilitySlotPanel
         return string.Join(" · ", values);
     }
 
-    private void OnMouseEntered()
-    {
-        _hovered = true;
-        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(_selected, true));
-    }
+    internal bool IsSelected => _selected;
 
-    private void OnMouseExited()
+    private void OnMouseEntered() => SetHovered(true);
+
+    private void OnMouseExited() => SetHovered(false);
+
+    internal void SetHovered(bool hovered)
     {
-        _hovered = false;
-        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle());
+        _hovered = hovered;
+        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(_selected, _hovered));
     }
 
     public override Variant _GetDragData(Vector2 atPosition)
