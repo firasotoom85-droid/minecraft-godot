@@ -27,6 +27,13 @@ public static class GamepadBindings
         ("journal", JoyButton.DpadDown),
     ];
 
+    public static readonly (string Action, string Label)[] ControllerOnlyBindable =
+    [
+        ("break_block", "Mine / break block"),
+        ("place_block", "Place / use block"),
+        ("pick_block", "Pick block"),
+    ];
+
     private static bool _configured;
 
     public static void Configure()
@@ -46,15 +53,69 @@ public static class GamepadBindings
 
         ConfigFile config = new();
         bool hasConfig = config.Load(ConfigPath) == Error.Ok;
+        Dictionary<string, JoyButton> resolved = ResolveSavedButtons(config);
         foreach ((string action, JoyButton button) in DefaultButtons)
         {
-            JoyButton selected = button;
-            if (hasConfig && config.HasSectionKey("buttons", action)
-                    && !TryReadButton(config, action, button, out selected))
-                GD.PushWarning($"Ignoring invalid controller binding in buttons/{action}; keeping {button}.");
-            ApplyButton(action, selected);
+            if (hasConfig && config.HasSectionKey("buttons", action))
+            {
+                if (!TryReadButton(config, action, button, out JoyButton requested))
+                    GD.PushWarning($"Ignoring invalid controller binding in buttons/{action}; keeping {button}.");
+                else if (resolved[action] != requested)
+                    GD.PushWarning($"Ignoring conflicting controller binding in buttons/{action}; keeping {button}.");
+            }
+            ApplyButton(action, resolved[action]);
         }
         _configured = true;
+    }
+
+    /// <summary>Resolve all controller overrides together so valid button swaps survive loading.</summary>
+    internal static Dictionary<string, JoyButton> ResolveSavedButtons(ConfigFile config)
+    {
+        Dictionary<string, JoyButton> resolved = [];
+        HashSet<string> overrides = [];
+        foreach ((string action, JoyButton fallback) in DefaultButtons)
+        {
+            resolved[action] = fallback;
+            if (!config.HasSectionKey("buttons", action))
+                continue;
+            if (TryReadButton(config, action, fallback, out JoyButton selected))
+            {
+                resolved[action] = selected;
+                overrides.Add(action);
+            }
+        }
+
+        while (overrides.Count > 0)
+        {
+            HashSet<string> rejected = [];
+            foreach (string action in overrides)
+            {
+                JoyButton button = resolved[action];
+                foreach ((string other, _) in DefaultButtons)
+                {
+                    if (other != action && resolved[other] == button)
+                    {
+                        rejected.Add(action);
+                        break;
+                    }
+                }
+            }
+
+            if (rejected.Count == 0)
+                break;
+            foreach (string action in rejected)
+            {
+                foreach ((string candidate, JoyButton fallback) in DefaultButtons)
+                    if (candidate == action)
+                    {
+                        resolved[action] = fallback;
+                        break;
+                    }
+                overrides.Remove(action);
+            }
+        }
+
+        return resolved;
     }
 
     internal static bool TryReadButton(ConfigFile config, string action, JoyButton fallback, out JoyButton selected)
