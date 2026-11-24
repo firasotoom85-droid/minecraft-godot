@@ -24,6 +24,10 @@ public partial class Minimap : Control
     private readonly bool[] _edited = new bool[Px * Px];
     private double _timer;
     private Vector2 _lastCentre;
+    private float _lastYaw;
+    private bool _hasCompletedBuild;
+    private bool _rebuildPending = true;
+    private VoxelWorld? _subscribedWorld;
     private int _zoom = 1;
     private int _buildRow;
     private bool _building;
@@ -49,6 +53,51 @@ public partial class Minimap : Control
     public float MetresPerPx => ZoomLevels[_zoom];
     public string ScaleLabel => $"{Mathf.RoundToInt(Px * MetresPerPx)} m";
 
+    public void Setup(VoxelWorld? world, Player player)
+    {
+        if (_subscribedWorld != null)
+            _subscribedWorld.BlockChanged -= OnWorldBlockChanged;
+
+        World = world;
+        PlayerRef = player;
+        _subscribedWorld = world;
+        if (_subscribedWorld != null)
+            _subscribedWorld.BlockChanged += OnWorldBlockChanged;
+
+        _lastYaw = player.Rotation.Y;
+        _rebuildPending = true;
+        _timer = 0.0;
+    }
+
+    private void OnWorldBlockChanged(Vector3I position)
+    {
+        Vector2 centre = _building
+                ? new Vector2(_buildCx, _buildCz)
+                : _lastCentre;
+        float radius = Px * MetresPerPx * 0.5f;
+        if (!_hasCompletedBuild || IsInsideMap(position, centre, radius))
+        {
+            _rebuildPending = true;
+            _timer = 0.0;
+        }
+    }
+
+    internal static bool IsInsideMap(Vector3I position, Vector2 centre, float radius)
+    {
+        float dx = position.X - centre.X;
+        float dz = position.Z - centre.Y;
+        return dx * dx + dz * dz <= radius * radius;
+    }
+
+    public override void _ExitTree()
+    {
+        if (_subscribedWorld != null)
+        {
+            _subscribedWorld.BlockChanged -= OnWorldBlockChanged;
+            _subscribedWorld = null;
+        }
+    }
+
     public override void _Ready()
     {
         CustomMinimumSize = new Vector2(176, 176);
@@ -60,19 +109,38 @@ public partial class Minimap : Control
     public void ZoomIn()
     {
         _zoom = Mathf.Max(_zoom - 1, 0);
+        _rebuildPending = true;
         StartRebuild();
     }
 
     public void ZoomOut()
     {
         _zoom = Mathf.Min(_zoom + 1, ZoomLevels.Length - 1);
+        _rebuildPending = true;
         StartRebuild();
     }
 
     public override void _Process(double delta)
     {
-        if (World == null || PlayerRef == null || !IsVisibleInTree())
+        if (World == null || PlayerRef == null)
         {
+            if (_building)
+                _rebuildPending = true;
+            _building = false;
+            return;
+        }
+
+        float yaw = PlayerRef.Rotation.Y;
+        if (!Mathf.IsEqualApprox(yaw, _lastYaw))
+        {
+            _lastYaw = yaw;
+            QueueRedraw();
+        }
+
+        if (!IsVisibleInTree())
+        {
+            if (_building)
+                _rebuildPending = true;
             _building = false;
             return;
         }
@@ -84,18 +152,14 @@ public partial class Minimap : Control
         }
 
         _timer -= delta;
-        if (_timer > 0.0)
-        {
+        if (_timer > 0.0 && !_rebuildPending)
             return;
-        }
 
         Vector2 here = new(PlayerRef.GlobalPosition.X, PlayerRef.GlobalPosition.Z);
-        bool moved = _lastCentre.DistanceTo(here) > 2.0f;
+        bool moved = !_hasCompletedBuild || _lastCentre.DistanceTo(here) > 2.0f;
         _timer = moved ? 0.55 : 2.5;
-        if (moved || _lastCentre == Vector2.Zero)
-        {
+        if (_rebuildPending || moved)
             StartRebuild();
-        }
     }
 
     private void StartRebuild()
@@ -107,7 +171,7 @@ public partial class Minimap : Control
 
         _buildCx = Mathf.FloorToInt(PlayerRef.GlobalPosition.X);
         _buildCz = Mathf.FloorToInt(PlayerRef.GlobalPosition.Z);
-        _lastCentre = new Vector2(_buildCx, _buildCz);
+        _rebuildPending = false;
         _buildRow = 0;
         _building = true;
     }
@@ -147,8 +211,17 @@ public partial class Minimap : Control
             return;
         }
 
+        if (_rebuildPending)
+        {
+            _building = false;
+            _timer = 0.0;
+            return;
+        }
+
         Colorize();
         _tex.Update(_img);
+        _lastCentre = new Vector2(_buildCx, _buildCz);
+        _hasCompletedBuild = true;
         _building = false;
         QueueRedraw();
     }
