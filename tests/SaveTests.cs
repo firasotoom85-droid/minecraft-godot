@@ -962,7 +962,7 @@ public static class SaveTests
                 WorldManifest previousManifest) =>
                 new(
                     new WorldSave(WorldStore.WorldFormatVersion, null, time, SnapshotId: generation),
-                    new PlayerSave([time, 2.0f, 3.0f], Health: health, SnapshotId: generation),
+                    new PlayerSave([(float)time, 2.0f, 3.0f], Health: health, SnapshotId: generation),
                     previousManifest with { HasSavedData = true, SnapshotId = generation },
                     worldPath,
                     playerPath,
