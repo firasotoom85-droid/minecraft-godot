@@ -33,7 +33,6 @@ public partial class InvSlot : DurabilitySlotPanel
 
     public event Action<InvSlot, MouseButton>? Clicked;
     public event Action<InvSlot, InvSlot>? Dropped;
-    public event Action? Opened;
 
     public override void _Ready()
     {
@@ -120,7 +119,7 @@ public partial class InvSlot : DurabilitySlotPanel
     private void OnMouseExited()
     {
         _hovered = false;
-        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle());
+        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(_selected, false));
     }
 
     public override Variant _GetDragData(Vector2 atPosition)
@@ -195,6 +194,8 @@ public partial class InvSlot : DurabilitySlotPanel
 public partial class InventoryUi : CanvasLayer, IModalUi
 {
     private const int SlotPx = 44;
+
+    public event Action? Opened;
 
     private Player _player = null!;
     private Hud _hud = null!;
@@ -1121,7 +1122,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
                 Icon = ItemDb.Icon(item),
                 CustomMinimumSize = new Vector2(0, 40),
                 Alignment = HorizontalAlignment.Left,
-                FocusMode = Control.FocusModeEnum.None,
+                FocusMode = Control.FocusModeEnum.All,
             };
             row.AddThemeFontSizeOverride("font_size", 13);
             ItemId captured = item;
