@@ -53,6 +53,20 @@ public static class SpawnRecoveryTests
         TestAssert.Check(world.TryEnsureCollisionReady(resolved),
                 "spawn destination has a current terrain collider before use");
 
+        int waterX = Mathf.FloorToInt(spawn.X);
+        int waterZ = Mathf.FloorToInt(spawn.Z);
+        int waterY = Mathf.FloorToInt(spawn.Y);
+        while (waterY < Mathf.FloorToInt(spawn.Y + 1.5f)
+                && world.GetBlock(waterX, waterY, waterZ) != BlockId.Air)
+            waterY++;
+        TestAssert.Check(world.SetBlock(waterX, waterY, waterZ, BlockId.Water),
+                "aquatic destination fixture places water through SetBlock");
+        TestAssert.Check(!world.IsSafePlayerPosition(spawn)
+                        && world.IsSafePlayerPosition(spawn, allowWater: true),
+                "water remains a spawn hazard but can be an explicit safe boat-dismount medium");
+        TestAssert.Check(world.SetBlock(waterX, waterY, waterZ, BlockId.Air),
+                "aquatic destination fixture is removed through SetBlock");
+
         Vector3 invalidSavedPosition = new(0.5f, -20.0f, 0.5f);
         TestAssert.Check(!world.IsSafePlayerPosition(invalidSavedPosition),
                 "out-of-bounds saved player position is rejected");
@@ -62,9 +76,13 @@ public static class SpawnRecoveryTests
                 "invalid saved position falls back to a validated world spawn");
 
         world.SpawnCandidateValidatorForTests = _ => false;
+        TestAssert.Check(world.TryResolvePlayerDestination(invalidSavedPosition,
+                        out Vector3 alternate, alternatePosition: spawn)
+                        && alternate == spawn,
+                "a valid saved respawn anchor is preferred over a failed world search");
         TestAssert.Check(!world.TryResolvePlayerDestination(null, out Vector3 failed)
                         && failed == Vector3.Zero,
-                "rejecting every candidate reports failure without an unchecked coordinate");
+                "rejecting every candidate without an alternate reports failure, not a default spawn");
         world.SpawnCandidateValidatorForTests = null;
     }
 
