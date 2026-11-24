@@ -26,12 +26,14 @@ public partial class InvSlot : DurabilitySlotPanel
     private TextureRect _icon = null!;
     private Label _count = null!;
     private bool _hovered;
+    private bool _selected;
     private bool _hasStack;
     private bool _dragStarted;
     private bool _suppressClick;
 
     public event Action<InvSlot, MouseButton>? Clicked;
     public event Action<InvSlot, InvSlot>? Dropped;
+    public event Action? Opened;
 
     public override void _Ready()
     {
@@ -54,7 +56,7 @@ public partial class InvSlot : DurabilitySlotPanel
         _count.AddThemeConstantOverride("outline_size", 4);
         _count.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight, LayoutPresetMode.Minsize, 2);
         AddChild(_count);
-        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle());
+        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(_selected, false));
         MouseEntered += OnMouseEntered;
         MouseExited += OnMouseExited;
     }
@@ -67,6 +69,7 @@ public partial class InvSlot : DurabilitySlotPanel
         }
 
         _hasStack = !stack.IsEmpty;
+        _selected = selected;
         _icon.Texture = stack.IsEmpty ? null : ItemDb.Icon(stack);
         _icon.Visible = !stack.IsEmpty;
         SetDurability(stack);
@@ -111,7 +114,7 @@ public partial class InvSlot : DurabilitySlotPanel
     private void OnMouseEntered()
     {
         _hovered = true;
-        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(false, true));
+        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(_selected, true));
     }
 
     private void OnMouseExited()
@@ -648,6 +651,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _player.InputLocked = true;
         Refresh();
         UiFocus.FocusFirst(_backpackSlots[0]);
+        Opened?.Invoke();
     }
 
     private void Close()
@@ -1081,7 +1085,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
                 Text = $"{recipe.Name} ×{recipe.ResultCount}\n{Recipes.IngredientText(recipe)}",
                 CustomMinimumSize = new Vector2(0, 40),
                 Alignment = HorizontalAlignment.Left,
-                FocusMode = Control.FocusModeEnum.None,
+                FocusMode = Control.FocusModeEnum.All,
             };
             row.AddThemeFontSizeOverride("font_size", 13);
             Recipe captured = recipe;
@@ -1135,6 +1139,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         {
             BuildPalette();
         }
+        UiFocus.FocusFirst(recipes ? _recipeList : _paletteList);
     }
 
     private VBoxContainer BuildEquipmentPanel()
