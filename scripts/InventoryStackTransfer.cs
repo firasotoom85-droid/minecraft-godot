@@ -6,6 +6,79 @@ namespace Minecraft;
 /// </summary>
 public static class InventoryStackTransfer
 {
+    /// <summary>
+    /// Move as much as fits into the player inventory and leave every unaccepted
+    /// unit in the source slot. The caller commits the updated source immediately.
+    /// </summary>
+    public static bool TryTransferToInventory(ref ItemStack source, Inventory inventory)
+    {
+        if (source.IsEmpty)
+        {
+            return false;
+        }
+
+        int originalCount = source.Count;
+        int leftover = inventory.Add(source);
+        if (leftover >= originalCount)
+        {
+            return false;
+        }
+
+        source = leftover <= 0
+                ? ItemStack.Empty
+                : source with { Count = leftover };
+        return true;
+    }
+
+    /// <summary>
+    /// Deliver a complete crafting result either to the cursor or to inventory.
+    /// Inventory insertion is preflighted so a failed result collection mutates
+    /// neither the inventory nor the cursor.
+    /// </summary>
+    public static bool TryCollectCraftingResult(ItemStack result, ItemStack cursor,
+            Inventory inventory, out ItemStack updatedCursor)
+    {
+        updatedCursor = cursor;
+        if (result.IsEmpty || !ItemDb.IsRegistered(result.Id)
+                || result.Count > ItemDb.MaxStack(result.Id))
+        {
+            return false;
+        }
+
+        if (cursor.IsEmpty)
+        {
+            updatedCursor = result;
+            return true;
+        }
+
+        if (cursor.Id == result.Id
+                && cursor.Count + result.Count <= ItemDb.MaxStack(result.Id))
+        {
+            updatedCursor = cursor with { Count = cursor.Count + result.Count };
+            return true;
+        }
+
+        return inventory.TryAddAtomic(result);
+    }
+
+    /// <summary>
+    /// Commit one complete result to the cursor or inventory, then consume the
+    /// matched ingredients. A failed delivery leaves both sources untouched.
+    /// </summary>
+    public static bool TryTakeCraftingResult(ItemStack[] grid, int size,
+            (Recipe Recipe, int Row, int Col) match, ItemStack cursor,
+            Inventory inventory, out ItemStack updatedCursor)
+    {
+        ItemStack result = ItemDb.New(match.Recipe.Result, match.Recipe.ResultCount);
+        if (!TryCollectCraftingResult(result, cursor, inventory, out updatedCursor))
+        {
+            return false;
+        }
+
+        Recipes.ConsumeFromGrid(grid, size, match.Recipe, match.Row, match.Col);
+        return true;
+    }
+
     public static bool TryTransfer(ref ItemStack source, ref ItemStack target,
             int sourceArmorSlot = -1, int targetArmorSlot = -1)
     {

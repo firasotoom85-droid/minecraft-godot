@@ -12,11 +12,86 @@ public sealed class Inventory
     public const int ArmorSlots = 4;
     public const int SaveSlotCount = SlotCount + ArmorSlots;
 
+    // UI-owned stacks are inventory state too: shutdown and focus-loss saves
+    // must retain cursor-held and crafting-grid items even when the backpack is full.
+    public const int CraftingGridSize = 9;
+    public const int CraftingGridSaveSlot = SaveSlotCount;
+    public const int CursorSaveSlot = CraftingGridSaveSlot + CraftingGridSize;
+    public const int PersistentSlotCount = CursorSaveSlot + 1;
+
     public readonly ItemStack[] Hotbar = new ItemStack[HotbarSize];
     public readonly ItemStack[] Backpack = new ItemStack[BackpackSize];
     public readonly ItemStack[] Armor = new ItemStack[ArmorSlots];  // helmet, chest, legs, boots
 
+    // These stacks are not capacity-bearing backpack slots, but they remain
+    // owned by the player and are serialized beside ordinary inventory slots.
+    public readonly ItemStack[] CraftingGrid = new ItemStack[CraftingGridSize];
+    private readonly ItemStackSave?[] _unrecognizedSavedSlots = new ItemStackSave?[PersistentSlotCount];
+    private ItemStack _cursorStack = ItemStack.Empty;
+
+    public ItemStack CursorStack
+    {
+        get => _cursorStack;
+        set
+        {
+            ClearUnrecognizedSaveSlot(CursorSaveSlot);
+            _cursorStack = value;
+        }
+    }
+
     public event Action? Changed;
+
+    /// <summary>
+    /// True when this slot contains an item ID from another content registry.
+    /// Such records remain opaque and reserved until a compatible build loads them.
+    /// </summary>
+    public bool HasUnrecognizedSaveSlot(int slot) =>
+            (uint)slot < _unrecognizedSavedSlots.Length && _unrecognizedSavedSlots[slot] != null;
+
+    public bool HasUnrecognizedArmorSlot()
+    {
+        for (int i = 0; i < ArmorSlots; i++)
+        {
+            if (HasUnrecognizedSaveSlot(SlotCount + i))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public bool HasUnrecognizedCraftingGridItem()
+    {
+        for (int i = 0; i < CraftingGridSize; i++)
+        {
+            if (HasUnrecognizedSaveSlot(CraftingGridSaveSlot + i))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public void ClearUnrecognizedSaveSlot(int slot)
+    {
+        if ((uint)slot < _unrecognizedSavedSlots.Length)
+        {
+            _unrecognizedSavedSlots[slot] = null;
+        }
+    }
+
+    public void SetCraftingGridSlot(int slot, ItemStack stack)
+    {
+        if ((uint)slot >= CraftingGrid.Length)
+        {
+            return;
+        }
+
+        ClearUnrecognizedSaveSlot(CraftingGridSaveSlot + slot);
+        CraftingGrid[slot] = stack;
+    }
 
     public ItemStack Get(int slot) => slot < HotbarSize
             ? Hotbar[slot]
@@ -26,6 +101,11 @@ public sealed class Inventory
 
     public void Set(int slot, ItemStack stack)
     {
+        if ((uint)slot < SaveSlotCount)
+        {
+            ClearUnrecognizedSaveSlot(slot);
+        }
+
         if (slot < HotbarSize)
         {
             Hotbar[slot] = stack;
@@ -66,6 +146,11 @@ public sealed class Inventory
             return 0;
         }
 
+        if (!ItemDb.IsRegistered(stack.Id))
+        {
+            return stack.Count;
+        }
+
         if (ItemDb.MaxStack(stack.Id) == 1)
         {
             // Non-stackable items occupy one slot each. The old fast path
@@ -75,7 +160,7 @@ public sealed class Inventory
             int unstacked = stack.Count;
             for (int i = 0; i < SlotCount && unstacked > 0; i++)
             {
-                if (!Get(i).IsEmpty)
+                if (!Get(i).IsEmpty || HasUnrecognizedSaveSlot(i))
                 {
                     continue;
                 }
@@ -103,12 +188,17 @@ public sealed class Inventory
             return 0;
         }
 
+        if (!ItemDb.IsRegistered(id))
+        {
+            return count;
+        }
+
         int max = ItemDb.MaxStack(id);
         int remaining = count;
         remaining = Merge(id, remaining, max, Hotbar);
         remaining = Merge(id, remaining, max, Backpack);
-        remaining = FillEmpty(id, remaining, max, Hotbar);
-        remaining = FillEmpty(id, remaining, max, Backpack);
+        remaining = FillEmpty(id, remaining, max, Hotbar, 0);
+        remaining = FillEmpty(id, remaining, max, Backpack, HotbarSize);
         Changed?.Invoke();
         return remaining;
     }
@@ -130,11 +220,11 @@ public sealed class Inventory
         return remaining;
     }
 
-    private static int FillEmpty(ItemId id, int remaining, int max, ItemStack[] slots)
+    private int FillEmpty(ItemId id, int remaining, int max, ItemStack[] slots, int firstSaveSlot)
     {
         for (int i = 0; i < slots.Length && remaining > 0; i++)
         {
-            if (!slots[i].IsEmpty)
+            if (!slots[i].IsEmpty || HasUnrecognizedSaveSlot(firstSaveSlot + i))
             {
                 continue;
             }
@@ -155,25 +245,34 @@ public sealed class Inventory
             return true;
         }
 
+        if (!ItemDb.IsRegistered(id))
+        {
+            return false;
+        }
+
         int max = ItemDb.MaxStack(id);
         int space = 0;
-        space += SpaceIn(id, count, max, Hotbar);
-        space += SpaceIn(id, count, max, Backpack);
+        space += SpaceIn(id, count, max, Hotbar, 0);
+        space += SpaceIn(id, count, max, Backpack, HotbarSize);
         return space >= count;
     }
 
-    private static int SpaceIn(ItemId id, int count, int max, ItemStack[] slots)
+    private int SpaceIn(ItemId id, int count, int max, ItemStack[] slots, int firstSaveSlot)
     {
         int space = 0;
-        foreach (ItemStack s in slots)
+        for (int i = 0; i < slots.Length; i++)
         {
-            if (s.IsEmpty)
+            ItemStack stack = slots[i];
+            if (stack.IsEmpty)
             {
-                space += max;
+                if (!HasUnrecognizedSaveSlot(firstSaveSlot + i))
+                {
+                    space += max;
+                }
             }
-            else if (s.Id == id)
+            else if (stack.Id == id)
             {
-                space += Math.Max(max - s.Count, 0);
+                space += Math.Max(max - stack.Count, 0);
             }
 
             if (space >= count)
@@ -266,7 +365,7 @@ public sealed class Inventory
     {
         for (int i = 0; i < SlotCount; i++)
         {
-            if (Get(i).IsEmpty)
+            if (Get(i).IsEmpty && !HasUnrecognizedSaveSlot(i))
             {
                 return i;
             }
@@ -280,6 +379,195 @@ public sealed class Inventory
         System.Array.Fill(Hotbar, ItemStack.Empty);
         System.Array.Fill(Backpack, ItemStack.Empty);
         System.Array.Fill(Armor, ItemStack.Empty);
+        System.Array.Fill(CraftingGrid, ItemStack.Empty);
+        CursorStack = ItemStack.Empty;
+        System.Array.Fill(_unrecognizedSavedSlots, null);
+    }
+
+    /// <summary>
+    /// Place an item in a hotbar slot, falling back to an atomic inventory
+    /// insertion when that slot is reserved for an unknown future item.
+    /// </summary>
+    public bool TrySetHotbarOrAdd(int hotbarSlot, ItemStack stack)
+    {
+        if ((uint)hotbarSlot >= HotbarSize || stack.IsEmpty || !ItemDb.IsRegistered(stack.Id))
+        {
+            return false;
+        }
+
+        if (HasUnrecognizedSaveSlot(hotbarSlot))
+        {
+            return TryAddAtomic(stack);
+        }
+
+        Set(hotbarSlot, stack);
+        return true;
+    }
+
+    /// <summary>
+    /// Checks capacity for a set of rewards as one transaction. Empty slots are
+    /// shared across item types, so each distinct item reserves its own required
+    /// stack slots before any reward is inserted.
+    /// </summary>
+    public bool CanFitAll(ReadOnlySpan<ItemStack> rewards)
+    {
+        int emptySlots = 0;
+        for (int slot = 0; slot < SlotCount; slot++)
+        {
+            if (Get(slot).IsEmpty && !HasUnrecognizedSaveSlot(slot))
+            {
+                emptySlots++;
+            }
+        }
+
+        int requiredEmptySlots = 0;
+        for (int i = 0; i < rewards.Length; i++)
+        {
+            ItemStack reward = rewards[i];
+            if (reward.IsEmpty)
+            {
+                continue;
+            }
+
+            if (!ItemDb.IsRegistered(reward.Id) || reward.Count <= 0)
+            {
+                return false;
+            }
+
+            bool seen = false;
+            for (int previous = 0; previous < i; previous++)
+            {
+                if (rewards[previous].Id == reward.Id)
+                {
+                    seen = true;
+                    break;
+                }
+            }
+
+            if (seen)
+            {
+                continue;
+            }
+
+            long totalCount = 0;
+            for (int j = i; j < rewards.Length; j++)
+            {
+                if (rewards[j].Id == reward.Id)
+                {
+                    if (rewards[j].Count <= 0)
+                    {
+                        return false;
+                    }
+
+                    totalCount += rewards[j].Count;
+                }
+            }
+
+            int maxStack = ItemDb.MaxStack(reward.Id);
+            int existingSpace = 0;
+            for (int slot = 0; slot < SlotCount; slot++)
+            {
+                ItemStack current = Get(slot);
+                if (current.Id == reward.Id && current.Count < maxStack)
+                {
+                    existingSpace += maxStack - current.Count;
+                }
+            }
+
+            long remainder = Math.Max(totalCount - existingSpace, 0L);
+            long slotsNeeded = (remainder + maxStack - 1) / maxStack;
+            if (slotsNeeded > emptySlots - requiredEmptySlots)
+            {
+                return false;
+            }
+
+            requiredEmptySlots += (int)slotsNeeded;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Inserts a complete reward set after preflighting the combined capacity.
+    /// No reward is mutated into the inventory when the whole set cannot fit.
+    /// </summary>
+    public bool TryAddAll(ReadOnlySpan<ItemStack> rewards)
+    {
+        if (!CanFitAll(rewards))
+        {
+            return false;
+        }
+
+        for (int i = 0; i < rewards.Length; i++)
+        {
+            ItemStack reward = rewards[i];
+            if (reward.IsEmpty)
+            {
+                continue;
+            }
+
+            if (Add(reward) > 0)
+            {
+                throw new InvalidOperationException(
+                        "Inventory.TryAddAll capacity preflight disagreed with item insertion.");
+            }
+        }
+
+        return true;
+    }
+
+    public bool TryAddAtomic(ItemStack stack)
+    {
+        if (stack.IsEmpty)
+        {
+            return true;
+        }
+
+        if (!ItemDb.IsRegistered(stack.Id) || !CanFit(stack.Id, stack.Count))
+        {
+            return false;
+        }
+
+        // CanFit and Add use the same hotbar/backpack stack rules and execute
+        // synchronously on the main thread, so a successful preflight cannot
+        // leave a partial result behind.
+        return Add(stack) == 0;
+    }
+
+    public int ReturnCraftingGridItems()
+    {
+        int leftoverTotal = 0;
+        for (int i = 0; i < CraftingGrid.Length; i++)
+        {
+            ItemStack stack = CraftingGrid[i];
+            if (stack.IsEmpty)
+            {
+                continue;
+            }
+
+            int leftover = Add(stack);
+            CraftingGrid[i] = leftover <= 0
+                    ? ItemStack.Empty
+                    : stack with { Count = leftover };
+            leftoverTotal += leftover;
+        }
+
+        return leftoverTotal;
+    }
+
+    public int ReturnCursorItem()
+    {
+        if (CursorStack.IsEmpty)
+        {
+            return 0;
+        }
+
+        ItemStack stack = CursorStack;
+        int leftover = Add(stack);
+        CursorStack = leftover <= 0
+                ? ItemStack.Empty
+                : stack with { Count = leftover };
+        return leftover;
     }
 
     public List<ItemStackSave> ToSave()
@@ -287,15 +575,47 @@ public sealed class Inventory
         List<ItemStackSave> list = [];
         for (int i = 0; i < SaveSlotCount; i++)
         {
-            ItemStack s = Get(i);
-            if (!s.IsEmpty)
+            ItemStack stack = Get(i);
+            if (!stack.IsEmpty)
             {
-                list.Add(new ItemStackSave(i, (int)s.Id, s.Count, s.Durability, s.Sharpness, s.Protection, s.Unbreaking));
+                list.Add(ToSave(i, stack));
+            }
+        }
+
+        for (int i = 0; i < CraftingGrid.Length; i++)
+        {
+            if (!CraftingGrid[i].IsEmpty)
+            {
+                list.Add(ToSave(CraftingGridSaveSlot + i, CraftingGrid[i]));
+            }
+        }
+
+        if (!CursorStack.IsEmpty)
+        {
+            list.Add(ToSave(CursorSaveSlot, CursorStack));
+        }
+
+        for (int slot = 0; slot < _unrecognizedSavedSlots.Length; slot++)
+        {
+            ItemStackSave? saved = _unrecognizedSavedSlots[slot];
+            if (saved != null && RuntimeStackAt(slot).IsEmpty)
+            {
+                list.Add(saved);
             }
         }
 
         return list;
     }
+
+    private ItemStack RuntimeStackAt(int slot) => slot < SaveSlotCount
+            ? Get(slot)
+            : slot < CursorSaveSlot
+                    ? CraftingGrid[slot - CraftingGridSaveSlot]
+                    : CursorStack;
+
+    private static ItemStackSave ToSave(int slot, ItemStack stack) =>
+            new(slot, (int)stack.Id, stack.Count, stack.Durability,
+                    stack.Sharpness, stack.Protection, stack.Unbreaking);
 
     /// <summary>Load saved stacks; null (an old save) gets the starter kit.</summary>
     public void LoadFrom(List<ItemStackSave>? items)
@@ -316,11 +636,59 @@ public sealed class Inventory
         }
         else
         {
-            foreach (ItemStackSave s in items)
+            bool[] loadedSlots = new bool[PersistentSlotCount];
+            foreach (ItemStackSave saved in items)
             {
-                if (s.Slot >= 0 && s.Slot < SaveSlotCount && s.Count > 0)
+                if (saved.Slot < 0 || saved.Slot >= PersistentSlotCount)
                 {
-                    Set(s.Slot, new ItemStack((ItemId)s.Id, s.Count, s.Durability, s.Sharpness, s.Protection, s.Unbreaking));
+                    ItemStackSaveValidator.ReportInvalid("inventory", saved, "slot is out of range");
+                    continue;
+                }
+
+                if (ItemStackSaveValidator.IsUnrecognizedItemId(saved.Id))
+                {
+                    if (loadedSlots[saved.Slot])
+                    {
+                        ItemStackSaveValidator.ReportInvalid("inventory", saved, "duplicate slot record");
+                        continue;
+                    }
+
+                    loadedSlots[saved.Slot] = true;
+                    _unrecognizedSavedSlots[saved.Slot] = saved;
+                    ItemStackSaveValidator.ReportUnrecognized("inventory", saved);
+                    continue;
+                }
+
+                if (!ItemStackSaveValidator.TryCreate(saved, out ItemStack stack, out string reason))
+                {
+                    ItemStackSaveValidator.ReportInvalid("inventory", saved, reason);
+                    continue;
+                }
+
+                if (!ItemStackSaveValidator.FitsInventorySlot(saved.Slot, stack))
+                {
+                    ItemStackSaveValidator.ReportInvalid("inventory", saved, "item does not match the equipment slot");
+                    continue;
+                }
+
+                if (loadedSlots[saved.Slot])
+                {
+                    ItemStackSaveValidator.ReportInvalid("inventory", saved, "duplicate slot record");
+                    continue;
+                }
+
+                loadedSlots[saved.Slot] = true;
+                if (saved.Slot < SaveSlotCount)
+                {
+                    Set(saved.Slot, stack);
+                }
+                else if (saved.Slot < CursorSaveSlot)
+                {
+                    CraftingGrid[saved.Slot - CraftingGridSaveSlot] = stack;
+                }
+                else
+                {
+                    CursorStack = stack;
                 }
             }
         }
