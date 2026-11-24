@@ -3310,7 +3310,8 @@ public partial class VoxelWorld : Node3D
     /// Unlike IsSafeSpawnPosition this accepts normal saved positions that are
     /// not centred on a voxel column.
     /// </summary>
-    internal bool IsSafePlayerPosition(Vector3 position, bool allowWater = false)
+    internal bool IsSafePlayerPosition(Vector3 position, bool allowWater = false,
+            bool allowVehicleSupport = false)
     {
         if (!float.IsFinite(position.X) || !float.IsFinite(position.Y)
                 || !float.IsFinite(position.Z) || position.Y < 1.0f
@@ -3341,11 +3342,12 @@ public partial class VoxelWorld : Node3D
         byte supportMask = BlockShapes.OccupancyMask(support,
                 GetBlockState(supportX, supportY, supportZ));
         bool hasSolidSupport = (supportMask & 0xF0) == 0xF0;
-        if (!hasSolidSupport && !allowWater)
+        if (!hasSolidSupport && !allowWater && !allowVehicleSupport)
             return false;
 
         return IsSpawnCapsuleClear(position, allowWater, out bool waterIntersected)
-                && (hasSolidSupport || allowWater && waterIntersected);
+                && (hasSolidSupport || allowVehicleSupport
+                    || allowWater && waterIntersected);
     }
 
     /// <summary>
@@ -3391,17 +3393,18 @@ public partial class VoxelWorld : Node3D
             out Vector3 destination,
             bool allowWater = false,
             Func<SpawnCandidate, bool>? candidateValidatorOverride = null,
-            Vector3? alternatePosition = null)
+            Vector3? alternatePosition = null,
+            bool allowVehicleSupport = false)
     {
         if (preferredPosition is Vector3 preferred
-                && IsSafePlayerPosition(preferred, allowWater))
+                && IsSafePlayerPosition(preferred, allowWater, allowVehicleSupport))
         {
             destination = preferred;
             return true;
         }
 
         if (alternatePosition is Vector3 alternate
-                && IsSafePlayerPosition(alternate, allowWater))
+                && IsSafePlayerPosition(alternate, allowWater, allowVehicleSupport))
         {
             destination = alternate;
             return true;
@@ -3423,9 +3426,10 @@ public partial class VoxelWorld : Node3D
     /// Ensure the destination's chunk collider represents the latest world
     /// edit epoch before a player transition can commit.
     /// </summary>
-    internal bool TryEnsureCollisionReady(Vector3 destination, bool allowWater = false)
+    internal bool TryEnsureCollisionReady(Vector3 destination, bool allowWater = false,
+            bool allowVehicleSupport = false)
     {
-        if (!IsSafePlayerPosition(destination, allowWater))
+        if (!IsSafePlayerPosition(destination, allowWater, allowVehicleSupport))
             return false;
 
         Vector2I cp = new(
@@ -3449,7 +3453,7 @@ public partial class VoxelWorld : Node3D
 
         return ChunkCollisionReadiness.IsReady(chunk.AppliedEditEpoch, currentEpoch,
                         _colliderReadyChunks.ContainsKey(cp))
-                && IsSafePlayerPosition(destination, allowWater);
+                && IsSafePlayerPosition(destination, allowWater, allowVehicleSupport);
     }
 
     internal readonly record struct SpawnCandidate(int X, int Z, int SurfaceY, long DistanceSquared);
