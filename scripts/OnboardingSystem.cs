@@ -203,11 +203,13 @@ public partial class OnboardingSystem : Node
     private double _timer;
     private Vector3 _startPosition;
 
-    public void Setup(VoxelWorld world, Player player, Hud hud, Mobs? mobs = null)
+    public void Setup(VoxelWorld world, Player player, Hud hud, Mobs? mobs = null, InventoryUi? inventory = null)
     {
         _world = world;
         _player = player;
         _hud = hud;
+        if (inventory != null)
+            inventory.Opened += OnInventoryOpened;
         _startPosition = player.GlobalPosition;
         RestoreFacts();
 
@@ -265,6 +267,15 @@ public partial class OnboardingSystem : Node
             _step++;
     }
 
+    private void OnInventoryOpened()
+    {
+        if (_progress.InventoryOpened)
+            return;
+
+        _progress.InventoryOpened = true;
+        PersistFacts();
+    }
+
     public override void _Process(double delta)
     {
         if (_world == null || _player == null)
@@ -286,12 +297,6 @@ public partial class OnboardingSystem : Node
                 _progress.Moved = true;
                 PersistFacts();
             }
-        }
-
-        if (Input.IsActionJustPressed("inventory"))
-        {
-            _progress.InventoryOpened = true;
-            PersistFacts();
         }
 
         if (DayNight.IsNight(_world.TimeOfDay))
