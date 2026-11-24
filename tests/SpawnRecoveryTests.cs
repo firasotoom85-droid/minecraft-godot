@@ -118,26 +118,49 @@ public static class SpawnRecoveryTests
     {
         Vector3 spawn = world.FindSpawn();
         player.GlobalPosition = spawn;
-        int x = Mathf.FloorToInt(spawn.X) + 1;
-        int y = Mathf.FloorToInt(spawn.Y);
-        int z = Mathf.FloorToInt(spawn.Z);
-        Vector2I chunkPosition = new(
-                Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX),
-                Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ));
+        int centerX = Mathf.FloorToInt(spawn.X);
+        int centerZ = Mathf.FloorToInt(spawn.Z);
+        int spawnChunkX = Mathf.FloorToInt(spawn.X / VoxelWorld.ChunkX);
+        int spawnChunkZ = Mathf.FloorToInt(spawn.Z / VoxelWorld.ChunkZ);
+        int chunkOriginX = spawnChunkX * VoxelWorld.ChunkX;
+        int chunkOriginZ = spawnChunkZ * VoxelWorld.ChunkZ;
+        Vector2I chunkPosition = new(spawnChunkX, spawnChunkZ);
         Chunk? chunk = world.GetNodeOrNull<Chunk>(
                 $"chunk_{chunkPosition.X}_{chunkPosition.Y}");
         TestAssert.Check(chunk != null, "spawn chunk is built before local collision mutation");
         if (chunk == null) return;
 
-        // The adjacent cell is outside the player's 0.35 m capsule but inside
-        // the close movement horizon that requires immediate collision refresh.
-        BlockId existing = world.GetBlock(x, y, z);
-        if (existing != BlockId.Air)
+        // Choose an empty adjacent cell in the same built chunk. The cell is
+        // outside the capsule but still inside the synchronous edit horizon.
+        int x = int.MinValue;
+        int y = Mathf.FloorToInt(spawn.Y);
+        int z = int.MinValue;
+        Vector2I[] offsets =
+        [
+            Vector2I.Right, Vector2I.Left, Vector2I.Down, Vector2I.Up,
+        ];
+        for (int dy = 0; dy <= 1 && x == int.MinValue; dy++)
         {
-            y++;
-            existing = world.GetBlock(x, y, z);
+            foreach (Vector2I offset in offsets)
+            {
+                int candidateX = centerX + offset.X;
+                int candidateZ = centerZ + offset.Y;
+                if (candidateX < chunkOriginX
+                        || candidateX >= chunkOriginX + VoxelWorld.ChunkX
+                        || candidateZ < chunkOriginZ
+                        || candidateZ >= chunkOriginZ + VoxelWorld.ChunkZ
+                        || world.GetBlock(candidateX, y + dy, candidateZ) != BlockId.Air)
+                    continue;
+
+                x = candidateX;
+                y += dy;
+                z = candidateZ;
+                break;
+            }
         }
-        TestAssert.Equal(BlockId.Air, existing, "collision fixture selects an empty adjacent voxel");
+        TestAssert.Check(x != int.MinValue,
+                "collision fixture finds an empty adjacent cell in the spawn chunk");
+        if (x == int.MinValue) return;
 
         long appliedBefore = chunk.AppliedEditEpoch;
         TestAssert.Check(world.SetBlock(x, y, z, BlockId.Stone),
@@ -212,22 +235,28 @@ public static class SpawnRecoveryTests
     private static void CheckVoxelTraversalAndCrossNormals(VoxelWorld world, Player player)
     {
         player.World = world;
-        const int y = 118;
-        TestAssert.Check(world.SetBlock(1, y, 0, BlockId.Stone),
+        Vector3 spawn = world.FindSpawn();
+        int chunkX = Mathf.FloorToInt(spawn.X / VoxelWorld.ChunkX);
+        int chunkZ = Mathf.FloorToInt(spawn.Z / VoxelWorld.ChunkZ);
+        int baseX = chunkX * VoxelWorld.ChunkX + 4;
+        int baseZ = chunkZ * VoxelWorld.ChunkZ + 4;
+        int y = world.Height - 3;
+        world.SetBlock(baseX + 1, y, baseZ, BlockId.Air);
+        TestAssert.Check(world.SetBlock(baseX + 1, y, baseZ, BlockId.Stone),
                 "near-tied DDA side-cell fixture is placed through SetBlock");
-        Vector3 origin = new(0.5f, y + 0.5f, 0.5f);
+        Vector3 origin = new(baseX + 0.5f, y + 0.5f, baseZ + 0.5f);
         Vector3 direction = new Vector3(0.707108f, 0.707105f, 0.0f).Normalized();
         TestAssert.Check(player.TryRaycastVoxels(origin, direction, 2.0f,
                         out Vector3I hit, out BlockId id, out _, out Vector3 normal),
                 "near-tied DDA visits the short positive-length intermediate voxel");
-        TestAssert.Equal(new Vector3I(1, y, 0), hit,
+        TestAssert.Equal(new Vector3I(baseX + 1, y, baseZ), hit,
                 "near-tied DDA reports the intermediate side voxel instead of skipping it");
         TestAssert.Equal(BlockId.Stone, id, "near-tied DDA returns the actual side-cell block");
         TestAssert.Equal(Vector3.Left, normal,
                 "near-tied DDA preserves the correct X entry face");
 
-        Vector3I plant = new(2, 60, 2);
-        Vector3 plantOrigin = new(2.0f, 60.5f, 2.4f);
+        Vector3I plant = new(baseX + 2, y, baseZ + 2);
+        Vector3 plantOrigin = new(plant.X, plant.Y + 0.5f, plant.Z + 0.4f);
         Vector3 plantDirection = new Vector3(0.9f, -0.3f, 0.1f).Normalized();
         TestAssert.Check(BlockDb.RayIntersectsCross(plantOrigin, plantDirection, plant,
                         0.0f, 2.0f, out _, out Vector3 plantNormal),
@@ -236,6 +265,8 @@ public static class SpawnRecoveryTests
                         && Mathf.IsEqualApprox(plantNormal.Length(), 1.0f)
                         && plantDirection.Dot(plantNormal) <= 0.0f,
                 "cross-plant normal is horizontal, normalized and faces against the ray");
+        TestAssert.Check(BlockShapes.CellStepFromNormal(plantNormal).Y == 0,
+                "cross-plant placement offsets into a horizontal neighboring cell at any pitch");
     }
 
     private static void CheckProjectileSweepShapes(Node host, Player player)
