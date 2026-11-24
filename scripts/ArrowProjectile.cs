@@ -110,7 +110,7 @@ public partial class ArrowProjectile : Area3D
             };
             scene.AddChild(flash);
             flash.GlobalPosition = point;
-            GetTree().CreateTimer(0.18).Timeout += flash.QueueFree;
+            GetTree().CreateTimer(0.18, processAlways: false).Timeout += flash.QueueFree;
         }
         if (hit && _owner != null)
             _owner.EmitSignal(Player.SignalName.Notice, "Arrow hit");
