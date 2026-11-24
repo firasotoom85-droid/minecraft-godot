@@ -213,6 +213,7 @@ public partial class PauseMenu : CanvasLayer, IModalUi
         }
 
         GetTree().Paused = false;
+        GameplayClock.Resume();
         GetTree().ChangeSceneToFile(MenuScene);
     }
 }
