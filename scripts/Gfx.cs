@@ -224,10 +224,12 @@ public partial class Gfx : Node
         }
     }
 
+    internal static bool ShouldPersistPresetChange(bool automatic) => !automatic;
+
     private void StepPreset(int index, string toast)
     {
         _autoStep = true;
-        ApplyPreset(index, persist: false);
+        ApplyPreset(index, persist: ShouldPersistPresetChange(automatic: true));
         _autoStep = false;
         EmitSignal(SignalName.PresetChanged, toast);
     }
