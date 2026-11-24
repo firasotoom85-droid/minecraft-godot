@@ -23,39 +23,39 @@ public static class WeatheringTests
         int crackedBrick = 0;
         int mossyBrick = 0;
         for (int y = 61; y <= 66; y++)
-        for (int z = -32; z < 32; z++)
-        for (int x = -32; x < 32; x++)
-        {
-            BlockId stone = WorldGenV9.WeatheredMaterial(
-                    ruin, BlockId.Cobblestone, x, y, z);
-            BlockId brick = WorldGenV9.WeatheredMaterial(
-                    ruin, BlockId.Brick, x, y, z);
-            switch (stone)
-            {
-                case BlockId.MossyCobblestone: mossyStone++; break;
-                case BlockId.WeatheredCobblestone: wornStone++; break;
-                default:
-                    TestAssert.Equal(BlockId.Cobblestone, stone,
-                            "stone weathering keeps the source material or selects a stone variant");
-                    break;
-            }
-            switch (brick)
-            {
-                case BlockId.CrackedBrick: crackedBrick++; break;
-                case BlockId.MossyBrick: mossyBrick++; break;
-                default:
-                    TestAssert.Equal(BlockId.Brick, brick,
-                            "brick weathering keeps the source material or selects a brick variant");
-                    break;
-            }
+            for (int z = -32; z < 32; z++)
+                for (int x = -32; x < 32; x++)
+                {
+                    BlockId stone = WorldGenV9.WeatheredMaterial(
+                            ruin, BlockId.Cobblestone, x, y, z);
+                    BlockId brick = WorldGenV9.WeatheredMaterial(
+                            ruin, BlockId.Brick, x, y, z);
+                    switch (stone)
+                    {
+                        case BlockId.MossyCobblestone: mossyStone++; break;
+                        case BlockId.WeatheredCobblestone: wornStone++; break;
+                        default:
+                            TestAssert.Equal(BlockId.Cobblestone, stone,
+                                    "stone weathering keeps the source material or selects a stone variant");
+                            break;
+                    }
+                    switch (brick)
+                    {
+                        case BlockId.CrackedBrick: crackedBrick++; break;
+                        case BlockId.MossyBrick: mossyBrick++; break;
+                        default:
+                            TestAssert.Equal(BlockId.Brick, brick,
+                                    "brick weathering keeps the source material or selects a brick variant");
+                            break;
+                    }
 
-            TestAssert.Equal(stone, WorldGenV9.WeatheredMaterial(
-                    ruin, BlockId.Cobblestone, x, y, z),
-                    "stone weathering is deterministic at a coordinate");
-            TestAssert.Equal(brick, WorldGenV9.WeatheredMaterial(
-                    ruin, BlockId.Brick, x, y, z),
-                    "brick weathering is deterministic at a coordinate");
-        }
+                    TestAssert.Equal(stone, WorldGenV9.WeatheredMaterial(
+                            ruin, BlockId.Cobblestone, x, y, z),
+                            "stone weathering is deterministic at a coordinate");
+                    TestAssert.Equal(brick, WorldGenV9.WeatheredMaterial(
+                            ruin, BlockId.Brick, x, y, z),
+                            "brick weathering is deterministic at a coordinate");
+                }
 
         TestAssert.Check(mossyStone > 0, "ruins generate mossy cobblestone");
         TestAssert.Check(wornStone > 0, "ruins generate weathered cobblestone");
@@ -131,8 +131,8 @@ public static class WeatheringTests
             int maxChunkZ = Mathf.FloorToInt((ruin.Z + 4) / (float)VoxelWorld.ChunkZ);
             List<Vector2I> chunks = [];
             for (int cz = minChunkZ; cz <= maxChunkZ; cz++)
-            for (int cx = minChunkX; cx <= maxChunkX; cx++)
-                chunks.Add(new Vector2I(cx, cz));
+                for (int cx = minChunkX; cx <= maxChunkX; cx++)
+                    chunks.Add(new Vector2I(cx, cz));
 
             byte[][] oldChunks = new byte[chunks.Count][];
             byte[][] newChunks = new byte[chunks.Count][];
@@ -184,8 +184,8 @@ public static class WeatheringTests
             }
 
             TestAssert.Check(weathered > 0, "V9 generated ruin contains weathered blocks");
-            TestAssert.Equal(WorldGenV11.Version, WorldStore.CurrentGenVersion,
-                    "new worlds default to generator V11 while V10 remains frozen");
+            TestAssert.Equal(WorldGenV12.Version, WorldStore.CurrentGenVersion,
+                    "new worlds default to generator V12 while V10 remains frozen");
             TestAssert.Equal(WorldGenV8.Version, v8.WorldGenVersion,
                     "legacy V8 world remains pinned to generator V8");
             TestAssert.Equal(WorldGenV9.Version, v9.WorldGenVersion,
@@ -232,12 +232,12 @@ public static class WeatheringTests
             Dictionary<Vector2I, byte[]> forwardChunks = [];
             List<Vector2I> order = [];
             for (int cz = minChunkZ; cz <= maxChunkZ; cz++)
-            for (int cx = minChunkX; cx <= maxChunkX; cx++)
-            {
-                Vector2I chunk = new(cx, cz);
-                order.Add(chunk);
-                forwardChunks[chunk] = forward.ChunkData(chunk);
-            }
+                for (int cx = minChunkX; cx <= maxChunkX; cx++)
+                {
+                    Vector2I chunk = new(cx, cz);
+                    order.Add(chunk);
+                    forwardChunks[chunk] = forward.ChunkData(chunk);
+                }
 
             host.RemoveChild(forward);
             forward.QueueFree();
@@ -275,16 +275,16 @@ public static class WeatheringTests
     {
         VoxelWorld.StructureInfo? fallback = null;
         for (int cz = -radius; cz <= radius; cz++)
-        for (int cx = -radius; cx <= radius; cx++)
-        {
-            if (world.GetStructureSite(cx, cz) is not { } site || site.Kind != kind)
-                continue;
+            for (int cx = -radius; cx <= radius; cx++)
+            {
+                if (world.GetStructureSite(cx, cz) is not { } site || site.Kind != kind)
+                    continue;
 
-            fallback ??= site;
-            Biome biome = world.BiomeAt(site.X, site.Z, site.Y);
-            if (biome is Biome.Plains or Biome.FlowerPlains or Biome.Desert or Biome.Snow)
-                return site;
-        }
+                fallback ??= site;
+                Biome biome = world.BiomeAt(site.X, site.Z, site.Y);
+                if (biome is Biome.Plains or Biome.FlowerPlains or Biome.Desert or Biome.Snow)
+                    return site;
+            }
         return fallback;
     }
 

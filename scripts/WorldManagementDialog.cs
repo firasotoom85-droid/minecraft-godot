@@ -238,10 +238,16 @@ public partial class WorldManagementDialog : Control
             return;
 
         System.Collections.Generic.List<WorldBackupInfo> backups = WorldBackupStore.List(_worldDirectory);
+        if (WorldBackupStore.LastListError is { } listError)
+            _status.Text = listError;
         foreach (WorldBackupInfo backup in backups)
         {
-            string date = Time.GetDatetimeStringFromUnixTime(backup.ModifiedUtc, true) + " UTC";
-            string state = backup.IsValid ? "VALID" : "CORRUPT";
+            string date = backup.ModifiedUtc > 0
+                    ? Time.GetDatetimeStringFromUnixTime(backup.ModifiedUtc, true) + " UTC"
+                    : "Date unavailable";
+            string state = backup.IsValid ? "VALID"
+                    : backup.Status.StartsWith("Unavailable:", StringComparison.Ordinal)
+                            ? "UNAVAILABLE" : "CORRUPT";
             string text = $"{backup.FileName} · {date} · {FormatBytes(backup.SizeBytes)} · {state}";
             int index = _backups.ItemCount;
             _backups.AddItem(text);
@@ -249,7 +255,8 @@ public partial class WorldManagementDialog : Control
         }
         if (_backups.ItemCount > 0)
             _backups.Select(0);
-        _restoreButton.Disabled = _backups.ItemCount == 0;
+        _restoreButton.Disabled = _backups.ItemCount == 0
+                || WorldBackupStore.LastListError is not null;
     }
 
     private void OpenExportDialog()

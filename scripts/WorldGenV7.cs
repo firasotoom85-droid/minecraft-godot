@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 
 namespace Minecraft;
@@ -183,8 +184,17 @@ public sealed class WorldGenV7
                 includeRivers ? RiverStrength(x, z) : 0.0f);
     }
 
-    public Biome BiomeAt(int x, int z, int height, int seaLevel) =>
-            SampleSurface(x, z, seaLevel).Biome;
+    public Biome BiomeAt(int x, int z, int height, int seaLevel)
+    {
+        bool climateAtSurface = _preset is "flat" or "sky";
+        int climateHeight = climateAtSurface ? height : seaLevel + 12;
+        ClimateSample climate = ClimateAt(x, z, climateHeight, includeRivers: false);
+        float temperature = climateAtSurface ? climate.Temperature
+                : climate.Temperature - Math.Max(0, height - 40) * 0.0085f
+                        + Math.Max(0, seaLevel + 12 - 40) * 0.0085f;
+        return ClassifyBiome(temperature, climate.Moisture, height, seaLevel,
+                _plainsVariation.GetNoise2D(x, z));
+    }
 
     /// <summary>Pure classification function, also used by focused biome tests.</summary>
     public static Biome ClassifyBiome(float temperature, float moisture,
@@ -646,6 +656,16 @@ public partial class VoxelWorld
 
     private void StampOreVeinsV7(Vector2I cp, byte[] data, int strideY, int ox, int oz)
     {
+        // Replaying the same neighbor-cell and ore order in each target chunk
+        // keeps cross-chunk veins deterministic. Reserved placements represent
+        // successful stone replacements across the complete source-cell paths.
+        HashSet<Vector3I>? claimedOrePositions = _genVersion >= WorldGenV12.Version
+                ? new HashSet<Vector3I>(2048) : null;
+        HashSet<Vector3I>? rejectedOrePositions = _genVersion >= WorldGenV12.Version
+                ? new HashSet<Vector3I>(1024) : null;
+        Dictionary<Vector2I, (WorldGenV7.SurfaceSample Surface, bool IsIsland)>? oreColumnCache =
+                _genVersion >= WorldGenV12.Version
+                        ? new Dictionary<Vector2I, (WorldGenV7.SurfaceSample, bool)>(1024) : null;
         for (int dz = -1; dz <= 1; dz++)
         {
             for (int dx = -1; dx <= 1; dx++)
@@ -657,14 +677,19 @@ public partial class VoxelWorld
                 int cellOx = nx * ChunkX;
                 int cellOz = nz * ChunkZ;
                 Biome biome = BiomeAt(cellOx + ChunkX / 2, cellOz + ChunkZ / 2);
-                TryV7Vein(ref rng, BlockId.CoalOre, cellOx, cellOz,
-                        18, 112, 9, 4, 11, data, strideY, ox, oz);
-                TryV7Vein(ref rng, BlockId.IronOre, cellOx, cellOz,
-                        6, 88, 6, 3, 8, data, strideY, ox, oz);
-                TryV7Vein(ref rng, BlockId.GoldOre, cellOx, cellOz,
-                        5, 48, biome == Biome.Mountain ? 4 : 2, 2, 6, data, strideY, ox, oz);
-                TryV7Vein(ref rng, BlockId.DiamondOre, cellOx, cellOz,
-                        4, 24, 1, 2, 4, data, strideY, ox, oz);
+                TryVersionedOreVein(ref rng, BlockId.CoalOre, cellOx, cellOz,
+                        18, 112, 9, 4, 11, data, strideY, ox, oz,
+                        claimedOrePositions, rejectedOrePositions, oreColumnCache);
+                TryVersionedOreVein(ref rng, BlockId.IronOre, cellOx, cellOz,
+                        6, 88, 6, 3, 8, data, strideY, ox, oz,
+                        claimedOrePositions, rejectedOrePositions, oreColumnCache);
+                TryVersionedOreVein(ref rng, BlockId.GoldOre, cellOx, cellOz,
+                        5, 48, biome == Biome.Mountain ? 4 : 2, 2, 6,
+                        data, strideY, ox, oz, claimedOrePositions,
+                        rejectedOrePositions, oreColumnCache);
+                TryVersionedOreVein(ref rng, BlockId.DiamondOre, cellOx, cellOz,
+                        4, 24, 1, 2, 4, data, strideY, ox, oz,
+                        claimedOrePositions, rejectedOrePositions, oreColumnCache);
             }
         }
     }
@@ -694,6 +719,99 @@ public partial class VoxelWorld
                 }
 
                 y = Mathf.Clamp(y, 2, Height - 2);
+            }
+        }
+    }
+
+    private void TryVersionedOreVein(ref uint rng, BlockId ore, int cellOx, int cellOz,
+            int minY, int maxY, int count, int minSize, int maxSize,
+            byte[] data, int strideY, int ox, int oz,
+            HashSet<Vector3I>? claimedOrePositions,
+            HashSet<Vector3I>? rejectedOrePositions,
+            Dictionary<Vector2I, (WorldGenV7.SurfaceSample Surface, bool IsIsland)>? oreColumnCache)
+    {
+        if (_genVersion >= WorldGenV12.Version)
+        {
+            if (claimedOrePositions is null || rejectedOrePositions is null
+                    || oreColumnCache is null)
+            {
+                throw new InvalidOperationException("V12 ore placement state was not initialized.");
+            }
+
+            TryV12Vein(ref rng, ore, cellOx, cellOz, minY, maxY, count,
+                    minSize, maxSize, data, strideY, ox, oz,
+                    claimedOrePositions, rejectedOrePositions, oreColumnCache);
+            return;
+        }
+
+        TryV7Vein(ref rng, ore, cellOx, cellOz, minY, maxY, count,
+                minSize, maxSize, data, strideY, ox, oz);
+    }
+
+    private void TryV12Vein(ref uint rng, BlockId ore, int cellOx, int cellOz,
+            int minY, int maxY, int count, int minSize, int maxSize,
+            byte[] data, int strideY, int ox, int oz,
+            HashSet<Vector3I> claimedOrePositions,
+            HashSet<Vector3I> rejectedOrePositions,
+            Dictionary<Vector2I, (WorldGenV7.SurfaceSample Surface, bool IsIsland)> oreColumnCache)
+    {
+        int veins = count + Range(ref rng, 0, 2);
+        // 128 slots comfortably hold the maximum 88 walk attempts. Open
+        // addressing avoids the quadratic scan used by a linear visited list.
+        Span<Vector3I> visited = stackalloc Vector3I[128];
+        Span<byte> occupied = stackalloc byte[128];
+        int minX = cellOx - WorldGenV12.MaxVeinRadius;
+        int maxX = cellOx + ChunkX - 1 + WorldGenV12.MaxVeinRadius;
+        int minZ = cellOz - WorldGenV12.MaxVeinRadius;
+        int maxZ = cellOz + ChunkZ - 1 + WorldGenV12.MaxVeinRadius;
+
+        for (int vein = 0; vein < veins; vein++)
+        {
+            int x = cellOx + Range(ref rng, 0, ChunkX - 1);
+            int z = cellOz + Range(ref rng, 0, ChunkZ - 1);
+            int y = Range(ref rng, Math.Max(2, minY), Math.Min(maxY, Height - 2));
+            int targetSize = Range(ref rng, minSize, maxSize);
+            occupied.Clear();
+            int placedCount = 0;
+            int attempts = 0;
+
+            // Count only unique coordinates which are eligible Stone. The same
+            // deterministic path is replayed for each neighboring output chunk;
+            // remote candidates are classified from the pure terrain function.
+            while (placedCount < targetSize && attempts < WorldGenV12.MaxOreWalkAttempts)
+            {
+                Vector3I position = new(x, y, z);
+                if (WorldGenV12.TryRecordUniqueOrePosition(visited, occupied, position)
+                        && !claimedOrePositions.Contains(position)
+                        && !rejectedOrePositions.Contains(position))
+                {
+                    bool isNaturalStone = IsV12NaturalStone(
+                            x, y, z, data, strideY, ox, oz, oreColumnCache);
+                    if (WorldGenV12.TryCountOrePlacement(isNaturalStone, ref placedCount))
+                    {
+                        claimedOrePositions.Add(position);
+                        StampOre(x, y, z, ore, data, strideY, ox, oz);
+                    }
+                    else
+                    {
+                        rejectedOrePositions.Add(position);
+                    }
+                }
+
+                switch (Range(ref rng, 0, 5))
+                {
+                    case 0: x++; break;
+                    case 1: x--; break;
+                    case 2: y++; break;
+                    case 3: y--; break;
+                    case 4: z++; break;
+                    default: z--; break;
+                }
+
+                x = Mathf.Clamp(x, minX, maxX);
+                z = Mathf.Clamp(z, minZ, maxZ);
+                y = Mathf.Clamp(y, 2, Height - 2);
+                attempts++;
             }
         }
     }

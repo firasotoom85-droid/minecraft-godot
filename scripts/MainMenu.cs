@@ -21,6 +21,7 @@ public partial class MainMenu : Control
     private LineEdit _renameEdit = null!;
     private Label _manageTitle = null!;
     private Label _manageStatus = null!;
+    private Label _createStatus = null!;
     private ConfirmationDialog _deleteDialog = null!;
     private string _manageDir = "";
     private OptionButton _typeOption = null!;
@@ -209,6 +210,13 @@ public partial class MainMenu : Control
         row.AddChild(MenuSkin.MakeButton("Create", CreateWorld, 0));
         row.AddChild(MenuSkin.MakeButton("Back", ShowMain, 0));
         box.AddChild(row);
+        _createStatus = new Label
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+        };
+        _createStatus.AddThemeFontSizeOverride("font_size", 13);
+        box.AddChild(_createStatus);
         return MenuSkin.Wrap(box);
     }
 
@@ -271,7 +279,19 @@ public partial class MainMenu : Control
         }
 
         var worlds = WorldStore.List();
-        if (worlds.Count == 0)
+        if (WorldStore.LastListError is { } listError)
+        {
+            Label unavailable = new()
+            {
+                Text = listError,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            };
+            _worldList.AddChild(unavailable);
+            return;
+        }
+
+        if (worlds.Count == 0 && WorldStore.UnreadableWorldDirectories.Count == 0)
         {
             Label none = new()
             {
@@ -299,6 +319,18 @@ public partial class MainMenu : Control
             row.AddChild(MenuSkin.MakeButton("Manage", () => ShowManage(dir, manifest), 92));
             _worldList.AddChild(row);
         }
+
+        foreach (string dir in WorldStore.UnreadableWorldDirectories)
+        {
+            HBoxContainer row = new();
+            Button recovery = MenuSkin.MakeButton(
+                    $"Recovery required · {System.IO.Path.GetFileName(dir)}",
+                    () => _worldManagement.ShowFor(dir), 0);
+            recovery.Alignment = HorizontalAlignment.Left;
+            recovery.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+            row.AddChild(recovery);
+            _worldList.AddChild(row);
+        }
     }
 
     private void ShowManage(string dir, WorldManifest manifest)
@@ -316,14 +348,12 @@ public partial class MainMenu : Control
 
     private void RenameWorld()
     {
-        if (WorldStore.Rename(_manageDir, _renameEdit.Text))
+        WorldOperationResult result = WorldStore.RenameDetailed(_manageDir, _renameEdit.Text);
+        _manageStatus.Text = result.Message;
+        if (result.Success)
         {
-            _manageStatus.Text = "Renamed.";
             _manageTitle.Text = $"MANAGE — {_renameEdit.Text.Trim()}";
-        }
-        else
-        {
-            _manageStatus.Text = "Enter a name.";
+            RefreshWorlds();
         }
     }
 
@@ -358,6 +388,7 @@ public partial class MainMenu : Control
     /// <summary>Seed field also accepts share codes: "1337·flat", "1337 amplified", "sky".</summary>
     private void CreateWorld()
     {
+        _createStatus.Text = "";
         string name = _nameEdit.Text.Trim();
         if (name.Length == 0)
         {
@@ -378,7 +409,17 @@ public partial class MainMenu : Control
             }
         }
 
-        StartWorld(WorldStore.Create(name, seed, "survival", preset));
+        try
+        {
+            string worldDirectory = WorldStore.Create(name, seed, "survival", preset);
+            StartWorld(worldDirectory);
+        }
+        catch (Exception e) when (e is System.IO.IOException
+                or UnauthorizedAccessException or System.Security.SecurityException
+                or System.IO.InvalidDataException)
+        {
+            _createStatus.Text = "World creation failed: " + e.Message;
+        }
     }
 
     private static string PresetOf(int index) =>
