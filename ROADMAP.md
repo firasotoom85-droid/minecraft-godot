@@ -2,7 +2,7 @@
 
 This is the **current forward plan**, not a running implementation diary. Completed work, integration records and historical audits are preserved under docs/history and the relevant subsystem folders.
 
-**Status date:** 2026-11-23  
+**Status date:** 2026-11-24  
 **Current engine baseline:** Godot 4.7.2 .NET  
 **Current framework target:** .NET 10  
 **Latest published build:** [v1.1.0-beta.1](https://github.com/firasotoom85-droid/minecraft-godot/releases/tag/v1.1.0-beta.1)
@@ -17,6 +17,7 @@ This is the **current forward plan**, not a running implementation diary. Comple
 | Release packaging | Being automated | Exercise tag-triggered Linux/Windows export packaging on a beta tag |
 | Performance baselines | Partial | Benchmark/soak reports now expose persistent managed-memory categories and high-water marks; record a fresh controlled Release baseline, with the comparable RTX 4060 run still outstanding |
 | Gameplay/visual sign-off | Partial | Complete human playtesting across mining, building, combat, quests, saves and low/high graphics presets |
+| Player lifecycle and safe recovery | In progress | Run W12 spawn/recovery regressions and full Debug/Release CI; verify every relocation path and nearby mutation collision behavior |
 | Public project profile | Incomplete | Repository is already public; add a description and relevant topics in GitHub Settings |
 
 **Persistence contract (integrated W01):** autosave captures an immutable save
@@ -27,7 +28,9 @@ writing the latest state synchronously.
 
 **Persistence recovery (integrated W05):** world and player manifests and saves use model-specific validation with ordered backup fallback. A damaged selected world is retained in recovery rather than silently replaced, and ordinary writes are blocked until a valid world/player pair is restored. The optional `hasSavedData` manifest marker distinguishes a never-saved world from lost save history. Archive imports validate metadata and candidates; duplication and deletion do not traverse links or other reparse points.
 
-**Gameplay lifecycle guard (integrated W08):** crop growth validates loaded-only farmland and open space, pausing without generating terrain. Merchant biome progress reconciles unique `explored/<Biome>` flags. Mob and village simulation suspend when their terrain chunk is unavailable; projectile queries reuse a configured terrain ray cast. Water columns retain level 1 at their foot, and unknown neighbours cannot weaken flow. Mob steering respects plants, lava and stateful slab/stair occupancy.
+**Gameplay lifecycle guard (integrated W08):** crop growth validates loaded-only farmland and open space, pausing without generating terrain. Merchant biome progress reconciles unique `explored/<Biome>` flags. Mob and village simulation suspend when their terrain chunk is unavailable. Water columns retain level 1 at their foot, and unknown neighbours cannot weaken flow. Mob steering respects plants, lava and stateful slab/stair occupancy.
+
+**Player destination contract (W12, in progress):** startup, saved-position recovery, respawn, void recovery, console teleports and boat dismounts resolve through a shared player destination transaction. It validates support and capsule/hazard clearance, prepares a collider at the current world edit epoch, and only then commits the transform. Nearby occupied-geometry edits synchronously refresh the affected chunk collider; distant edits retain the bounded worker rebuild path. The remaining gate is a clean Godot 4.7.2 .NET Debug/Release build and execution of the registered spawn/recovery and full headless suites.
 
 ## 2. Stable-release quality gates
 
