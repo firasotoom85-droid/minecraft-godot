@@ -62,19 +62,19 @@ public static class FoliageTests
         int holes = 0;
         Vector3 sum = Vector3.Zero;
         for (int y = 0; y < BlockDb.TilePx; y++)
-        for (int x = 0; x < BlockDb.TilePx; x++)
-        {
-            Color c = atlas.GetPixel(ox + x, oy + y);
-            if (c.A > 0.5f)
+            for (int x = 0; x < BlockDb.TilePx; x++)
             {
-                opaque++;
-                sum += new Vector3(c.R, c.G, c.B);
+                Color c = atlas.GetPixel(ox + x, oy + y);
+                if (c.A > 0.5f)
+                {
+                    opaque++;
+                    sum += new Vector3(c.R, c.G, c.B);
+                }
+                else
+                {
+                    holes++;
+                }
             }
-            else
-            {
-                holes++;
-            }
-        }
         TestAssert.Check(opaque > 700 && holes > 100,
                 $"{species} has a dense but readable alpha-cutout canopy");
         TestAssert.Check(sum.LengthSquared() > 1.0f,
@@ -112,18 +112,18 @@ public static class FoliageTests
             byte[]? candidateData = null;
             int variants = 0;
             for (int cz = -24; cz <= 24 && candidate is null; cz++)
-            for (int cx = -24; cx <= 24; cx++)
-            {
-                Vector2I chunk = new(cx, cz);
-                byte[] data = v10.ChunkData(chunk);
-                variants = CountVariants(data);
-                if (variants > 0)
+                for (int cx = -24; cx <= 24; cx++)
                 {
-                    candidate = chunk;
-                    candidateData = data;
-                    break;
+                    Vector2I chunk = new(cx, cz);
+                    byte[] data = v10.ChunkData(chunk);
+                    variants = CountVariants(data);
+                    if (variants > 0)
+                    {
+                        candidate = chunk;
+                        candidateData = data;
+                        break;
+                    }
                 }
-            }
 
             TestAssert.Check(candidate is not null,
                     "V10 places species foliage somewhere in the surveyed area");
