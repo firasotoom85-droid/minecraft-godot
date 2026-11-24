@@ -24,6 +24,8 @@ public partial class Chunk : StaticBody3D
 
     /// <summary>Estimated CPU-side mesh/collision array bytes represented by the applied payload.</summary>
     public long EstimatedMeshBytes { get; private set; }
+    /// <summary>World edit epoch represented by the currently applied mesh/collider payload.</summary>
+    public long AppliedEditEpoch { get; private set; }
 
     private MeshInstance3D _meshOpaque = null!;
     private MeshInstance3D? _meshGlass;
@@ -118,6 +120,7 @@ public partial class Chunk : StaticBody3D
     /// <summary>Apply a Mesher.Build() payload: meshes, materials, collider.</summary>
     public void ApplyPayload(MeshPayload payload)
     {
+        AppliedEditEpoch = payload.Epoch;
         EstimatedMeshBytes = payload.EstimatedResourceBytes;
         ApplySurface(_meshOpaque, payload.Opaque, ChunkMaterials.Opaque);
         ApplyOptionalSurface(ref _meshGlass, payload.Glass, ChunkMaterials.Glass,
