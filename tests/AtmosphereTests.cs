@@ -8,6 +8,7 @@ public static class AtmosphereTests
 {
     public static void Run()
     {
+        TestGameplayClockPauseAccounting();
         TestDayNightPalette();
         TestWeatherSkyCloudPalette();
         TestCaveExposure();
@@ -17,6 +18,26 @@ public static class AtmosphereTests
         TestDistanceHazeProfile();
         TestWeatherPrecipitationSelection();
         TestWaterDepthSpace();
+    }
+
+    private static void TestGameplayClockPauseAccounting()
+    {
+        double beforePause = GameplayClock.CalculateNow(20.0, 5.0, false, 0.0);
+        double duringPause = GameplayClock.CalculateNow(30.0, 5.0, true, 20.0);
+        double afterResume = GameplayClock.CalculateNow(40.0, 25.0, false, 20.0);
+        double afterResumeProgress = GameplayClock.CalculateNow(41.0, 25.0, false, 20.0);
+
+        TestAssert.Equal(15.0, beforePause,
+                "gameplay clock reports elapsed time before a pause");
+        TestAssert.Equal(beforePause, duringPause,
+                "gameplay clock remains frozen throughout a pause");
+        TestAssert.Equal(beforePause, afterResume,
+                "resuming excludes the complete paused interval");
+        TestAssert.Equal(16.0, afterResumeProgress,
+                "gameplay clock advances again after resume");
+        TestAssert.Equal(15.0,
+                GameplayClock.CalculateNow(20.0, 5.0, true, 25.0),
+                "a future pause start cannot move gameplay time backwards");
     }
 
     private static void TestDayNightPalette()
