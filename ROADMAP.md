@@ -50,7 +50,7 @@ A release candidate is ready only when all of the following are true:
 - No known critical or high-severity defect blocks ordinary play, saves, world loading or release installation.
 - The changelog, release notes, third-party notices and known limitations match the shipped build.
 
-The current implementation still needs human gameplay/visual sign-off. Arabic/RTL localization and authored music are also not implemented in the current roadmap; decide explicitly whether each is required for the first stable release rather than silently implying it is complete.
+The current implementation still needs human gameplay/visual sign-off. Arabic/RTL localization remains unimplemented and must be decided explicitly for the first stable release. Authored music is deferred as recorded in W15; the Settings UI does not expose a nonfunctional music control.
 
 ## 3. Post-1.0 direction
 
