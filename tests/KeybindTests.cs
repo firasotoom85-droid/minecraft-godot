@@ -169,6 +169,13 @@ public static class KeybindTests
         TestAssert.Equal(-1.0f, CameraLookInput.VerticalDelta(1.0f, true),
                 "Invert-Y reverses vertical look consistently across camera modes");
 
+        TestAssert.Check(PhotoMode.ShouldCaptureMouse(true, Input.MouseModeEnum.Visible),
+                "photo mode acquires a visible pointer when it owns the camera");
+        TestAssert.Check(!PhotoMode.ShouldCaptureMouse(true, Input.MouseModeEnum.Captured),
+                "photo mode does not recapture an already captured pointer");
+        TestAssert.Check(!PhotoMode.ShouldCaptureMouse(false, Input.MouseModeEnum.Visible),
+                "inactive photo mode does not acquire mouse ownership");
+
         TestAssert.Check(PhotoMode.CanTogglePhotoMode(true, true, true, true),
                 "photo mode can always handle its own exit even while locked or dead");
         TestAssert.Check(!PhotoMode.CanTogglePhotoMode(false, true, false, false),
