@@ -9,6 +9,26 @@ public static class KeybindTests
     public static void Run()
     {
         GamepadBindings.ResetDefaults();
+        foreach ((string action, string label) in GamepadBindings.ControllerOnlyActions)
+        {
+            TestAssert.Check(GamepadBindings.LabelFor(action) != "—",
+                    $"controller-only action {action} has a configurable default");
+            TestAssert.Check(!string.IsNullOrWhiteSpace(label),
+                    $"controller-only action {action} has a label");
+        }
+
+        ConfigFile duplicateController = new();
+        duplicateController.SetValue("buttons", "jump", (int)JoyButton.X);
+        duplicateController.SetValue("buttons", "toggle_fly", (int)JoyButton.X);
+        GamepadBindings.ApplyStoredBindings(duplicateController);
+        TestAssert.Equal("X", GamepadBindings.LabelFor("jump"),
+                "first valid persisted controller assignment is retained");
+        TestAssert.Check(GamepadBindings.LabelFor("toggle_fly") != "X",
+                "duplicate persisted controller assignments fall back to an unused button");
+        TestAssert.Equal("jump", GamepadBindings.Conflict("toggle_fly", JoyButton.X),
+                "controller loader retains one-button-to-one-action ownership");
+        GamepadBindings.ResetDefaults();
+
         HashSet<string> actions = [];
         TestAssert.Check(Keybinds.Bindable.Length > 8, "keybind list is populated");
         foreach ((string action, string label) in Keybinds.Bindable)
@@ -52,6 +72,26 @@ public static class KeybindTests
         TestAssert.Equal("A", GamepadBindings.LabelFor("jump"),
                 "keyboard rebinding preserves the controller binding");
         TestAssert.Equal(Error.Ok, Keybinds.ResetDefaults(), "keyboard reset restores persisted defaults");
+
+        ConfigFile reorderedRemap = new();
+        reorderedRemap.SetValue("keys", "forward", (int)Key.E);
+        reorderedRemap.SetValue("keys", "inventory", (int)Key.Z);
+        Keybinds.ApplySavedBindings(reorderedRemap);
+        TestAssert.Equal("E", Keybinds.LabelFor("forward"),
+                "saved remaps may reuse a key another saved action vacates");
+        TestAssert.Equal("Z", Keybinds.LabelFor("inventory"),
+                "the vacated action's replacement loads independent of binding order");
+        TestAssert.Equal(Error.Ok, Keybinds.ResetDefaults(),
+                "permutation regression restores the original keyboard defaults");
+
+        bool previousInvertY = Settings.InvertY;
+        Settings.InvertY = false;
+        TestAssert.Equal(1.0f, Settings.ApplyInvertY(1.0f),
+                "normal vertical look input preserves its direction");
+        Settings.InvertY = true;
+        TestAssert.Equal(-1.0f, Settings.ApplyInvertY(1.0f),
+                "invert-Y reverses the shared vertical look input");
+        Settings.InvertY = previousInvertY;
 
         ConfigFile settingsConfig = new();
         settingsConfig.SetValue("input", "mouse_sensitivity", 0.0033f);
