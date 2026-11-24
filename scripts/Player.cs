@@ -1434,16 +1434,16 @@ public partial class Player : CharacterBody3D, IDamageable
             return false;
         }
 
+        if (!DayNight.IsNight(World.TimeOfDay))
+        {
+            EmitSignal(SignalName.Notice, "You can only sleep at night");
+            return false;
+        }
+
         Vector3 anchor = new(bedPos.X + 0.5f, bedPos.Y + 1.0f, bedPos.Z + 0.5f);
         if (!TrySetRespawnAnchor(anchor))
         {
             EmitSignal(SignalName.Notice, "There is not enough safe space above this bed");
-            return false;
-        }
-
-        if (!DayNight.IsNight(World.TimeOfDay))
-        {
-            EmitSignal(SignalName.Notice, "You can only sleep at night");
             return false;
         }
 
@@ -1527,12 +1527,13 @@ public partial class Player : CharacterBody3D, IDamageable
         }
 
         bool rested = false;
+        bool anchorSet = false;
         if (Time.GetTicksMsec() / 1000.0 - _lastRest >= 3.0)
         {
             _lastRest = Time.GetTicksMsec() / 1000.0;
             rested = true;
             Vector3I bp = TargetBlock();
-            bool anchorSet = TrySetRespawnAnchor(
+            anchorSet = TrySetRespawnAnchor(
                     new Vector3(bp.X + 0.5f, bp.Y + 1.0f, bp.Z + 0.5f));
             if (!anchorSet)
                 EmitSignal(SignalName.Notice, "There is not enough safe space above this campfire");
@@ -1548,9 +1549,13 @@ public partial class Player : CharacterBody3D, IDamageable
         StartPunch();
         EmitSignal(SignalName.CampfireUsed, (cooked, rested) switch
         {
-            (true, true) => "Cooked 1 · rested — respawn set, healed",
+            (true, true) => anchorSet
+                    ? "Cooked 1 · rested — respawn set, healed"
+                    : "Cooked 1 · rested, healed — no safe respawn space",
             (true, false) => "Cooked 1",
-            _ => "Rested — respawn point set, healed",
+            _ => anchorSet
+                    ? "Rested — respawn point set, healed"
+                    : "Rested and healed — no safe respawn space",
         });
     }
 
