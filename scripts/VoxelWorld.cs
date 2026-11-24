@@ -2396,12 +2396,15 @@ public partial class VoxelWorld : Node3D
         int i = lx + lz * ChunkZ + y * ChunkX * ChunkZ;
         bool isCampfireCell = IsCampfireSiteCell(x, y, z);
         bool lightingChanged = false;
+        bool collisionShapeChanged = false;
         lock (SnapshotLock)
         {
             // Chunk.Blocks is also read by worker meshing. Mutate it while
             // holding the snapshot lock so payload data and EditEpoch agree.
             byte oldBlock = c.Blocks[i];
             byte oldState = c.BlockStates.Length > 0 ? c.BlockStates[i] : (byte)0;
+            collisionShapeChanged = BlockShapes.OccupancyMask((BlockId)oldBlock, oldState)
+                    != BlockShapes.OccupancyMask(id, state);
             if (!c.SetBlockLocal(lx, y, lz, id, state))
             {
                 return false;
@@ -2491,6 +2494,20 @@ public partial class VoxelWorld : Node3D
         MarkDirty();
         BlockChanged?.Invoke(new Vector3I(x, y, z));
 
+        // Keep collision authoritative near the player: rebuild the edited
+        // chunk before the next physics step when a mutation changes occupied
+        // geometry inside the short movement horizon. Distant edits remain on
+        // the existing bounded asynchronous rebuild pipeline.
+        bool collisionRebuilt = false;
+        if (collisionShapeChanged && Player is { } player)
+        {
+            Vector3 playerCenter = player.GlobalPosition
+                    + Vector3.Up * (Player.CollisionHeight * 0.5f);
+            Vector3 editedCenter = new(x + 0.5f, y + 0.5f, z + 0.5f);
+            collisionRebuilt = playerCenter.DistanceSquaredTo(editedCenter) <= 4.0f
+                    && RebuildChunkNow(cp);
+        }
+
         // The edited chunk always changes. Geometry-only dependencies are
         // limited to the sampled edge/corner; light-affecting edits retain the
         // full existing 3x3 region for the 14-voxel propagation halo.
@@ -2505,7 +2522,8 @@ public partial class VoxelWorld : Node3D
                 }
 
                 Vector2I affected = cp + new Vector2I(dx, dz);
-                if (_chunks.ContainsKey(affected))
+                if (_chunks.ContainsKey(affected)
+                        && !(collisionRebuilt && affected == cp))
                 {
                     EnqueueRebuild(affected);
                 }
@@ -2983,6 +3001,47 @@ public partial class VoxelWorld : Node3D
         return bytes;
     }
 
+    /// <summary>
+    /// Synchronously refresh one loaded chunk from the current snapshot. A
+    /// worker payload for an older epoch is rejected by ApplyBuild; a payload
+    /// built from the same epoch is equivalent and safe to apply later.
+    /// </summary>
+    private bool RebuildChunkNow(Vector2I cp)
+    {
+        if (!_chunks.TryGetValue(cp, out Chunk? chunk))
+        {
+            chunk = BuildNow(cp);
+            return chunk.AppliedEditEpoch == EditEpoch
+                    && _colliderReadyChunks.ContainsKey(cp);
+        }
+
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            MeshPayload payload = Mesher.Build(this, cp);
+            try
+            {
+                bool epochCurrent;
+                lock (SnapshotLock)
+                    epochCurrent = payload.Epoch == EditEpoch;
+                if (!epochCurrent || !Mesher.IsConfigurationCurrent(payload.MeshingRevision)
+                        || payload.BoundaryMask != MissingColliderBoundaryMask(cp))
+                    continue;
+
+                chunk.ApplyPayload(payload);
+                SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
+                return chunk.AppliedEditEpoch == payload.Epoch
+                        && _colliderReadyChunks.ContainsKey(cp);
+            }
+            finally
+            {
+                PayloadPool.Release(payload);
+            }
+        }
+
+        EnqueueRebuild(cp);
+        return false;
+    }
+
     /// <summary>Synchronous build (startup / when a node must exist immediately).</summary>
     private Chunk BuildNow(Vector2I cp)
     {
@@ -3242,6 +3301,104 @@ public partial class VoxelWorld : Node3D
         {
             PayloadPool.Release(payload);
         }
+    }
+
+    /// <summary>
+    /// Validate an arbitrary persisted/player position using the same capsule
+    /// geometry as generated spawns, while requiring real support beneath it.
+    /// Unlike IsSafeSpawnPosition this accepts normal saved positions that are
+    /// not centred on a voxel column.
+    /// </summary>
+    internal bool IsSafePlayerPosition(Vector3 position)
+    {
+        if (!float.IsFinite(position.X) || !float.IsFinite(position.Y)
+                || !float.IsFinite(position.Z) || position.Y < 1.0f
+                || position.Y + 1.8f > Height)
+        {
+            return false;
+        }
+
+        int minX = Mathf.FloorToInt(position.X - 0.35f);
+        int maxX = Mathf.FloorToInt(position.X + 0.35f);
+        int minZ = Mathf.FloorToInt(position.Z - 0.35f);
+        int maxZ = Mathf.FloorToInt(position.Z + 0.35f);
+        if (_genVersion >= WorldGenV12.Version)
+        {
+            for (int z = minZ; z <= maxZ; z++)
+                for (int x = minX; x <= maxX; x++)
+                    if (!WorldGenV12.ContainsWorldPosition(x, z))
+                        return false;
+        }
+
+        int supportY = Mathf.FloorToInt(position.Y - 1.0f);
+        if (supportY < 0 || supportY >= Height - 1)
+            return false;
+
+        int supportX = Mathf.FloorToInt(position.X);
+        int supportZ = Mathf.FloorToInt(position.Z);
+        BlockId support = GetBlock(supportX, supportY, supportZ);
+        byte supportMask = BlockShapes.OccupancyMask(support,
+                GetBlockState(supportX, supportY, supportZ));
+        return (supportMask & 0xF0) == 0xF0 && IsSpawnCapsuleClear(position);
+    }
+
+    /// <summary>
+    /// Resolve a requested saved/respawn position or use the deterministic
+    /// world spawn. Failure is explicit and never returns an unchecked default.
+    /// </summary>
+    internal bool TryResolvePlayerDestination(Vector3? preferredPosition,
+            out Vector3 destination,
+            Func<SpawnCandidate, bool>? candidateValidatorOverride = null)
+    {
+        if (preferredPosition is Vector3 preferred && IsSafePlayerPosition(preferred))
+        {
+            destination = preferred;
+            return true;
+        }
+
+        try
+        {
+            destination = FindSpawn(candidateValidatorOverride);
+            return IsSafePlayerPosition(destination);
+        }
+        catch (InvalidOperationException)
+        {
+            destination = Vector3.Zero;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Ensure the destination's chunk collider represents the latest world
+    /// edit epoch before a player transition can commit.
+    /// </summary>
+    internal bool TryEnsureCollisionReady(Vector3 destination)
+    {
+        if (!IsSafePlayerPosition(destination))
+            return false;
+
+        Vector2I cp = new(
+                Mathf.FloorToInt(destination.X / ChunkX),
+                Mathf.FloorToInt(destination.Z / ChunkZ));
+        Chunk chunk = BuildNow(cp);
+
+        long currentEpoch;
+        lock (SnapshotLock)
+            currentEpoch = EditEpoch;
+
+        if (chunk.AppliedEditEpoch != currentEpoch
+                || !_colliderReadyChunks.ContainsKey(cp))
+        {
+            if (!RebuildChunkNow(cp))
+                return false;
+
+            lock (SnapshotLock)
+                currentEpoch = EditEpoch;
+        }
+
+        return chunk.AppliedEditEpoch == currentEpoch
+                && _colliderReadyChunks.ContainsKey(cp)
+                && IsSafePlayerPosition(destination);
     }
 
     internal readonly record struct SpawnCandidate(int X, int Z, int SurfaceY, long DistanceSquared);
