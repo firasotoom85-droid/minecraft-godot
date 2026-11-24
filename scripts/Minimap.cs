@@ -82,6 +82,12 @@ public partial class Minimap : Control
         }
     }
 
+    internal static bool ShouldStartRebuild(
+            bool hasCompletedBuild, bool rebuildPending, Vector2 lastCentre, Vector2 currentCentre)
+    {
+        return rebuildPending || !hasCompletedBuild || lastCentre.DistanceTo(currentCentre) > 2.0f;
+    }
+
     internal static bool IsInsideMap(Vector3I position, Vector2 centre, float radius)
     {
         float dx = position.X - centre.X;
@@ -156,9 +162,9 @@ public partial class Minimap : Control
             return;
 
         Vector2 here = new(PlayerRef.GlobalPosition.X, PlayerRef.GlobalPosition.Z);
-        bool moved = !_hasCompletedBuild || _lastCentre.DistanceTo(here) > 2.0f;
-        _timer = moved ? 0.55 : 2.5;
-        if (_rebuildPending || moved)
+        bool rebuild = ShouldStartRebuild(_hasCompletedBuild, _rebuildPending, _lastCentre, here);
+        _timer = rebuild ? 0.55 : 2.5;
+        if (rebuild)
             StartRebuild();
     }
 
