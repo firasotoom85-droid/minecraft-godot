@@ -242,9 +242,9 @@ public partial class DevConsole : CanvasLayer
 
                 return "usage: /greedy on|off";
             case "spawn":
-                _player.GlobalPosition = _world.FindSpawn();
-                _player.Velocity = Vector3.Zero;
-                return "teleported to spawn";
+                return _player.TryTeleportToSafePosition()
+                        ? "teleported to a validated spawn"
+                        : "no safe spawn with ready terrain collision is available";
             case "save":
                 _world.SaveNow();
                 return "saved";
