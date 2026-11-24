@@ -29,6 +29,8 @@ writing the latest state synchronously.
 
 **Gameplay lifecycle guard (integrated W08):** crop growth validates loaded-only farmland and open space, pausing without generating terrain. Merchant biome progress reconciles unique `explored/<Biome>` flags. Mob and village simulation suspend when their terrain chunk is unavailable; projectile queries reuse a configured terrain ray cast. Water columns retain level 1 at their foot, and unknown neighbours cannot weaken flow. Mob steering respects plants, lava and stateful slab/stair occupancy.
 
+**W15 — UI, controls, audio and graphics (implementation branch):** pause-excluding gameplay time, input binding restoration/conflict checks, controller-only rebinding, inventory focus and selection state, modal-owned onboarding, minimap invalidation, voxel-consistent F3 targeting, photo-camera input/render settings, quality-ceiling persistence and material-specific procedural audio are being corrected in the existing systems. Authored music remains deferred; the unused Music bus and Music slider are not part of the active audio graph. W15 is not complete until the five designated regression suites and Debug/Release warnings-as-errors CI pass. Minimap/photo-mode visual captures and the real-scene transparent-glass sorting investigation remain runtime validation gates; do not infer a glass sorting defect from the batched mesh layout alone.
+
 ## 2. Stable-release quality gates
 
 A release candidate is ready only when all of the following are true:
