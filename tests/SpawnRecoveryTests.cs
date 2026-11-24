@@ -239,9 +239,11 @@ public static class SpawnRecoveryTests
                         && chunk.AppliedEditEpoch == world.EditEpoch,
                 "near-player collision payload is refreshed to the committed edit epoch after removal");
 
+        // Place the obstruction above the tangent lower cap: a block whose
+        // top merely touches the player's feet is not a capsule intersection.
         Vector3 obstructed = new(
                 Mathf.FloorToInt(spawn.X) + 0.5f,
-                Mathf.FloorToInt(spawn.Y) + 0.5f,
+                Mathf.FloorToInt(spawn.Y) + 1.5f,
                 Mathf.FloorToInt(spawn.Z) + 0.5f);
         TestAssert.Check(world.SetBlock((int)obstructed.X, (int)obstructed.Y,
                         (int)obstructed.Z, BlockId.Stone),
@@ -293,12 +295,10 @@ public static class SpawnRecoveryTests
                 Mathf.FloorToInt(destination.X / VoxelWorld.ChunkX),
                 Mathf.FloorToInt(destination.Z / VoxelWorld.ChunkZ));
         world.UnloadFar(new Vector2I(1000, 1000));
-        TestAssert.Check(world.GetNodeOrNull<Chunk>(
-                        $"chunk_{destinationChunk.X}_{destinationChunk.Y}") == null,
+        TestAssert.Check(!world.HasChunk(destinationChunk),
                 "destination chunk can be unloaded before the next relocation");
         TestAssert.Check(world.TryEnsureCollisionReady(destination)
-                        && world.GetNodeOrNull<Chunk>(
-                                $"chunk_{destinationChunk.X}_{destinationChunk.Y}") != null,
+                        && world.HasChunk(destinationChunk),
                 "teleport readiness rebuilds an unloaded destination chunk synchronously");
     }
 
