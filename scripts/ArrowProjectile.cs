@@ -9,7 +9,7 @@ public partial class ArrowProjectile : Area3D
     private float _life = 5.0f;
     private Player? _owner;
     private bool _spent;
-    private RayCast3D _sweep = null!;
+    private ShapeCast3D _sweep = null!;
 
     public void Launch(Player owner, Vector3 origin, Vector3 direction, float speed = 22.0f)
     {
@@ -33,11 +33,14 @@ public partial class ArrowProjectile : Area3D
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
         AddChild(shaft);
-        _sweep = new RayCast3D
+        _sweep = new ShapeCast3D
         {
+            Shape = new SphereShape3D { Radius = 0.10f },
             TargetPosition = Vector3.Zero,
             Enabled = true,
             CollisionMask = CollisionMask,
+            CollideWithAreas = false,
+            CollideWithBodies = true,
         };
         AddChild(_sweep);
         BodyEntered += OnBodyEntered;
@@ -57,14 +60,15 @@ public partial class ArrowProjectile : Area3D
         _velocity = AdvanceVelocity(_velocity, dt);
         Vector3 step = _velocity * dt;
         _sweep.TargetPosition = ToLocal(GlobalPosition + step);
-        _sweep.ForceRaycastUpdate();
+        _sweep.ForceShapecastUpdate();
         if (_sweep.IsColliding())
         {
-            Node collider = _sweep.GetCollider() as Node ?? this;
+            Node collider = _sweep.GetCollider(0) as Node ?? this;
+            Vector3 collisionPoint = _sweep.GetCollisionPoint(0);
             if (collider is IDamageable damageable)
-                HitDamageable(damageable, _sweep.GetCollisionPoint());
+                HitDamageable(damageable, collisionPoint);
             else
-                Impact(_sweep.GetCollisionPoint(), false);
+                Impact(collisionPoint, false);
             return;
         }
         GlobalPosition += step;
