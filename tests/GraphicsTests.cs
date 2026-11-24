@@ -38,6 +38,25 @@ public static class GraphicsTests
                 "maximum custom chunk view distance fits inside the gameplay camera far plane");
         TestAssert.Check(Gfx.RequiredCameraFar(12, 640.0f) > 820.0f,
                 "MAX LOD tiles remain inside the gameplay camera far plane");
+
+        Camera3D photoCamera = new();
+        try
+        {
+            PhotoMode.ApplyCameraSettings(photoCamera, 12, 640.0f, 104.0f);
+            TestAssert.Equal(104.0f, photoCamera.Fov,
+                    "photo mode samples the current configured field of view on entry");
+            TestAssert.Equal(Gfx.RequiredCameraFar(12, 640.0f), photoCamera.Far,
+                    "photo mode retains the complete configured Far LOD tile footprint");
+        }
+        finally
+        {
+            photoCamera.Free();
+        }
+
+        TestAssert.Check(!Gfx.ShouldPersistPresetChange(automatic: true),
+                "automatic quality reductions do not overwrite the user's saved ceiling");
+        TestAssert.Check(Gfx.ShouldPersistPresetChange(automatic: false),
+                "manual quality choices remain eligible for persistence");
     }
 
     private static void TestEnvironmentPresetMatrix()
