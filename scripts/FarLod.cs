@@ -30,13 +30,20 @@ public partial class FarLod : Node3D
     {
         public MeshInstance3D? Node;
         public Rect2I Skip;
+        public long Generation;
+        public long Revision;
+        public int FailureCount;
     }
 
+    private readonly record struct BuildToken(long Generation, long Revision, long RequestId, Rect2I Skip);
+    private readonly record struct InFlightBuild(long TaskId, BuildToken Token);
     private sealed record LodPayload(Vector3[] Verts, Vector3[] Normals, Color[] Colors);
 
     private readonly Dictionary<Vector2I, Tile> _tiles = new();  // Vector2I -> tile
-    private readonly List<Vector2I> _queue = [];
-    private readonly Dictionary<Vector2I, long> _inFlight = new();
+    private readonly FarLodWorkQueue _queue = new();
+    private readonly Dictionary<Vector2I, InFlightBuild> _inFlight = new();
+    private long _nextTileGeneration;
+    private long _nextBuildRequestId;
     private volatile bool _alive = true;
 
     private StandardMaterial3D _material = null!;
@@ -71,12 +78,13 @@ public partial class FarLod : Node3D
     public override void _ExitTree()
     {
         _alive = false;
-        foreach (long tid in _inFlight.Values)
+        foreach (InFlightBuild build in _inFlight.Values)
         {
-            WorkerThreadPool.WaitForTaskCompletion(tid);
+            WorkerThreadPool.WaitForTaskCompletion(build.TaskId);
         }
 
         _inFlight.Clear();
+        _queue.Clear();
     }
 
     /// <summary>
@@ -123,12 +131,28 @@ public partial class FarLod : Node3D
                     if (tile.Skip != skip)
                     {
                         tile.Skip = skip;
+                        tile.Revision++;
+                        tile.FailureCount = 0;
+                        // The existing surface was built for a different
+                        // full-resolution ownership mask. Remove it immediately
+                        // so it cannot overlap retained chunk meshes while the
+                        // replacement build is queued or running.
+                        if (tile.Node != null)
+                        {
+                            tile.Node.Mesh = null;
+                        }
+
                         Enqueue(tc);
                     }
                 }
                 else
                 {
-                    _tiles[tc] = new Tile { Node = null, Skip = skip };
+                    _tiles[tc] = new Tile
+                    {
+                        Node = null,
+                        Skip = skip,
+                        Generation = ++_nextTileGeneration,
+                    };
                     Enqueue(tc);
                 }
             }
@@ -143,14 +167,15 @@ public partial class FarLod : Node3D
             }
         }
 
+        // A moving player can leave queued coordinates behind while every
+        // worker slot is occupied. Drop entries for evicted tiles before
+        // dispatch so pending work stays bounded by the live tile set.
+        _queue.Prune(_tiles);
         Dispatch();
     }
 
-    private Rect2I StreamedChunks(Vector2I pcp)
-    {
-        int r = World!.ViewDistance;
-        return new Rect2I(pcp.X - r, pcp.Y - r, r * 2 + 1, r * 2 + 1);
-    }
+    private Rect2I StreamedChunks(Vector2I pcp) =>
+            FarLodLifecycleRules.StreamedChunks(pcp, World!.ViewDistance, VoxelWorld.UnloadMargin);
 
     /// <summary>
     /// Streamed-chunk intersection with this tile, in chunk coords; empty when the
@@ -164,38 +189,46 @@ public partial class FarLod : Node3D
 
     private void Enqueue(Vector2I tc)
     {
-        if (_inFlight.ContainsKey(tc) || _queue.Contains(tc))
+        if (_inFlight.ContainsKey(tc) || !_tiles.ContainsKey(tc))
         {
             return;
         }
 
-        _queue.Add(tc);
+        _queue.Enqueue(tc);
     }
 
     private void Dispatch()
     {
-        while (_inFlight.Count < BuildLimit && _queue.Count > 0)
+        while (FarLodLifecycleRules.CanDispatch(
+                _inFlight.Count, _queue.Count, BuildLimit, _alive))
         {
-            Vector2I tc = _queue[0];
-            _queue.RemoveAt(0);
-            if (_inFlight.ContainsKey(tc))
+            if (!FarLodLifecycleRules.TryDequeueEligibleTile(
+                    _queue, _tiles, _inFlight, out Vector2I tc, out Tile tile))
             {
-                continue;
+                break;
             }
 
-            Rect2I skip = TileSkip(tc, StreamedChunks(World!.PlayerChunk()));
+            // Capture the tile's requested state, not a fresh global sample.
+            // A subsequent UpdateAround() increments the revision and makes
+            // this result stale even when the coordinate itself is unchanged.
+            BuildToken token = new(tile.Generation, tile.Revision, ++_nextBuildRequestId, tile.Skip);
             long tid = WorkerThreadPool.AddTask(
-                    Callable.From(() => BuildTask(tc, skip)), true, $"lod_{tc.X}_{tc.Y}");
-            _inFlight[tc] = tid;
+                    Callable.From(() => BuildTask(tc, token)), true, $"lod_{tc.X}_{tc.Y}");
+            _inFlight[tc] = new InFlightBuild(tid, token);
         }
     }
 
-    private void BuildTask(Vector2I tc, Rect2I skip)
+    private void BuildTask(Vector2I tc, BuildToken token)
     {
-        LodPayload? payload = BuildArrays(tc, skip);
+        // The same exception-capture path is exercised by the deterministic
+        // worker-failure regression. An exception becomes a terminal result
+        // instead of bypassing the deferred main-thread completion callback.
+        FarLodBuildOutcome<LodPayload> outcome =
+                FarLodLifecycleRules.CaptureBuild(() => BuildArrays(tc, token.Skip));
+
         if (_alive)
         {
-            Callable.From(() => ApplyTile(tc, payload)).CallDeferred();
+            Callable.From(() => ApplyTile(tc, token, outcome.Payload, outcome.Failure)).CallDeferred();
         }
     }
 
@@ -217,15 +250,10 @@ public partial class FarLod : Node3D
             for (int i = 0; i < Cells; i++)
             {
                 int cx0 = x0 + i * (int)CellSize;
-                Vector2I cellChunk = new(Mathf.FloorToInt(cx0 / 16.0f), Mathf.FloorToInt(cz0 / 16.0f));
-                if (skip.HasPoint(cellChunk))
+                bool hasIsland = !World.IsSky || World.IslandAt(cx0 + 2, cz0 + 2);
+                if (!FarLodLifecycleRules.ShouldEmitCell(skip, cx0, cz0, World.IsSky, hasIsland))
                 {
                     continue;
-                }
-
-                if (World.IsSky && !World.IslandAt(cx0 + 2, cz0 + 2))
-                {
-                    continue;   // open sky below the floating islands
                 }
 
                 int h00 = World.SurfaceHeight(cx0, cz0);
@@ -390,14 +418,81 @@ public partial class FarLod : Node3D
         }
     }
 
-    private void ApplyTile(Vector2I tc, LodPayload? payload)
+    private void ApplyTile(Vector2I tc, BuildToken token, LodPayload? payload, string? failure)
     {
-        _inFlight.Remove(tc);
-        if (!_alive || !_tiles.TryGetValue(tc, out Tile? tile))
+        try
         {
-            return;
-        }
+            if (!_alive
+                    || !_inFlight.TryGetValue(tc, out InFlightBuild active)
+                    || active.Token != token)
+            {
+                return;
+            }
 
+            bool tileExists = _tiles.TryGetValue(tc, out Tile? tile) && tile != null;
+            bool tokenIsCurrent = tile != null && FarLodLifecycleRules.IsCurrent(
+                    tile.Generation, tile.Revision, tile.Skip,
+                    token.Generation, token.Revision, token.Skip);
+            if (!FarLodLifecycleRules.TryCompleteInFlight(
+                    _inFlight, tc, active, tileExists, tokenIsCurrent, failure != null,
+                    out FarLodCompletionDisposition disposition))
+            {
+                return;
+            }
+
+            switch (disposition)
+            {
+                case FarLodCompletionDisposition.Discard:
+                    // The tile was evicted while its worker was running.
+                    // The finally block below still releases queue capacity.
+                    return;
+
+                case FarLodCompletionDisposition.RebuildLatest:
+                    // The coordinate may now refer to a changed or recreated
+                    // tile. Never apply a payload from its previous generation.
+                    Enqueue(tc);
+                    return;
+
+                case FarLodCompletionDisposition.Failed:
+                    {
+                        int attempt = ++tile!.FailureCount;
+                        if (FarLodLifecycleRules.CanRetry(attempt - 1))
+                        {
+                            GD.PushWarning(
+                                    $"Far LOD build failed for tile {tc}; retry {attempt}/{FarLodLifecycleRules.MaxBuildRetries}: {failure}");
+                            Enqueue(tc);
+                        }
+                        else
+                        {
+                            GD.PushError(
+                                    $"Far LOD build exhausted its {FarLodLifecycleRules.MaxBuildRetries} retries for tile {tc}; no replacement surface was produced: {failure}");
+                        }
+
+                        return;
+                    }
+
+                case FarLodCompletionDisposition.Apply:
+                    {
+                        Tile currentTile = tile!;
+                        currentTile.FailureCount = 0;
+                        ApplyPayload(tc, currentTile, payload);
+                        return;
+                    }
+            }
+        }
+        finally
+        {
+            // Dispatch after every terminal outcome: success, empty result,
+            // failure, stale result, and completion for an evicted tile.
+            if (_alive)
+            {
+                Dispatch();
+            }
+        }
+    }
+
+    private void ApplyPayload(Vector2I tc, Tile tile, LodPayload? payload)
+    {
         if (payload == null)
         {
             if (tile.Node != null)
@@ -405,7 +500,6 @@ public partial class FarLod : Node3D
                 tile.Node.Mesh = null;
             }
 
-            Dispatch();
             return;
         }
 
@@ -430,6 +524,236 @@ public partial class FarLod : Node3D
         ArrayMesh mesh = new();
         mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
         node.Mesh = mesh;
-        Dispatch();
+    }
+}
+
+
+internal readonly record struct FarLodBuildOutcome<TPayload>(TPayload? Payload, string? Failure)
+        where TPayload : class;
+
+internal enum FarLodCompletionDisposition
+{
+    Discard,
+    RebuildLatest,
+    Failed,
+    Apply,
+}
+
+/// <summary>
+/// Pure lifecycle rules shared with the Far-LOD regression tests. The caller
+/// supplies VoxelWorld.UnloadMargin so full-resolution ownership and Far LOD
+/// geometry use the same authoritative retention radius.
+/// </summary>
+internal static class FarLodLifecycleRules
+{
+    internal const int MaxBuildRetries = 2;
+
+    internal static Rect2I StreamedChunks(
+            Vector2I playerChunk, int viewDistance, int retentionMargin)
+    {
+        int radius = Math.Max(viewDistance, 0) + Math.Max(retentionMargin, 0);
+        return new Rect2I(
+                playerChunk.X - radius, playerChunk.Y - radius,
+                radius * 2 + 1, radius * 2 + 1);
+    }
+
+    internal static bool IsCurrent(
+            long tileGeneration, long tileRevision, Rect2I tileSkip,
+            long buildGeneration, long buildRevision, Rect2I buildSkip) =>
+            tileGeneration == buildGeneration
+            && tileRevision == buildRevision
+            && tileSkip == buildSkip;
+
+    internal static bool ShouldEmitCell(
+            Rect2I skip, int worldX, int worldZ, bool isSky, bool hasIsland)
+    {
+        Vector2I chunk = new(
+                Mathf.FloorToInt(worldX / (float)VoxelWorld.ChunkX),
+                Mathf.FloorToInt(worldZ / (float)VoxelWorld.ChunkZ));
+        return !skip.HasPoint(chunk) && (!isSky || hasIsland);
+    }
+
+    internal static FarLodCompletionDisposition ClassifyCompletion(
+            bool tileExists, bool tokenIsCurrent, bool failed)
+    {
+        if (!tileExists)
+        {
+            return FarLodCompletionDisposition.Discard;
+        }
+
+        if (!tokenIsCurrent)
+        {
+            return FarLodCompletionDisposition.RebuildLatest;
+        }
+
+        return failed
+                ? FarLodCompletionDisposition.Failed
+                : FarLodCompletionDisposition.Apply;
+    }
+
+    internal static bool IsMatchingBuildRequest(long activeRequestId, long completedRequestId) =>
+            activeRequestId == completedRequestId;
+
+    /// <summary>
+    /// Atomically releases the exact completed request and classifies its
+    /// result. FarLod.ApplyTile and lifecycle regressions share this path.
+    /// </summary>
+    internal static bool TryCompleteInFlight<TKey, TValue>(
+            Dictionary<TKey, TValue> registry,
+            TKey key,
+            TValue expected,
+            bool tileExists,
+            bool tokenIsCurrent,
+            bool failed,
+            out FarLodCompletionDisposition disposition)
+            where TKey : notnull
+            where TValue : notnull
+    {
+        if (!TryReleaseInFlight(registry, key, expected))
+        {
+            disposition = FarLodCompletionDisposition.Discard;
+            return false;
+        }
+
+        disposition = ClassifyCompletion(tileExists, tokenIsCurrent, failed);
+        return true;
+    }
+
+    internal static bool CanRetry(int previousFailureCount) =>
+            previousFailureCount < MaxBuildRetries;
+
+    internal static bool TryReleaseInFlight<TKey, TValue>(
+            Dictionary<TKey, TValue> registry, TKey key, TValue expected)
+            where TKey : notnull
+            where TValue : notnull
+    {
+        if (!registry.TryGetValue(key, out TValue? active)
+                || active is null
+                || !EqualityComparer<TValue>.Default.Equals(active, expected))
+        {
+            return false;
+        }
+
+        return registry.Remove(key);
+    }
+
+    internal static FarLodBuildOutcome<TPayload> CaptureBuild<TPayload>(Func<TPayload?> build)
+            where TPayload : class
+    {
+        try
+        {
+            return new FarLodBuildOutcome<TPayload>(build(), null);
+        }
+        catch (Exception exception)
+        {
+            return new FarLodBuildOutcome<TPayload>(null, exception.ToString());
+        }
+    }
+
+    internal static bool TryDequeueEligibleTile<TTile, TBuild>(
+            FarLodWorkQueue queue,
+            IReadOnlyDictionary<Vector2I, TTile> tiles,
+            IReadOnlyDictionary<Vector2I, TBuild> inFlight,
+            out Vector2I coordinate,
+            out TTile tile)
+            where TTile : notnull
+            where TBuild : notnull
+    {
+        while (queue.TryDequeue(out coordinate))
+        {
+            if (!inFlight.ContainsKey(coordinate)
+                    && tiles.TryGetValue(coordinate, out tile!))
+            {
+                return true;
+            }
+        }
+
+        coordinate = default;
+        tile = default!;
+        return false;
+    }
+
+    internal static bool CanDispatch(
+            int inFlightCount, int queuedCount, int buildLimit, bool alive) =>
+            alive && inFlightCount < buildLimit && queuedCount > 0;
+}
+
+
+/// <summary>
+/// FIFO of pending Far-LOD tile coordinates. It keeps membership O(1), avoids
+/// shifting the whole queue for each dispatch, and can compact evicted tiles
+/// after an update without allocating a replacement collection.
+/// </summary>
+internal sealed class FarLodWorkQueue
+{
+    private readonly List<Vector2I> _items = [];
+    private readonly HashSet<Vector2I> _queued = [];
+    private int _head;
+
+    internal int Count => _items.Count - _head;
+
+    internal bool Enqueue(Vector2I coordinate)
+    {
+        if (!_queued.Add(coordinate))
+        {
+            return false;
+        }
+
+        _items.Add(coordinate);
+        return true;
+    }
+
+    internal bool TryDequeue(out Vector2I coordinate)
+    {
+        if (_head >= _items.Count)
+        {
+            coordinate = default;
+            return false;
+        }
+
+        coordinate = _items[_head++];
+        _queued.Remove(coordinate);
+        if (_head >= 64 && _head * 2 >= _items.Count)
+        {
+            _items.RemoveRange(0, _head);
+            _head = 0;
+        }
+
+        return true;
+    }
+
+    internal void Clear()
+    {
+        _items.Clear();
+        _queued.Clear();
+        _head = 0;
+    }
+
+    internal void Prune<TValue>(IReadOnlyDictionary<Vector2I, TValue> liveTiles)
+    {
+        int write = _head;
+        for (int read = _head; read < _items.Count; read++)
+        {
+            Vector2I coordinate = _items[read];
+            if (liveTiles.ContainsKey(coordinate))
+            {
+                _items[write++] = coordinate;
+            }
+            else
+            {
+                _queued.Remove(coordinate);
+            }
+        }
+
+        if (write < _items.Count)
+        {
+            _items.RemoveRange(write, _items.Count - write);
+        }
+
+        if (_head > 0)
+        {
+            _items.RemoveRange(0, _head);
+            _head = 0;
+        }
     }
 }

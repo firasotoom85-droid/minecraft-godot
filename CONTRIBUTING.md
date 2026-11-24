@@ -1,57 +1,62 @@
 # Contributing
 
-Thanks for taking a look! This is a solo project, but issues and pull requests
-are welcome. Please keep changes focused and describe the player-visible or
-technical reason in the PR.
+Issues and focused pull requests are welcome. The project is currently maintained as a solo project; contributors should expect review to prioritize compatibility, reproducibility and small, independently verifiable changes.
 
-## Before you start
+## Before changing code
 
-- Read `ROADMAP.md` §3 (non-negotiable constraints) and the current milestone.
-- For worldgen, save-format, or content-id work, open an issue first. Those
-  changes have compatibility rules that are easy to break silently.
+1. Read [the architecture guide](docs/architecture/ARCHITECTURE.md) and [data lifecycle rules](docs/architecture/DATA_LIFECYCLE.md).
+2. Check [ROADMAP.md](ROADMAP.md) and existing issues/PRs to avoid duplicating work.
+3. Read [ADDING_CONTENT.md](docs/development/ADDING_CONTENT.md) before changing blocks, items, world generation or saves.
+4. For world-generation, persisted-ID, save-format or mutation-path changes, open or update an issue before implementation.
 
-## Build and test
+## Toolchain
 
-```bash
-dotnet build
-GODOT=/path/to/Godot_v4.7.2-stable_mono_linux.x86_64 ./scripts/verify.sh
-```
+- Godot 4.7.2 **.NET / Mono** editor and matching export templates.
+- .NET 10 SDK. The repository pins a 10.0 SDK baseline in global.json.
+- Git, Bash and the standard timeout utility for verification scripts.
 
-Requirements: the Godot 4.7.2 **.NET/mono** editor and the .NET 9 SDK
-(`global.json` pins the feature band). `scripts/verify.sh` discovers `godot` on
-`PATH` or in common locations; you can always override it with `GODOT=…`.
+See [development setup](docs/development/SETUP.md) for installation and troubleshooting.
 
-The gate for a change is:
+## Build and verify
 
-1. `dotnet build` with **0 warnings**.
-2. All headless checks pass, with **0 failures**.
-3. Saves still round-trip; old worlds still load.
-4. New behavior has a test when it is testable outside the scene tree.
+    dotnet build -c Debug --nologo -warnaserror
+    dotnet build minecraft.csproj -c Release --nologo -warnaserror
+    GODOT=/path/to/Godot_v4.7.2-stable_mono ./scripts/verify.sh
 
-## Compatibility rules
+The full registered headless suite runs through tests/TestRunner.tscn. For a long-running real-scene survival check:
 
-- **Append-only ids.** Never renumber `BlockId` or `ItemId`; they are persisted
-  in save files.
-- **Gate worldgen by version.** Existing generator versions must regenerate
-  byte-identically. Re-verify the v1 anchor chunk hash after worldgen changes.
-- **One mutation seam.** Route block changes through `SetBlock` / `ApplyEdit`.
-- **No new `World.Player` reads** in streaming code; use observers.
-- **Determinism.** Never use `GD.Hash` or an unseeded RNG for worldgen.
-- **InputMap actions only** for gameplay input, so key rebinding keeps working.
-- **Release mesher buffers.** Any new payload path must end in
-  `PayloadPool.Release(...)`.
-- **Keep the 0-warning policy** and match the surrounding code style.
+    GODOT=/path/to/Godot_v4.7.2-stable_mono bash scripts/soak-survival.sh 3600
 
-## Testing notes
+Do not claim GPU visual validation from a headless test. Use the documented production capture scenes for renderer checks and record the hardware/preset.
 
-The suite runs via `tests/TestRunner.tscn` in headless Godot. Tests are plain
-C# with `TestAssert`; add a new suite file and register it in
-`tests/TestRunner.cs`. The game is C#-first, so avoid relying on GDScript
-introspection for custom classes.
+## Compatibility and architecture rules
 
-## Commit and PR style
+- **Append-only IDs:** never renumber or reuse BlockId or ItemId values.
+- **Version world generation:** preserve old versions byte-for-byte; increment the generator version for new generation rules.
+- **Use the mutation seam:** block edits must go through VoxelWorld.SetBlock / ApplyEdit.
+- **Preserve saves:** keep older worlds loadable and add regression coverage for serialization changes.
+- **Respect worker ownership:** do not use the scene tree or physics server from mesher workers; reject stale payloads and release pooled buffers on every path.
+- **Keep streaming boundaries:** do not add direct World.Player reads to streaming code; use the established observer pattern.
+- **Use InputMap actions:** do not add raw physical-key gameplay checks.
+- **Preserve the renderer architecture:** do not replace greedy meshing, chunk streaming or existing material pipelines as a shortcut.
 
-- Small commits with a clear “why” in the message.
-- Reference the issue number when one exists (`Fixes #12`).
-- Include a screenshot or short clip for UI/visual changes.
-- Do not commit generated `.godot/`, build output, or local world saves.
+## Code and formatting
+
+The repository uses four-space indentation for C#, nullable reference types and the naming/formatting conventions in .editorconfig. Before opening a PR, format every changed C# file:
+
+    dotnet format whitespace minecraft.sln --verify-no-changes --include scripts/ChangedFile.cs tests/ChangedTests.cs
+
+The Formatting workflow checks changed C# files on pull requests. Do not run a whole-repository reformat as part of an unrelated change.
+
+## Pull requests
+
+- Keep one coherent change per PR and explain the player-visible or engineering reason.
+- Link the issue(s) being addressed.
+- Describe the implementation and any compatibility decisions.
+- List the exact build/test commands and results; distinguish tests you ran from CI results.
+- Include before/after screenshots or a short clip for visual/UI changes.
+- Include benchmark conditions and measured before/after values for performance claims.
+- Update active documentation and CHANGELOG.md when behavior, constraints or release-facing information changes.
+- Never commit .godot/, build output, local world saves, secrets or generated temporary captures unless explicitly required as reviewed test references.
+
+See the [pull request template](.github/PULL_REQUEST_TEMPLATE.md) for the complete checklist.

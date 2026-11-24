@@ -222,8 +222,8 @@ public static class GraphicsTests
                     "render-only preview chunk does not create a collision shape");
             TestAssert.Equal(0u, renderOnlyChunk.CollisionLayer,
                     "render-only preview chunk has no physics collision layer");
-            TestAssert.Check(gameplayChunk.GetNodeOrNull<CollisionShape3D>("Collision") != null,
-                    "gameplay chunks retain their collision shape");
+            TestAssert.Check(gameplayChunk.GetNodeOrNull<CollisionShape3D>("Collision") == null,
+                    "gameplay chunks defer collision-node creation until their first non-empty collision payload");
             TestAssert.Equal((uint)PhysicsLayer.Terrain, gameplayChunk.CollisionLayer,
                     "gameplay chunks retain the terrain collision layer");
         }

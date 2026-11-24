@@ -105,6 +105,65 @@ public static class MobContentTests
         TestAssert.Check(!MobProjectileRules.ShouldDamagePlayer(true, false, true),
                 "hostile projectiles cannot damage players in peaceful mode");
 
+        foreach (BlockId plant in new[]
+        {
+            BlockId.TallGrass, BlockId.FlowerRed, BlockId.FlowerYellow, BlockId.Torch,
+            BlockId.Ladder, BlockId.Wheat0, BlockId.Wheat1, BlockId.Wheat2, BlockId.RiverReeds,
+        })
+            TestAssert.Check(!MobNavigationRules.IsGravityObstacle(plant),
+                    $"{plant} remains traversable to gravity-driven mob steering");
+        TestAssert.Check(MobNavigationRules.IsGravityObstacle(BlockId.Stone),
+                "solid stone remains a gravity-mob navigation obstacle");
+        TestAssert.Check(MobNavigationRules.IsGravityObstacle(BlockId.Lava),
+                "lava remains an explicit gravity-mob navigation hazard");
+        TestAssert.Check(!MobNavigationRules.IsGravityObstacle(BlockId.Water),
+                "water retains its separate swim/avoidance handling");
+
+        Vector3 blockOrigin = Vector3.Zero;
+        Vector3 aboveMin = new(0.1f, 0.51f, 0.1f);
+        Vector3 aboveMax = new(0.9f, 0.95f, 0.9f);
+        TestAssert.Check(!MobNavigationRules.IsHoverObstacle(BlockId.PlanksSlab,
+                        BlockShapes.SlabBottom, blockOrigin, aboveMin, aboveMax),
+                "Crystal Wisp can steer through the empty upper half above a bottom slab");
+        TestAssert.Check(MobNavigationRules.IsHoverObstacle(BlockId.PlanksSlab,
+                        BlockShapes.SlabBottom, blockOrigin,
+                        new Vector3(0.1f, 0.25f, 0.1f), new Vector3(0.9f, 0.75f, 0.9f)),
+                "Crystal Wisp still detects overlap with the occupied bottom slab half");
+        TestAssert.Check(!MobNavigationRules.IsHoverObstacle(BlockId.PlanksSlab,
+                        BlockShapes.SlabTop, blockOrigin,
+                        new Vector3(0.1f, 0.05f, 0.1f), new Vector3(0.9f, 0.49f, 0.9f)),
+                "Crystal Wisp can steer through the empty lower half below a top slab");
+        TestAssert.Check(MobNavigationRules.IsHoverObstacle(BlockId.PlanksSlab,
+                        BlockShapes.SlabTop, blockOrigin,
+                        new Vector3(0.1f, 0.55f, 0.1f), new Vector3(0.9f, 0.95f, 0.9f)),
+                "Crystal Wisp detects overlap with the occupied top slab half");
+        TestAssert.Check(!MobNavigationRules.IsHoverObstacle(BlockId.PlanksStairs, 0,
+                        blockOrigin, new Vector3(0.1f, 0.55f, 0.1f),
+                        new Vector3(0.9f, 0.95f, 0.4f)),
+                "Crystal Wisp treats the unoccupied front upper stair microcells as open");
+        TestAssert.Check(MobNavigationRules.IsHoverObstacle(BlockId.Stone, 0,
+                        blockOrigin, aboveMin, aboveMax),
+                "full-cube stone remains a wall for hovering mobs");
+
+        Mobs projectileManager = new();
+        MobProjectile projectile = new();
+        projectile.Setup(projectileManager, Vector3.Zero, Vector3.Forward,
+                2.0f, Colors.Cyan, 8.5f, "mobcrystal");
+        RayCast3D terrainRay = projectile.TerrainRayForTests!;
+        projectile.ConfigureTerrainRayForTests(Vector3.Zero, Vector3.Right);
+        projectile.ConfigureTerrainRayForTests(Vector3.One, Vector3.Up);
+        TestAssert.Check(ReferenceEquals(terrainRay, projectile.TerrainRayForTests),
+                "mob projectile reuses one RayCast3D node across physics ticks");
+        TestAssert.Equal(Vector3.One, terrainRay.Position,
+                "reused projectile ray updates its local segment start");
+        TestAssert.Equal(Vector3.Up - Vector3.One, terrainRay.TargetPosition,
+                "reused projectile ray updates its segment endpoint");
+        TestAssert.Equal((uint)PhysicsLayer.Terrain, terrainRay.CollisionMask,
+                "reused projectile ray preserves the terrain collision mask");
+        TestAssert.Check(!terrainRay.CollideWithAreas,
+                "reused projectile ray continues to ignore physics areas");
+        TestAssert.FreeAll(projectile, projectileManager);
+
         // Wildlife uses the existing food inventory and persisted item ids.
         TestAssert.Check(sheep.IsPassive, "sheep uses passive wildlife behavior");
         TestAssert.Equal(ItemId.Wheat, sheep.BreedingFood, "sheep breeds with wheat");
@@ -182,6 +241,8 @@ public static class MobContentTests
         TestAssert.Check(shade.Loot.Length > 0, "Shade has a loot table");
         TestAssert.Check(rot.Loot.Length > 0, "Rot has a loot table");
         TestAssert.Check(hollow.Loot.Length > 0, "Hollow has a loot table");
+
+        MobLootOverflowTests.Run(host);
 
         // Direct death paths (sunburn/dawn) do not pass through ApplyDamage.
         // They must still mark the mob dead and raise Died exactly once while

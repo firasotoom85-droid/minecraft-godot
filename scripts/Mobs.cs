@@ -44,6 +44,8 @@ public partial class Mobs : Node
 
     private readonly List<Mob> _passive = [];
     private readonly List<Mob> _hostiles = [];
+    private readonly Dictionary<Mob, ItemStack[]> _pendingDeathLoot = [];
+    private readonly HashSet<Mob> _lootCapacityBlocked = [];
     public int PassiveCount => _passive.Count;
     public int HostileCount => _hostiles.Count;
 
@@ -176,6 +178,8 @@ public partial class Mobs : Node
         {
             _maintenanceTimer = 0.5;
             Vector3 playerPosition = PlayerRef.GlobalPosition;
+            foreach (Mob mob in _passive) mob.RefreshTerrainSimulation();
+            foreach (Mob mob in _hostiles) mob.RefreshTerrainSimulation();
             _passive.RemoveAll(mob => DespawnFar(mob, playerPosition, PassiveDespawn));
             _hostiles.RemoveAll(mob => DespawnFar(mob, playerPosition, HostileDespawn));
         }
@@ -559,6 +563,7 @@ public partial class Mobs : Node
         mob.Died += OnMobDied;
         mob.Hurt += OnMobHurt;
         mob.Signalled += OnSignalled;
+        mob.TreeExiting += () => ForgetMobLootPlan(mob);
         (hostile ? _hostiles : _passive).Add(mob);
     }
 
@@ -949,7 +954,68 @@ public partial class Mobs : Node
     // Feedback and loot.
     // -----------------------------------------------------------------------
 
-    private void OnMobDied(Mob mob)
+    internal bool TryAllowMobDeath(Mob mob)
+    {
+        if (PlayerRef == null || mob.Loot.Length == 0)
+        {
+            return true;
+        }
+
+        ItemStack[] rewards = GetOrCreateMobLootPlan(mob);
+        if (PlayerRef.Inventory.CanFitAll(rewards))
+        {
+            _lootCapacityBlocked.Remove(mob);
+            return true;
+        }
+
+        if (_lootCapacityBlocked.Add(mob))
+        {
+            PlayerRef.EmitSignal(Player.SignalName.Notice,
+                    "Make inventory space before defeating this creature");
+        }
+
+        return false;
+    }
+
+    private ItemStack[] GetOrCreateMobLootPlan(Mob mob)
+    {
+        if (_pendingDeathLoot.TryGetValue(mob, out ItemStack[]? existing))
+        {
+            return existing;
+        }
+
+        if (mob.Loot.Length == 0)
+        {
+            return [];
+        }
+
+        List<ItemStack> planned = new(mob.Loot.Length);
+        foreach ((ItemId id, int min, int max, float chance) in mob.Loot)
+        {
+            if (_rng.Randf() > chance)
+            {
+                continue;
+            }
+
+            int count = _rng.RandiRange(min, max);
+            if (count > 0 && id != ItemId.None)
+            {
+                planned.Add(ItemDb.New(id, count));
+            }
+        }
+
+        ItemStack[] result = planned.ToArray();
+        _pendingDeathLoot.Add(mob, result);
+        return result;
+    }
+
+    private void ForgetMobLootPlan(Mob mob)
+    {
+        _pendingDeathLoot.Remove(mob);
+        _lootCapacityBlocked.Remove(mob);
+    }
+
+    internal void OnMobDied(Mob mob)
     {
         // Remove synchronously while the dying actor is still valid. Mob.Die
         // queues deletion after raising this event, which is too late for
@@ -972,38 +1038,36 @@ public partial class Mobs : Node
         };
         SoundRef?.Play(sound, pos, passive ? 1.0f : 0.9f, -2.0f);
 
-        if (PlayerRef == null) return;
+        if (PlayerRef == null)
+        {
+            ForgetMobLootPlan(mob);
+            return;
+        }
+
         int experience = MobCombatRules.ExperienceReward(mob);
         PlayerRef.Stats.AddExperience(experience);
         PlayerRef.EmitSignal(Player.SignalName.Notice, $"+{experience} XP");
-        if (mob.Loot.Length == 0) return;
 
-        foreach ((ItemId id, int min, int max, float chance) in mob.Loot)
+        ItemStack[] rewards = GetOrCreateMobLootPlan(mob);
+        ForgetMobLootPlan(mob);
+        if (rewards.Length == 0)
         {
-            if (_rng.Randf() > chance)
-            {
-                continue;
-            }
+            return;
+        }
 
-            int count = _rng.RandiRange(min, max);
-            if (count <= 0)
-            {
-                continue;
-            }
+        // Mob.Die asks TryAllowMobDeath before raising Died, so this transaction
+        // uses the same immutable reward plan and available inventory capacity.
+        if (!PlayerRef.Inventory.TryAddAll(rewards))
+        {
+            GD.PushError("Mob loot capacity changed after its pre-death inventory check.");
+            return;
+        }
 
-            int leftover = PlayerRef.Inventory.Add(id, count);
-            int gained = count - leftover;
-            if (gained > 0)
-            {
-                PlayerRef.RecordGathered(id, gained);
-                PlayerRef.EmitSignal(Player.SignalName.Notice,
-                        $"+{gained} {ItemDb.NameOf(id)}");
-            }
-
-            if (leftover > 0)
-            {
-                PlayerRef.EmitSignal(Player.SignalName.Notice, "Inventory full");
-            }
+        foreach (ItemStack reward in rewards)
+        {
+            PlayerRef.RecordGathered(reward.Id, reward.Count);
+            PlayerRef.EmitSignal(Player.SignalName.Notice,
+                    $"+{reward.Count} {ItemDb.NameOf(reward.Id)}");
         }
     }
 
