@@ -169,6 +169,14 @@ public static class KeybindTests
         TestAssert.Equal(-1.0f, CameraLookInput.VerticalDelta(1.0f, true),
                 "Invert-Y reverses vertical look consistently across camera modes");
 
+        string? pendingCapture = "jump";
+        bool waitingForController = true;
+        bool ignoreActivationEvent = true;
+        KeybindUi.CancelCaptureState(
+                ref pendingCapture, ref waitingForController, ref ignoreActivationEvent);
+        TestAssert.Check(pendingCapture == null && !waitingForController && !ignoreActivationEvent,
+                "resetting defaults clears keyboard/controller capture and activation suppression");
+
         TestAssert.Check(PhotoMode.ShouldCaptureMouse(true, Input.MouseModeEnum.Visible),
                 "photo mode acquires a visible pointer when it owns the camera");
         TestAssert.Check(!PhotoMode.ShouldCaptureMouse(true, Input.MouseModeEnum.Captured),
