@@ -408,8 +408,8 @@ public static class IntegrationRegressionTests
 
             Vector3I? site = null;
             for (int cz = -8; cz <= 8 && site == null; cz++)
-            for (int cx = -8; cx <= 8 && site == null; cx++)
-                site = world.GetCampfireSite(cx, cz);
+                for (int cx = -8; cx <= 8 && site == null; cx++)
+                    site = world.GetCampfireSite(cx, cz);
 
             TestAssert.Check(site.HasValue,
                     "deterministic V11 test world contains a campfire lighting fixture");
@@ -515,18 +515,18 @@ public static class IntegrationRegressionTests
             // shared chunks so worker completion order cannot select a
             // different baked result for the same world-space chunk.
             for (int dz = -1; dz <= 1; dz++)
-            for (int dx = 0; dx <= 1; dx++)
-            {
-                int westSlot = (dz + 1) * 3 + dx + 1;
-                int eastSlot = (dz + 1) * 3 + dx;
-                Vector2I sharedChunk = westCenter + new Vector2I(dx, dz);
-                TestAssert.Check(EqualPackedLight(
-                                forwardWest[westSlot], reverseEast[eastSlot]),
-                        $"chunk {sharedChunk} has identical packed sky/block channels when neighbouring meshes request opposite solve orders");
-                TestAssert.Check(EqualPackedLight(
-                                forwardEast[eastSlot], reverseWest[westSlot]),
-                        $"chunk {sharedChunk} remains identical when its neighbour-first cache is populated first");
-            }
+                for (int dx = 0; dx <= 1; dx++)
+                {
+                    int westSlot = (dz + 1) * 3 + dx + 1;
+                    int eastSlot = (dz + 1) * 3 + dx;
+                    Vector2I sharedChunk = westCenter + new Vector2I(dx, dz);
+                    TestAssert.Check(EqualPackedLight(
+                                    forwardWest[westSlot], reverseEast[eastSlot]),
+                            $"chunk {sharedChunk} has identical packed sky/block channels when neighbouring meshes request opposite solve orders");
+                    TestAssert.Check(EqualPackedLight(
+                                    forwardEast[eastSlot], reverseWest[westSlot]),
+                            $"chunk {sharedChunk} remains identical when its neighbour-first cache is populated first");
+                }
 
             bool beforeBoundary = forward.TrySampleCachedSkyLight(
                     new Vector3(-0.01f, 52.5f, 0.5f), out float beforeLight);
@@ -623,20 +623,20 @@ public static class IntegrationRegressionTests
             // The two 3x3 requests share a 2x2 set of chunks around (-1,-1).
             // Compare both solve orders with live emitters, not only skylight.
             for (int dz = 0; dz <= 1; dz++)
-            for (int dx = 0; dx <= 1; dx++)
-            {
-                int northWestSlot = (dz + 1) * 3 + dx + 1;
-                int southEastSlot = dz * 3 + dx;
-                Vector2I sharedChunk = northWestCenter + new Vector2I(dx, dz);
-                TestAssert.Check(EqualPackedLight(
-                                forwardNorthWest[northWestSlot],
-                                reverseSouthEast[southEastSlot]),
-                        $"negative shared chunk {sharedChunk} keeps identical packed light when its neighbour is solved first");
-                TestAssert.Check(EqualPackedLight(
-                                forwardSouthEast[southEastSlot],
-                                reverseNorthWest[northWestSlot]),
-                        $"negative shared chunk {sharedChunk} keeps identical packed light when its own neighbourhood is solved first");
-            }
+                for (int dx = 0; dx <= 1; dx++)
+                {
+                    int northWestSlot = (dz + 1) * 3 + dx + 1;
+                    int southEastSlot = dz * 3 + dx;
+                    Vector2I sharedChunk = northWestCenter + new Vector2I(dx, dz);
+                    TestAssert.Check(EqualPackedLight(
+                                    forwardNorthWest[northWestSlot],
+                                    reverseSouthEast[southEastSlot]),
+                            $"negative shared chunk {sharedChunk} keeps identical packed light when its neighbour is solved first");
+                    TestAssert.Check(EqualPackedLight(
+                                    forwardSouthEast[southEastSlot],
+                                    reverseNorthWest[northWestSlot]),
+                            $"negative shared chunk {sharedChunk} keeps identical packed light when its own neighbourhood is solved first");
+                }
 
             // These are the two voxels between the diagonal sources. They are
             // in chunks (-1,-2) and (-2,-1), respectively, and receive level
