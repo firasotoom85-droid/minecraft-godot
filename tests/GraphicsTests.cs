@@ -4,6 +4,23 @@ namespace Minecraft;
 
 public static class GraphicsTests
 {
+    private static void TestPhotoModeCameraSettings()
+    {
+        Camera3D camera = new();
+        try
+        {
+            PhotoMode.ApplyCameraSettings(camera, 103.0f, 12, 640.0f);
+            TestAssert.Equal(103.0f, camera.Fov,
+                    "photo mode resamples the current configured field of view");
+            TestAssert.Equal(Gfx.RequiredCameraFar(12, 640.0f), camera.Far,
+                    "photo mode covers the configured Far LOD extent");
+        }
+        finally
+        {
+            camera.Free();
+        }
+    }
+
     private static void TestMinimapInvalidationPolicies()
     {
         Vector2 centre = new(0.0f, 0.0f);
@@ -95,6 +112,7 @@ public static class GraphicsTests
     public static void Run()
     {
         TestMinimapInvalidationPolicies();
+        TestPhotoModeCameraSettings();
         TestEnvironmentPresetMatrix();
         TestPresetMsaaAndCameraRanges();
         TestAssert.Equal(6, Gfx.Presets.Count, "graphics preset list includes low through max fsr2");
