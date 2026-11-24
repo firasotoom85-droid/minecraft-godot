@@ -160,7 +160,7 @@ public partial class Main : Node3D
         _achievementUi.Setup(_player, _world);
 
         _onboarding = AddSystem(new OnboardingSystem());
-        _onboarding.Setup(_world, _player, _hud, _mobs);
+        _onboarding.Setup(_world, _player, _hud, _mobs, _inventoryUi);
 
         _player.Notice += _hud.ShowToast;
         _player.CampfireUsed += _hud.ShowToast;
