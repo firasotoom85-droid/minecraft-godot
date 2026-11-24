@@ -166,6 +166,8 @@ public static class WorldgenTests
         ProfileChunkGeneration(host);
         CheckV12KnownHeightBiomeQueries();
         CheckV12FeatureRules();
+        CheckV13FeatureRules();
+        CheckV13CampfireStructureExclusion(host);
         CheckV12WorldBoundary(host);
         CheckV12SurfaceCaveEntrance(host);
         CheckV12ChunkDeterminism(host);
@@ -898,6 +900,19 @@ public static class WorldgenTests
         TestAssert.Check(chunksWithVillageBlocks >= 2,
                 "village structures stamp across more than one chunk");
 
+        HashSet<Vector3I> expectedVillageCrops = [];
+        VillageStructures.Stamp(village, (x, y, z, id) =>
+        {
+            if (BlockDb.IsWheat(id))
+                expectedVillageCrops.Add(new Vector3I(x, y, z));
+        });
+        HashSet<Vector3I> registeredCrops = new(first.CropSnapshot());
+        TestAssert.Check(expectedVillageCrops.Count > 0,
+                "deterministic village farm stamp contains wheat");
+        foreach (Vector3I crop in expectedVillageCrops)
+            TestAssert.Check(registeredCrops.Contains(crop),
+                    $"generated village crop {crop} is registered for growth");
+
         // The well and farm must not place water above the settlement surface.
         TestAssert.Equal(BlockId.Water, first.GetBlock(village.X, village.Y + 1, village.Z),
                 "village well is a contained source");
@@ -1032,9 +1047,9 @@ public static class WorldgenTests
             new(-2, -2), new(-1, -2), new(0, -2), new(1, -2),
             new(-2, -1), new(-1, -1), new(0, -1), new(1, -1),
         ];
-        double[] elapsed = new double[4];
         int[] versions = [6, WorldGenV7.Version, WorldGenV8.Version,
                 WorldGenV12.Version, WorldGenV13.Version];
+        double[] elapsed = new double[versions.Length];
         for (int v = 0; v < versions.Length; v++)
         {
             int version = versions[v];
@@ -1047,7 +1062,7 @@ public static class WorldgenTests
             VoxelWorld world = new();
             host.AddChild(world);
             // Warm the generator, noise wrappers and chunk-data path before
-            // timing, so the V8/V7 comparison excludes first-use JIT cost.
+            // timing, so version comparisons exclude first-use JIT cost.
             _ = world.ChunkData(new Vector2I(20, 20));
             Stopwatch timer = Stopwatch.StartNew();
             foreach (Vector2I chunk in chunks)
@@ -1063,10 +1078,10 @@ public static class WorldgenTests
             DirAccess.RemoveAbsolute(dir);
         }
 
-        GD.Print($"WORLDGEN_CHUNK_PROFILE chunks={chunks.Length} v6_ms_per_chunk={elapsed[0]:F2} v7_ms_per_chunk={elapsed[1]:F2} v8_ms_per_chunk={elapsed[2]:F2} v12_ms_per_chunk={elapsed[3]:F2} v12_vs_v8={(elapsed[3] / Math.Max(0.001, elapsed[2])):F2}x");
+        GD.Print($"WORLDGEN_CHUNK_PROFILE chunks={chunks.Length} v6_ms_per_chunk={elapsed[0]:F2} v7_ms_per_chunk={elapsed[1]:F2} v8_ms_per_chunk={elapsed[2]:F2} v12_ms_per_chunk={elapsed[3]:F2} v13_ms_per_chunk={elapsed[4]:F2} v12_vs_v8={(elapsed[3] / Math.Max(0.001, elapsed[2])):F2}x v13_vs_v12={(elapsed[4] / Math.Max(0.001, elapsed[3])):F2}x");
         TestAssert.Check(elapsed[0] > 0.0 && elapsed[1] > 0.0
-                        && elapsed[2] > 0.0 && elapsed[3] > 0.0,
-                "V6, V7, V8 and V12 chunk generation profiling completed");
+                        && elapsed[2] > 0.0 && elapsed[3] > 0.0 && elapsed[4] > 0.0,
+                "V6, V7, V8, V12 and V13 chunk generation profiling completed");
     }
 
     private static void ProfileV7ColumnSampling()
@@ -1373,10 +1388,107 @@ public static class WorldgenTests
         }
     }
 
+    private static void CheckV13FeatureRules()
+    {
+        TestAssert.Equal(WorldGenV12.Version + 1, WorldGenV13.Version,
+                "V13 appends the next generator version");
+        TestAssert.Equal(WorldGenV13.Version, WorldStore.CurrentGenVersion,
+                "new worlds select V13");
+        TestAssert.Equal(12, WorldGenV12.Version,
+                "legacy V12 generator version remains unchanged");
+        TestAssert.Check(WorldGenV13.CampfireConflictsWithStructure(0, 0, 51, 0),
+                "V13 campfires reject structure sites within the 52-block exclusion radius");
+        TestAssert.Check(!WorldGenV13.CampfireConflictsWithStructure(0, 0, 52, 0)
+                        && !WorldGenV13.CampfireConflictsWithStructure(0, 0, 37, 37),
+                "V13 permits structure sites at or beyond the circular exclusion boundary");
+    }
+
+    private static void CheckV13CampfireStructureExclusion(Node host)
+    {
+        const int seed = 1337;
+        const int cells = 24;
+        string legacyDir = $"user://tests/world-v12-campfires-{Time.GetTicksUsec()}";
+        string currentDir = $"user://tests/world-v13-campfires-{Time.GetTicksUsec()}";
+        foreach (string dir in new[] { legacyDir, currentDir })
+        {
+            DirAccess.MakeDirRecursiveAbsolute(dir);
+        }
+
+        int[] noiseSeeds = WorldStore.DeriveNoiseSeeds(seed);
+        WorldStore.WriteManifest(legacyDir, new WorldManifest(
+                "V12 campfire exclusion", seed, WorldGenV12.Version,
+                noiseSeeds, 0, 0, "survival", "normal"));
+        WorldStore.WriteManifest(currentDir, new WorldManifest(
+                "V13 campfire exclusion", seed, WorldGenV13.Version,
+                noiseSeeds, 0, 0, "survival", "normal"));
+
+        List<(int CellX, int CellZ, Vector3I Site)> legacySites = [];
+        GameSession.Instance.SelectWorld(legacyDir);
+        VoxelWorld legacy = new();
+        host.AddChild(legacy);
+        for (int cz = -cells; cz <= cells; cz++)
+            for (int cx = -cells; cx <= cells; cx++)
+                if (legacy.GetCampfireSite(cx, cz) is { } site)
+                    legacySites.Add((cx, cz, site));
+        host.RemoveChild(legacy);
+        legacy.QueueFree();
+
+        GameSession.Instance.SelectWorld(currentDir);
+        VoxelWorld current = new();
+        host.AddChild(current);
+        int rejectedConflicts = 0;
+        foreach ((int cellX, int cellZ, Vector3I legacySite) in legacySites)
+        {
+            int minStructureX = Mathf.FloorToInt(
+                    (legacySite.X - WorldGenV13.StructureClearance) / (float)VoxelWorld.StructureCell);
+            int maxStructureX = Mathf.FloorToInt(
+                    (legacySite.X + WorldGenV13.StructureClearance) / (float)VoxelWorld.StructureCell);
+            int minStructureZ = Mathf.FloorToInt(
+                    (legacySite.Z - WorldGenV13.StructureClearance) / (float)VoxelWorld.StructureCell);
+            int maxStructureZ = Mathf.FloorToInt(
+                    (legacySite.Z + WorldGenV13.StructureClearance) / (float)VoxelWorld.StructureCell);
+            bool conflicts = false;
+            for (int cz = minStructureZ; cz <= maxStructureZ; cz++)
+                for (int cx = minStructureX; cx <= maxStructureX; cx++)
+                {
+                    if (current.GetStructureSite(cx, cz) is { } structure
+                            && WorldGenV13.CampfireConflictsWithStructure(
+                                    legacySite.X, legacySite.Z, structure.X, structure.Z))
+                        conflicts = true;
+                }
+
+            Vector3I? currentSite = current.GetCampfireSite(cellX, cellZ);
+            if (conflicts)
+            {
+                rejectedConflicts++;
+                TestAssert.Check(currentSite == null,
+                        $"V13 rejects campfire cell ({cellX},{cellZ}) that overlaps a surface structure");
+            }
+            else
+            {
+                TestAssert.Check(currentSite == (Vector3I?)legacySite,
+                        $"V13 preserves non-conflicting legacy campfire site ({cellX},{cellZ})");
+            }
+        }
+
+        TestAssert.Check(legacySites.Count > 0,
+                "seed 1337 produces legacy campfire candidates for V13 comparison");
+        TestAssert.Check(rejectedConflicts > 0,
+                "seed 1337 contains at least one deterministic campfire/structure conflict to reject");
+
+        host.RemoveChild(current);
+        current.QueueFree();
+        foreach (string dir in new[] { legacyDir, currentDir })
+        {
+            DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+            DirAccess.RemoveAbsolute(dir);
+        }
+    }
+
     private static void CheckV12FeatureRules()
     {
-        TestAssert.Equal(WorldGenV12.Version, WorldStore.CurrentGenVersion,
-                "new worlds default to generator V12");
+        TestAssert.Equal(WorldGenV13.Version, WorldStore.CurrentGenVersion,
+                "new worlds default to generator V13");
         WorldGenV8 seedA = new(1337, "normal");
         WorldGenV8 seedB = new(7331, "normal");
         bool seedChangesCactusHash = false;

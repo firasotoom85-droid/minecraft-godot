@@ -168,6 +168,7 @@ public partial class TraderUi : CanvasLayer, IModalUi
 
     private bool EnsureVillagerUsable()
     {
+        if (!_open) return false;
         if (_villager == null) return true;
         if (GodotObject.IsInstanceValid(_villager)
                 && !_villager.Dead && !_villager.IsQueuedForDeletion())

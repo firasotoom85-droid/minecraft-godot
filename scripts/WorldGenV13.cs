@@ -9,10 +9,15 @@ namespace Minecraft;
 public static class WorldGenV13
 {
     public const int Version = 13;
-    public const int StructureClearance = 15;
+    // Match GetVillageSite's structure exclusion radius so campfires and
+    // villages use the same structure footprint safety margin.
+    public const int StructureClearance = 52;
 
     public static bool CampfireConflictsWithStructure(int campfireX, int campfireZ,
-            int structureX, int structureZ) =>
-            Math.Abs((long)campfireX - structureX) <= StructureClearance
-            && Math.Abs((long)campfireZ - structureZ) <= StructureClearance;
+            int structureX, int structureZ)
+    {
+        double dx = (double)campfireX - structureX;
+        double dz = (double)campfireZ - structureZ;
+        return dx * dx + dz * dz < StructureClearance * StructureClearance;
+    }
 }

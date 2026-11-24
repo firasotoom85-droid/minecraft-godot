@@ -1740,6 +1740,8 @@ public partial class Player : CharacterBody3D, IDamageable
         // Mobs first: right-click is "use" on a creature (tame a sheep).
         if (Ray.IsColliding() && Ray.GetCollider() is Mob mob)
         {
+            if (mob.Dead || mob.IsQueuedForDeletion())
+                return;
             if (mob.Interact(this))
             {
                 StartPunch();
