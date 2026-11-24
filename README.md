@@ -161,4 +161,25 @@ streaming architecture. Regression cases live in the existing
 `MobPerceptionTests`, `VillageTests`, `FluidWorldTests`, and
 `MobContentTests` suites.
 
+## Chunk worker cancellation and pooled payload ownership — 2026-11-24
+
+World-shutdown cancellation now propagates through chunk generation, chunk and
+lighting snapshots, sky/block-light propagation, greedy and per-face meshing,
+and Far-LOD tile generation. The existing worker pool, chunk queues, greedy
+mesher, Far-LOD architecture and worker/main-thread publication boundary remain
+in place.
+
+Meshing workers retain ownership of rented render and collision buffers until
+a complete `MeshPayload` is constructed. Exceptions and cancellation before
+that transfer return every buffer already rented; payload release is
+idempotent. Shutdown cancellation is distinct from a recoverable Far-LOD build
+failure and does not schedule retries during teardown.
+
+Regression coverage is in `VoxelStreamingTests`,
+`FarLodLifecycleTests` and `GlassTests`. CI verified Debug and Release
+warnings-as-errors builds, changed-C# formatting, 201,649 Godot headless checks
+with zero failures, and five spatial lighting probe grids with 27/27 reference
+samples each. This W13.1 slice does not change global `EditEpoch` validation,
+save formats, persisted IDs or world-generation versions.
+
 Project code and documentation are licensed under the [MIT License](LICENSE). Bundled third-party components and assets retain their own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
