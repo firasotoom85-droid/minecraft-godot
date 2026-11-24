@@ -239,15 +239,28 @@ public static class SpawnRecoveryTests
                         && chunk.AppliedEditEpoch == world.EditEpoch,
                 "near-player collision payload is refreshed to the committed edit epoch after removal");
 
-        // Place the obstruction above the tangent lower cap: a block whose
-        // top merely touches the player's feet is not a capsule intersection.
+        // Place a solid block in the upper hemisphere of the player's
+        // capsule. The first foot-level voxel only touched the lower cap and
+        // correctly did not count as penetration.
         Vector3 obstructed = new(
                 Mathf.FloorToInt(spawn.X) + 0.5f,
-                Mathf.FloorToInt(spawn.Y) + 1.5f,
+                Mathf.FloorToInt(spawn.Y) + 2.5f,
                 Mathf.FloorToInt(spawn.Z) + 0.5f);
-        TestAssert.Check(world.SetBlock((int)obstructed.X, (int)obstructed.Y,
-                        (int)obstructed.Z, BlockId.Stone),
+        int obstructedX = (int)obstructed.X;
+        int obstructedY = (int)obstructed.Y;
+        int obstructedZ = (int)obstructed.Z;
+        TestAssert.Check(world.SetBlock(obstructedX, obstructedY,
+                        obstructedZ, BlockId.Stone),
                 "capsule obstruction fixture uses the normal voxel mutation path");
+        TestAssert.Equal(BlockId.Stone, world.GetBlock(obstructedX, obstructedY, obstructedZ),
+                "capsule obstruction fixture is visible through the world read path");
+        TestAssert.Check(BlockShapes.OccupancyMask(BlockId.Stone, 0) != 0,
+                "solid obstruction fixture has occupied collision microcells");
+        TestAssert.Check(VoxelWorld.CapsuleIntersectsVoxelAabb(spawn,
+                        Player.CollisionRadius, Player.CollisionHeight,
+                        new Vector3(obstructedX, obstructedY, obstructedZ),
+                        new Vector3(obstructedX + 1, obstructedY + 1, obstructedZ + 1)),
+                "the selected voxel actually intersects the player capsule");
         TestAssert.Check(!world.IsSafePlayerPosition(spawn),
                 "a newly solid voxel intersecting the player capsule invalidates the saved destination");
         TestAssert.Check(world.TryResolvePlayerDestination(spawn, out Vector3 safeFallback)
