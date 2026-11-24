@@ -62,7 +62,7 @@ public partial class PhotoMode : Node
 
         if (Active && @event is InputEventMouseMotion motion)
         {
-            if (Input.MouseMode != Input.MouseModeEnum.Captured)
+            if (ShouldCaptureMouse(Active, Input.MouseMode))
             {
                 Input.MouseMode = Input.MouseModeEnum.Captured;
                 _skipMotion = true;
@@ -81,6 +81,10 @@ public partial class PhotoMode : Node
             _pitch = Mathf.Clamp(_pitch - lookY * sens, -1.5f, 1.5f);
         }
     }
+
+    internal static bool ShouldCaptureMouse(
+            bool active, Input.MouseModeEnum currentMode) =>
+            active && currentMode != Input.MouseModeEnum.Captured;
 
     internal static void ApplyCameraSettings(
             Camera3D camera, float fov, int viewDistance, float lodRadius)
