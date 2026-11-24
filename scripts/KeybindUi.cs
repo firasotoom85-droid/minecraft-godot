@@ -270,9 +270,15 @@ public partial class KeybindUi : CanvasLayer, IModalUi
             else
                 RefreshButton(action);
         }
-        _waitingAction = null;
-        _waitingForGamepad = false;
-        _ignoreNextGamepadEvent = false;
+        CancelCaptureState(ref _waitingAction, ref _waitingForGamepad, ref _ignoreNextGamepadEvent);
+    }
+
+    internal static void CancelCaptureState(
+            ref string? waitingAction, ref bool waitingForGamepad, ref bool ignoreNextGamepadEvent)
+    {
+        waitingAction = null;
+        waitingForGamepad = false;
+        ignoreNextGamepadEvent = false;
     }
 
     private void RefreshPadButton(string action)
