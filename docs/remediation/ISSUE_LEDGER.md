@@ -1,9 +1,9 @@
 # Remediation issue ledger
 
 **Repository:** `firasotoom85-droid/minecraft-godot`  
-**Refreshed:** 2026-11-23  
+**Refreshed:** 2026-11-24  
 **Default branch audited:** `main`  
-**Audited head:** `9e62125a037d87f0b9f3a3ca895645a4e40873b4`  
+**Audited head:** `c44957d13f412a765c5f33576fa94d538acbd318`  
 **Active baseline:** 109 open issues; #93–#202 excluding #150 (closed by merged PR #207)
 
 ## Scope and verification record
@@ -63,7 +63,7 @@ Other tracked relationships are not duplicates: #199/#201 cover non-blocking shu
 
 ## Active issue ledger
 
-> Priority mapping for planning: High = P1, Moderate = P2, Low = P3. Severity is copied from the issue description. `PR/commit`, final remediation verification and closure remain pending until a worker implements and validates a fix.
+> Priority mapping for planning: High = P1, Moderate = P2, Low = P3. Severity is copied from the issue description. PR/commit references and final verification are recorded after integration; issue closure remains pending explicit issue-owner review.
 
 ### #93 — Bug: Greedy meshing mode changes during a build can omit or duplicate opaque geometry
 
@@ -97,8 +97,8 @@ Other tracked relationships are not duplicates: #199/#201 cover non-blocking shu
 - Assert that the old payload is not applied and that a build for the new skip rectangle is dispatched after completion.
 - Cover tile removal/recreation at the same coordinate while an older task is running.
 - Add a movement regression that advances the streamed rectangle across a far-LOD tile boundary and checks for neither missing nor overlapping coverage.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
-- **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
+- **PR / commit reference:** [PR #205 — W02 Far LOD lifecycle and chunk/LOD consistency](https://github.com/firasotoom85-droid/minecraft-godot/pull/205) — merged as squash commit [`c44957d13f412a765c5f33576fa94d538acbd318`](https://github.com/firasotoom85-droid/minecraft-godot/commit/c44957d13f412a765c5f33576fa94d538acbd318).
+- **Final verification:** PR CI [#45392245618](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392245618), push CI [#45392237432](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392237432), and formatting [#45392245708](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392245708) all succeeded on validated head `6b2861a21485089b7f13b4df012324317ec0f22f`. Debug/Release builds passed with warnings-as-errors; the headless runner reported 200,582 checks and zero failures, including `far-lod-lifecycle`. All five spatial voxel-light probe grids compared 27/27 samples (100% coverage, zero measured drift); artifact `lighting-probe-grids` uploaded. The regression suite covers skip-mask/revision tokens, same-coordinate tile recreation, stale completion classification and replacement scheduling. No dedicated interactive movement/visual playtest was performed; keep the issue open for owner closure review.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
 ### #95 — Bug: Chunk streaming can schedule duplicate builds for the same in-flight coordinate
@@ -1111,8 +1111,8 @@ If no visible failure can be reproduced, close this issue as not reproducible an
 - Fill all dispatch slots with failing tasks and assert later queued tiles can still be dispatched.
 - Verify null payloads and successful payloads continue to use the normal apply path.
 - Verify scene shutdown during a build does not queue work against a freed node or retain in-flight entries.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
-- **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
+- **PR / commit reference:** [PR #205 — W02 Far LOD lifecycle and chunk/LOD consistency](https://github.com/firasotoom85-droid/minecraft-godot/pull/205) — merged as squash commit [`c44957d13f412a765c5f33576fa94d538acbd318`](https://github.com/firasotoom85-droid/minecraft-godot/commit/c44957d13f412a765c5f33576fa94d538acbd318).
+- **Final verification:** PR CI [#45392245618](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392245618), push CI [#45392237432](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392237432), and formatting [#45392245708](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392245708) all succeeded on validated head `6b2861a21485089b7f13b4df012324317ec0f22f`. Debug/Release builds passed with warnings-as-errors; the headless runner reported 200,582 checks and zero failures, including `far-lod-lifecycle`. All five spatial voxel-light probe grids compared 27/27 samples (100% coverage, zero measured drift); artifact `lighting-probe-grids` uploaded. The regression suite injects an `InvalidOperationException` through the same `CaptureBuild` seam used by `BuildTask`, verifies failure classification and exact in-flight release, checks the two-retry ceiling, and confirms the shared production dispatch selector can take the next tile. A runtime worker stress/soak test was not performed; keep the issue open for owner closure review.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
 ### #148 — [Performance][Moderate] Single chunk payload application can exceed the main-thread time budget
@@ -1982,8 +1982,8 @@ Correct `TestLavaDepthBehavior()` so it asserts that the lava shader does not wr
 - Use a flat-height terrain fixture and assert that no full-resolution chunk top face and Far-LOD top quad occupy the same world-space cell.
 - Repeat the transition on all four horizontal edges and across negative X/Z chunk coordinates.
 - Verify LOD-disabled LOW and LOD-enabled presets, and preserve existing tile revision/stale-payload behavior.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
-- **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
+- **PR / commit reference:** [PR #205 — W02 Far LOD lifecycle and chunk/LOD consistency](https://github.com/firasotoom85-droid/minecraft-godot/pull/205) — merged as squash commit [`c44957d13f412a765c5f33576fa94d538acbd318`](https://github.com/firasotoom85-droid/minecraft-godot/commit/c44957d13f412a765c5f33576fa94d538acbd318).
+- **Final verification:** PR CI [#45392245618](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392245618), push CI [#45392237432](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392237432), and formatting [#45392245708](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392245708) all succeeded on validated head `6b2861a21485089b7f13b4df012324317ec0f22f`. Debug/Release builds passed with warnings-as-errors; the headless runner reported 200,582 checks and zero failures, including `far-lod-lifecycle`. All five spatial voxel-light probe grids compared 27/27 samples (100% coverage, zero measured drift); artifact `lighting-probe-grids` uploaded. The implementation uses the authoritative `VoxelWorld.UnloadMargin` and the production cell-emission gate; regression coverage checks negative coordinates, all four ownership edges, and exclusive full-resolution/Far-LOD cell ownership as the retained rectangle changes. This is deterministic geometry-gate coverage, not a human visual playtest; keep the issue open for owner closure review.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
 ### #195 — Do not derive replacement noise seeds for legacy worlds with incomplete manifests
@@ -2139,8 +2139,8 @@ Correct `TestLavaDepthBehavior()` so it asserts that the lava shader does not wr
 - Cover null payload completion and a tile removed then recreated at the same coordinate.
 - Verify shutdown does not dispatch new work after `_alive` becomes false.
 - Verify no old payload is applied to a missing/recreated tile and no coordinate remains stuck in `_inFlight`.
-- **PR / commit reference:** Pending — not implemented; no remediation PR or commit exists at this baseline.
-- **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
+- **PR / commit reference:** [PR #205 — W02 Far LOD lifecycle and chunk/LOD consistency](https://github.com/firasotoom85-droid/minecraft-godot/pull/205) — merged as squash commit [`c44957d13f412a765c5f33576fa94d538acbd318`](https://github.com/firasotoom85-droid/minecraft-godot/commit/c44957d13f412a765c5f33576fa94d538acbd318).
+- **Final verification:** PR CI [#45392245618](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392245618), push CI [#45392237432](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392237432), and formatting [#45392245708](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392245708) all succeeded on validated head `6b2861a21485089b7f13b4df012324317ec0f22f`. Debug/Release builds passed with warnings-as-errors; the headless runner reported 200,582 checks and zero failures, including `far-lod-lifecycle`. All five spatial voxel-light probe grids compared 27/27 samples (100% coverage, zero measured drift); artifact `lighting-probe-grids` uploaded. The regression suite fills all worker slots, evicts their tiles, queues replacement tiles, and verifies each matching completion releases its slot so the shared production dispatch selector can select replacement work. Static review confirms `ApplyTile` dispatches in `finally` for every completion disposition while alive. No interactive scene-transition/teardown playtest was performed; keep the issue open for owner closure review.
 - **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
 
 ## Dispatch and closure rules
@@ -2167,6 +2167,20 @@ Correct `TestLavaDepthBehavior()` so it asserts that the lava shader does not wr
 - **Validated PR head:** `4b08fee68611325f3ebbabd9937376820008a2cc`.
 - **Final verification:** PR CI [#45262320529](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45262320529), push CI [#45262312094](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45262312094), and formatting [#45262320943](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45262320943) succeeded. Debug/Release reported zero compiler warnings and errors; the headless runner reported 200,309 checks and zero failures; all five spatial-light grids compared 27/27 samples (100% coverage), and report upload succeeded.
 - **Issue state:** #150 closed automatically by the merged `Fixes #150` reference. Other W01 issues remain open unless their entries above explicitly state otherwise; no additional issue was closed manually.
-- **Outstanding dependencies:** #96/#201 require W03 mesher work; #141/#148 require W03 chunk work; #199 requires W02 Far LOD/transition work; #122 remains on sibling W06 PR #210; #100 still needs a deterministic reproducer/new generator version; #149 lacks cold-start/p99 evidence; #189 remains open for final issue-owner acceptance; #132's W05-owned `WorldStore.WriteAtomic()` path remains in PR #215.
-- **Deferred dependent PR:** W02 PR #205 remains open/draft and was not integrated in this pass. It still targets `agent/w01-voxelworld`; retarget and review it separately against `main` in its own integration pass.
+- **Outstanding dependencies:** #96/#201 require W03 mesher work; #141/#148 require W03 chunk work; #199 still requires a separate W02/scene-transition shutdown contract (not included in PR #205); #122 remains on sibling W06 PR #210; #100 still needs a deterministic reproducer/new generator version; #149 lacks cold-start/p99 evidence; #189 remains open for final issue-owner acceptance; #132's W05-owned `WorldStore.WriteAtomic()` path remains in PR #215.
+- **Deferred dependent PR:** W02 PR #205 was integrated separately on 2026-11-24 after being rebuilt as a one-commit W02-only branch directly on the post-W01 `main`; see the W02 integration record below.
 - **Current open issue count:** 109 issues, #93–#202 excluding closed #150.
+
+
+## Integration update — W02 PR #205 (2026-11-24)
+
+- **Merged PR:** [#205 — W02: harden Far LOD lifecycle and chunk ownership](https://github.com/firasotoom85-droid/minecraft-godot/pull/205).
+- **Squash commit on `main`:** [`c44957d13f412a765c5f33576fa94d538acbd318`](https://github.com/firasotoom85-droid/minecraft-godot/commit/c44957d13f412a765c5f33576fa94d538acbd318).
+- **Validated PR head:** `6b2861a21485089b7f13b4df012324317ec0f22f`.
+- **Integration base:** `7d6dd5a32143939a22b7b836e3be8067fa5cc7a7` (post-W01 PR #207 `main`).
+- **Ownership/diff validation:** One commit ahead of the integration base, zero behind, and exactly three changed files: `scripts/FarLod.cs`, `tests/FarLodLifecycleTests.cs`, and `tests/TestRunner.cs`. No W01-owned or unrelated files were carried into the merge.
+- **Final verification:** PR CI [#45392245618](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392245618), push CI [#45392237432](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392237432), and formatting [#45392245708](https://github.com/firasotoom85-droid/minecraft-godot/actions/runs/45392245708) all succeeded on validated head `6b2861a21485089b7f13b4df012324317ec0f22f`. Debug/Release builds passed with warnings-as-errors; the headless runner reported 200,582 checks and zero failures, including `far-lod-lifecycle`. All five spatial voxel-light probe grids compared 27/27 samples (100% coverage, zero measured drift); artifact `lighting-probe-grids` uploaded. The formatting gate also succeeded. No save format, persisted BlockId/ItemId, world-generation output/version, voxel mutation path, greedy mesher, or chunk streaming implementation was changed.
+- **Scope completed:** #94 stale/recreated tile payload protection; #147 worker exception capture and exact in-flight cleanup; #194 Far-LOD/full-resolution ownership boundary and negative-coordinate cell gating; #202 unconditional completion-finally dispatch and queue progress after eviction.
+- **Issue state:** #94, #147, #194 and #202 remain open pending explicit issue-owner closure review. No GitHub issue was closed or otherwise mutated by this integration.
+- **Outstanding W02 dependency:** #199 remains a separate asynchronous world/Far-LOD/scene-transition shutdown coordination issue; it was not silently folded into PR #205.
+- **Current main head:** `c44957d13f412a765c5f33576fa94d538acbd318`. The active issue count remains 109 (#93–#202 excluding already-closed #150).
