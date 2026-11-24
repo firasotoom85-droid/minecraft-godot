@@ -19,10 +19,9 @@ public partial class Sound : Node
 
     public bool Muted => Settings.Muted;
 
-    /// <summary>Music/Sfx/Ambient buses under Master; created once at boot.</summary>
+    /// <summary>SFX and ambience buses under Master; created once at boot.</summary>
     public static void EnsureBuses()
     {
-        EnsureBus("Music");
         EnsureBus("Sfx");
         EnsureBus("Ambient");
     }
@@ -43,7 +42,6 @@ public partial class Sound : Node
     public static void ApplyVolumes()
     {
         SetBusVolume("Master", Settings.MasterVolume);
-        SetBusVolume("Music", Settings.MusicVolume);
         SetBusVolume("Sfx", Settings.SfxVolume);
         SetBusVolume("Ambient", Settings.AmbientVolume);
         AudioServer.SetBusMute(AudioServer.GetBusIndex("Master"), Settings.Muted);
