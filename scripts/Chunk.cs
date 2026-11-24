@@ -7,8 +7,9 @@ namespace Minecraft;
 /// <summary>Shared epoch/readiness predicate for authoritative terrain collision.</summary>
 internal static class ChunkCollisionReadiness
 {
-    public static bool IsReady(long appliedEditEpoch, long worldEditEpoch, bool hasCollider) =>
-            hasCollider && appliedEditEpoch == worldEditEpoch;
+    public static bool IsReady(long appliedEditEpoch, long worldEditEpoch,
+            bool collisionPayloadApplied) =>
+            collisionPayloadApplied && appliedEditEpoch == worldEditEpoch;
 }
 
 /// <summary>
@@ -33,6 +34,12 @@ public partial class Chunk : StaticBody3D
     public long EstimatedMeshBytes { get; private set; }
     /// <summary>World edit epoch represented by the currently applied mesh/collider payload.</summary>
     public long AppliedEditEpoch { get; private set; }
+    /// <summary>
+    /// True when the current edit-epoch payload was applied with collision
+    /// building enabled. A payload with zero collision vertices is still a
+    /// completed collision snapshot; it does not require a CollisionShape3D.
+    /// </summary>
+    public bool CollisionPayloadApplied { get; private set; }
 
     private MeshInstance3D _meshOpaque = null!;
     private MeshInstance3D? _meshGlass;
@@ -139,7 +146,8 @@ public partial class Chunk : StaticBody3D
 
         // Collision resources are optional too: most render-only chunks and
         // many empty preview chunks never need a physics child at all.
-        if (World?.BuildCollision == true)
+        CollisionPayloadApplied = World?.BuildCollision == true;
+        if (CollisionPayloadApplied)
         {
             long collisionStart = Stopwatch.GetTimestamp();
             int collisionVertices = payload.Collision.Count;
