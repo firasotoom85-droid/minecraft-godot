@@ -569,29 +569,24 @@ public partial class DayNight : Node
             fogColor = fogColor.Lerp(new Color(1, 1, 1), (float)(flash * 0.7));
         }
 
-        // The smooth cave weight is also the shelter predicate for fog mode:
-        // any enclosed sample keeps the established close-quarters exponential
-        // profile, while open sky receives the shared camera-depth distance haze.
+        // Modern worlds never switch fog algorithms at a binary cave
+        // threshold. The same continuous shelter value contracts depth range
+        // from the outdoor haze profile to the close cave profile.
         bool sheltered = caveDarkness > 0.001f;
-
-        // Depth fog is a shared camera-space effect for all terrain geometry.
-        // Keep close-quarters cave and immersion fog exponential so those
-        // established high-density profiles still close in around the player.
         Godot.Environment.FogModeEnum fogMode = WorldEnvironmentFactory.FogModeFor(
                 _usesDistanceHaze, sheltered);
         if (env.FogMode != fogMode)
-        {
             env.FogMode = fogMode;
-        }
 
-        if (_usesDistanceHaze && !sheltered)
+        if (_usesDistanceHaze)
         {
-            fogDensity = System.Math.Clamp(fogDensity,
-                    0.0, WorldEnvironmentFactory.MaxDistanceHazeDensity);
-            // Keep the shared depth-fog mode while its range contracts from
-            // outdoor haze to the close underwater profile.
-            env.FogDepthBegin = waterFog.DepthBegin;
-            env.FogDepthEnd = Mathf.Max(waterFog.DepthBegin + 1.0f, waterFog.DepthEnd);
+            WorldEnvironmentFactory.FogDepthRange range =
+                    WorldEnvironmentFactory.EvaluateCaveFogRange(caveDarkness,
+                            waterFog.DepthBegin, waterFog.DepthEnd);
+            if (Mathf.Abs(env.FogDepthBegin - range.Begin) >= 0.1f)
+                env.FogDepthBegin = range.Begin;
+            if (Mathf.Abs(env.FogDepthEnd - range.End) >= 0.1f)
+                env.FogDepthEnd = range.End;
         }
 
         float blend = (float)System.Math.Clamp(delta * 5.0, 0.0, 1.0);
@@ -727,8 +722,8 @@ public partial class DayNight : Node
             Color star = new(brightness * 0.90f, brightness * 0.94f,
                     brightness, 0.88f);
             for (int dy = 0; dy < 2; dy++)
-            for (int dx = 0; dx < 2; dx++)
-                img.SetPixel(x + dx, y + dy, star);
+                for (int dx = 0; dx < 2; dx++)
+                    img.SetPixel(x + dx, y + dy, star);
         }
 
         for (int i = 0; i < 10; i++)
@@ -736,8 +731,8 @@ public partial class DayNight : Node
             int x = rng.RandiRange(1, w - 3);
             int y = rng.RandiRange(1, h - 3);
             for (int dy = 0; dy < 3; dy++)
-            for (int dx = 0; dx < 3; dx++)
-                img.SetPixel(x + dx, y + dy, new Color(0.86f, 0.92f, 1.0f, 0.78f));
+                for (int dx = 0; dx < 3; dx++)
+                    img.SetPixel(x + dx, y + dy, new Color(0.86f, 0.92f, 1.0f, 0.78f));
         }
 
         return img;

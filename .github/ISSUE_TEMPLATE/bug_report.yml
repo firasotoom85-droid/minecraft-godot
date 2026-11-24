@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a reproducible defect in the game, tools or repository.
+title: "[Bug]: "
+labels:
+  - "type: bug"
+  - "status: needs-triage"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues first. Never attach credentials, private worlds or personal data.
+  - type: input
+    id: version
+    attributes:
+      label: Game version or commit
+      description: Include the release tag or commit SHA.
+      placeholder: v1.1.0-beta.1 / commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, GPU/driver, Godot version and renderer preset.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Give the smallest sequence that reliably reproduces the problem.
+      placeholder: |
+        1. Create/load a world with...
+        2. Travel to...
+        3. Perform...
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or captures
+      description: Redact usernames, absolute paths, world names and private data.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched for an existing issue describing this problem.
+          required: true
+        - label: I removed private data and secrets from all attachments.
+          required: true

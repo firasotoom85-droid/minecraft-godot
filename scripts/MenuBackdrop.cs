@@ -101,7 +101,7 @@ public partial class MenuBackdrop : Node3D
 
         Vector3 center = _world.SavedPlayerPos ?? _world.FindSpawn();
         _target = center + new Vector3(0, 7.0f, 0);
-        _world.BuildPreview(center, PreviewRadius);
+        _world.BuildPreviewStreaming(center, PreviewRadius);
 
         _camera = new Camera3D
         {

@@ -108,7 +108,8 @@ public static class BlockShapes
         if ((uint)nx < 2 && (uint)ny < 2 && (uint)nz < 2)
             return !Occupied(id, state, nx, ny, nz);
 
-        if (!BlockDb.IsSolid(neighbor) || BlockDb.IsTransparent(neighbor)) return true;
+        if (!BlockDb.IsSolid(neighbor) || BlockDb.IsTransparent(neighbor)
+                || BlockDb.IsFoliage(neighbor)) return true;
         nx = face == 2 ? 0 : face == 3 ? 1 : x;
         ny = face == 0 ? 0 : face == 1 ? 1 : y;
         nz = face == 4 ? 0 : face == 5 ? 1 : z;
@@ -120,10 +121,10 @@ public static class BlockShapes
     {
         int count = 0;
         for (int y = 0; y < 2; y++)
-        for (int z = 0; z < 2; z++)
-        for (int x = 0; x < 2; x++)
-        for (int face = 0; face < 6; face++)
-            if (FaceExposed(id, state, x, y, z, face, BlockId.Air, 0)) count++;
+            for (int z = 0; z < 2; z++)
+                for (int x = 0; x < 2; x++)
+                    for (int face = 0; face < 6; face++)
+                        if (FaceExposed(id, state, x, y, z, face, BlockId.Air, 0)) count++;
         return count;
     }
 
@@ -288,20 +289,20 @@ public static class BlockShapes
 
         const float half = 0.5f;
         for (int y = 0; y < 2; y++)
-        for (int z = 0; z < 2; z++)
-        for (int x = 0; x < 2; x++)
-        {
-            if (!Occupied(id, state, x, y, z)) continue;
-            Vector3 min = new(block.X + x * half, block.Y + y * half, block.Z + z * half);
-            Vector3 max = min + new Vector3(half, half, half);
-            if (!RayAabb(origin, direction, min, max, out float distance, out Vector3 normal)) continue;
-            if (distance < minDistance - 0.0001f || distance > maxDistance + 0.0001f) continue;
-            if (distance < hitDistance)
-            {
-                hitDistance = Mathf.Max(distance, 0.0f);
-                hitNormal = normal;
-            }
-        }
+            for (int z = 0; z < 2; z++)
+                for (int x = 0; x < 2; x++)
+                {
+                    if (!Occupied(id, state, x, y, z)) continue;
+                    Vector3 min = new(block.X + x * half, block.Y + y * half, block.Z + z * half);
+                    Vector3 max = min + new Vector3(half, half, half);
+                    if (!RayAabb(origin, direction, min, max, out float distance, out Vector3 normal)) continue;
+                    if (distance < minDistance - 0.0001f || distance > maxDistance + 0.0001f) continue;
+                    if (distance < hitDistance)
+                    {
+                        hitDistance = Mathf.Max(distance, 0.0f);
+                        hitNormal = normal;
+                    }
+                }
 
         return float.IsFinite(hitDistance);
     }
@@ -368,17 +369,17 @@ public static class BlockShapes
         if (mask == 0) return false;
         const float epsilon = 0.0001f;
         for (int y = 0; y < 2; y++)
-        for (int z = 0; z < 2; z++)
-        for (int x = 0; x < 2; x++)
-        {
-            if ((mask & (1 << (x + z * 2 + y * 4))) == 0) continue;
-            Vector3 min = blockOrigin + new Vector3(x * 0.5f, y * 0.5f, z * 0.5f);
-            Vector3 max = min + new Vector3(0.5f, 0.5f, 0.5f);
-            if (aabbMax.X > min.X + epsilon && aabbMin.X < max.X - epsilon
-                && aabbMax.Y > min.Y + epsilon && aabbMin.Y < max.Y - epsilon
-                && aabbMax.Z > min.Z + epsilon && aabbMin.Z < max.Z - epsilon)
-                return true;
-        }
+            for (int z = 0; z < 2; z++)
+                for (int x = 0; x < 2; x++)
+                {
+                    if ((mask & (1 << (x + z * 2 + y * 4))) == 0) continue;
+                    Vector3 min = blockOrigin + new Vector3(x * 0.5f, y * 0.5f, z * 0.5f);
+                    Vector3 max = min + new Vector3(0.5f, 0.5f, 0.5f);
+                    if (aabbMax.X > min.X + epsilon && aabbMin.X < max.X - epsilon
+                        && aabbMax.Y > min.Y + epsilon && aabbMin.Y < max.Y - epsilon
+                        && aabbMax.Z > min.Z + epsilon && aabbMin.Z < max.Z - epsilon)
+                        return true;
+                }
         return false;
     }
 }

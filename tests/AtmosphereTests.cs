@@ -647,12 +647,61 @@ public static class AtmosphereTests
         TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential,
                 WorldEnvironmentFactory.FogModeFor(false, underground: false),
                 "legacy outdoor worlds keep exponential fog");
-        TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential,
-                WorldEnvironmentFactory.FogModeFor(true, underground: true),
-                "cave darkness retains close-range exponential fog");
         TestAssert.Equal(Godot.Environment.FogModeEnum.Depth,
-                WorldEnvironmentFactory.FogModeFor(true, underground: false),
-                "modern underwater transitions retain depth fog while its range contracts");
+                WorldEnvironmentFactory.FogModeFor(true, underground: true),
+                "modern cave entry retains depth fog instead of switching algorithms");
+        TestAssert.Equal(Godot.Environment.FogModeEnum.Exponential,
+                WorldEnvironmentFactory.FogModeFor(false, underground: true),
+                "legacy cave fog remains on its original exponential profile");
+
+        WorldEnvironmentFactory.FogDepthRange outdoorRange =
+                WorldEnvironmentFactory.EvaluateCaveFogRange(0.0f,
+                        WorldEnvironmentFactory.DistanceHazeBegin,
+                        WorldEnvironmentFactory.DistanceHazeEnd);
+        WorldEnvironmentFactory.FogDepthRange thresholdRange =
+                WorldEnvironmentFactory.EvaluateCaveFogRange(0.001f,
+                        WorldEnvironmentFactory.DistanceHazeBegin,
+                        WorldEnvironmentFactory.DistanceHazeEnd);
+        WorldEnvironmentFactory.FogDepthRange entranceRange =
+                WorldEnvironmentFactory.EvaluateCaveFogRange(0.5f,
+                        WorldEnvironmentFactory.DistanceHazeBegin,
+                        WorldEnvironmentFactory.DistanceHazeEnd);
+        WorldEnvironmentFactory.FogDepthRange caveRange =
+                WorldEnvironmentFactory.EvaluateCaveFogRange(1.0f,
+                        WorldEnvironmentFactory.DistanceHazeBegin,
+                        WorldEnvironmentFactory.DistanceHazeEnd);
+        TestAssert.Equal(WorldEnvironmentFactory.DistanceHazeBegin, outdoorRange.Begin,
+                "open-sky depth fog preserves the original far begin distance");
+        TestAssert.Equal(WorldEnvironmentFactory.DistanceHazeEnd, outdoorRange.End,
+                "open-sky depth fog preserves the original far end distance");
+        TestAssert.Check(thresholdRange.Begin < outdoorRange.Begin
+                        && thresholdRange.End < outdoorRange.End
+                        && outdoorRange.End - thresholdRange.End < 1.0f,
+                "crossing the former shelter threshold contracts depth fog continuously");
+        TestAssert.Check(entranceRange.Begin < thresholdRange.Begin
+                        && entranceRange.End < thresholdRange.End
+                        && entranceRange.End > caveRange.End,
+                "cave-mouth depth range blends smoothly toward the cave profile");
+        TestAssert.Equal(WorldEnvironmentFactory.CaveFogDepthBegin, caveRange.Begin,
+                "fully sheltered modern worlds use the cave near-fog start");
+        TestAssert.Equal(WorldEnvironmentFactory.CaveFogDepthEnd, caveRange.End,
+                "fully sheltered modern worlds use the close cave fog end distance");
+
+        float previousFogEnd = outdoorRange.End;
+        for (int i = 1; i <= 100; i++)
+        {
+            float darkness = i / 100.0f;
+            WorldEnvironmentFactory.FogDepthRange sample =
+                    WorldEnvironmentFactory.EvaluateCaveFogRange(darkness,
+                            WorldEnvironmentFactory.DistanceHazeBegin,
+                            WorldEnvironmentFactory.DistanceHazeEnd);
+            TestAssert.Check(float.IsFinite(sample.Begin) && float.IsFinite(sample.End)
+                            && sample.End > sample.Begin,
+                    $"modern cave depth range remains valid at shelter sample {i}/100");
+            TestAssert.Check(sample.End <= previousFogEnd + 0.0001f,
+                    $"modern cave depth range contracts monotonically at shelter sample {i}/100");
+            previousFogEnd = sample.End;
+        }
 
         foreach (int presetIndex in new[] { 0, 1 })
         {
