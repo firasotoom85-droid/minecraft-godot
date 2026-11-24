@@ -241,7 +241,7 @@ public partial class Player : CharacterBody3D, IDamageable
             }
 
             float sensitivity = Settings.MouseSensitivity;
-            float dy = motion.Relative.Y * (Settings.InvertY ? -1.0f : 1.0f);
+            float dy = CameraLookInput.VerticalDelta(motion.Relative.Y, Settings.InvertY);
             RotateY(-motion.Relative.X * sensitivity);
             Vector3 camRot = Camera.Rotation;
             camRot.X = Mathf.Clamp(camRot.X - dy * sensitivity, -1.55f, 1.55f);
@@ -361,7 +361,7 @@ public partial class Player : CharacterBody3D, IDamageable
             {
                 RotateY(-look.X * 2.4f * dt);
                 Vector3 cameraRotation = Camera.Rotation;
-                float lookY = look.Y * (Settings.InvertY ? -1.0f : 1.0f);
+                float lookY = CameraLookInput.VerticalDelta(look.Y, Settings.InvertY);
                 cameraRotation.X = Mathf.Clamp(cameraRotation.X - lookY * 2.0f * dt, -1.55f, 1.55f);
                 Camera.Rotation = cameraRotation;
             }
