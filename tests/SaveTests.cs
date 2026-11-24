@@ -1030,20 +1030,20 @@ public static class SaveTests
         TestAssert.Check(WorldStore.ValidateModel(valid, out _, out _),
                 "well-formed coordinate keys and canonical container stacks remain valid");
         TestAssert.Check(!WorldStore.ValidateModel(valid with
-                {
-                    Containers = new Dictionary<string, List<ItemStackSave>>
-                    {
-                        ["1,2"] = [new ItemStackSave(0, (int)ItemId.Stone, 1)],
-                    },
-                }, out _, out _),
+        {
+            Containers = new Dictionary<string, List<ItemStackSave>>
+            {
+                ["1,2"] = [new ItemStackSave(0, (int)ItemId.Stone, 1)],
+            },
+        }, out _, out _),
                 "container keys must encode exactly three integer coordinates");
         TestAssert.Check(!WorldStore.ValidateModel(valid with
-                {
-                    Edits = new Dictionary<string, Dictionary<string, BlockId>>
-                    {
-                        ["0,0,1"] = new Dictionary<string, BlockId> { ["3"] = BlockId.Stone },
-                    },
-                }, out _, out _),
+        {
+            Edits = new Dictionary<string, Dictionary<string, BlockId>>
+            {
+                ["0,0,1"] = new Dictionary<string, BlockId> { ["3"] = BlockId.Stone },
+            },
+        }, out _, out _),
                 "chunk edit keys must encode exactly two integer coordinates");
 
         int oversizedCount = ItemDb.MaxStack(ItemId.Stone) + 1;
