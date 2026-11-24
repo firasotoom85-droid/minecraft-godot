@@ -7,6 +7,19 @@ public static class InventoryTests
 {
     public static void Run()
     {
+        TestAssert.Check(InventoryUi.CanHandleInventoryInput(
+                        paused: false, open: false, inputLocked: false),
+                "inventory may open during ordinary gameplay");
+        TestAssert.Check(!InventoryUi.CanHandleInventoryInput(
+                        paused: false, open: false, inputLocked: true),
+                "another active modal retains input ownership");
+        TestAssert.Check(InventoryUi.CanHandleInventoryInput(
+                        paused: false, open: true, inputLocked: true),
+                "an already-open inventory can still process its own input");
+        TestAssert.Check(!InventoryUi.CanHandleInventoryInput(
+                        paused: true, open: false, inputLocked: false),
+                "inventory input is ignored while the scene tree is paused");
+
         Button recipeEntry = new() { FocusMode = Control.FocusModeEnum.All };
         VBoxContainer recipeList = new();
         recipeList.AddChild(recipeEntry);
