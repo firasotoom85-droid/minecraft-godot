@@ -299,8 +299,7 @@ public partial class Hud : CanvasLayer
     public void Bind(Player p)
     {
         PlayerRef = p;
-        _minimap.World = p.World;
-        _minimap.PlayerRef = p;
+        _minimap.Setup(p.World, p);
         if (!_bound)
         {
             p.HotbarChanged += OnHotbarChanged;
