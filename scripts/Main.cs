@@ -71,7 +71,8 @@ public partial class Main : Node3D
             Vector3? alternatePosition = savedDead ? null : _world.SavedRespawn;
             if (!_player.TryTeleportToSafePosition(startupPosition,
                         allowWater: savedBoatSeat.HasValue,
-                        alternatePosition: alternatePosition))
+                        alternatePosition: alternatePosition,
+                        allowVehicleSupport: savedBoatSeat.HasValue))
             {
                 ShowSpawnFailure("The saved position, respawn anchor and deterministic world spawn could not be prepared safely.");
                 return;
