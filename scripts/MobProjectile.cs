@@ -16,36 +16,17 @@ public partial class MobProjectile : Area3D
     private Vector3 _source;
     private float _life = 4.0f;
     private Mobs? _manager;
-    private RayCast3D? _terrainRay;
     private ShapeCast3D? _sweep;
     private bool _spent;
     internal ShapeCast3D? SweepForTests => _sweep;
     private string _sound = "mobcrystal";
     private Color _color = Colors.White;
 
-    internal RayCast3D? TerrainRayForTests => _terrainRay;
-
-    internal void ConfigureTerrainRayForTests(Vector3 from, Vector3 to)
-    {
-        if (_terrainRay == null) return;
-        _terrainRay.Position = from;
-        _terrainRay.TargetPosition = to - from;
-        if (_terrainRay.IsInsideTree())
-            _terrainRay.ForceRaycastUpdate();
-    }
-
-    public void Setup(Mobs manager, Vector3 origin, Vector3 target, float damage,
+remove old ray test seam    public void Setup(Mobs manager, Vector3 origin, Vector3 target, float damage,
             Color color, float speed, string sound)
     {
         _manager = manager;
-        _terrainRay = new RayCast3D
-        {
-            CollisionMask = (uint)PhysicsLayer.Terrain,
-            CollideWithAreas = false,
-            TargetPosition = Vector3.Zero,
-        };
-        AddChild(_terrainRay);
-        _sweep = new ShapeCast3D
+remove old ray node        _sweep = new ShapeCast3D
         {
             Shape = new SphereShape3D { Radius = 0.20f },
             CollisionMask = (uint)(PhysicsLayer.Player | PhysicsLayer.Terrain),
