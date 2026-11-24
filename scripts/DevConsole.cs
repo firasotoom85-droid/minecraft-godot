@@ -424,8 +424,9 @@ public partial class DevConsole : CanvasLayer
                         float y = kind == 3
                                 ? Structures.DungeonArenaY(site) + 2.0f
                                 : site.Y + 3.0f;
-                        _player.GlobalPosition = new Vector3(site.X + 0.5f, y, site.Z + 0.5f);
-                        _player.Velocity = Vector3.Zero;
+                        Vector3 requested = new(site.X + 0.5f, y, site.Z + 0.5f);
+                        if (!_player.TryTeleportToSafePosition(requested))
+                            return $"could not teleport to {parts[1]}: destination is unsafe or collision is unavailable";
                         return $"{parts[1]} at {site.X} {site.Y} {site.Z}";
                     }
 
