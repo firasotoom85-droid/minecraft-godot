@@ -22,11 +22,11 @@ public partial class MobProjectile : Area3D
     private string _sound = "mobcrystal";
     private Color _color = Colors.White;
 
-remove old ray test seam    public void Setup(Mobs manager, Vector3 origin, Vector3 target, float damage,
+    public void Setup(Mobs manager, Vector3 origin, Vector3 target, float damage,
             Color color, float speed, string sound)
     {
         _manager = manager;
-remove old ray node        _sweep = new ShapeCast3D
+        _sweep = new ShapeCast3D
         {
             Shape = new SphereShape3D { Radius = 0.20f },
             CollisionMask = (uint)(PhysicsLayer.Player | PhysicsLayer.Terrain),
