@@ -150,7 +150,7 @@ public partial class Sound : Node
         };
         AddChild(_thunderPlayer);
 
-        // Filter world sound only; UI feedback and music on Master stay clear.
+        // Filter world sound only; UI feedback on Master stays clear.
         _sfxBus = AudioServer.GetBusIndex("Sfx");
         _ambientBus = AudioServer.GetBusIndex("Ambient");
         _muffle = new AudioEffectLowPassFilter { CutoffHz = 18000.0f };
