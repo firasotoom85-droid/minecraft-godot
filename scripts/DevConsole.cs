@@ -171,8 +171,9 @@ public partial class DevConsole : CanvasLayer
                         && float.TryParse(parts[2], out float ty)
                         && float.TryParse(parts[3], out float tz))
                 {
-                    _player.GlobalPosition = new Vector3(tx, ty, tz);
-                    _player.Velocity = Vector3.Zero;
+                    Vector3 requested = new(tx, ty, tz);
+                    if (!_player.TryTeleportToSafePosition(requested))
+                        return "teleport failed: no safe destination with ready terrain collision";
                     return $"tp {tx:0.0} {ty:0.0} {tz:0.0}";
                 }
 
