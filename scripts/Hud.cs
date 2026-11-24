@@ -978,8 +978,7 @@ public partial class Hud : CanvasLayer
             return "—";
         }
 
-        Vector3 pt = PlayerRef.Ray.GetCollisionPoint() - PlayerRef.Ray.GetCollisionNormal() * 0.5f;
-        BlockId id = PlayerRef.World.GetBlock(Mathf.FloorToInt(pt.X), Mathf.FloorToInt(pt.Y), Mathf.FloorToInt(pt.Z));
-        return BlockDb.IsDefined(id) ? BlockDb.NameOf(id) : "—";
+        return PlayerRef.TryGetTargetBlock(out _, out BlockId id)
+                && BlockDb.IsDefined(id) ? BlockDb.NameOf(id) : "—";
     }
 }
