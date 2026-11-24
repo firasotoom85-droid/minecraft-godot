@@ -22,7 +22,7 @@ public sealed class PlayerStats
     public int Experience { get; private set; }
     public int ExperienceLevel => LevelForExperience(Experience);
 
-    /// <summary>Seconds (engine clock) before damage is accepted again.</summary>
+    /// <summary>GameplayClock seconds before damage is accepted again.</summary>
     public double InvulnUntil;
 
     public event Action? Changed;        // any bar value moved (HUD repaint)
