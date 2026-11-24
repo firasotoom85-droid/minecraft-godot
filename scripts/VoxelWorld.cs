@@ -3031,7 +3031,7 @@ public partial class VoxelWorld : Node3D
                 chunk.ApplyPayload(payload);
                 SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
                 return chunk.AppliedEditEpoch == payload.Epoch
-                        && _colliderReadyChunks.ContainsKey(cp);
+                        && chunk.CollisionPayloadApplied;
             }
             finally
             {
@@ -3500,7 +3500,7 @@ public partial class VoxelWorld : Node3D
             currentEpoch = EditEpoch;
 
         if (!ChunkCollisionReadiness.IsReady(chunk.AppliedEditEpoch, currentEpoch,
-                _colliderReadyChunks.ContainsKey(cp)))
+                chunk.CollisionPayloadApplied))
         {
             if (!RebuildChunkNow(cp))
                 return false;
@@ -3510,7 +3510,7 @@ public partial class VoxelWorld : Node3D
         }
 
         return ChunkCollisionReadiness.IsReady(chunk.AppliedEditEpoch, currentEpoch,
-                        _colliderReadyChunks.ContainsKey(cp))
+                        chunk.CollisionPayloadApplied)
                 && IsSafePlayerPosition(destination, allowWater, allowVehicleSupport);
     }
 
