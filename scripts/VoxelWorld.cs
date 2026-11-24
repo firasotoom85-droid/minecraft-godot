@@ -3649,15 +3649,14 @@ public partial class VoxelWorld : Node3D
             _autosaveTimer = 0.0;
             if (hasPlayer && HasUnsavedPlayerChanges(includeSmallPositionChanges: false))
             {
-                if (Player!.GlobalPosition.DistanceTo(_lastSavedPos) > 8.0f)
-                {
-                    MarkDirty();
-                }
+                MarkDirty();
+            }
 
-                if (_dirty || _unsavedPlaytimeSeconds >= AutosaveInterval)
-                {
-                    QueueBackgroundSave();
-                }
+            // World-owned dirty state must be saved even when the player has not
+            // moved. A block/container/quest mutation is independent of player pose.
+            if (_dirty || (hasPlayer && _unsavedPlaytimeSeconds >= AutosaveInterval))
+            {
+                QueueBackgroundSave();
             }
         }
     }
@@ -4071,6 +4070,7 @@ public partial class VoxelWorld : Node3D
             Velocity = (float[])boat.Velocity.Clone(),
         }).ToList();
 
+        long nextSaveGeneration = checked(_manifest.SaveGeneration + 1);
         WorldSave world = new(
                 WorldStore.WorldFormatVersion,
                 editsOut,
@@ -4081,7 +4081,8 @@ public partial class VoxelWorld : Node3D
                 blockStatesOut.Count == 0 ? null : blockStatesOut,
                 villagersOut,
                 questsOut,
-                boatsOut);
+                boatsOut,
+                nextSaveGeneration);
 
         float[] playerPos = Player is null
                 ? []
@@ -4098,7 +4099,8 @@ public partial class VoxelWorld : Node3D
                 Player?.Stats.Experience ?? 0,
                 Player?.Rotation.Y,
                 Player?.Camera?.Rotation.X,
-                Player?.Stats.Dead ?? false);
+                Player?.Stats.Dead ?? false,
+                nextSaveGeneration);
 
         long elapsedPlaytime = (long)_unsavedPlaytimeSeconds;
         WorldManifest updatedManifest = _manifest with
@@ -4107,6 +4109,7 @@ public partial class VoxelWorld : Node3D
             PlayedUtc = WorldStore.NowUtc(),
             PlaytimeSeconds = _manifest.PlaytimeSeconds + elapsedPlaytime,
             HasSavedData = true,
+            SaveGeneration = nextSaveGeneration,
         };
 
         // Globalize paths before dispatch. The worker receives only immutable
@@ -4139,9 +4142,14 @@ public partial class VoxelWorld : Node3D
         }
         else
         {
+            // One file may already have been atomically published. Repeating the
+            // same generation could rotate away the last matching previous pair.
+            // Freeze ordinary writes until the user restores a coherent snapshot.
             _dirty = true;
+            WorldStore.RequireRecovery(_worldDir);
+            SetWorldReadOnly($"the last save transaction did not commit: {result.Error}");
             GD.PushWarning(
-                    $"minecraft: background save incomplete; it will be retried on the next autosave ({result.Error})");
+                    $"minecraft: background save incomplete; the world is now read-only until a matching backup set is restored ({result.Error})");
         }
     }
 
@@ -4197,7 +4205,9 @@ public partial class VoxelWorld : Node3D
             catch (Exception error)
             {
                 _dirty = true;
-                GD.PushWarning($"minecraft: background save worker failed ({error.Message})");
+                WorldStore.RequireRecovery(_worldDir);
+                SetWorldReadOnly($"the background save worker failed after dispatch: {error.Message}");
+                GD.PushWarning($"minecraft: background save worker failed; the world is read-only pending recovery ({error.Message})");
             }
         }
 
@@ -4233,7 +4243,9 @@ public partial class VoxelWorld : Node3D
         catch (Exception error)
         {
             _dirty = true;
-            GD.PushWarning($"minecraft: background save worker failed during flush ({error.Message})");
+            WorldStore.RequireRecovery(_worldDir);
+            SetWorldReadOnly($"the background save worker failed during flush: {error.Message}");
+            GD.PushWarning($"minecraft: background save worker failed during flush; the world is read-only pending recovery ({error.Message})");
         }
     }
 
@@ -4255,6 +4267,8 @@ public partial class VoxelWorld : Node3D
             // Explicit save/quit keeps its synchronous durability contract. Finish
             // the older snapshot first, then capture and write the latest state.
             FlushBackgroundSave();
+            if (_worldReadOnlyReason != null)
+                return false;
             WorldSaveSnapshot snapshot = CaptureSaveSnapshot();
             WorldSaveWorkerResult result = WorldSaveWorker.WriteSynchronously(snapshot);
             CompleteSave(snapshot, result);
@@ -4317,7 +4331,8 @@ public partial class VoxelWorld : Node3D
     private static bool HasSaveCandidate(string path) =>
             FileAccess.FileExists(path)
             || FileAccess.FileExists(path + ".bak")
-            || FileAccess.FileExists(path + ".bak2");
+            || FileAccess.FileExists(path + ".bak2")
+            || FileAccess.FileExists(path + ".bak3");
 
     private void SetWorldReadOnly(string reason)
     {
@@ -4326,19 +4341,14 @@ public partial class VoxelWorld : Node3D
 
     private void LoadSave()
     {
-        string worldSavePath = WorldStore.WorldSavePath(_worldDir);
-        WorldSave? world = WorldStore.ReadJson<WorldSave>(worldSavePath, WorldStore.Json);
-        if (world == null && HasSaveCandidate(worldSavePath))
+        WorldReadResult<WorldSavePair> pairRead = WorldStore.ReadSavePairResult(_worldDir, _manifest);
+        WorldSave? world = pairRead.Value?.World;
+        PlayerSave? player = pairRead.Value?.Player;
+        if (pairRead.Value is null)
         {
             SetWorldReadOnly(
-                    "world save is unreadable in the primary file and both backups; saving is disabled");
-        }
-        else if (world != null && !WorldCompatibilityPolicy.IsSupportedSaveVersion(
-                world.Version, WorldStore.WorldFormatVersion))
-        {
-            SetWorldReadOnly(
-                    $"world save format V{world.Version} is unsupported; " +
-                    $"this build supports V1–V{WorldStore.WorldFormatVersion}");
+                    $"world/player saves do not form a committed snapshot pair ({pairRead.Status}); saving is disabled");
+            GD.PushWarning($"minecraft: {_worldDir} opened read-only because its save pair is inconsistent ({pairRead.Error})");
         }
 
         if (world?.Edits != null)
@@ -4510,8 +4520,6 @@ public partial class VoxelWorld : Node3D
             }
         }
 
-        PlayerSave? player = WorldStore.ReadJson<PlayerSave>(
-                WorldStore.PlayerSavePath(_worldDir), WorldStore.Json);
         if (player?.Pos is { Length: 3 } p)
         {
             SavedPlayerPos = new Vector3(p[0], p[1], p[2]);

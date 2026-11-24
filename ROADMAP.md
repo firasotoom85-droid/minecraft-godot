@@ -2,7 +2,7 @@
 
 This is the **current forward plan**, not a running implementation diary. Completed work, integration records and historical audits are preserved under docs/history and the relevant subsystem folders.
 
-**Status date:** 2026-11-23  
+**Status date:** 2026-11-24  
 **Current engine baseline:** Godot 4.7.2 .NET  
 **Current framework target:** .NET 10  
 **Latest published build:** [v1.1.0-beta.1](https://github.com/firasotoom85-droid/minecraft-godot/releases/tag/v1.1.0-beta.1)
@@ -12,6 +12,7 @@ This is the **current forward plan**, not a running implementation diary. Comple
 | Area | State | Next action |
 |---|---|---|
 | Documentation and repository standards | In progress | Merge this repository-hygiene work; keep active docs short and move completed reports to history |
+| W11 persistence and recovery hardening | In progress | Verify generation-paired saves, backup promotion/restore, archive validation, deletion quarantine and stationary autosave in CI before closing the reports |
 | Build and test baseline | Established | Keep Debug/Release warnings-as-errors, registered headless suites and deterministic spatial-light probes green on every PR |
 | .NET lifecycle | Migration in this change | Verify .NET 10 through CI and the Godot 4.7.2 export path before treating it as released |
 | Release packaging | Being automated | Exercise tag-triggered Linux/Windows export packaging on a beta tag |
@@ -24,6 +25,17 @@ snapshot on the main thread; one ordered background save worker serializes it
 and performs the three atomic file writes, so `_Process()` performs no
 serialization or disk I/O. Explicit save and quit flush older work before
 writing the latest state synchronously.
+
+**W11 persistence integrity (implementation in progress):** world and player
+save records share a monotonically increasing generation, and the manifest is
+the commit marker written after both files. Readers select only a matching
+pair across the primary and three rotating backup tiers; a mismatched or
+incomplete pair is never silently combined. Recovered pairs are promoted to
+the primary files before normal play continues. Backup restores and archive
+imports validate complete generation-matched snapshots. User-requested world
+deletion atomically moves the whole directory into `user://worlds/.trash` and
+retains it as a recovery copy; permanent cleanup remains available for
+disposable internal/test worlds.
 
 **Persistence recovery (integrated W05):** world and player manifests and saves use model-specific validation with ordered backup fallback. A damaged selected world is retained in recovery rather than silently replaced, and ordinary writes are blocked until a valid world/player pair is restored. The optional `hasSavedData` manifest marker distinguishes a never-saved world from lost save history. Archive imports validate metadata and candidates; duplication and deletion do not traverse links or other reparse points.
 

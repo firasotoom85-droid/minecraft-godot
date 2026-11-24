@@ -998,7 +998,7 @@ public partial class PerformanceRunner : Node
     {
         if (_worldDir.Length == 0) return true;
         string directory = _worldDir;
-        bool deleted = DeleteWorldOverride?.Invoke(directory) ?? WorldStore.Delete(directory);
+        bool deleted = DeleteWorldOverride?.Invoke(directory) ?? WorldStore.DeleteTemporaryWorld(directory);
         if (deleted) _worldDir = "";
         else GD.PushError($"PERF BENCHMARK: failed to remove disposable world '{directory}'.");
         return deleted;

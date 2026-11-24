@@ -37,6 +37,8 @@ World and player writes use sibling temporary files and rotating recovery candid
 
 World imports are extracted to a staging directory, checked against the archive's SHA-256 file index, and only then moved into the worlds folder. Existing worlds are not overwritten; duplicate names receive a suffix. Unsafe paths, links, unsupported save/generator versions, structurally invalid records, corrupt data without a valid backup, and excessive expanded size are rejected. World duplication and deletion do not traverse symbolic links, junctions or other filesystem reparse points; failed copies are discarded instead of being published.
 
+World and player saves now carry the same monotonically increasing snapshot generation, committed by the manifest only after both files have been written. Loading selects only a matching world/player pair from the primary files or one of three rotating backup levels; mismatched or partially committed pairs are recovery-required and are never combined. A recovered matching pair is promoted to the primary files before gameplay resumes, so the next save cannot rotate away the only valid copy. Backup restoration replaces the complete matching manifest/world/player snapshot, and archive import validates the same generation contract. User-requested world deletion atomically moves the complete world into `user://worlds/.trash` and retains that recovery copy; permanent cleanup is reserved for disposable internal/test worlds.
+
 ## Requirements
 
 - **Godot 4.7.2 .NET / Mono editor**. The standard non-.NET editor cannot build this C# project.

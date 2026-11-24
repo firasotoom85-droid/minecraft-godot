@@ -39,6 +39,15 @@ internal static class WorldSaveWorker
     {
         try
         {
+            long generation = snapshot.Manifest.SaveGeneration;
+            if (generation <= 0
+                    || snapshot.World.SaveGeneration != generation
+                    || snapshot.Player.SaveGeneration != generation)
+            {
+                return new WorldSaveWorkerResult(false,
+                        "world, player and manifest snapshots do not share a positive generation");
+            }
+
             string worldJson = JsonSerializer.Serialize(snapshot.World, WorldStore.Json);
             string playerJson = JsonSerializer.Serialize(snapshot.Player, WorldStore.Json);
             string manifestJson = JsonSerializer.Serialize(snapshot.Manifest, WorldStore.ManifestJson);
@@ -82,9 +91,11 @@ internal static class WorldSaveWorker
     {
         string temporary = path + ".tmp";
         string backup = path + ".bak";
-        string oldestBackup = path + ".bak2";
+        string secondBackup = path + ".bak2";
+        string oldestBackup = path + ".bak3";
         string stagedOldestBackup = oldestBackup + ".stage-" + Guid.NewGuid().ToString("N");
         bool movedOldestBackup = false;
+        bool movedSecondBackup = false;
         bool movedBackup = false;
         bool movedCurrent = false;
         bool committed = false;
@@ -104,7 +115,8 @@ internal static class WorldSaveWorker
                 stream.Flush(flushToDisk: true);
             }
 
-            if (Directory.Exists(backup) || Directory.Exists(oldestBackup))
+            if (Directory.Exists(backup) || Directory.Exists(secondBackup)
+                    || Directory.Exists(oldestBackup))
             {
                 throw new IOException("a backup path is occupied by a directory");
             }
@@ -120,9 +132,15 @@ internal static class WorldSaveWorker
                     movedOldestBackup = true;
                 }
 
+                if (File.Exists(secondBackup))
+                {
+                    File.Move(secondBackup, oldestBackup);
+                    movedSecondBackup = true;
+                }
+
                 if (File.Exists(backup))
                 {
-                    File.Move(backup, oldestBackup);
+                    File.Move(backup, secondBackup);
                     movedBackup = true;
                 }
 
@@ -137,7 +155,7 @@ internal static class WorldSaveWorker
             File.Move(temporary, path);
             committed = true;
 
-            // The previous .bak2 is disposable only after the new primary is
+            // The previous .bak3 is disposable only after the new primary is
             // visible. A cleanup failure does not invalidate that committed save.
             if (movedOldestBackup)
             {
@@ -174,15 +192,28 @@ internal static class WorldSaveWorker
                 }
             }
 
-            if (!committed && movedBackup && !File.Exists(backup) && File.Exists(oldestBackup))
+            if (!committed && movedBackup && !File.Exists(backup) && File.Exists(secondBackup))
             {
                 try
                 {
-                    File.Move(oldestBackup, backup);
+                    File.Move(secondBackup, backup);
                 }
                 catch (Exception recoveryFailure)
                 {
                     recoveryErrors.Add($"could not restore previous backup: {recoveryFailure.Message}");
+                }
+            }
+
+            if (!committed && movedSecondBackup
+                    && !File.Exists(secondBackup) && File.Exists(oldestBackup))
+            {
+                try
+                {
+                    File.Move(oldestBackup, secondBackup);
+                }
+                catch (Exception recoveryFailure)
+                {
+                    recoveryErrors.Add($"could not restore second backup: {recoveryFailure.Message}");
                 }
             }
 
