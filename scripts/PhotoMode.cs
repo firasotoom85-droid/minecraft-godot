@@ -76,10 +76,16 @@ public partial class PhotoMode : Node
             }
 
             float sens = Settings.MouseSensitivity * 0.8f;
-            float lookY = motion.Relative.Y * (Settings.InvertY ? -1.0f : 1.0f);
+            float lookY = Settings.ApplyInvertY(motion.Relative.Y);
             _yaw -= motion.Relative.X * sens;
             _pitch = Mathf.Clamp(_pitch - lookY * sens, -1.5f, 1.5f);
         }
+    }
+
+    internal static void ApplyCameraSettings(Camera3D camera, int viewDistance, float lodRadius, float fov)
+    {
+        camera.Fov = Mathf.Clamp(fov, 60.0f, 110.0f);
+        Gfx.ApplyCameraFar(camera, viewDistance, lodRadius);
     }
 
     internal static bool CanTogglePhotoMode(bool active, bool inputLocked, bool dead, bool treePaused) =>
@@ -107,8 +113,8 @@ public partial class PhotoMode : Node
         _cam.GlobalPosition = PlayerRef.Camera.GlobalPosition;
         _yaw = PlayerRef.Camera.GlobalRotation.Y;
         _pitch = PlayerRef.Camera.Rotation.X;
-        _cam.Fov = Settings.Fov;
-        Gfx.ApplyCameraFar(_cam, Mathf.Max(World!.ViewDistance, Settings.ViewDistance), World.LodRadius);
+        ApplyCameraSettings(_cam, Mathf.Max(World!.ViewDistance, Settings.ViewDistance),
+                World.LodRadius, Settings.Fov);
         _cam.Current = true;
         Input.MouseMode = Input.MouseModeEnum.Captured;
         _skipMotion = true;
