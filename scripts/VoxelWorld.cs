@@ -168,6 +168,7 @@ public partial class VoxelWorld : Node3D
 
     /// <summary>Optional deterministic hook for snapshot-lock regression tests.</summary>
     internal Action? SnapshotReleasedTestHook { get; set; }
+    internal Func<SpawnCandidate, bool>? SpawnCandidateValidatorForTests { get; set; }
 
     // Nearest-first build queues: .NET's PriorityQueue replaces the
     // "sort a candidate list" bookkeeping, and the side sets keep them unique.
@@ -3358,7 +3359,7 @@ public partial class VoxelWorld : Node3D
 
         try
         {
-            destination = FindSpawn(candidateValidatorOverride);
+            destination = FindSpawn(candidateValidatorOverride ?? SpawnCandidateValidatorForTests);
             return IsSafePlayerPosition(destination);
         }
         catch (InvalidOperationException)
