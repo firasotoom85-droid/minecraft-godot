@@ -125,6 +125,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md), the [architecture guide](docs/architect
 - [Code style](docs/development/CODE_STYLE.md)
 - [Adding content safely](docs/development/ADDING_CONTENT.md)
 - [Release process](docs/development/RELEASING.md)
+- [W15 visual validation](docs/visual/W15_VISUAL_VALIDATION.md)
 - [Roadmap](ROADMAP.md)
 - [Project decisions](PLAN.md)
 - [Changelog](CHANGELOG.md)
