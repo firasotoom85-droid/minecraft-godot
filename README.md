@@ -179,6 +179,10 @@ would intersect the player. Movement buffers are invalidated on input locks and
 flight transitions, and interaction rays/projectiles retain exact traversal
 faces and configured collision radii. The regression coverage is registered in
 `SpawnRecoveryTests`, `SurvivalProgressionTests`, `SelectionOutlineTests`,
-`VoxelStreamingTests` and `MobContentTests`.
+`VoxelStreamingTests` and `MobContentTests`. CI verifies Debug and Release
+builds with warnings as errors, 201,706 headless assertions with zero failures,
+and five deterministic spatial-light probe scenarios. These checks establish
+functional/regression correctness; controlled hardware performance baselines
+remain a separate release gate.
 
 Project code and documentation are licensed under the [MIT License](LICENSE). Bundled third-party components and assets retain their own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
