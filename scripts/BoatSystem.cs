@@ -138,9 +138,11 @@ public partial class BoatSystem : Node
         ];
         foreach (Vector3 candidate in candidates)
         {
-            if (!CanDismountAt(candidate)) continue;
-            boat.SetRider(null);
-            player.ExitBoat(boat, candidate);
+            if (!CanDismountAt(candidate) || !_world.IsSafePlayerPosition(candidate))
+                continue;
+            if (!player.TryTeleportToSafePosition(candidate))
+                continue;
+
             _world.MarkDirty();
             _sound?.Play("place", candidate, 0.9f, -5.0f);
             return true;
@@ -161,9 +163,9 @@ public partial class BoatSystem : Node
             if (!Dismount(boat))
             {
                 Vector3 fallback = boat.GlobalPosition + Vector3.Up * 1.1f;
-                if (!CanDismountAt(fallback)) return;
-                boat.SetRider(null);
-                rider.ExitBoat(boat, fallback);
+                if (!CanDismountAt(fallback) || !_world.IsSafePlayerPosition(fallback)
+                        || !rider.TryTeleportToSafePosition(fallback))
+                    return;
             }
         }
 
