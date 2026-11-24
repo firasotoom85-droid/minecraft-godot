@@ -246,9 +246,9 @@ public static class SpawnRecoveryTests
                 Mathf.FloorToInt(spawn.X) + 0.5f,
                 Mathf.FloorToInt(spawn.Y) + 2.5f,
                 Mathf.FloorToInt(spawn.Z) + 0.5f);
-        int obstructedX = (int)obstructed.X;
-        int obstructedY = (int)obstructed.Y;
-        int obstructedZ = (int)obstructed.Z;
+        int obstructedX = Mathf.FloorToInt(obstructed.X);
+        int obstructedY = Mathf.FloorToInt(obstructed.Y);
+        int obstructedZ = Mathf.FloorToInt(obstructed.Z);
         TestAssert.Check(world.SetBlock(obstructedX, obstructedY,
                         obstructedZ, BlockId.Stone),
                 "capsule obstruction fixture uses the normal voxel mutation path");
