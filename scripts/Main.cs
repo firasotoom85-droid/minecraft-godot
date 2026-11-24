@@ -61,11 +61,16 @@ public partial class Main : Node3D
             // not from the last death position. For living saves, retain a
             // validated anchor as the alternate if the saved position became
             // obstructed after the last save.
-            Vector3? startupPosition = _world.SavedPlayerDead == true
-                    ? _world.SavedRespawn : _world.SavedPlayerPos;
-            Vector3? alternatePosition = _world.SavedPlayerDead == true
-                    ? null : _world.SavedRespawn;
+            bool savedDead = _world.SavedPlayerDead;
+            Vector3? savedBoatSeat = !savedDead && _world.SavedPlayerPos is Vector3 savedPosition
+                    && _world.TryGetSavedOccupiedBoatSeat(savedPosition, out Vector3 seat)
+                    ? seat : null;
+            Vector3? startupPosition = savedDead
+                    ? _world.SavedRespawn
+                    : savedBoatSeat ?? _world.SavedPlayerPos;
+            Vector3? alternatePosition = savedDead ? null : _world.SavedRespawn;
             if (!_player.TryTeleportToSafePosition(startupPosition,
+                        allowWater: savedBoatSeat.HasValue,
                         alternatePosition: alternatePosition))
             {
                 ShowSpawnFailure("The saved position, respawn anchor and deterministic world spawn could not be prepared safely.");
