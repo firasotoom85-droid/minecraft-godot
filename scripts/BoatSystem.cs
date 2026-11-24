@@ -152,7 +152,7 @@ public partial class BoatSystem : Node
 
     public void RemoveBoat(Boat boat, Player player)
     {
-        if (!_boats.Contains(boat)) return;
+        if (_world == null || !_boats.Contains(boat)) return;
         if (player.Mode == GameMode.Survival && !player.Inventory.CanFit(ItemId.WoodenBoat, 1))
         {
             player.EmitSignal(Player.SignalName.InventoryFull);
@@ -175,7 +175,7 @@ public partial class BoatSystem : Node
             player.Inventory.Add(ItemId.WoodenBoat, 1);
         _sound?.Play("place", boat.GlobalPosition, 0.72f, -1.0f);
         boat.QueueFree();
-        _world?.MarkDirty();
+        _world.MarkDirty();
     }
 
     internal void PlayRow(Vector3 position, float speed)
