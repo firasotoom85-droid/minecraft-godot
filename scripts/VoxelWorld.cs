@@ -3387,8 +3387,8 @@ public partial class VoxelWorld : Node3D
         lock (SnapshotLock)
             currentEpoch = EditEpoch;
 
-        if (chunk.AppliedEditEpoch != currentEpoch
-                || !_colliderReadyChunks.ContainsKey(cp))
+        if (!ChunkCollisionReadiness.IsReady(chunk.AppliedEditEpoch, currentEpoch,
+                _colliderReadyChunks.ContainsKey(cp)))
         {
             if (!RebuildChunkNow(cp))
                 return false;
@@ -3397,8 +3397,8 @@ public partial class VoxelWorld : Node3D
                 currentEpoch = EditEpoch;
         }
 
-        return chunk.AppliedEditEpoch == currentEpoch
-                && _colliderReadyChunks.ContainsKey(cp)
+        return ChunkCollisionReadiness.IsReady(chunk.AppliedEditEpoch, currentEpoch,
+                        _colliderReadyChunks.ContainsKey(cp))
                 && IsSafePlayerPosition(destination);
     }
 
