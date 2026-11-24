@@ -109,7 +109,7 @@ public partial class Mobs : Node
         long id = ++_noiseSequence;
         _noisePulses[_noiseWriteIndex] = new NoisePulse(id, position,
                 Mathf.Clamp(radius, 1.0f, 32.0f), Mathf.Clamp(intensity, 0.0f, 1.0f),
-                Time.GetTicksMsec() / 1000.0);
+                GameplayClock.Now);
         _noiseWriteIndex = (_noiseWriteIndex + 1) % NoiseCapacity;
     }
 
@@ -118,7 +118,7 @@ public partial class Mobs : Node
     {
         source = Vector3.Zero;
         noiseId = afterId;
-        double now = Time.GetTicksMsec() / 1000.0;
+        double now = GameplayClock.Now;
         float hearing = Mathf.Clamp(hearingMultiplier, 0.5f, 1.75f);
         float bestScore = 0.075f;
         foreach (NoisePulse pulse in _noisePulses)
