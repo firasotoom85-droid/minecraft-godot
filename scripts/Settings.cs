@@ -14,6 +14,8 @@ public static class Settings
     public static float MouseSensitivity = 0.0022f;
     public static bool InvertY;
     public static float Fov = 75.0f;
+
+    public static float ApplyInvertY(float delta) => InvertY ? -delta : delta;
     public static float MasterVolume = 1.0f;
     public static float MusicVolume = 0.6f;
     public static float SfxVolume = 1.0f;
