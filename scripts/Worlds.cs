@@ -18,7 +18,8 @@ public sealed record WorldManifest(
     long PlayedUtc,
     string? Mode = null,
     string? Preset = null,
-    long PlaytimeSeconds = 0);
+    long PlaytimeSeconds = 0,
+    bool HasSavedData = false);
 
 /// <summary>Legacy combined save (v1). Read only while migrating an old save.</summary>
 public sealed record LegacySave(
@@ -89,7 +90,7 @@ public static class WorldStore
         PropertyNameCaseInsensitive = true,
     };
 
-    private static readonly JsonSerializerOptions ManifestJson = new(Json)
+    internal static readonly JsonSerializerOptions ManifestJson = new(Json)
     {
         WriteIndented = true,
     };
