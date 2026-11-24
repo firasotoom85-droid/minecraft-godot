@@ -124,6 +124,23 @@ public partial class KeybindUi : CanvasLayer, IModalUi
             }
             _rows.AddChild(row);
         }
+
+        foreach ((string action, string label) in GamepadBindings.ControllerOnlyActions)
+        {
+            HBoxContainer row = new();
+            row.AddThemeConstantOverride("separation", 12);
+            row.AddChild(new Label
+            {
+                Text = label,
+                CustomMinimumSize = new Vector2(250, 0),
+            });
+            row.AddChild(new Control { CustomMinimumSize = new Vector2(120, 0) });
+            Button pad = MenuSkin.MakeButton(GamepadBindings.LabelFor(action),
+                    () => WaitForGamepad(action), 120);
+            pad.Name = "Pad_" + action;
+            row.AddChild(pad);
+            _rows.AddChild(row);
+        }
     }
 
     private Button? FindBindingButton(string prefix, string action) =>
@@ -264,6 +281,11 @@ public partial class KeybindUi : CanvasLayer, IModalUi
 
     private void ResetAll()
     {
+        // A reset is a complete capture-state transition; no later key or
+        // controller event may overwrite the defaults just restored.
+        _waitingAction = null;
+        _waitingForGamepad = false;
+        _ignoreNextGamepadEvent = false;
         Error keyboardResult = Keybinds.ResetDefaults();
         Error gamepadResult = GamepadBindings.ResetDefaults();
         _notice.Text = keyboardResult != Error.Ok
@@ -273,6 +295,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
                         : "";
         RefreshAll();
         foreach ((string action, _) in Keybinds.Bindable) RefreshPadButton(action);
+        foreach ((string action, _) in GamepadBindings.ControllerOnlyActions) RefreshPadButton(action);
     }
 
     public void Open()
@@ -285,6 +308,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         _ignoreNextGamepadEvent = false;
         RefreshAll();
         foreach ((string action, _) in Keybinds.Bindable) RefreshPadButton(action);
+        foreach ((string action, _) in GamepadBindings.ControllerOnlyActions) RefreshPadButton(action);
         Input.MouseMode = Input.MouseModeEnum.Visible;
         _player.InputLocked = true;
         UiFocus.FocusFirst(_rows);
