@@ -118,6 +118,7 @@ public static class GraphicsTests
     {
         TestEnvironmentPresetMatrix();
         TestPresetMsaaAndCameraRanges();
+        TestMinimapInvalidationPolicies();
         TestAssert.Equal(6, Gfx.Presets.Count, "graphics preset list includes low through max fsr2");
         TestAssert.Equal(0, Gfx.DefaultPreset, "low is the hardware-friendly default");
         TestAssert.Equal("LOW", Gfx.Presets[Gfx.DefaultPreset].Name, "default preset name is low");
