@@ -2103,6 +2103,7 @@ public partial class VoxelWorld : Node3D
                                 result[slot] = built[slot];
                             }
                         }
+                    }
                 }
                 return result;
             }

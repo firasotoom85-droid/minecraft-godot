@@ -668,7 +668,7 @@ public static class VoxelStreamingTests
         {
             reservations.Complete(coordinate, afterCancellation);
         }
-
+    }
 
     private static void TestMutationBlockIds()
     {
