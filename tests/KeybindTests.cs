@@ -243,6 +243,8 @@ public static class KeybindTests
         TestAssert.FreeAll(focusRoot);
 
         Sound.EnsureBuses();
+        TestAssert.Equal(-1, AudioServer.GetBusIndex("Music"),
+                "authored music is deferred without creating an unused Music bus");
         int sfxBus = AudioServer.GetBusIndex("Sfx");
         int ambientBus = AudioServer.GetBusIndex("Ambient");
         int initialSfxEffects = AudioServer.GetBusEffectCount(sfxBus);
