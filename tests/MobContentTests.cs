@@ -242,6 +242,8 @@ public static class MobContentTests
         TestAssert.Check(rot.Loot.Length > 0, "Rot has a loot table");
         TestAssert.Check(hollow.Loot.Length > 0, "Hollow has a loot table");
 
+        MobLootOverflowTests.Run(host);
+
         // Direct death paths (sunburn/dawn) do not pass through ApplyDamage.
         // They must still mark the mob dead and raise Died exactly once while
         // QueueFree leaves the node valid for the rest of the frame.

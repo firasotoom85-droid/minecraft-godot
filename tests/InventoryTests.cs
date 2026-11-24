@@ -111,5 +111,7 @@ public static class InventoryTests
                 "a non-stackable item never stores more than one per slot");
         TestAssert.Equal(1, oneGapStack.Get(Inventory.SlotCount - 1).Count,
                 "the stored tool occupies exactly one slot with count one");
+
+        InventoryPersistenceRegressionTests.Run();
     }
 }

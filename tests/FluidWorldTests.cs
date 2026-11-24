@@ -19,12 +19,12 @@ public static class FluidWorldTests
 
         // Isolate a deterministic air pocket in the temporary test world.
         for (int y = 49; y <= 51; y++)
-        for (int z = 1; z <= 5; z++)
-        for (int x = 1; x <= 6; x++)
-            world.SetBlock(x, y, z, BlockId.Air);
+            for (int z = 1; z <= 5; z++)
+                for (int x = 1; x <= 6; x++)
+                    world.SetBlock(x, y, z, BlockId.Air);
         for (int z = 1; z <= 4; z++)
-        for (int x = 1; x <= 4; x++)
-            world.SetBlock(x, 49, z, BlockId.Stone);
+            for (int x = 1; x <= 4; x++)
+                world.SetBlock(x, 49, z, BlockId.Stone);
 
         world.SetBlock(2, 50, 2, BlockId.Water);
         world.SetBlock(3, 50, 3, BlockId.Water);
@@ -55,9 +55,9 @@ public static class FluidWorldTests
         const int fallX = 20;
         const int fallZ = 20;
         for (int y = 54; y <= 57; y++)
-        for (int z = 18; z <= 22; z++)
-        for (int x = 18; x <= 22; x++)
-            world.SetBlock(x, y, z, BlockId.Air);
+            for (int z = 18; z <= 22; z++)
+                for (int x = 18; x <= 22; x++)
+                    world.SetBlock(x, y, z, BlockId.Air);
         world.SetBlock(fallX, 54, fallZ, BlockId.Stone);
         world.SetBlock(fallX + 1, 54, fallZ, BlockId.Stone);
         world.SetBlock(fallX, 55, fallZ, BlockId.FlowingWater1);

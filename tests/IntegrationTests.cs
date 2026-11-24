@@ -17,6 +17,7 @@ public static class IntegrationTests
         CheckQuestSystemRewards();
         CheckFluidShapeBoundary(host);
         CheckVillageResidentSpawning(host);
+        CheckPlayerInteractionPersistenceAndVoidRecovery(host);
     }
 
     private static void CheckCombinedWorldSaveRoundTrip(Node host)
@@ -35,9 +36,9 @@ public static class IntegrationTests
 
         // Clear an isolated volume so terrain cannot satisfy a shape assertion.
         for (int y = 90; y <= 93; y++)
-        for (int z = 1; z <= 4; z++)
-        for (int x = 1; x <= 5; x++)
-            world.SetBlock(x, y, z, BlockId.Air);
+            for (int z = 1; z <= 4; z++)
+                for (int x = 1; x <= 5; x++)
+                    world.SetBlock(x, y, z, BlockId.Air);
 
         TestAssert.Check(world.SetBlock(2, 90, 2, BlockId.PlanksSlab, BlockShapes.SlabTop),
                 "combined world accepts an upper slab edit");
@@ -116,6 +117,178 @@ public static class IntegrationTests
         DirAccess.RemoveAbsolute(dir);
     }
 
+    private static void CheckPlayerInteractionPersistenceAndVoidRecovery(Node host)
+    {
+        const int seed = 20261123;
+        string dir = $"user://tests/player-lifecycle-{Time.GetTicksUsec()}";
+        DirAccess.MakeDirRecursiveAbsolute(dir);
+        WorldStore.WriteManifest(dir, new WorldManifest(
+                "Player lifecycle", seed, WorldStore.CurrentGenVersion,
+                WorldStore.DeriveNoiseSeeds(seed), 0, 0, "survival", "normal"));
+        GameSession.Instance.SelectWorld(dir);
+
+        VoxelWorld world = new();
+        host.AddChild(world);
+        world.BuildPreview(Vector3.Zero, 1);
+
+        Player player = MakePlayer();
+        host.AddChild(player);
+        player.World = world;
+        world.Player = player;
+        player.Mode = GameMode.Survival;
+        player.GlobalPosition = new Vector3(10.5f, 60.5f, 10.5f);
+
+        // Seed a generated-but-unloaded solid voxel just beyond the streamed
+        // east edge. The interaction DDA must stop at the first unloaded cell.
+        int unloadedSolidY = -1;
+        for (int y = world.Height - 1; y > 0; y--)
+        {
+            if (world.GetBlock(32, y, 0) != BlockId.Air)
+            {
+                unloadedSolidY = y;
+                break;
+            }
+        }
+        TestAssert.Check(unloadedSolidY > 0,
+                "fixture finds a solid in generated data beyond the loaded chunk set");
+        if (unloadedSolidY > 0)
+        {
+            TestAssert.Check(world.SetBlock(31, unloadedSolidY, 0, BlockId.Air),
+                    "loaded boundary voxel can be cleared before the unloaded ray test");
+            TestAssert.Check(!world.TryGetLoadedBlock(32, unloadedSolidY, 0, out _),
+                    "loaded-only block lookup refuses generated-but-unloaded chunk data");
+            TestAssert.Check(!player.TryRaycastVoxels(
+                            new Vector3(31.5f, unloadedSolidY + 0.5f, 0.5f),
+                            Vector3.Right, 3.0f, out _, out _, out _, out _),
+                    "voxel interaction does not select a block beyond the loaded chunk boundary");
+
+            if (world.GetBlock(29, unloadedSolidY, 0) != BlockId.Air)
+                TestAssert.Check(world.SetBlock(29, unloadedSolidY, 0, BlockId.Air),
+                        "solid loaded ray approach cell can be cleared");
+            TestAssert.Equal(BlockId.Air, world.GetBlock(29, unloadedSolidY, 0),
+                    "loaded ray approach cell is air before the target");
+            TestAssert.Check(world.SetBlock(30, unloadedSolidY, 0, BlockId.Stone),
+                    "loaded ray target cell can be prepared");
+            TestAssert.Check(player.TryRaycastVoxels(
+                            new Vector3(28.5f, unloadedSolidY + 0.5f, 0.5f),
+                            Vector3.Right, 4.0f, out Vector3I loadedTarget, out _, out _, out _),
+                    "voxel interaction still selects a solid block in a loaded chunk");
+            TestAssert.Equal(new Vector3I(30, unloadedSolidY, 0), loadedTarget,
+                    "loaded voxel ray returns the expected target cell");
+
+            // Cross plants have no physics collider. The voxel ray must still
+            // choose the nearer plant rather than the solid block behind it.
+            world.SetBlock(30, unloadedSolidY, -1, BlockId.Air);
+            world.SetBlock(30, unloadedSolidY, 0, BlockId.TallGrass);
+            world.SetBlock(30, unloadedSolidY, 1, BlockId.Stone);
+            TestAssert.Check(player.TryRaycastVoxels(
+                            new Vector3(30.5f, unloadedSolidY + 0.5f, -0.5f),
+                            Vector3.Back, 4.0f, out Vector3I plantTarget,
+                            out BlockId plantId, out _, out _),
+                    "voxel targeting detects a non-colliding cross plant");
+            TestAssert.Equal(BlockId.TallGrass, plantId,
+                    "cross plant is selected before the solid block behind it");
+            TestAssert.Equal(new Vector3I(30, unloadedSolidY, 0), plantTarget,
+                    "cross-plant target coordinate is preserved");
+
+            // Exercise the real mining path: no inventory room keeps the voxel
+            // intact; freeing a slot allows the same block and reports one gather.
+            Vector3I minePosition = new(25, unloadedSolidY, 0);
+            TestAssert.Check(world.SetBlock(minePosition.X, minePosition.Y,
+                            minePosition.Z, BlockId.Stone),
+                    "mining regression fixture places a stone voxel through SetBlock");
+            for (int slot = 0; slot < Inventory.SlotCount; slot++)
+                player.Inventory.Set(slot, ItemDb.New(ItemId.Dirt, 64));
+            player.Inventory.Set(0, ItemDb.New(ItemId.WoodPick, 1));
+            int gatheredRawDrops = 0;
+            player.ItemGathered += (_, count) => gatheredRawDrops += count;
+            ToolInfo woodPick = ItemDb.ToolOf(ItemId.WoodPick)!.Value;
+            player.FinishBreak(minePosition, BlockId.Stone, BlockDb.DefOf(BlockId.Stone), woodPick);
+            TestAssert.Equal(BlockId.Stone,
+                    world.GetBlock(minePosition.X, minePosition.Y, minePosition.Z),
+                    "full inventory leaves the mined block in the world");
+            TestAssert.Equal(0, gatheredRawDrops,
+                    "an unaccepted mining reward does not emit a gather event");
+
+            player.Inventory.Set(Inventory.SlotCount - 1, ItemStack.Empty);
+            player.FinishBreak(minePosition, BlockId.Stone, BlockDb.DefOf(BlockId.Stone), woodPick);
+            TestAssert.Equal(BlockId.Air,
+                    world.GetBlock(minePosition.X, minePosition.Y, minePosition.Z),
+                    "mining succeeds after inventory capacity is freed");
+            TestAssert.Equal(1, player.Inventory.CountOf(ItemId.Cobblestone),
+                    "successful stone mining delivers the normal cobblestone drop");
+            TestAssert.Equal(1, gatheredRawDrops,
+                    "normal mined block reward emits exactly one gather event");
+        }
+
+        // SaveIfDirty must notice sub-threshold movement and orientation changes
+        // on the focus-loss path, while leaving an unchanged pose unwritten.
+        world.SaveNow();
+        string playerPath = WorldStore.PlayerSavePath(dir);
+        world.SaveIfDirty();
+        TestAssert.Check(!FileAccess.FileExists(playerPath + ".bak"),
+                "focus-loss save does not rewrite an unchanged player pose");
+
+        player.GlobalPosition += new Vector3(0.25f, 0.0f, 0.0f);
+        player.Rotation = new Vector3(0.0f, 1.2f, 0.0f);
+        player.Camera.Rotation = new Vector3(-0.45f, 0.0f, 0.0f);
+        world.SaveIfDirty();
+        PlayerSave? savedPlayer = WorldStore.ReadJson<PlayerSave>(playerPath, WorldStore.Json);
+        TestAssert.Check(savedPlayer?.Pos is { Length: 3 }
+                        && Mathf.IsEqualApprox(savedPlayer.Pos[0], player.GlobalPosition.X),
+                "focus loss persists player movement smaller than the periodic eight-unit threshold");
+        TestAssert.Check(Mathf.IsEqualApprox(savedPlayer?.Yaw ?? 0.0f, 1.2f),
+                "focus-loss persistence writes body yaw");
+        TestAssert.Check(Mathf.IsEqualApprox(savedPlayer?.Pitch ?? 0.0f, -0.45f),
+                "focus-loss persistence writes camera pitch");
+
+        Player restored = MakePlayer();
+        host.AddChild(restored);
+        restored.RestoreOrientation(savedPlayer?.Yaw, savedPlayer?.Pitch);
+        TestAssert.Check(Mathf.IsEqualApprox(restored.Rotation.Y, 1.2f)
+                        && Mathf.IsEqualApprox(restored.Camera.Rotation.X, -0.45f),
+                "player orientation save values restore to the live body and camera");
+        host.RemoveChild(restored);
+        restored.Free();
+
+        // Void recovery applies one Fall hit before moving the player to spawn.
+        player.GlobalPosition = new Vector3(0.5f, -9.0f, 0.5f);
+        player.Velocity = new Vector3(2.0f, -10.0f, 3.0f);
+        player.Stats.InvulnUntil = 0.0;
+        float healthBeforeVoid = player.Stats.Health;
+        player.RecoverFromVoidFall();
+        TestAssert.Equal(healthBeforeVoid - 4.0f, player.Stats.Health,
+                "survival void recovery applies damage before teleporting");
+        TestAssert.Check(player.GlobalPosition.Y >= -8.0f,
+                "void recovery returns the player above the safety threshold");
+        TestAssert.Equal(Vector3.Zero, player.Velocity,
+                "void recovery clears falling velocity");
+        player.RecoverFromVoidFall();
+        TestAssert.Equal(healthBeforeVoid - 4.0f, player.Stats.Health,
+                "a completed void recovery cannot apply duplicate damage");
+
+        player.Mode = GameMode.Creative;
+        player.GlobalPosition = new Vector3(0.5f, -9.0f, 0.5f);
+        player.RecoverFromVoidFall();
+        TestAssert.Equal(healthBeforeVoid - 4.0f, player.Stats.Health,
+                "creative void recovery does not apply survival damage");
+
+        world.Player = null;
+        player.World = null;
+        host.RemoveChild(player);
+        player.Free();
+        host.RemoveChild(world);
+        world.Free();
+        DirAccess.RemoveAbsolute(playerPath + ".bak2");
+        DirAccess.RemoveAbsolute(playerPath + ".bak");
+        DirAccess.RemoveAbsolute(playerPath);
+        DirAccess.RemoveAbsolute(WorldStore.WorldSavePath(dir) + ".bak2");
+        DirAccess.RemoveAbsolute(WorldStore.WorldSavePath(dir) + ".bak");
+        DirAccess.RemoveAbsolute(WorldStore.WorldSavePath(dir));
+        DirAccess.RemoveAbsolute(WorldStore.ManifestPath(dir));
+        DirAccess.RemoveAbsolute(dir);
+    }
+
     private static float SeaLevelForTest(VoxelWorld world) => world.SeaLevel + 0.5f;
 
     private static void CheckQuestSystemRewards()
@@ -166,8 +339,8 @@ public static class IntegrationTests
         host.AddChild(world);
         VillageInfo? site = null;
         for (int cellZ = -4; cellZ <= 4 && site == null; cellZ++)
-        for (int cellX = -4; cellX <= 4 && site == null; cellX++)
-            site = world.GetVillageSite(cellX, cellZ);
+            for (int cellX = -4; cellX <= 4 && site == null; cellX++)
+                site = world.GetVillageSite(cellX, cellZ);
         TestAssert.Check(site is not null, "spawn test finds a deterministic village");
         if (site is not { } village)
         {
@@ -255,9 +428,9 @@ public static class IntegrationTests
         host.AddChild(world);
         world.BuildPreview(Vector3.Zero, 1);
         for (int y = 60; y <= 63; y++)
-        for (int z = 1; z <= 4; z++)
-        for (int x = 1; x <= 5; x++)
-            world.SetBlock(x, y, z, BlockId.Air);
+            for (int z = 1; z <= 4; z++)
+                for (int x = 1; x <= 5; x++)
+                    world.SetBlock(x, y, z, BlockId.Air);
         world.SetBlock(2, 60, 2, BlockId.Stone);
         world.SetBlock(3, 60, 2, BlockId.PlanksSlab, BlockShapes.SlabBottom);
         world.SetBlock(2, 61, 2, BlockId.Water);

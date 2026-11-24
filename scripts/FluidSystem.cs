@@ -116,18 +116,18 @@ public partial class FluidSystem : Node
         int oy = Mathf.FloorToInt(center.Y) - DiscoveryBelow;
         int oz = Mathf.FloorToInt(center.Z) - DiscoveryRadius;
         for (int y = 0; y < DiscoveryBelow + DiscoveryAbove + 1; y++)
-        for (int z = 0; z < DiscoveryRadius * 2 + 1; z++)
-        for (int x = 0; x < DiscoveryRadius * 2 + 1; x++)
-        {
-            int wx = ox + x;
-            int wy = oy + y;
-            int wz = oz + z;
-            if (!_world.TryGetLoadedBlock(wx, wy, wz, out BlockId id)
-                    || !BlockDb.IsWater(id)) continue;
-            Vector3I cell = new(wx, wy, wz);
-            if (BlockDb.WaterLevel(id) == 0) _sources.Add(cell);
-            EnqueueWithNeighbours(cell);
-        }
+            for (int z = 0; z < DiscoveryRadius * 2 + 1; z++)
+                for (int x = 0; x < DiscoveryRadius * 2 + 1; x++)
+                {
+                    int wx = ox + x;
+                    int wy = oy + y;
+                    int wz = oz + z;
+                    if (!_world.TryGetLoadedBlock(wx, wy, wz, out BlockId id)
+                            || !BlockDb.IsWater(id)) continue;
+                    Vector3I cell = new(wx, wy, wz);
+                    if (BlockDb.WaterLevel(id) == 0) _sources.Add(cell);
+                    EnqueueWithNeighbours(cell);
+                }
     }
 
     private void ProcessActiveCells(int budget, int editBudget)

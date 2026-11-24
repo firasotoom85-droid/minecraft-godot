@@ -51,17 +51,17 @@ public static class VillageTests
 
         Dictionary<Vector3I, BlockId> clipped = [];
         for (int cz = -1; cz <= 2; cz++)
-        for (int cx = -1; cx <= 2; cx++)
-        {
-            int ox = cx * VoxelWorld.ChunkX;
-            int oz = cz * VoxelWorld.ChunkZ;
-            VillageStructures.Stamp(site, (x, y, z, id) =>
+            for (int cx = -1; cx <= 2; cx++)
             {
-                if (x >= ox && x < ox + VoxelWorld.ChunkX
-                        && z >= oz && z < oz + VoxelWorld.ChunkZ)
-                    clipped[new Vector3I(x, y, z)] = id;
-            });
-        }
+                int ox = cx * VoxelWorld.ChunkX;
+                int oz = cz * VoxelWorld.ChunkZ;
+                VillageStructures.Stamp(site, (x, y, z, id) =>
+                {
+                    if (x >= ox && x < ox + VoxelWorld.ChunkX
+                            && z >= oz && z < oz + VoxelWorld.ChunkZ)
+                        clipped[new Vector3I(x, y, z)] = id;
+                });
+            }
 
         TestAssert.Equal(whole.Count, clipped.Count, "chunk-clipped village has the same block count");
         foreach ((Vector3I position, BlockId id) in whole)

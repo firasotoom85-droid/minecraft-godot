@@ -42,13 +42,13 @@ public static class MobPerceptionTests
             // A sealed room straddles the -16 X chunk seam: sample in chunk -2,
             // place/remove the torch in chunk -1, and use SetBlock throughout.
             for (int z = -2; z <= 2; z++)
-            for (int y = 52; y <= 58; y++)
-            for (int x = -19; x <= -14; x++)
-            {
-                bool interior = x >= -18 && x <= -15
-                        && z >= -1 && z <= 1 && y >= 53 && y <= 57;
-                world.SetBlock(x, y, z, interior ? BlockId.Air : BlockId.Stone);
-            }
+                for (int y = 52; y <= 58; y++)
+                    for (int x = -19; x <= -14; x++)
+                    {
+                        bool interior = x >= -18 && x <= -15
+                                && z >= -1 && z <= 1 && y >= 53 && y <= 57;
+                        world.SetBlock(x, y, z, interior ? BlockId.Air : BlockId.Stone);
+                    }
 
             crops.Setup(world);
             Vector3I cropCell = new(-17, 54, 0);

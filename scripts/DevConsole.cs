@@ -249,92 +249,103 @@ public partial class DevConsole : CanvasLayer
                 _world.SaveNow();
                 return "saved";
             case "give":
-            {
-                if (parts.Length < 2)
                 {
-                    return "usage: /give <item> [count]";
-                }
+                    if (parts.Length < 2)
+                    {
+                        return "usage: /give <item> [count]";
+                    }
 
-                int count = 1;
-                int nameEnd = parts.Length;
-                if (parts.Length >= 3 && int.TryParse(parts[^1], out int parsed))
-                {
-                    count = Mathf.Clamp(parsed, 1, 6400);
-                    nameEnd = parts.Length - 1;
-                }
+                    int count = 1;
+                    int nameEnd = parts.Length;
+                    if (parts.Length >= 3 && int.TryParse(parts[^1], out int parsed))
+                    {
+                        count = Mathf.Clamp(parsed, 1, 6400);
+                        nameEnd = parts.Length - 1;
+                    }
 
-                string name = string.Join(" ", parts[1..nameEnd]);
-                ItemId id = ItemDb.ByName(name);
-                if (id == ItemId.None)
-                {
-                    return $"unknown item: {name}";
-                }
+                    string name = string.Join(" ", parts[1..nameEnd]);
+                    ItemId id = ItemDb.ByName(name);
+                    if (id == ItemId.None)
+                    {
+                        return $"unknown item: {name}";
+                    }
 
-                int leftover = _player.Inventory.Add(id, count);
-                _player.Inventory.RaiseChanged();
-                return leftover > 0
-                        ? $"+{count - leftover} {ItemDb.NameOf(id)}  (inventory full)"
-                        : $"+{count} {ItemDb.NameOf(id)}";
-            }
+                    int leftover = _player.Inventory.Add(id, count);
+                    _player.Inventory.RaiseChanged();
+                    return leftover > 0
+                            ? $"+{count - leftover} {ItemDb.NameOf(id)}  (inventory full)"
+                            : $"+{count} {ItemDb.NameOf(id)}";
+                }
             case "hold":
-            {
-                if (parts.Length < 2)
                 {
-                    return "usage: /hold <item> [count]";
-                }
+                    if (parts.Length < 2)
+                    {
+                        return "usage: /hold <item> [count]";
+                    }
 
-                int count = 1;
-                int nameEnd = parts.Length;
-                if (parts.Length >= 3 && int.TryParse(parts[^1], out int parsed))
-                {
-                    count = Mathf.Clamp(parsed, 1, 6400);
-                    nameEnd = parts.Length - 1;
-                }
+                    int count = 1;
+                    int nameEnd = parts.Length;
+                    if (parts.Length >= 3 && int.TryParse(parts[^1], out int parsed))
+                    {
+                        count = Mathf.Clamp(parsed, 1, 6400);
+                        nameEnd = parts.Length - 1;
+                    }
 
-                string name = string.Join(" ", parts[1..nameEnd]);
-                ItemId id = ItemDb.ByName(name);
-                if (id == ItemId.None)
-                {
-                    return $"unknown item: {name}";
-                }
+                    string name = string.Join(" ", parts[1..nameEnd]);
+                    ItemId id = ItemDb.ByName(name);
+                    if (id == ItemId.None)
+                    {
+                        return $"unknown item: {name}";
+                    }
 
-                _player.Inventory.Hotbar[_player.Selected] = ItemDb.New(id, count);
-                _player.Inventory.RaiseChanged();
-                return $"{ItemDb.NameOf(id)} x{count} in hand";
-            }
+                    if (!_player.Inventory.TrySetHotbarOrAdd(
+                                _player.Selected, ItemDb.New(id, count)))
+                    {
+                        return "inventory full";
+                    }
+
+                    _player.Inventory.RaiseChanged();
+                    return $"{ItemDb.NameOf(id)} x{count} in hand";
+                }
             case "armor":
-            {
-                if (parts.Length != 2)
                 {
-                    return "usage: /armor iron|diamond|off";
-                }
+                    if (parts.Length != 2)
+                    {
+                        return "usage: /armor iron|diamond|off";
+                    }
 
-                ItemId[] set = parts[1] switch
-                {
-                    "iron" =>
-                    [
-                        ItemId.IronHelmet, ItemId.IronChestplate, ItemId.IronLegs, ItemId.IronBoots,
+                    ItemId[] set = parts[1] switch
+                    {
+                        "iron" =>
+                        [
+                            ItemId.IronHelmet, ItemId.IronChestplate, ItemId.IronLegs, ItemId.IronBoots,
                     ],
-                    "diamond" =>
-                    [
-                        ItemId.DiamondHelmet, ItemId.DiamondChestplate, ItemId.DiamondLegs, ItemId.DiamondBoots,
+                        "diamond" =>
+                        [
+                            ItemId.DiamondHelmet, ItemId.DiamondChestplate, ItemId.DiamondLegs, ItemId.DiamondBoots,
                     ],
-                    "off" => [],
-                    _ => [],
-                };
-                if (parts[1] is not ("iron" or "diamond" or "off"))
-                {
-                    return "usage: /armor iron|diamond|off";
-                }
+                        "off" => [],
+                        _ => [],
+                    };
+                    if (parts[1] is not ("iron" or "diamond" or "off"))
+                    {
+                        return "usage: /armor iron|diamond|off";
+                    }
 
-                for (int i = 0; i < _player.Inventory.Armor.Length; i++)
-                {
-                    _player.Inventory.Armor[i] = i < set.Length ? ItemDb.New(set[i], 1) : ItemStack.Empty;
-                }
+                    if (_player.Inventory.HasUnrecognizedArmorSlot())
+                    {
+                        return "armor slots contain items from a different content version";
+                    }
 
-                _player.Inventory.RaiseChanged();
-                return $"armor {parts[1]}";
-            }
+                    for (int i = 0; i < _player.Inventory.Armor.Length; i++)
+                    {
+                        _player.Inventory.Set(Inventory.SlotCount + i,
+                                i < set.Length ? ItemDb.New(set[i], 1) : ItemStack.Empty);
+                    }
+
+                    _player.Inventory.RaiseChanged();
+                    return $"armor {parts[1]}";
+                }
             case "gamemode":
                 if (parts.Length == 2)
                 {

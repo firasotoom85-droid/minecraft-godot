@@ -27,11 +27,45 @@ public static class Profiler
     public static long PendingPayloadHighWaterBytes;
     public static long VoxelCacheArrayBytes;
     public static long VoxelCacheArrayHighWaterBytes;
+    public static long GeneratorSeedArrayBytes;
+    public static long GeneratorSeedArrayHighWaterBytes;
     public static long VoxelCacheBudgetBytes;
+    public static long CacheIndexBytesEstimate;
+    public static long CacheIndexBytesHighWaterEstimate;
+    public static long CropRegistryBytesEstimate;
+    public static long CropRegistryBytesHighWaterEstimate;
+    public static long SourceScanRegistryBytesEstimate;
+    public static long SourceScanRegistryBytesHighWaterEstimate;
+    public static long CropScanRegistryBytesEstimate;
+    public static long CropScanRegistryBytesHighWaterEstimate;
+    public static long CampfireSiteCacheBytesEstimate;
+    public static long CampfireSiteCacheBytesHighWaterEstimate;
+    public static long StructureSiteCacheBytesEstimate;
+    public static long StructureSiteCacheBytesHighWaterEstimate;
+    public static long VillageSiteCacheBytesEstimate;
+    public static long VillageSiteCacheBytesHighWaterEstimate;
+    public static long EditTopArrayBytes;
+    public static long EditTopArrayHighWaterBytes;
+    public static long EditTopIndexBytesEstimate;
+    public static long EditTopIndexBytesHighWaterEstimate;
+    public static long WorldStateRegistryBytesEstimate;
+    public static long WorldStateRegistryBytesHighWaterEstimate;
+    public static long ChunkIndexBytesEstimate;
+    public static long ChunkIndexBytesHighWaterEstimate;
     public static long EditMetadataBytesEstimate;
+    public static long EditMetadataBytesHighWaterEstimate;
     public static long LightSourceBytesEstimate;
+    public static long LightSourceBytesHighWaterEstimate;
     public static long AppliedMeshBytesEstimate;
+    public static long AppliedMeshBytesHighWaterEstimate;
     public static long PooledMeshBufferBytes;
+    public static long PooledMeshBufferHighWaterBytes;
+    public static long StreamingQueueBytesEstimate;
+    public static long StreamingQueueBytesHighWaterEstimate;
+    public static long PersistentMetadataBytesEstimate;
+    public static long PersistentMetadataBytesHighWaterEstimate;
+    public static long TrackedManagedBytesEstimate;
+    public static long TrackedManagedBytesHighWaterEstimate;
     public static double ApplyAverageMs;
     public static double ApplyMaximumMs;
     public static double CollisionAverageMs;
@@ -114,12 +148,47 @@ public static class Profiler
     public static void RecordCacheMemory(VoxelCacheMemorySnapshot snapshot)
     {
         VoxelCacheArrayBytes = snapshot.VoxelArrayBytes;
+        GeneratorSeedArrayBytes = snapshot.GeneratorSeedArrayBytes;
         VoxelCacheBudgetBytes = snapshot.VoxelArrayBudgetBytes;
+        CacheIndexBytesEstimate = snapshot.CacheIndexBytesEstimate;
+        CropRegistryBytesEstimate = snapshot.CropRegistryBytesEstimate;
+        SourceScanRegistryBytesEstimate = snapshot.SourceScanRegistryBytesEstimate;
+        CropScanRegistryBytesEstimate = snapshot.CropScanRegistryBytesEstimate;
+        CampfireSiteCacheBytesEstimate = snapshot.CampfireSiteCacheBytesEstimate;
+        StructureSiteCacheBytesEstimate = snapshot.StructureSiteCacheBytesEstimate;
+        VillageSiteCacheBytesEstimate = snapshot.VillageSiteCacheBytesEstimate;
+        EditTopArrayBytes = snapshot.EditTopArrayBytes;
+        EditTopIndexBytesEstimate = snapshot.EditTopIndexBytesEstimate;
+        WorldStateRegistryBytesEstimate = snapshot.WorldStateRegistryBytesEstimate;
+        ChunkIndexBytesEstimate = snapshot.ChunkIndexBytesEstimate;
         EditMetadataBytesEstimate = snapshot.EditMetadataBytesEstimate;
         LightSourceBytesEstimate = snapshot.LightSourceBytesEstimate;
         AppliedMeshBytesEstimate = snapshot.AppliedMeshBytesEstimate;
         PooledMeshBufferBytes = snapshot.PooledMeshBufferBytes;
+        StreamingQueueBytesEstimate = snapshot.StreamingQueueBytesEstimate;
+        PersistentMetadataBytesEstimate = snapshot.PersistentMetadataBytesEstimate;
+        TrackedManagedBytesEstimate = snapshot.TrackedManagedBytesEstimate;
+
         UpdateMaximum(ref VoxelCacheArrayHighWaterBytes, snapshot.VoxelArrayBytes);
+        UpdateMaximum(ref GeneratorSeedArrayHighWaterBytes, snapshot.GeneratorSeedArrayBytes);
+        UpdateMaximum(ref CacheIndexBytesHighWaterEstimate, snapshot.CacheIndexBytesEstimate);
+        UpdateMaximum(ref CropRegistryBytesHighWaterEstimate, snapshot.CropRegistryBytesEstimate);
+        UpdateMaximum(ref SourceScanRegistryBytesHighWaterEstimate, snapshot.SourceScanRegistryBytesEstimate);
+        UpdateMaximum(ref CropScanRegistryBytesHighWaterEstimate, snapshot.CropScanRegistryBytesEstimate);
+        UpdateMaximum(ref CampfireSiteCacheBytesHighWaterEstimate, snapshot.CampfireSiteCacheBytesEstimate);
+        UpdateMaximum(ref StructureSiteCacheBytesHighWaterEstimate, snapshot.StructureSiteCacheBytesEstimate);
+        UpdateMaximum(ref VillageSiteCacheBytesHighWaterEstimate, snapshot.VillageSiteCacheBytesEstimate);
+        UpdateMaximum(ref EditTopArrayHighWaterBytes, snapshot.EditTopArrayBytes);
+        UpdateMaximum(ref EditTopIndexBytesHighWaterEstimate, snapshot.EditTopIndexBytesEstimate);
+        UpdateMaximum(ref WorldStateRegistryBytesHighWaterEstimate, snapshot.WorldStateRegistryBytesEstimate);
+        UpdateMaximum(ref ChunkIndexBytesHighWaterEstimate, snapshot.ChunkIndexBytesEstimate);
+        UpdateMaximum(ref EditMetadataBytesHighWaterEstimate, snapshot.EditMetadataBytesEstimate);
+        UpdateMaximum(ref LightSourceBytesHighWaterEstimate, snapshot.LightSourceBytesEstimate);
+        UpdateMaximum(ref PersistentMetadataBytesHighWaterEstimate, snapshot.PersistentMetadataBytesEstimate);
+        UpdateMaximum(ref AppliedMeshBytesHighWaterEstimate, snapshot.AppliedMeshBytesEstimate);
+        UpdateMaximum(ref PooledMeshBufferHighWaterBytes, snapshot.PooledMeshBufferBytes);
+        UpdateMaximum(ref StreamingQueueBytesHighWaterEstimate, snapshot.StreamingQueueBytesEstimate);
+        UpdateMaximum(ref TrackedManagedBytesHighWaterEstimate, snapshot.TrackedManagedBytesEstimate);
     }
 
     private static void UpdateMaximum(ref int target, int value)
@@ -233,14 +302,47 @@ public readonly record struct VoxelCacheMemorySnapshot(
         long SkyLightBytes,
         long BlockLightBytes,
         long PackedLightBytes,
+        long GeneratorSeedArrayBytes,
+        long CacheIndexBytesEstimate,
+        long CropRegistryBytesEstimate,
+        long SourceScanRegistryBytesEstimate,
+        long CropScanRegistryBytesEstimate,
+        long CampfireSiteCacheBytesEstimate,
+        long StructureSiteCacheBytesEstimate,
+        long VillageSiteCacheBytesEstimate,
+        long EditTopArrayBytes,
+        long EditTopIndexBytesEstimate,
+        long WorldStateRegistryBytesEstimate,
+        long ChunkIndexBytesEstimate,
         long EditMetadataBytesEstimate,
         long LightSourceBytesEstimate,
         long AppliedMeshBytesEstimate,
         long PooledMeshBufferBytes,
+        long StreamingQueueBytesEstimate,
         long VoxelArrayBudgetBytes)
 {
+    public const string AccountingNote =
+            "Voxel block/state/light arrays, edit-top arrays and the generator seed array use exact byte lengths. " +
+            "Non-empty Dictionary, HashSet and priority-queue capacities plus List capacities are estimated; " +
+            "empty collection backing storage is not exposed read-only and is omitted to avoid measurement allocations. " +
+            "Concurrent apply-queue nodes use count-based estimates, with payload contents reported separately. " +
+            "Saved inventory/boat values and saved-world object graphs are not deeply sized. " +
+            "VoxelLighting thread-static scratch, scene/native allocations, renderer-driver memory and VRAM are excluded. " +
+            "Source-scan and crop-scan chunk registries are tracked as separate estimates. " +
+            "The generator-v8 village-site cache dictionary is included as its own estimate.";
+
     public long VoxelArrayBytes => BlockDataBytes + BlockStateBytes + SkyLightBytes
             + BlockLightBytes + PackedLightBytes;
+
+    public long PersistentMetadataBytesEstimate =>
+            CacheIndexBytesEstimate + CropRegistryBytesEstimate + SourceScanRegistryBytesEstimate
+            + CropScanRegistryBytesEstimate + CampfireSiteCacheBytesEstimate + StructureSiteCacheBytesEstimate + VillageSiteCacheBytesEstimate
+            + EditTopIndexBytesEstimate + WorldStateRegistryBytesEstimate + ChunkIndexBytesEstimate
+            + EditMetadataBytesEstimate + LightSourceBytesEstimate;
+
+    public long TrackedManagedBytesEstimate => VoxelArrayBytes + GeneratorSeedArrayBytes + EditTopArrayBytes
+            + PersistentMetadataBytesEstimate + AppliedMeshBytesEstimate + PooledMeshBufferBytes
+            + StreamingQueueBytesEstimate;
 }
 
 public readonly record struct BuildTimeStats(

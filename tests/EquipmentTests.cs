@@ -1,5 +1,6 @@
 using System.Linq;
 namespace Minecraft;
+
 public static class EquipmentTests
 {
     private static int ExperienceAtLevelForTest(int level) => PlayerStats.ExperienceAtLevel(level);
@@ -15,10 +16,10 @@ public static class EquipmentTests
         TestAssert.Check(!string.IsNullOrWhiteSpace(ItemDb.DescriptionOf(ItemId.DiamondSword)), "weapon description exists");
         Inventory inv = new(); inv.Add(ItemId.DiamondSword, 1); inv.DamageEquipment(0); TestAssert.Equal(899, inv.Get(0).Durability, "weapon wears on hit");
         Inventory loaded = new(); loaded.LoadFrom(inv.ToSave()); TestAssert.Equal(899, loaded.Get(0).Durability, "weapon durability persists");
-        foreach(ItemId id in new[]{ItemId.WoodSword,ItemId.StoneSword,ItemId.IronSword,ItemId.DiamondSword,ItemId.Bow,ItemId.Arrow,ItemId.Shield,ItemId.EmberBlade})
-            TestAssert.Check(Recipes.All.Any(r=>r.Result==id), $"recipe exists for {id}");
-        Inventory mats=new();mats.Add(ItemId.Diamond,1);mats.Add(ItemId.Stick,1);Recipe ds=Recipes.All.First(r=>r.Result==ItemId.DiamondSword);
-        TestAssert.Check(!Recipes.CanCraft(ds,mats), "diamond sword requires two diamonds");mats.Add(ItemId.Diamond,1);TestAssert.Check(Recipes.CanCraft(ds,mats), "diamond sword crafts with two diamonds");
+        foreach (ItemId id in new[] { ItemId.WoodSword, ItemId.StoneSword, ItemId.IronSword, ItemId.DiamondSword, ItemId.Bow, ItemId.Arrow, ItemId.Shield, ItemId.EmberBlade })
+            TestAssert.Check(Recipes.All.Any(r => r.Result == id), $"recipe exists for {id}");
+        Inventory mats = new(); mats.Add(ItemId.Diamond, 1); mats.Add(ItemId.Stick, 1); Recipe ds = Recipes.All.First(r => r.Result == ItemId.DiamondSword);
+        TestAssert.Check(!Recipes.CanCraft(ds, mats), "diamond sword requires two diamonds"); mats.Add(ItemId.Diamond, 1); TestAssert.Check(Recipes.CanCraft(ds, mats), "diamond sword crafts with two diamonds");
         TestAssert.Check(Recipes.All.Any(r => r.Result == ItemId.EnchantingTable), "enchanting table has a crafting recipe");
         TestAssert.Equal(BlockId.EnchantingTable, ItemDb.BlockFor(ItemId.EnchantingTable) ?? BlockId.Air, "enchanting table item maps to block");
         Inventory tableMaterials = new();
@@ -88,6 +89,42 @@ public static class EquipmentTests
         TestAssert.Check(fallingArrow.Y < 10.0f, "arrow gravity reduces upward velocity");
         TestAssert.Check(ArrowProjectile.AdvanceVelocity(Godot.Vector3.Zero, 0.5f).Y < 0.0f, "arrow accelerates downward from rest");
 
+        Player unarmoredFall = new() { Mode = GameMode.Survival };
+        unarmoredFall.Stats.InvulnUntil = 0.0;
+        TestAssert.Check(unarmoredFall.ApplyFallDamage(8.0f),
+                "fall damage enters the central player damage pipeline");
+        TestAssert.Equal(12.0f, unarmoredFall.Stats.Health,
+                "unarmored fall damage retains its incoming amount");
 
+        Player armoredFall = new() { Mode = GameMode.Survival };
+        armoredFall.Stats.InvulnUntil = 0.0;
+        int armorSlot = Inventory.SlotCount;
+        armoredFall.Inventory.Set(armorSlot, ItemDb.New(ItemId.IronChestplate, 1));
+        int durabilityBeforeFall = armoredFall.Inventory.Get(armorSlot).Durability;
+        TestAssert.Check(armoredFall.ApplyFallDamage(8.0f),
+                "armored fall damage is accepted");
+        TestAssert.Check(armoredFall.Stats.Health > unarmoredFall.Stats.Health,
+                "equipped armor reduces fall damage");
+        TestAssert.Check(armoredFall.Inventory.Get(armorSlot).Durability < durabilityBeforeFall,
+                "fall damage wears equipped armor");
+
+        Player creativeFall = new() { Mode = GameMode.Creative };
+        creativeFall.Stats.InvulnUntil = 0.0;
+        TestAssert.Check(!creativeFall.ApplyFallDamage(8.0f),
+                "creative mode still refuses fall damage");
+        TestAssert.Equal(PlayerStats.MaxHealth, creativeFall.Stats.Health,
+                "creative fall leaves health unchanged");
+
+        Player protectedFall = new() { Mode = GameMode.Survival };
+        protectedFall.Stats.InvulnUntil = Godot.Time.GetTicksMsec() / 1000.0 + 10.0;
+        TestAssert.Check(!protectedFall.ApplyFallDamage(8.0f),
+                "respawn invulnerability still refuses fall damage");
+        TestAssert.Equal(PlayerStats.MaxHealth, protectedFall.Stats.Health,
+                "invulnerable fall leaves health unchanged");
+
+        unarmoredFall.Free();
+        armoredFall.Free();
+        creativeFall.Free();
+        protectedFall.Free();
     }
 }

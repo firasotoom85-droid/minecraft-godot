@@ -26,9 +26,9 @@ public partial class Chunk : StaticBody3D
     public long EstimatedMeshBytes { get; private set; }
 
     private MeshInstance3D _meshOpaque = null!;
-    private MeshInstance3D _meshGlass = null!;
-    private MeshInstance3D _meshWater = null!;
-    private MeshInstance3D _meshLava = null!;
+    private MeshInstance3D? _meshGlass;
+    private MeshInstance3D? _meshWater;
+    private MeshInstance3D? _meshLava;
     private CollisionShape3D? _collision;
 
     public void Setup(VoxelWorld world, Vector2I chunkPos)
@@ -41,23 +41,32 @@ public partial class Chunk : StaticBody3D
         CollisionMask = 0;
 
         _meshOpaque = NewSurfaceMesh("OpaqueMesh", false);
-        _meshGlass = NewSurfaceMesh("GlassMesh", true);
-        // Alpha-blended chunk meshes are positioned at the chunk origin. Sort
-        // glass and water using their actual bounds centers so adjacent chunks
-        // do not sort by an arbitrary corner when viewed through either surface.
-        _meshGlass.SortingUseAabbCenter = true;
-        _meshWater = NewSurfaceMesh("WaterMesh", true);
-        _meshWater.SortingUseAabbCenter = true;
-        _meshLava = NewSurfaceMesh("LavaMesh", true);
+    }
 
-        if (world.BuildCollision)
+    private CollisionShape3D CreateCollisionNode()
+    {
+        CollisionShape3D collision = new()
         {
-            _collision = new CollisionShape3D
-            {
-                Name = "Collision",
-            };
-            AddChild(_collision);
+            Name = "Collision",
+        };
+        AddChild(collision);
+        return collision;
+    }
+
+    private void ApplyOptionalSurface(
+            ref MeshInstance3D? mesh, SurfaceData surface, Material material,
+            string nodeName, bool sortByBounds)
+    {
+        if (surface.Vertex.Count == 0)
+        {
+            if (mesh != null) mesh.Mesh = null;
+            return;
         }
+
+        mesh ??= NewSurfaceMesh(nodeName, noShadow: true);
+        if (sortByBounds)
+            mesh.SortingUseAabbCenter = true;
+        ApplySurface(mesh, surface, material);
     }
 
     private MeshInstance3D NewSurfaceMesh(string nodeName, bool noShadow)
@@ -111,22 +120,28 @@ public partial class Chunk : StaticBody3D
     {
         EstimatedMeshBytes = payload.EstimatedResourceBytes;
         ApplySurface(_meshOpaque, payload.Opaque, ChunkMaterials.Opaque);
-        ApplySurface(_meshGlass, payload.Glass, ChunkMaterials.Glass);
-        ApplySurface(_meshWater, payload.Water, ChunkMaterials.Water);
-        ApplySurface(_meshLava, payload.Lava, ChunkMaterials.Lava);
-        // Render-only chunks (the menu preview) do not need collision arrays,
-        // concave shapes or physics-server resources.
-        if (_collision != null)
+        ApplyOptionalSurface(ref _meshGlass, payload.Glass, ChunkMaterials.Glass,
+                "GlassMesh", sortByBounds: true);
+        ApplyOptionalSurface(ref _meshWater, payload.Water, ChunkMaterials.Water,
+                "WaterMesh", sortByBounds: true);
+        ApplyOptionalSurface(ref _meshLava, payload.Lava, ChunkMaterials.Lava,
+                "LavaMesh", sortByBounds: false);
+
+        // Collision resources are optional too: most render-only chunks and
+        // many empty preview chunks never need a physics child at all.
+        if (World?.BuildCollision == true)
         {
             long collisionStart = Stopwatch.GetTimestamp();
             int collisionVertices = payload.Collision.Count;
-            Vector3[] faces = payload.Collision.ToArray();
-            if (faces.Length == 0)
+            if (collisionVertices == 0)
             {
-                _collision.Shape = null;
+                if (_collision != null)
+                    _collision.Shape = null;
             }
             else
             {
+                _collision ??= CreateCollisionNode();
+                Vector3[] faces = payload.Collision.ToArray();
                 ConcavePolygonShape3D shape = new();
                 shape.SetFaces(faces);
                 _collision.Shape = shape;
@@ -140,16 +155,19 @@ public partial class Chunk : StaticBody3D
     /// <summary>Fade a freshly streamed chunk in so it does not pop into view.</summary>
     public void FadeIn()
     {
-        _meshOpaque.Transparency = 1.0f;
-        _meshGlass.Transparency = 1.0f;
-        _meshWater.Transparency = 1.0f;
-        _meshLava.Transparency = 1.0f;
         Tween tween = CreateTween();
         tween.SetParallel(true);
-        tween.TweenProperty(_meshOpaque, "transparency", 0.0f, 0.4f);
-        tween.TweenProperty(_meshGlass, "transparency", 0.0f, 0.4f);
-        tween.TweenProperty(_meshWater, "transparency", 0.0f, 0.4f);
-        tween.TweenProperty(_meshLava, "transparency", 0.0f, 0.4f);
+        FadeMesh(tween, _meshOpaque);
+        FadeMesh(tween, _meshGlass);
+        FadeMesh(tween, _meshWater);
+        FadeMesh(tween, _meshLava);
+    }
+
+    private static void FadeMesh(Tween tween, MeshInstance3D? mesh)
+    {
+        if (mesh == null) return;
+        mesh.Transparency = 1.0f;
+        tween.TweenProperty(mesh, "transparency", 0.0f, 0.4f);
     }
 
     private static void ApplySurface(MeshInstance3D mi, SurfaceData surf, Material mat)
