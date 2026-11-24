@@ -36,6 +36,10 @@ FarLod follows the same worker-build/main-thread-apply split. It is a coarse pre
 
 WorldStore owns serialization, path validation, atomic writes and backup rotation. Do not add independent gameplay file writes. Keep the separation between world state and player state.
 
+World and player save records carry the same `SaveGeneration`. The manifest stores the committed generation and is written last, after both save files have been atomically replaced. Readers must select both files from the same generation; individually valid but mismatched files are not a valid save. The primary files and three rotating backup tiers are searched for a matching pair. When a generation-positive pair is recovered from backups, promote both members to the primary paths and verify the pair before enabling ordinary gameplay writes. A failed transaction leaves the world recovery-protected until a coherent pair is available.
+
+Backup-browser restoration is a three-file operation: resolve a manifest, world and player candidate with the same generation, write world and player first, then publish the manifest. Never restore only one save member. Archive import applies the same contract while retaining the pre-generation (generation zero) legacy loading rules. User-requested world deletion first moves the complete world directory into `user://worlds/.trash`; keep that quarantine copy intact rather than recursively deleting user data as part of the same operation.
+ 
 A persistence change should cover:
 - Current-format round-trip.
 - Loading previous supported format(s) with defaults.

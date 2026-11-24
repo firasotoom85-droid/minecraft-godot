@@ -824,7 +824,9 @@ public partial class Player : CharacterBody3D, IDamageable
 
     public void SetMode(GameMode mode)
     {
+        bool changed = Mode != mode;
         Mode = mode;
+        if (changed) World?.MarkDirty();
         if (Mode != GameMode.Creative)
         {
             SetFlying(false);
@@ -2139,12 +2141,17 @@ public partial class Player : CharacterBody3D, IDamageable
         }
     }
 
-    public void Select(int i)
+    public void Select(int i, bool markDirty = true)
     {
         int next = Mathf.Wrap(i, 0, Inventory.HotbarSize);
-        if (next != Selected)
+        bool changed = next != Selected;
+        if (changed)
+        {
             StartPunch(FirstPersonAction.Select);
-        Selected = next;
+            Selected = next;
+            if (markDirty) World?.MarkDirty();
+        }
+
         EmitSignal(SignalName.HotbarChanged, Selected, (int)Inventory.Hotbar[Selected].Id);
     }
 

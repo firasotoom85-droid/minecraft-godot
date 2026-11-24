@@ -23,10 +23,6 @@ public static class WorldArchiveTests
         {
             sourceWorld = WorldStore.Create("Portable Test", 8675309);
             WorldManifest sourceManifest = WorldStore.ReadManifest(sourceWorld)!;
-            sourceManifest = sourceManifest with { PlaytimeSeconds = 3725 };
-            TestAssert.Check(WorldStore.WriteManifest(sourceWorld, sourceManifest),
-                    "playtime metadata writes atomically");
-
             WorldSave legacyV2 = new(2,
                     new Dictionary<string, Dictionary<string, BlockId>>
                     {
@@ -41,6 +37,9 @@ public static class WorldArchiveTests
             TestAssert.Check(WorldStore.WriteAtomic(WorldStore.PlayerSavePath(sourceWorld),
                     JsonSerializer.Serialize(player, WorldStore.Json)),
                     "player data writes before export");
+            sourceManifest = sourceManifest with { PlaytimeSeconds = 3725 };
+            TestAssert.Check(WorldStore.WriteManifest(sourceWorld, sourceManifest),
+                    "playtime metadata writes atomically after validating the legacy save pair");
 
             byte[] largeData = new byte[4 * 1024 * 1024];
             for (int i = 0; i < largeData.Length; i++)
@@ -106,27 +105,52 @@ public static class WorldArchiveTests
 
             backupWorld = WorldStore.Create("Backup Restore Test", 1234);
             string backupSavePath = WorldStore.WorldSavePath(backupWorld);
-            WorldSave before = new(WorldStore.WorldFormatVersion, null, 0.25);
-            WorldSave after = new(WorldStore.WorldFormatVersion, null, 0.875);
+            string backupPlayerPath = WorldStore.PlayerSavePath(backupWorld);
+            WorldManifest backupManifest = WorldStore.ReadManifest(backupWorld)!;
+            WorldSave before = new(WorldStore.WorldFormatVersion, null, 0.25, SaveGeneration: 1);
+            PlayerSave playerBefore = new([1.0f, 2.0f, 3.0f], SaveGeneration: 1);
             TestAssert.Check(WorldStore.WriteAtomic(backupSavePath,
                     JsonSerializer.Serialize(before, WorldStore.Json)), "initial restore point writes");
-            TestAssert.Check(WorldStore.WriteAtomic(backupSavePath,
-                    JsonSerializer.Serialize(after, WorldStore.Json)), "newer save rotates the previous version");
-            string backupPlayerPath = WorldStore.PlayerSavePath(backupWorld);
             TestAssert.Check(WorldStore.WriteAtomic(backupPlayerPath,
-                    JsonSerializer.Serialize(new PlayerSave([1.0f, 2.0f, 3.0f]), WorldStore.Json)),
+                    JsonSerializer.Serialize(playerBefore, WorldStore.Json)),
                     "initial player state writes for the complete recovery fixture");
+            backupManifest = backupManifest with { HasSavedData = true, SaveGeneration = 1 };
+            TestAssert.Check(WorldStore.WriteManifest(backupWorld, backupManifest),
+                    "manifest commits the initial complete backup generation");
+
+            WorldSave after = before with { Time = 0.875, SaveGeneration = 2 };
+            PlayerSave playerAfter = playerBefore with
+            {
+                Pos = [4.0f, 5.0f, 6.0f],
+                SaveGeneration = 2,
+            };
+            TestAssert.Check(WorldStore.WriteAtomic(backupSavePath,
+                    JsonSerializer.Serialize(after, WorldStore.Json)), "second world generation rotates the first");
             TestAssert.Check(WorldStore.WriteAtomic(backupPlayerPath,
-                    JsonSerializer.Serialize(new PlayerSave([4.0f, 5.0f, 6.0f]), WorldStore.Json)),
-                    "second player state rotates the first backup");
+                    JsonSerializer.Serialize(playerAfter, WorldStore.Json)),
+                    "second player generation rotates the first");
+            backupManifest = backupManifest with { SaveGeneration = 2, PlaytimeSeconds = 1 };
+            TestAssert.Check(WorldStore.WriteManifest(backupWorld, backupManifest),
+                    "manifest commits the second complete backup generation");
+
+            WorldSave newest = after with { Time = 0.5, SaveGeneration = 3 };
+            PlayerSave newestPlayer = playerAfter with
+            {
+                Pos = [7.0f, 8.0f, 9.0f],
+                SaveGeneration = 3,
+            };
+            TestAssert.Check(WorldStore.WriteAtomic(backupSavePath,
+                    JsonSerializer.Serialize(newest, WorldStore.Json)), "third world generation creates two backup tiers");
             TestAssert.Check(WorldStore.WriteAtomic(backupPlayerPath,
-                    JsonSerializer.Serialize(new PlayerSave([7.0f, 8.0f, 9.0f]), WorldStore.Json)),
-                    "third player state creates the oldest backup used by access-denial tests");
-            TestAssert.Check(WorldStore.WriteManifest(backupWorld, WorldStore.ReadManifest(backupWorld)!),
-                    "complete recovery fixture records its save history");
+                    JsonSerializer.Serialize(newestPlayer, WorldStore.Json)),
+                    "third player generation creates the oldest backup used by access-denial tests");
+            backupManifest = backupManifest with { SaveGeneration = 3, PlaytimeSeconds = 2 };
+            TestAssert.Check(WorldStore.WriteManifest(backupWorld, backupManifest),
+                    "manifest commits the newest complete backup generation");
+
             List<WorldBackupInfo> backups = WorldBackupStore.List(backupWorld);
-            WorldBackupInfo? selected = backups.Find(item => item.FileName == "world.json.bak" && item.IsValid);
-            TestAssert.Check(selected is not null, "backup browser lists dated, validated restore points");
+            WorldBackupInfo? selected = backups.Find(item => item.FileName == "world.json.bak2" && item.IsValid);
+            TestAssert.Check(selected is not null, "backup browser lists complete, generation-matched restore points");
             if (selected is not null)
             {
                 WorldBackupRestoreResult restored = WorldBackupStore.Restore(backupWorld, selected.Path);
@@ -135,7 +159,7 @@ public static class WorldArchiveTests
                 TestAssert.Equal(0.25, restoredSave?.Time ?? -1.0,
                         "restore replaces the current save with the selected snapshot");
                 WorldSave? safety = WorldStore.ReadJson<WorldSave>(backupSavePath + ".bak", WorldStore.Json);
-                TestAssert.Equal(0.875, safety?.Time ?? -1.0,
+                TestAssert.Equal(0.5, safety?.Time ?? -1.0,
                         "pre-restore current save is retained as a safety backup");
             }
 

@@ -255,14 +255,6 @@ public static class IntegrationRegressionTests
         DirAccess.MakeDirRecursiveAbsolute(dir);
         try
         {
-            TestAssert.Check(WorldStore.WriteManifest(dir, new WorldManifest(
-                            "Reed save", Seed, WorldGenV11.Version,
-                            WorldStore.DeriveNoiseSeeds(Seed), 1, 2, "survival", "normal")),
-                    "a V11 world manifest writes through the production save path");
-            WorldManifest? manifest = WorldStore.ReadManifest(dir);
-            TestAssert.Equal(WorldGenV11.Version, manifest?.GenVersion ?? -1,
-                    "the V11 generator version survives manifest round-trip");
-
             string worldPath = dir + "/world.json";
             string playerPath = dir + "/player.json";
             TestAssert.Check(WorldStore.WriteAtomic(worldPath,
@@ -271,6 +263,13 @@ public static class IntegrationRegressionTests
             TestAssert.Check(WorldStore.WriteAtomic(playerPath,
                             JsonSerializer.Serialize(player, WorldStore.Json)),
                     "a player save containing the appended reed item writes atomically");
+            TestAssert.Check(WorldStore.WriteManifest(dir, new WorldManifest(
+                            "Reed save", Seed, WorldGenV11.Version,
+                            WorldStore.DeriveNoiseSeeds(Seed), 1, 2, "survival", "normal")),
+                    "a V11 manifest commits after its complete world/player pair is available");
+            WorldManifest? manifest = WorldStore.ReadManifest(dir);
+            TestAssert.Equal(WorldGenV11.Version, manifest?.GenVersion ?? -1,
+                    "the V11 generator version survives manifest round-trip");
 
             WorldSave? loaded = WorldStore.ReadJson<WorldSave>(worldPath, WorldStore.Json);
             TestAssert.Equal(WorldStore.WorldFormatVersion, loaded?.Version ?? -1,
