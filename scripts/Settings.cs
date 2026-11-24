@@ -83,41 +83,99 @@ public static class Settings
 
     private static bool _loaded;
 
+    internal static bool TryReadFloat(Variant stored, float fallback, float min, float max, out float value)
+    {
+        value = fallback;
+        if (stored.VariantType is not (Variant.Type.Float or Variant.Type.Int))
+            return false;
+        float parsed = (float)stored;
+        if (!float.IsFinite(parsed) || parsed < min || parsed > max)
+            return false;
+        value = parsed;
+        return true;
+    }
+
+    internal static bool TryReadBool(Variant stored, bool fallback, out bool value)
+    {
+        value = fallback;
+        if (stored.VariantType != Variant.Type.Bool)
+            return false;
+        value = (bool)stored;
+        return true;
+    }
+
+    internal static bool TryReadInt(Variant stored, int fallback, int min, int max, out int value)
+    {
+        value = fallback;
+        if (stored.VariantType != Variant.Type.Int)
+            return false;
+        int parsed = (int)stored;
+        if (parsed < min || parsed > max)
+            return false;
+        value = parsed;
+        return true;
+    }
+
+    private static float ReadFloat(ConfigFile cfg, string section, string key, float fallback, float min, float max)
+    {
+        Variant stored = cfg.GetValue(section, key, fallback);
+        if (TryReadFloat(stored, fallback, min, max, out float value))
+            return value;
+        GD.PushWarning($"Ignoring invalid setting {section}/{key}; expected a number from {min} to {max}.");
+        return fallback;
+    }
+
+    private static bool ReadBool(ConfigFile cfg, string section, string key, bool fallback)
+    {
+        Variant stored = cfg.GetValue(section, key, fallback);
+        if (TryReadBool(stored, fallback, out bool value))
+            return value;
+        GD.PushWarning($"Ignoring invalid setting {section}/{key}; expected a Boolean.");
+        return fallback;
+    }
+
+    private static int ReadInt(ConfigFile cfg, string section, string key, int fallback, int min, int max)
+    {
+        Variant stored = cfg.GetValue(section, key, fallback);
+        if (TryReadInt(stored, fallback, min, max, out int value))
+            return value;
+        GD.PushWarning($"Ignoring invalid setting {section}/{key}; expected an integer from {min} to {max}.");
+        return fallback;
+    }
+
+    internal static Error SaveConfig(ConfigFile config, string path) => config.Save(path);
+
     public static void Load()
     {
         if (_loaded)
-        {
             return;
-        }
 
-        _loaded = true;
         ConfigFile cfg = new();
-        if (cfg.Load(Path) != Error.Ok)
+        if (cfg.Load(Path) == Error.Ok)
         {
-            return;
+            MouseSensitivity = ReadFloat(cfg, "input", "mouse_sensitivity", MouseSensitivity, 0.0005f, 0.006f);
+            InvertY = ReadBool(cfg, "input", "invert_y", InvertY);
+            Fov = ReadFloat(cfg, "camera", "fov", Fov, 60.0f, 110.0f);
+            MasterVolume = ReadFloat(cfg, "audio", "master", MasterVolume, 0.0f, 1.0f);
+            MusicVolume = ReadFloat(cfg, "audio", "music", MusicVolume, 0.0f, 1.0f);
+            SfxVolume = ReadFloat(cfg, "audio", "sfx", SfxVolume, 0.0f, 1.0f);
+            AmbientVolume = ReadFloat(cfg, "audio", "ambient", AmbientVolume, 0.0f, 1.0f);
+            Muted = ReadBool(cfg, "audio", "muted", Muted);
+            int savedPreset = ReadInt(cfg, "video", "gfx_preset", GfxPreset, int.MinValue, int.MaxValue);
+            int presetVersion = ReadInt(cfg, "video", "gfx_preset_version", 1, 1, 1000);
+            GfxPreset = MigrateGraphicsPreset(savedPreset, presetVersion);
+            int savedViewDistance = ReadInt(cfg, "video", "view_distance", ViewDistance, 2, 24);
+            ViewDistance = MigrateGraphicsViewDistance(savedViewDistance, savedPreset, presetVersion);
+            AutoQuality = ReadBool(cfg, "video", "auto_quality", AutoQuality);
+            GreedyMeshing = ReadBool(cfg, "video", "greedy_meshing", GreedyMeshing);
+            HeadBob = ReadBool(cfg, "video", "head_bob", HeadBob);
+            ShowHints = ReadBool(cfg, "gameplay", "show_hints", ShowHints);
+            Difficulty = ReadInt(cfg, "gameplay", "difficulty", Difficulty, 0, 2);
         }
-
-        MouseSensitivity = (float)cfg.GetValue("input", "mouse_sensitivity", MouseSensitivity);
-        InvertY = (bool)cfg.GetValue("input", "invert_y", InvertY);
-        Fov = (float)cfg.GetValue("camera", "fov", Fov);
-        MasterVolume = (float)cfg.GetValue("audio", "master", MasterVolume);
-        MusicVolume = (float)cfg.GetValue("audio", "music", MusicVolume);
-        SfxVolume = (float)cfg.GetValue("audio", "sfx", SfxVolume);
-        AmbientVolume = (float)cfg.GetValue("audio", "ambient", AmbientVolume);
-        Muted = (bool)cfg.GetValue("audio", "muted", Muted);
-        int savedPreset = (int)cfg.GetValue("video", "gfx_preset", GfxPreset);
-        int presetVersion = (int)cfg.GetValue("video", "gfx_preset_version", 1);
-        GfxPreset = MigrateGraphicsPreset(savedPreset, presetVersion);
-        int savedViewDistance = (int)cfg.GetValue("video", "view_distance", ViewDistance);
-        ViewDistance = MigrateGraphicsViewDistance(savedViewDistance, savedPreset, presetVersion);
-        AutoQuality = (bool)cfg.GetValue("video", "auto_quality", AutoQuality);
-        GreedyMeshing = (bool)cfg.GetValue("video", "greedy_meshing", GreedyMeshing);
-        HeadBob = (bool)cfg.GetValue("video", "head_bob", HeadBob);
-        ShowHints = (bool)cfg.GetValue("gameplay", "show_hints", ShowHints);
-        Difficulty = Mathf.Clamp((int)cfg.GetValue("gameplay", "difficulty", Difficulty), 0, 2);
+        _loaded = true;
     }
 
-    public static void Save()
+    public static Error Save()
     {
         ConfigFile cfg = new();
         cfg.SetValue("input", "mouse_sensitivity", MouseSensitivity);
@@ -136,6 +194,9 @@ public static class Settings
         cfg.SetValue("video", "head_bob", HeadBob);
         cfg.SetValue("gameplay", "show_hints", ShowHints);
         cfg.SetValue("gameplay", "difficulty", Difficulty);
-        cfg.Save(Path);
+        Error result = SaveConfig(cfg, Path);
+        if (result != Error.Ok)
+            GD.PushError($"Could not persist settings to {Path}: {result}.");
+        return result;
     }
 }

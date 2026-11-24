@@ -12,7 +12,17 @@ namespace Minecraft;
 public partial class Hud : CanvasLayer
 {
     private static readonly string[] Facings = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-    private static readonly string[] BiomeNames = ["Plains", "Desert", "Snow", "Birch Forest"];
+    private static readonly string[] BiomeNames =
+    [
+        "Plains", "Desert", "Snow", "Birch Forest", "Dense Forest", "Taiga",
+        "Jungle", "Swamp", "Ocean", "Beach", "Mountain", "Flower Plains", "Meadow",
+    ];
+
+    internal static string BiomeName(Biome biome)
+    {
+        int index = (int)biome;
+        return (uint)index < (uint)BiomeNames.Length ? BiomeNames[index] : "?";
+    }
     private const int SlotSize = 56;
 
     // A raw string literal keeps the control sheet byte-for-byte readable
@@ -927,7 +937,7 @@ public partial class Hud : CanvasLayer
         int cx = Mathf.FloorToInt(p.X) >> 4;
         int cz = Mathf.FloorToInt(p.Z) >> 4;
         Biome biome = world.BiomeAt(Mathf.FloorToInt(p.X), Mathf.FloorToInt(p.Z));
-        lines.Add($"Chunk {cx},{cz}   Biome {((int)biome < BiomeNames.Length ? BiomeNames[(int)biome] : "?")}");
+        lines.Add($"Chunk {cx},{cz}   Biome {BiomeName(biome)}");
         double t = world.TimeOfDay;
         int hh = (int)(t * 24.0);
         int mm = (int)(t * 24.0 % 1.0 * 60.0);

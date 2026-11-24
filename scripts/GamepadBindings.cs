@@ -32,7 +32,6 @@ public static class GamepadBindings
     public static void Configure()
     {
         if (_configured) return;
-        _configured = true;
 
         AddAction("hotbar_prev");
         AddAction("hotbar_next");
@@ -49,25 +48,42 @@ public static class GamepadBindings
         bool hasConfig = config.Load(ConfigPath) == Error.Ok;
         foreach ((string action, JoyButton button) in DefaultButtons)
         {
-            JoyButton selected = hasConfig && config.HasSectionKey("buttons", action)
-                    ? (JoyButton)(int)config.GetValue("buttons", action, (int)button)
-                    : button;
+            JoyButton selected = button;
+            if (hasConfig && config.HasSectionKey("buttons", action)
+                    && !TryReadButton(config, action, button, out selected))
+                GD.PushWarning($"Ignoring invalid controller binding in buttons/{action}; keeping {button}.");
             ApplyButton(action, selected);
         }
+        _configured = true;
     }
 
-    public static void SetButton(string action, JoyButton button)
+    internal static bool TryReadButton(ConfigFile config, string action, JoyButton fallback, out JoyButton selected)
     {
-        if (!IsBindable(action)) return;
-        ApplyButton(action, button);
-        Save();
+        selected = fallback;
+        Variant stored = config.GetValue("buttons", action, (int)fallback);
+        if (stored.VariantType != Variant.Type.Int)
+            return false;
+        int raw = (int)stored;
+        if (raw < 0 || raw >= (int)JoyButton.Max || !System.Enum.IsDefined(typeof(JoyButton), (long)raw))
+            return false;
+        selected = (JoyButton)raw;
+        return true;
     }
 
-    public static void ResetDefaults()
+    public static Error SetButton(string action, JoyButton button)
+    {
+        if (!IsBindable(action) || (int)button < 0 || button >= JoyButton.Max
+                || !System.Enum.IsDefined(typeof(JoyButton), (long)button))
+            return Error.InvalidParameter;
+        ApplyButton(action, button);
+        return Save();
+    }
+
+    public static Error ResetDefaults()
     {
         foreach ((string action, JoyButton button) in DefaultButtons)
             ApplyButton(action, button);
-        Save();
+        return Save();
     }
 
     public static string LabelFor(string action)
@@ -118,7 +134,9 @@ public static class GamepadBindings
         return false;
     }
 
-    private static void Save()
+    internal static Error SaveConfig(ConfigFile config, string path) => config.Save(path);
+
+    private static Error Save()
     {
         ConfigFile config = new();
         foreach ((string action, _) in DefaultButtons)
@@ -132,6 +150,9 @@ public static class GamepadBindings
                 }
             }
         }
-        config.Save(ConfigPath);
+        Error result = SaveConfig(config, ConfigPath);
+        if (result != Error.Ok)
+            GD.PushError($"Could not persist controller bindings to {ConfigPath}: {result}.");
+        return result;
     }
 }

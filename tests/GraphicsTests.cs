@@ -4,6 +4,42 @@ namespace Minecraft;
 
 public static class GraphicsTests
 {
+    private static void TestPresetMsaaAndCameraRanges()
+    {
+        int[] expectedMsaa = [1, 1, 2, 2, 2, 0];
+        SubViewport viewport = new();
+        Camera3D camera = new() { Far = 300.0f };
+        try
+        {
+            for (int i = 0; i < Gfx.Presets.Count; i++)
+            {
+                Gfx.Preset preset = Gfx.Presets[i];
+                TestAssert.Equal(expectedMsaa[i], preset.Msaa, $"{preset.Name} declares its explicit MSAA tier");
+                Gfx.ApplyMsaaProfile(preset, viewport);
+                TestAssert.Equal((Viewport.Msaa)expectedMsaa[i], viewport.Msaa3D,
+                        $"{preset.Name} applies its MSAA value to the viewport");
+                Gfx.ApplyCameraFar(camera, preset.View, preset.Lod);
+                TestAssert.Check(Gfx.RequiredCameraFar(preset.View, preset.Lod) >= 300.0f,
+                        $"{preset.Name} camera range retains a safe minimum");
+                TestAssert.Equal(Gfx.RequiredCameraFar(preset.View, preset.Lod), camera.Far,
+                        $"{preset.Name} updates the gameplay camera to cover its streamed/LOD extent");
+                if (preset.Lod > 0.0f)
+                    TestAssert.Check(camera.Far > preset.Lod + 170.0f,
+                            $"{preset.Name} camera covers the complete FarLod tile footprint");
+            }
+        }
+        finally
+        {
+            viewport.Free();
+            camera.Free();
+        }
+
+        TestAssert.Check(Gfx.RequiredCameraFar(24, 0.0f) > 560.0f,
+                "maximum custom chunk view distance fits inside the gameplay camera far plane");
+        TestAssert.Check(Gfx.RequiredCameraFar(12, 640.0f) > 820.0f,
+                "MAX LOD tiles remain inside the gameplay camera far plane");
+    }
+
     private static void TestEnvironmentPresetMatrix()
     {
         for (int i = 0; i < Gfx.Presets.Count; i++)
@@ -44,6 +80,7 @@ public static class GraphicsTests
     public static void Run()
     {
         TestEnvironmentPresetMatrix();
+        TestPresetMsaaAndCameraRanges();
         TestAssert.Equal(6, Gfx.Presets.Count, "graphics preset list includes low through max fsr2");
         TestAssert.Equal(0, Gfx.DefaultPreset, "low is the hardware-friendly default");
         TestAssert.Equal("LOW", Gfx.Presets[Gfx.DefaultPreset].Name, "default preset name is low");
