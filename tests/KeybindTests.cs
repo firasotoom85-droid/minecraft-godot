@@ -180,7 +180,8 @@ public static class KeybindTests
         TestAssert.Equal("?", Hud.BiomeName((Biome)255), "unknown biome ids keep a clear fallback");
 
         BlockId[] appendedFoliage = [BlockId.SpruceLeaves, BlockId.JungleLeaves,
-                BlockId.SwampLeaves, BlockId.RiverReeds];
+                BlockId.SwampLeaves, BlockId.RiverReeds, BlockId.Cactus,
+                BlockId.Wheat0, BlockId.Wheat1, BlockId.Wheat2, BlockId.Torch];
         foreach (BlockId id in appendedFoliage)
         {
             TestAssert.Equal("dig_leaves", Sound.FamilyFor(id), $"{id} uses foliage break sounds");
@@ -193,12 +194,13 @@ public static class KeybindTests
         {
             TestAssert.Equal("dig_wood", Sound.FamilyFor(id), $"{id} uses wood break sounds");
             TestAssert.Equal("place_wood", Sound.PlaceFamilyFor(id), $"{id} uses wood placement sounds");
+            TestAssert.Equal(1.0f, Sound.PitchFor(id), $"{id} uses the neutral wood pitch");
         }
 
         BlockId[] appendedStone = [BlockId.CobblestoneSlab, BlockId.BrickSlab,
                 BlockId.CobblestoneStairs, BlockId.BrickStairs, BlockId.MossyCobblestone,
                 BlockId.WeatheredCobblestone, BlockId.CrackedBrick, BlockId.MossyBrick,
-                BlockId.EnchantingTable];
+                BlockId.EnchantingTable, BlockId.Furnace];
         foreach (BlockId id in appendedStone)
         {
             TestAssert.Equal("dig_stone", Sound.FamilyFor(id), $"{id} uses stone break sounds");
@@ -208,6 +210,12 @@ public static class KeybindTests
         TestAssert.Equal("dig_sand", Sound.FamilyFor(BlockId.Ash), "ash uses the sand break sound family");
         TestAssert.Equal("place_sand", Sound.PlaceFamilyFor(BlockId.Ash), "ash uses the sand placement sound family");
         TestAssert.Equal(1.25f, Sound.PitchFor(BlockId.Ash), "ash uses the sand pitch");
+        TestAssert.Equal("dig_sand", Sound.FamilyFor(BlockId.SnowGrass),
+                "snow grass shares the snow/sand break family");
+        TestAssert.Equal("place_sand", Sound.PlaceFamilyFor(BlockId.SnowGrass),
+                "snow grass shares the snow/sand placement family");
+        TestAssert.Equal(1.25f, Sound.PitchFor(BlockId.SnowGrass),
+                "snow grass retains the snow/sand pitch");
 
         VBoxContainer focusRoot = new();
         Button disabledFocus = new() { Disabled = true };
