@@ -92,7 +92,7 @@ public partial class Minimap : Control
     {
         float dx = position.X - centre.X;
         float dz = position.Z - centre.Y;
-        return dx * dx + dz * dz <= radius * radius;
+        return Mathf.Abs(dx) <= radius && Mathf.Abs(dz) <= radius;
     }
 
     public override void _ExitTree()
