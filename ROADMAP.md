@@ -22,8 +22,7 @@ This is the **current forward plan**, not a running implementation diary. Comple
 
 **Persistence contract (integrated W01):** autosave captures an immutable save
 snapshot on the main thread; the ordered background save worker serializes it and
-writes world, player, and manifest files without doing serialization or disk I/O
-inside `_Process()`. Explicit save and quit flush older work before writing the
+writes world, player, and manifest files; `_Process()` performs no serialization or disk I/O. Explicit save and quit flush older work before writing the
 latest state synchronously.
 
 **Persistence recovery (integrated W05):** structurally validated saves retain
