@@ -426,4 +426,5 @@ public static class FarLodLifecycleTests
         TestAssert.Check(!FarLodLifecycleRules.ShouldEmitCell(
                         coverage, tile, -16, -16, true, false),
                 "sky cells without an island never create a coarse surface");
-    }}
+    }
+}
