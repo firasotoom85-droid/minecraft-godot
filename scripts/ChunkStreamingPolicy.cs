@@ -218,6 +218,87 @@ internal static class ChunkStreamingPolicy
             maximumAttempts > 0 && failedAttempts > 0 && failedAttempts < maximumAttempts;
 }
 
+/// <summary>
+/// Revisions for the exact chunk dependencies used by meshing and lighting.
+/// Callers serialize reads and writes with VoxelWorld.SnapshotLock.
+/// </summary>
+internal sealed class ChunkDependencyRevisions
+{
+    private readonly Dictionary<Vector2I, long> _meshRevisions = [];
+    private readonly Dictionary<Vector2I, long> _lightInputRevisions = [];
+    private long _nextRevision;
+
+    public long EstimatedMemoryBytes => 128L
+            + (_meshRevisions.Count + (long)_lightInputRevisions.Count) * 48L;
+
+    public long MeshRevision(Vector2I cp) =>
+            _meshRevisions.TryGetValue(cp, out long revision) ? revision : 0L;
+
+    public bool IsMeshRevisionCurrent(Vector2I cp, long capturedRevision) =>
+            MeshRevision(cp) == capturedRevision;
+
+    public long LightInputRevision(Vector2I cp) =>
+            _lightInputRevisions.TryGetValue(cp, out long revision) ? revision : 0L;
+
+    /// <summary>
+    /// Record one successful block mutation. Geometry dependencies follow the
+    /// same edge/corner rules as rebuild scheduling; light inputs change only
+    /// when the mutation changes opacity, passage or emission.
+    /// </summary>
+    public void RecordBlockMutation(
+            Vector2I cp, int localX, int localZ,
+            int chunkX, int chunkZ, bool lightingChanged)
+    {
+        if (lightingChanged)
+            _lightInputRevisions[cp] = NextRevision();
+
+        for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                if (!ChunkStreamingPolicy.AffectsChunk(
+                        dx, dz, localX, localZ, chunkX, chunkZ, lightingChanged))
+                    continue;
+
+                _meshRevisions[cp + new Vector2I(dx, dz)] = NextRevision();
+            }
+    }
+
+    /// <summary>Capture light-input revisions for the 5x5 solve source region.</summary>
+    public void CaptureLightInputRevisions(Vector2I center, Span<long> revisions)
+    {
+        if (revisions.Length != 25)
+            throw new ArgumentException("A light solve requires exactly 25 dependency revisions.", nameof(revisions));
+
+        for (int dz = -2; dz <= 2; dz++)
+            for (int dx = -2; dx <= 2; dx++)
+            {
+                int slot = (dz + 2) * 5 + dx + 2;
+                revisions[slot] = LightInputRevision(center + new Vector2I(dx, dz));
+            }
+    }
+
+    /// <summary>
+    /// Validate only the light-affecting edits inside the solve's 5x5 source
+    /// region. Distant or geometry-only edits do not restart the solve.
+    /// </summary>
+    public bool LightInputRevisionsCurrent(Vector2I center, ReadOnlySpan<long> revisions)
+    {
+        if (revisions.Length != 25) return false;
+
+        for (int dz = -2; dz <= 2; dz++)
+            for (int dx = -2; dx <= 2; dx++)
+            {
+                int slot = (dz + 2) * 5 + dx + 2;
+                if (LightInputRevision(center + new Vector2I(dx, dz)) != revisions[slot])
+                    return false;
+            }
+
+        return true;
+    }
+
+    private long NextRevision() => ++_nextRevision;
+}
+
 /// <summary>One implementation of the real worker build/publish contract.</summary>
 internal interface IChunkWorkerOperation<TPayload>
         where TPayload : class

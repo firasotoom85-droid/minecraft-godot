@@ -284,6 +284,7 @@ public static class Mesher
         EnsureTables();
         (bool greedy, long meshingRevision) = CaptureConfiguration();
         long epoch;
+        long dependencyRevision;
         int boundaryMask;
         byte[] pad;
         byte[] statePad;
@@ -292,7 +293,8 @@ public static class Mesher
         int sy = world.Height;
         lock (world.SnapshotLock)
         {
-            epoch = world.EditEpoch;
+            epoch = world.EditEpoch; // retained for diagnostics; application uses the local dependency revision.
+            dependencyRevision = world.CaptureMeshDependencyRevision(cp);
             byte[] data = world.ChunkData(cp, cancellationToken);
             byte[] states = world.ChunkBlockStates(cp, cancellationToken);
             pad = BuildPadded(world, cp, data, sy, cancellationToken);
@@ -529,7 +531,7 @@ public static class Mesher
             }
 
             MeshPayload payload = new(opaque, glass, water, lava, collision, epoch,
-                    meshingRevision, boundaryMask);
+                    meshingRevision, boundaryMask, dependencyRevision);
             payloadOwnsBuffers = true;
             return payload;
         }
@@ -1364,7 +1366,8 @@ public sealed class MeshPayload(
         List<Vector3> collision,
         long epoch,
         long meshingRevision,
-        int boundaryMask)
+        int boundaryMask,
+        long dependencyRevision = 0)
 {
     public readonly SurfaceData Opaque = opaque;
     public readonly SurfaceData Glass = glass;
@@ -1374,6 +1377,7 @@ public sealed class MeshPayload(
     public readonly long Epoch = epoch;
     public readonly long MeshingRevision = meshingRevision;
     public readonly int BoundaryMask = boundaryMask;
+    public readonly long DependencyRevision = dependencyRevision;
     private int _released;
 
     public bool Released => Volatile.Read(ref _released) != 0;

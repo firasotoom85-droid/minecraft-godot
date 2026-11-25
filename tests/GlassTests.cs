@@ -112,7 +112,21 @@ public static class GlassTests
         (bool greedy, long revision) = Mesher.CaptureConfiguration();
         MeshPayload populated = new(opaque, glassSurface, waterSurface, lavaSurface,
                 collision, 0, revision, world.MissingColliderBoundaryMask(Vector2I.Zero));
-        chunk.ApplyPayload(populated);
+        ChunkPayloadApplyTransaction staged = new(chunk, populated);
+        TestAssert.Check(!staged.Step(),
+                "the first resource slice leaves the payload transaction pending");
+        TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("OpaqueMesh")?.Mesh is null
+                        && chunk.GetNodeOrNull<MeshInstance3D>("GlassMesh") is null
+                        && chunk.GetNodeOrNull<CollisionShape3D>("Collision") is null,
+                "prepared mesh resources are not exposed before the complete payload is ready");
+        while (!staged.Step()) { }
+        TestAssert.Check(staged.IsComplete,
+                "all mesh and collision slices finish before the transaction is committed");
+        TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("OpaqueMesh")?.Mesh is null
+                        && chunk.GetNodeOrNull<MeshInstance3D>("GlassMesh") is null
+                        && chunk.GetNodeOrNull<CollisionShape3D>("Collision") is null,
+                "a fully prepared payload still leaves the old chunk state visible until commit");
+        staged.Commit();
         TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("GlassMesh") is { SortingUseAabbCenter: true },
                 "first non-empty glass payload creates a bounds-sorted node");
         TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("WaterMesh") is { SortingUseAabbCenter: true },

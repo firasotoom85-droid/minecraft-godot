@@ -11,13 +11,13 @@ public static class VoxelStreamingTests
     public static void Run()
     {
         TestAssert.Check(!StreamingApplyBudget.ShouldStop(25.0, 0, 2.0),
-                "time budget still permits one payload to make progress");
+                "one bounded resource-creation step is allowed to begin");
         TestAssert.Check(!StreamingApplyBudget.ShouldStop(1.99, 1, 2.0),
-                "payload application continues while within its frame time budget");
+                "staged apply continues while within the frame time budget");
         TestAssert.Check(StreamingApplyBudget.ShouldStop(2.0, 1, 2.0),
-                "payload application stops once its frame time budget is exhausted");
+                "staged apply yields between resource slices when the budget is exhausted");
         TestAssert.Check(StreamingApplyBudget.ShouldStop(0.0, 1, 0.0),
-                "zero time budget stops after the first payload");
+                "zero time budget yields after one bounded resource slice");
 
         TestChunkWorkTracking();
         TestChunkWorkerLifecycle();
@@ -27,6 +27,8 @@ public static class VoxelStreamingTests
         TestPlayerPersistenceNotifications();
         TestPooledScratchBufferClearing();
         TestStreamingPolicies();
+        TestChunkDependencyRevisions();
+        TestStreamingApplyBatches();
 
         long expectedLow = 11L * 11L * 16 * 128 * 16 * StreamingMemoryBudget.BytesPerVoxelUpperBound;
         TestAssert.Equal(expectedLow,
@@ -854,6 +856,78 @@ public static class VoxelStreamingTests
                 "transient worker failures retry before the attempt limit");
         TestAssert.Check(!ChunkStreamingPolicy.ShouldRetry(3, 3),
                 "worker retries stop at the bounded attempt limit");
+    }
+
+    private static void TestChunkDependencyRevisions()
+    {
+        ChunkDependencyRevisions revisions = new();
+        Vector2I center = new(6, -3);
+        Vector2I west = center + Vector2I.Left;
+        Vector2I northWest = center + new Vector2I(-1, -1);
+        Vector2I far = center + new Vector2I(8, 8);
+
+        long centerBefore = revisions.MeshRevision(center);
+        long westBefore = revisions.MeshRevision(west);
+        long northWestBefore = revisions.MeshRevision(northWest);
+        long farBefore = revisions.MeshRevision(far);
+        revisions.RecordBlockMutation(center, 8, 8, 16, 16, lightingChanged: false);
+
+        TestAssert.Check(!revisions.IsMeshRevisionCurrent(center, centerBefore),
+                "an interior edit invalidates the edited chunk's in-flight mesh");
+        TestAssert.Check(revisions.IsMeshRevisionCurrent(west, westBefore)
+                        && revisions.IsMeshRevisionCurrent(northWest, northWestBefore),
+                "an interior edit leaves unsampled geometry neighbors valid");
+        TestAssert.Check(revisions.IsMeshRevisionCurrent(far, farBefore),
+                "an interior edit leaves a distant payload valid when the world edit counter advances");
+
+        long westEdgeBefore = revisions.MeshRevision(west);
+        long northWestEdgeBefore = revisions.MeshRevision(northWest);
+        revisions.RecordBlockMutation(center, 0, 8, 16, 16, lightingChanged: false);
+        TestAssert.Check(!revisions.IsMeshRevisionCurrent(west, westEdgeBefore),
+                "a west-boundary edit invalidates the neighbor that samples that edge");
+        TestAssert.Check(revisions.IsMeshRevisionCurrent(northWest, northWestEdgeBefore),
+                "a west-edge edit does not invalidate an unrelated diagonal neighbor");
+
+        long diagonalBefore = revisions.MeshRevision(northWest);
+        revisions.RecordBlockMutation(center, 0, 0, 16, 16, lightingChanged: false);
+        TestAssert.Check(!revisions.IsMeshRevisionCurrent(northWest, diagonalBefore),
+                "a corner edit invalidates the matching diagonal dependency");
+
+        long[] lightSnapshot = new long[25];
+        revisions.CaptureLightInputRevisions(center, lightSnapshot);
+        revisions.RecordBlockMutation(
+                center + new Vector2I(3, 0), 8, 8, 16, 16, lightingChanged: true);
+        TestAssert.Check(revisions.LightInputRevisionsCurrent(center, lightSnapshot),
+                "a lighting edit outside the 5x5 solve input does not restart that solve");
+
+        revisions.RecordBlockMutation(center, 8, 8, 16, 16, lightingChanged: false);
+        TestAssert.Check(revisions.LightInputRevisionsCurrent(center, lightSnapshot),
+                "geometry-only edits do not invalidate light solve inputs");
+        revisions.RecordBlockMutation(center, 8, 8, 16, 16, lightingChanged: true);
+        TestAssert.Check(!revisions.LightInputRevisionsCurrent(center, lightSnapshot),
+                "opacity/emission edits inside the solve region invalidate its light snapshot");
+
+        long[] nextSnapshot = new long[25];
+        revisions.CaptureLightInputRevisions(center, nextSnapshot);
+        revisions.RecordBlockMutation(center + new Vector2I(1, 1), 8, 8, 16, 16,
+                lightingChanged: true);
+        TestAssert.Check(!revisions.LightInputRevisionsCurrent(center, nextSnapshot),
+                "light-affecting edits inside the 5x5 source region are detected");
+    }
+
+    private static void TestStreamingApplyBatches()
+    {
+        TestAssert.Equal(StreamingApplyBudget.MaxVerticesPerStep,
+                StreamingApplyBudget.BatchLength(20_000),
+                "one streaming apply step is capped at the configured vertex limit");
+        TestAssert.Equal(4_998, StreamingApplyBudget.BatchLength(5_000),
+                "surface and collision batches end on a complete triangle");
+        TestAssert.Equal(0, StreamingApplyBudget.BatchLength(0),
+                "empty surfaces do not schedule an apply step");
+        TestAssert.Check(!StreamingApplyBudget.ShouldStop(25.0, 0, 2.0),
+                "a bounded first apply step can progress even when a frame has no remaining slack");
+        TestAssert.Check(StreamingApplyBudget.ShouldStop(2.0, 1, 2.0),
+                "the next staged apply step yields when its frame budget is exhausted");
     }
 
     private readonly struct TestWorkerOperation : IChunkWorkerOperation<object>

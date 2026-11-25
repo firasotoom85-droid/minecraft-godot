@@ -68,6 +68,8 @@ public static class Profiler
     public static long TrackedManagedBytesHighWaterEstimate;
     public static double ApplyAverageMs;
     public static double ApplyMaximumMs;
+    public static double ApplyStepAverageMs;
+    public static double ApplyStepMaximumMs;
     public static double CollisionAverageMs;
     public static double CollisionMaximumMs;
     public static long CollisionVerticesApplied;
@@ -75,6 +77,8 @@ public static class Profiler
     private static readonly Lock RuntimeMetricsLock = new();
     private static double _applyTotalMs;
     private static long _applySamples;
+    private static double _applyStepTotalMs;
+    private static long _applyStepSamples;
     private static double _collisionTotalMs;
     private static long _collisionSamples;
 
@@ -129,6 +133,19 @@ public static class Profiler
             _applySamples++;
             ApplyAverageMs = _applyTotalMs / _applySamples;
             ApplyMaximumMs = Math.Max(ApplyMaximumMs, milliseconds);
+        }
+    }
+
+    /// <summary>Record one bounded main-thread resource-creation step.</summary>
+    public static void RecordApplyStep(double milliseconds)
+    {
+        if (!double.IsFinite(milliseconds) || milliseconds < 0.0) return;
+        lock (RuntimeMetricsLock)
+        {
+            _applyStepTotalMs += milliseconds;
+            _applyStepSamples++;
+            ApplyStepAverageMs = _applyStepTotalMs / _applyStepSamples;
+            ApplyStepMaximumMs = Math.Max(ApplyStepMaximumMs, milliseconds);
         }
     }
 
@@ -273,9 +290,20 @@ public static class Profiler
 public static class StreamingApplyBudget
 {
     public const int MaxPendingPayloads = 18;
-    /// <summary>Always allow one payload to make progress, even when it exceeds the frame budget.</summary>
-    public static bool ShouldStop(double elapsedMilliseconds, int appliedCount, double budgetMilliseconds) =>
-            appliedCount > 0 && elapsedMilliseconds >= Math.Max(0.0, budgetMilliseconds);
+    // 8190 is triangle-aligned; a single resource-creation step cannot consume an entire chunk payload.
+    public const int MaxVerticesPerStep = 8190;
+
+    /// <summary>Return one triangle-aligned resource-creation slice.</summary>
+    public static int BatchLength(int remainingVertices)
+    {
+        if (remainingVertices <= 0) return 0;
+        int count = Math.Min(remainingVertices, MaxVerticesPerStep);
+        return count - count % 3;
+    }
+
+    /// <summary>Always allow one bounded work unit to make progress.</summary>
+    public static bool ShouldStop(double elapsedMilliseconds, int completedSteps, double budgetMilliseconds) =>
+            completedSteps > 0 && elapsedMilliseconds >= Math.Max(0.0, budgetMilliseconds);
 }
 
 public static class StreamingMemoryBudget
