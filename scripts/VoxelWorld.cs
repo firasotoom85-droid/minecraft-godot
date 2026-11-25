@@ -2883,7 +2883,7 @@ public partial class VoxelWorld : Node3D
             return new InitialChunkLoadProgress(0, 0);
         }
 
-        int radius = InitialChunkStreamingPolicy.StartupRadius;
+        int radius = InitialChunkStreamingPolicy.StartupRadiusForViewDistance(ViewDistance);
         int ready = 0;
         for (int dz = -radius; dz <= radius; dz++)
         {
@@ -2983,7 +2983,7 @@ public partial class VoxelWorld : Node3D
         _farLod?.UpdateAround(pcp);
     }
 
-    /// <summary>Change the far-view LOD ring radius in metres (gfx presets; 0 disables it).</summary>
+    /// <summary>Change the additional far-view LOD radius in metres (0 keeps streamed-area fallback).</summary>
     public void SetLodRadius(float radiusM)
     {
         LodRadius = Mathf.Max(radiusM, 0.0f);

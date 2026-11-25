@@ -18,8 +18,12 @@ public static class TextureAtlasValidationTests
         TestAssert.Equal(32, current.TilePixels, "packed atlas retains its 32px source tiles");
         TestAssert.Equal(BlockDb.TileCount, current.TileArrayLayers,
                 "greedy texture-array keeps one layer per atlas slot");
+        TestAssert.Equal(BlockDb.TileArrayPixels, BlockDb.TileArrayTexture().GetWidth(),
+                "greedy layers retain the repeat-aware width");
+        TestAssert.Equal(BlockDb.TileArrayPixels, BlockDb.TileArrayTexture().GetHeight(),
+                "greedy layers retain the repeat-aware height");
         TestAssert.Check(current.TileArrayHasMipmaps,
-                "greedy texture-array retains isolated per-tile mipmaps for distant viewing");
+                "greedy texture-array retains repeat-aware mipmaps for distant viewing");
         TestAssert.Equal(ItemDb.Placeable.Count, current.PlaceableItems,
                 "every placeable item is included in the icon mapping audit");
         TestAssert.Check(current.ReferencedTiles > 0 && current.PaintedTiles >= current.ReferencedTiles,
@@ -27,8 +31,9 @@ public static class TextureAtlasValidationTests
         TestAssert.Check(HasIssue(current, "atlas.tile.legacy-orphan"),
                 "the retained plank-building art is explicitly documented as a legacy atlas tile");
         TestAssert.Check(current.ToMarkdown().Contains("Block face mappings", StringComparison.Ordinal)
-                && current.ToMarkdown().Contains("Placeable item icon mappings", StringComparison.Ordinal),
-                "Markdown report includes block and first-person item mappings");
+                && current.ToMarkdown().Contains("Placeable item icon mappings", StringComparison.Ordinal)
+                && current.ToMarkdown().Contains("3×3 wrap", StringComparison.Ordinal),
+                "Markdown report includes registry mappings and the repeat-aware mip strategy");
 
         TestInvalidReferencesAndMissingTiles();
         TestAccidentalDuplicateDetection();

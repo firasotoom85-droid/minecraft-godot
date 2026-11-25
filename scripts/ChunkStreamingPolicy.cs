@@ -456,7 +456,12 @@ internal readonly record struct InitialChunkLoadProgress(int ReadyChunks, int To
 
 internal static class InitialChunkStreamingPolicy
 {
-    public const int StartupRadius = 1;
+    // Warm a substantial nearby area before giving control to the player, but
+    // keep startup bounded when a custom view distance is set to its maximum.
+    public const int MaximumStartupRadius = 6;
+
+    public static int StartupRadiusForViewDistance(int viewDistance) =>
+            Math.Clamp(viewDistance, 2, MaximumStartupRadius);
 
     public static int RequiredChunks(int radius)
     {

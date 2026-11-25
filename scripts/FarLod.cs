@@ -98,7 +98,8 @@ public partial class FarLod : Node3D
     /// </summary>
     public void UpdateAround(Vector2I pcp)
     {
-        float radius = World!.LodRadius;
+        float radius = FarLodLifecycleRules.EffectiveRadius(
+                World!.LodRadius, World.ViewDistance, VoxelWorld.ChunkX);
         if (radius <= 0.0f)
         {
             foreach (Tile tile in _tiles.Values)
@@ -620,6 +621,17 @@ internal static class FarLodLifecycleRules
 {
     internal const int MaxBuildRetries = 2;
     internal const int ChunksPerTile = 8;
+
+    /// <summary>
+    /// Far LOD must cover at least the configured detailed-chunk radius so an
+    /// unbuilt or still-queued chunk never leaves a hole in the visible world.
+    /// A larger explicit LOD radius may extend the horizon further.
+    /// </summary>
+    internal static float EffectiveRadius(float configuredRadius, int viewDistance, int chunkSize)
+    {
+        float streamedRadius = Math.Max(2, viewDistance) * (float)Math.Max(1, chunkSize);
+        return Math.Max(Math.Max(0.0f, configuredRadius), streamedRadius);
+    }
 
     internal static Vector2I TileForChunk(Vector2I chunk) => new(
             Mathf.FloorToInt(chunk.X / (float)ChunksPerTile),

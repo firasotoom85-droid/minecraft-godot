@@ -146,9 +146,9 @@ public partial class Gfx : Node
         const float region = 128.0f;
         const float chunkSize = 16.0f;
         float streamedExtent = (Mathf.Max(2, viewDistance) + 0.5f) * chunkSize * 1.41421356f;
-        float lodExtent = lodRadius > 0.0f
-                ? lodRadius + region * 0.7f + region * 0.70710678f
-                : 0.0f;
+        float fallbackRadius = Mathf.Max(
+                Mathf.Max(2, viewDistance) * chunkSize, Mathf.Max(0.0f, lodRadius));
+        float lodExtent = fallbackRadius + region * 0.7f + region * 0.70710678f;
         return Mathf.Max(300.0f, Mathf.Max(streamedExtent, lodExtent) + 8.0f);
     }
 

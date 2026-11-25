@@ -20,8 +20,8 @@ The project uses original procedural materials and audio. It is Minecraft-inspir
 ## Highlights
 
 - Infinite, seeded chunk streaming with versioned world generation, multiple biomes, rivers, caves, structures and distant terrain LOD that stays visible until each detailed chunk is committed.
-- Nearby-world startup readiness, directional chunk prefetch and coalesced coarse-to-detailed terrain handoff.
-- Greedy opaque meshing with mip-safe repeated texture-array UVs, a per-face comparison path, pooled mesh payloads and bounded streaming memory.
+- A bounded nearby-world warm-up of up to 13×13 detailed chunks, directional prefetch and coarse Far-LOD coverage across the full configured view distance while remaining chunks stream in.
+- Greedy opaque meshing with 3×3 wrap-aware texture-array mipmaps, continuous repeated-UV gradients, pooled mesh payloads and bounded streaming memory.
 - Survival systems for health, hunger, equipment, crafting, cooking, farming, fishing, fluids, boats and storage.
 - Passive herds, bounded hostile populations, village residents, trading, quests, dungeons and the Ember Warden encounter.
 - Transactional inventory, crafting and furnace operations with selected-slot consumption and validated progression state.

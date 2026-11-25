@@ -94,7 +94,7 @@ public sealed class TextureValidationReport
         output.AppendLine($"| Greedy texture-array | {TileArrayLayers} layers; isolated mipmaps: {(TileArrayHasMipmaps ? "yes" : "no")} |");
         output.AppendLine($"| Errors / warnings | {ErrorCount} / {WarningCount} |");
         output.AppendLine();
-        output.AppendLine("The packed atlas intentionally uses nearest sampling without atlas mipmaps. The greedy texture-array path generates mipmaps from each isolated tile, preventing neighbouring atlas cells from bleeding into distant surfaces.");
+        output.AppendLine("The packed atlas intentionally uses nearest sampling without atlas mipmaps. Each greedy texture-array layer repeats its source tile in a 3×3 image before mip generation; the shader samples the center copy with continuous gradients, keeping mip footprints continuous at repeated edges without allowing neighbouring atlas entries to bleed.");
         output.AppendLine();
         output.AppendLine("## Issues");
         output.AppendLine();
@@ -161,7 +161,7 @@ public sealed class TextureValidationReport
         output.AppendLine();
         output.AppendLine("- Source tiles remain 32 × 32 RGBA pixels in the existing 16 × 16 packed atlas.");
         output.AppendLine("- Packed-atlas UV coordinates and AtlasTexture regions are not rewritten by validation.");
-        output.AppendLine("- Greedy terrain retains one texture-array layer per atlas slot and per-layer mip generation.");
+        output.AppendLine("- Greedy terrain retains one texture-array layer per atlas slot, with a 3×3 wrapped source tile and a repeat-aware mip chain.");
         output.AppendLine("- No runtime scene node, periodic scan, texture rebuild, voxel mutation, save change, or generator change is introduced.");
         output.AppendLine();
         return output.ToString();
@@ -394,9 +394,10 @@ public static class TextureAtlasValidator
             if (tileArray.GetLayers() != tileCount)
                 Add(TextureValidationSeverity.Error, "array.layer-count.invalid",
                         $"Greedy texture-array has {tileArray.GetLayers()} layers; expected one layer for each of {tileCount} atlas slots.");
-            if (tileArray.GetWidth() != tilePixels || tileArray.GetHeight() != tilePixels)
+            int expectedLayerPixels = tilePixels * BlockDb.TileArrayRepeatCount;
+            if (tileArray.GetWidth() != expectedLayerPixels || tileArray.GetHeight() != expectedLayerPixels)
                 Add(TextureValidationSeverity.Error, "array.layer-size.invalid",
-                        $"Greedy texture-array layers are {tileArray.GetWidth()} × {tileArray.GetHeight}px; expected {tilePixels} × {tilePixels}px.");
+                        $"Greedy texture-array layers are {tileArray.GetWidth()} × {tileArray.GetHeight}px; expected {expectedLayerPixels} × {expectedLayerPixels}px ({BlockDb.TileArrayRepeatCount} wrapped copies of each source tile).");
             if (!tileArray.HasMipmaps())
                 Add(TextureValidationSeverity.Error, "array.mipmaps.missing",
                         "Greedy texture-array has no mipmaps; distant surfaces may shimmer. Generate mipmaps from isolated tiles, not the packed atlas.");

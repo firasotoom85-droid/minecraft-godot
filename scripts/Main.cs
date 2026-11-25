@@ -47,7 +47,7 @@ public partial class Main : Node3D
     private Label? _loadingStatus;
     private ProgressBar? _loadingProgress;
     private double _initialLoadingElapsed;
-    private const double InitialLoadingTimeoutSeconds = 12.0;
+    private const double InitialLoadingTimeoutSeconds = 45.0;
 
     public override void _Ready()
     {
@@ -231,7 +231,7 @@ public partial class Main : Node3D
         InitialChunkLoadProgress progress = _world.GetInitialStreamingProgress();
         if (_loadingStatus != null)
         {
-            _loadingStatus.Text = $"Preparing nearby terrain · {progress.ReadyChunks}/{progress.TotalChunks} chunks ready";
+            _loadingStatus.Text = $"Preparing nearby terrain · {progress.ReadyChunks}/{progress.TotalChunks} detailed chunks ready";
         }
 
         if (_loadingProgress != null)
@@ -248,7 +248,7 @@ public partial class Main : Node3D
 
         if (timedOut)
         {
-            _hud.ShowToast("Nearby terrain is still streaming; distant terrain remains visible.");
+            _hud.ShowToast("Detailed chunks are still streaming; coarse terrain remains visible.");
         }
 
         FinishInitialLoading();
@@ -331,7 +331,7 @@ public partial class Main : Node3D
 
         Label hint = new()
         {
-            Text = "The rest of the world continues streaming as you explore.",
+            Text = "A coarse terrain layer stays visible while detailed chunks stream in.",
             HorizontalAlignment = HorizontalAlignment.Center,
         };
         hint.AddThemeFontSizeOverride("font_size", 13);

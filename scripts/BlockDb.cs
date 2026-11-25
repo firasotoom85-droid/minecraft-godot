@@ -30,6 +30,10 @@ public static class BlockDb
     public const int AtlasCols = 16;
     public const int TileCount = AtlasCols * AtlasCols;
     public const int TilePx = 32;
+    // Three copies let every mip level sample matching texels across the
+    // repeated tile's edges. The shader samples only the center copy.
+    public const int TileArrayRepeatCount = 3;
+    public const int TileArrayPixels = TilePx * TileArrayRepeatCount;
     // Shared smallest authored noise/speckle unit across terrain materials.
     // Structural accents (grain, seams, foliage silhouettes) may still use
     // individual pixels where their shape requires it.
@@ -1017,8 +1021,9 @@ void fragment() {
 
     /// <summary>
     /// Greedy-mesh material: one texture-array layer per tile, so merged
-    /// multi-block quads can tile their texture with UV fract() — impossible
-    /// with a classic atlas (a merged quad would sample neighbouring tiles).
+    /// multi-block quads can repeat their texture without crossing atlas entries.
+    /// Each layer is built from a 3x3 wrap of its source tile; sampling the center
+    /// copy gives mipmap filtering matching texels across every repeated edge.
     /// Uses the same C#-authored response palette and lighting channels as the
     /// atlas shader; only the texture lookup differs for merged quads.
     /// </summary>
@@ -1114,12 +1119,14 @@ void vertex() {
 
 " + WarmBlockLightingShader + @"
 void fragment() {
-    // fract() creates a derivative discontinuity at each repeated block-tile
-    // boundary. Feed the sampler gradients from the continuous UV instead.
-    vec2 tile_uv_dx = dFdx(tile_uv);
-    vec2 tile_uv_dy = dFdy(tile_uv);
+    // Sample the center copy of each 3x3 wrapped layer. The continuous UV
+    // derivatives are scaled with the center tile so mip selection remains
+    // stable at every fract() boundary.
+    vec2 tile_array_uv = (vec2(1.0) + fract(tile_uv)) / 3.0;
+    vec2 tile_uv_dx = dFdx(tile_uv) / 3.0;
+    vec2 tile_uv_dy = dFdy(tile_uv) / 3.0;
     vec4 tex = textureGrad(
-            tiles, vec3(fract(tile_uv), tile_layer), tile_uv_dx, tile_uv_dy);
+            tiles, vec3(tile_array_uv, tile_layer), tile_uv_dx, tile_uv_dy);
 #ifndef MINECRAFT_LOW_QUALITY
     if (mod(floor(COLOR.a + 0.001), 8.0) < 0.5) {
         ivec3 cell = ivec3(floor(surface_world_position - surface_world_normal * 0.01));
@@ -1190,21 +1197,56 @@ void fragment() {
 
     private static readonly Lazy<Texture2DArray> TileArrayLazy = new(MakeTileArray);
 
-    /// <summary>One array layer per atlas tile (built from the atlas image once).</summary>
+    /// <summary>One repeat-aware mipmapped array layer per packed-atlas tile.</summary>
     public static Texture2DArray TileArrayTexture() => TileArrayLazy.Value;
+
+    /// <summary>
+    /// Copy one source tile into a 3x3 repeat image. Mip generation on this
+    /// image sees the matching adjacent copy at all tile edges, so distant
+    /// sampling does not fade toward independently clamped border texels.
+    /// </summary>
+    internal static Image BuildWrappedTileImage(Image atlas, int tile)
+    {
+        if (atlas.IsEmpty())
+            throw new ArgumentException("The source atlas image is empty.", nameof(atlas));
+        if ((uint)tile >= TileCount)
+            throw new ArgumentOutOfRangeException(nameof(tile));
+
+        int sourceX = tile % AtlasCols * TilePx;
+        int sourceY = tile / AtlasCols * TilePx;
+        Rect2I sourceRect = new(sourceX, sourceY, TilePx, TilePx);
+        Image wrapped = Image.CreateEmpty(TileArrayPixels, TileArrayPixels, false, Image.Format.Rgba8);
+        for (int z = 0; z < TileArrayRepeatCount; z++)
+        {
+            for (int x = 0; x < TileArrayRepeatCount; x++)
+            {
+                wrapped.BlitRect(atlas, sourceRect,
+                        new Vector2I(x * TilePx, z * TilePx));
+            }
+        }
+
+        return wrapped;
+    }
+
+    /// <summary>Map repeated block UVs into the center source-tile copy.</summary>
+    internal static Vector2 TileArrayUv(Vector2 tileUv)
+    {
+        float scale = 1.0f / TileArrayRepeatCount;
+        Vector2 repeated = new(
+                tileUv.X - Mathf.Floor(tileUv.X),
+                tileUv.Y - Mathf.Floor(tileUv.Y));
+        return new Vector2(scale, scale) + repeated * scale;
+    }
 
     private static Texture2DArray MakeTileArray()
     {
         Image atlas = AtlasTexture().GetImage();
         Godot.Collections.Array<Image> layers = [];
-        for (int tile = 0; tile < AtlasCols * AtlasCols; tile++)
+        for (int tile = 0; tile < TileCount; tile++)
         {
-            Image slice = Image.CreateEmpty(TilePx, TilePx, false, Image.Format.Rgba8);
-            slice.BlitRect(
-                    atlas,
-                    new Rect2I((tile % AtlasCols) * TilePx, (tile / AtlasCols) * TilePx, TilePx, TilePx),
-                    Vector2I.Zero);
-            // Generate each tile's mip chain independently; atlas mipmaps would bleed across tile borders.
+            Image slice = BuildWrappedTileImage(atlas, tile);
+            // Each layer is independently wrapped before mip generation. The
+            // packed atlas is never mipmapped, so adjacent atlas entries cannot bleed.
             Error mipmapError = slice.GenerateMipmaps();
             if (mipmapError != Error.Ok)
                 GD.PushWarning($"minecraft: mipmap generation failed for tile {tile} ({mipmapError})");

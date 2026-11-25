@@ -15,6 +15,7 @@ public static class FarLodLifecycleTests
     public static void Run()
     {
         TestCoverageMaskTracksCommittedChunks();
+        TestFallbackRadiusCoversStreamingFootprint();
         TestBuildTokenRejectsStaleAndRecreatedTiles();
         TestEveryCompletionHasAnExplicitDisposition();
         TestWorkerFailureRetryPolicyAndQueueCapacity();
@@ -61,6 +62,19 @@ public static class FarLodLifecycleTests
         TestAssert.Equal(complete,
                 FarLodLifecycleRules.SetCoverageBit(complete, 8, 0, false),
                 "out-of-tile updates leave all valid chunk bits unchanged");
+    }
+
+    private static void TestFallbackRadiusCoversStreamingFootprint()
+    {
+        TestAssert.Equal(384.0f,
+                FarLodLifecycleRules.EffectiveRadius(0.0f, 24, 16),
+                "Far LOD fills the complete 24-chunk detail radius when the preset LOD radius is zero");
+        TestAssert.Equal(640.0f,
+                FarLodLifecycleRules.EffectiveRadius(640.0f, 12, 16),
+                "an explicitly larger Far-LOD horizon remains authoritative");
+        TestAssert.Equal(80.0f,
+                FarLodLifecycleRules.EffectiveRadius(0.0f, 5, 16),
+                "LOW still receives fallback coverage through its configured five-chunk view radius");
     }
 
     private static void TestBuildTokenRejectsStaleAndRecreatedTiles()
