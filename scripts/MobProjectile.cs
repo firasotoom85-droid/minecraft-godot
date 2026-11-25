@@ -16,32 +16,25 @@ public partial class MobProjectile : Area3D
     private Vector3 _source;
     private float _life = 4.0f;
     private Mobs? _manager;
-    private RayCast3D? _terrainRay;
+    private ShapeCast3D? _sweep;
+    private bool _spent;
+    internal ShapeCast3D? SweepForTests => _sweep;
     private string _sound = "mobcrystal";
     private Color _color = Colors.White;
-
-    internal RayCast3D? TerrainRayForTests => _terrainRay;
-
-    internal void ConfigureTerrainRayForTests(Vector3 from, Vector3 to)
-    {
-        if (_terrainRay == null) return;
-        _terrainRay.Position = from;
-        _terrainRay.TargetPosition = to - from;
-        if (_terrainRay.IsInsideTree())
-            _terrainRay.ForceRaycastUpdate();
-    }
 
     public void Setup(Mobs manager, Vector3 origin, Vector3 target, float damage,
             Color color, float speed, string sound)
     {
         _manager = manager;
-        _terrainRay = new RayCast3D
+        _sweep = new ShapeCast3D
         {
-            CollisionMask = (uint)PhysicsLayer.Terrain,
-            CollideWithAreas = false,
+            Shape = new SphereShape3D { Radius = 0.20f },
+            CollisionMask = (uint)(PhysicsLayer.Player | PhysicsLayer.Terrain),
             TargetPosition = Vector3.Zero,
+            CollideWithAreas = false,
+            CollideWithBodies = true,
         };
-        AddChild(_terrainRay);
+        AddChild(_sweep);
         _damage = damage;
         _source = origin;
         _sound = sound;
@@ -74,7 +67,8 @@ public partial class MobProjectile : Area3D
         });
 
         BodyEntered += OnBodyEntered;
-        GlobalPosition = origin;
+        if (IsInsideTree()) GlobalPosition = origin;
+        else Position = origin;
     }
 
     public override void _PhysicsProcess(double delta)
@@ -93,40 +87,43 @@ public partial class MobProjectile : Area3D
         }
 
         Vector3 nextPosition = GlobalPosition + _velocity * (float)delta;
-        if (_terrainRay == null)
+        if (_sweep == null)
         {
             QueueFree();
             return;
         }
-        _terrainRay.Position = Vector3.Zero;
-        _terrainRay.TargetPosition = nextPosition - GlobalPosition;
-        _terrainRay.ForceRaycastUpdate();
-        bool terrainHit = _terrainRay.IsColliding();
-        if (MobProjectileRules.ShouldStopOnTerrain(terrainHit))
+
+        _sweep.TargetPosition = ToLocal(nextPosition);
+        _sweep.ForceShapecastUpdate();
+        if (_sweep.IsColliding())
         {
-            _manager?.Puff(nextPosition, _color);
-            QueueFree();
+            HandleImpact(_sweep.GetCollider(0), _sweep.GetCollisionPoint(0));
             return;
         }
 
         GlobalPosition = nextPosition;
     }
 
-    private void OnBodyEntered(Node3D body)
+    private void OnBodyEntered(Node3D body) => HandleImpact(body, GlobalPosition);
+
+    private void HandleImpact(GodotObject? collider, Vector3 point)
     {
-        if (body is Player player && MobProjectileRules.ShouldDamagePlayer(true, false,
+        if (_spent) return;
+        _spent = true;
+
+        if (collider is Player player && MobProjectileRules.ShouldDamagePlayer(true, false,
                 Settings.Difficulty == Settings.DifficultyPeaceful))
         {
             if (player.ApplyDamage(new DamageInfo(_damage, DamageKind.Projectile,
                     _source, 1.8f, 0.8f)))
             {
                 _manager?.Puff(player.GlobalPosition + new Vector3(0, 1.0f, 0), _color);
-                _manager?.SoundRef?.Play(_sound, GlobalPosition, 1.0f, -6.0f);
+                _manager?.SoundRef?.Play(_sound, point, 1.0f, -6.0f);
             }
         }
         else
         {
-            _manager?.Puff(GlobalPosition, _color);
+            _manager?.Puff(point, _color);
         }
 
         QueueFree();

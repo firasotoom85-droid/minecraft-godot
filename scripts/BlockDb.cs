@@ -331,9 +331,16 @@ public static class BlockDb
     /// </summary>
     public static bool RayIntersectsCross(
             Vector3 origin, Vector3 direction, Vector3I block, float minDistance,
-            float maxDistance, out float hitDistance)
+            float maxDistance, out float hitDistance) =>
+            RayIntersectsCross(origin, direction, block, minDistance, maxDistance,
+                    out hitDistance, out _);
+
+    public static bool RayIntersectsCross(
+            Vector3 origin, Vector3 direction, Vector3I block, float minDistance,
+            float maxDistance, out float hitDistance, out Vector3 hitNormal)
     {
         hitDistance = float.PositiveInfinity;
+        hitNormal = Vector3.Zero;
         Vector3 localOrigin = origin - new Vector3(block.X, block.Y, block.Z);
         const float epsilon = 0.0001f;
 
@@ -349,7 +356,10 @@ public static class BlockDb
                         && point.Y >= -epsilon && point.Y <= 1.0f + epsilon
                         && point.Z >= -epsilon && point.Z <= 1.0f + epsilon)
                 {
+                    Vector3 normal = new Vector3(1.0f, 0.0f, -1.0f).Normalized();
+                    if (direction.Dot(normal) > 0.0f) normal = -normal;
                     hitDistance = distance;
+                    hitNormal = normal;
                 }
             }
         }
@@ -366,7 +376,13 @@ public static class BlockDb
                         && point.Y >= -epsilon && point.Y <= 1.0f + epsilon
                         && point.Z >= -epsilon && point.Z <= 1.0f + epsilon)
                 {
-                    hitDistance = Mathf.Min(hitDistance, distance);
+                    if (distance < hitDistance)
+                    {
+                        Vector3 normal = new Vector3(1.0f, 0.0f, 1.0f).Normalized();
+                        if (direction.Dot(normal) > 0.0f) normal = -normal;
+                        hitDistance = distance;
+                        hitNormal = normal;
+                    }
                 }
             }
         }

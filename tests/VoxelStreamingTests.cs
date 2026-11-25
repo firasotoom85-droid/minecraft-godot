@@ -19,6 +19,7 @@ public static class VoxelStreamingTests
         TestAssert.Check(StreamingApplyBudget.ShouldStop(0.0, 1, 0.0),
                 "zero time budget yields after one bounded resource slice");
 
+        TestColliderReadinessEpochs();
         TestChunkWorkTracking();
         TestChunkWorkerLifecycle();
         TestChunkGenerationReservation();
@@ -45,6 +46,20 @@ public static class VoxelStreamingTests
         TestMeshingConfigurationRevision();
         TestPayloadPoolCapacityBudget();
         TestPartialBuildBufferOwnership();
+    }
+
+    private static void TestColliderReadinessEpochs()
+    {
+        TestAssert.Check(ChunkCollisionReadiness.IsReady(12, 12, true),
+                "collision readiness requires and accepts the current edit epoch");
+        TestAssert.Check(!ChunkCollisionReadiness.IsReady(11, 12, true),
+                "collision from an earlier world edit epoch is stale");
+        TestAssert.Check(ChunkCollisionReadiness.IsReady(12, 12, true),
+                "a current collision payload is ready when it has geometry");
+        TestAssert.Check(!ChunkCollisionReadiness.IsReady(12, 12, false),
+                "a missing or unapplied collision payload cannot satisfy teleport readiness");
+        TestAssert.Check(!ChunkCollisionReadiness.IsReady(0, 1, true),
+                "an initial or unbuilt collision payload cannot satisfy a changed world epoch");
     }
 
     private static void TestMeshingConfigurationRevision()

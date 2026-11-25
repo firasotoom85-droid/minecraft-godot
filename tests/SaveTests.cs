@@ -10,7 +10,7 @@ namespace Minecraft;
 
 public static class SaveTests
 {
-    public static void Run()
+    public static void Run(Node host)
     {
 
         string root = $"user://tests/save-{Time.GetTicksUsec()}";
@@ -73,7 +73,35 @@ public static class SaveTests
         TestAssert.Check(restoredDeadStats.Dead && restoredDeadStats.Health == 0.0f,
                 "explicitly dead player save restores zero health and dead state");
 
+        // Player.Respawn now exercises the production destination/collider
+        // transaction, so give this persistence regression a real, loaded
+        // world and a supported anchor rather than testing a detached Player.
+        string respawnDir = root + "/respawn-world";
+        DirAccess.MakeDirRecursiveAbsolute(respawnDir);
+        const int respawnSeed = 314159;
+        WorldStore.WriteManifest(respawnDir, new WorldManifest(
+                "Save regression respawn", respawnSeed, WorldStore.CurrentGenVersion,
+                WorldStore.DeriveNoiseSeeds(respawnSeed), 0, 0, "survival", "normal"));
+        GameSession.Instance.SelectWorld(respawnDir);
+        VoxelWorld respawnWorld = new();
+        host.AddChild(respawnWorld);
+        respawnWorld.BuildPreview(Vector3.Zero, 1);
+        TestAssert.Check(respawnWorld.SetBlock(10, 64, -3, BlockId.Stone),
+                "save respawn fixture creates real support under the saved anchor");
+
         Player deadPlayer = new();
+        deadPlayer.AddChild(new CollisionShape3D
+        {
+            Name = "Collision",
+            Shape = new CapsuleShape3D { Radius = Player.CollisionRadius, Height = Player.CollisionHeight },
+            Position = Vector3.Up * (Player.CollisionHeight * 0.5f),
+        });
+        Camera3D deadCamera = new() { Name = "Camera3D" };
+        deadCamera.AddChild(new RayCast3D { Name = "RayCast3D" });
+        deadPlayer.AddChild(deadCamera);
+        host.AddChild(deadPlayer);
+        deadPlayer.World = respawnWorld;
+        respawnWorld.Player = deadPlayer;
         deadPlayer.Position = new Vector3(3.0f, 20.0f, 4.0f);
         deadPlayer.LoadFromSave(deadReload?.Mode, deadReload?.Health ?? 0.0f,
                 deadReload?.Hunger ?? -1.0f,
@@ -91,7 +119,10 @@ public static class SaveTests
                 "softcore respawn preserves player experience");
         TestAssert.Equal(new Vector3(10.5f, 65.0f, -2.5f), deadPlayer.RespawnPoint ?? Vector3.Zero,
                 "softcore respawn keeps the saved anchor");
+        host.RemoveChild(deadPlayer);
         deadPlayer.Free();
+        host.RemoveChild(respawnWorld);
+        respawnWorld.Free();
         PlayerSave orientationSave = new([2.0f, 64.0f, -3.0f],
                 Yaw: 1.25f, Pitch: -0.45f);
         PlayerSave? orientationReload = JsonSerializer.Deserialize<PlayerSave>(
@@ -437,6 +468,18 @@ public static class SaveTests
         if (retainedQuarantine is not null
                 && System.IO.Directory.Exists(ProjectSettings.GlobalizePath(retainedQuarantine)))
             System.IO.Directory.Delete(ProjectSettings.GlobalizePath(retainedQuarantine), recursive: true);
+
+        // The test-only cleanup helper must never be pointed at a user world:
+        // benchmark worlds live in the world library and need the library API.
+        string benchmarkDeleteDir = WorldStore.Create("Disposable Benchmark Delete Test", 424244);
+        TestAssert.Check(!WorldStore.DeleteTemporaryWorld(benchmarkDeleteDir),
+                "temporary-world cleanup refuses a user world-library path");
+        TestAssert.Check(DirAccess.DirExistsAbsolute(benchmarkDeleteDir),
+                "refused temporary cleanup leaves the world in place");
+        TestAssert.Check(WorldStore.Delete(benchmarkDeleteDir, retainRecoveryCopy: false),
+                "benchmark cleanup permanently removes a user world-library world");
+        TestAssert.Check(!DirAccess.DirExistsAbsolute(benchmarkDeleteDir),
+                "permanent benchmark cleanup leaves no live world or quarantine copy");
 
         string escapeDir = WorldStore.WorldsRoot + "/../delete-escape-world";
         DirAccess.MakeDirRecursiveAbsolute(escapeDir);

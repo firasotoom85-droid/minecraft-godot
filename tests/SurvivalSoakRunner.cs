@@ -118,7 +118,8 @@ public partial class SurvivalSoakRunner : Node
             Settings.Difficulty = Settings.DifficultyNormal;
             _player.SetMode(GameMode.Survival);
             _surfacePosition = _world.FindSpawn();
-            _player.GlobalPosition = _surfacePosition;
+            TeleportPlayerOrThrow(_surfacePosition, "surface spawn");
+            _surfacePosition = _player.GlobalPosition;
             GD.Print($"SURVIVAL SOAK: initialized main scene, duration={_duration:0}s, " +
                     $"viewDistance={_world.ViewDistance}, meshWorkers={_world.MaxInFlight}, " +
                     $"lodRadius={_world.LodRadius:0}, difficulty=normal");
@@ -165,7 +166,8 @@ public partial class SurvivalSoakRunner : Node
                 if (_hasCave)
                 {
                     _inCave = !_inCave;
-                    _player.GlobalPosition = _inCave ? _cavePosition : _surfacePosition;
+                    TeleportPlayerOrThrow(_inCave ? _cavePosition : _surfacePosition,
+                            _inCave ? "cave transition" : "surface return");
                     if (_inCave)
                     {
                         int stalkers = _mobs.SpawnKind("stalker", 2);
@@ -262,6 +264,13 @@ public partial class SurvivalSoakRunner : Node
                 $"gc={GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}");
     }
 
+    private void TeleportPlayerOrThrow(Vector3 destination, string transition)
+    {
+        if (_player == null || !_player.TryTeleportToSafePosition(destination))
+            throw new InvalidOperationException(
+                    $"Survival soak could not resolve a collision-ready {transition} destination.");
+    }
+
     private void StartScenario()
     {
         Settings.Difficulty = Settings.DifficultyNormal;
@@ -272,7 +281,7 @@ public partial class SurvivalSoakRunner : Node
         _hasCave = TryFindCave(out _cavePosition);
         if (_hasCave)
         {
-            _player.GlobalPosition = _cavePosition;
+            TeleportPlayerOrThrow(_cavePosition, "initial cave transition");
             _inCave = true;
         }
 
@@ -405,7 +414,12 @@ public partial class SurvivalSoakRunner : Node
                                 || _world.GetBlock(x, y, z) != BlockId.Air
                                 || _world.GetBlock(x, y + 1, z) != BlockId.Air
                                 || !BlockDb.DefOf(_world.GetBlock(x, y - 1, z)).Solid) continue;
-                        position = new Vector3(x + 0.5f, y + 0.1f, z + 0.5f);
+                        // CharacterBody3D's root is the capsule feet plane;
+                        // the collision shape itself is centred at +0.9 m.
+                        Vector3 candidate = new(x + 0.5f, y, z + 0.5f);
+                        if (!_world.IsSafePlayerPosition(candidate))
+                            continue;
+                        position = candidate;
                         return true;
                     }
                 }

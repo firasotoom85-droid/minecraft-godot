@@ -171,8 +171,9 @@ public partial class DevConsole : CanvasLayer
                         && float.TryParse(parts[2], out float ty)
                         && float.TryParse(parts[3], out float tz))
                 {
-                    _player.GlobalPosition = new Vector3(tx, ty, tz);
-                    _player.Velocity = Vector3.Zero;
+                    Vector3 requested = new(tx, ty, tz);
+                    if (!_player.TryTeleportToSafePosition(requested))
+                        return "teleport failed: no safe destination with ready terrain collision";
                     return $"tp {tx:0.0} {ty:0.0} {tz:0.0}";
                 }
 
@@ -242,9 +243,9 @@ public partial class DevConsole : CanvasLayer
 
                 return "usage: /greedy on|off";
             case "spawn":
-                _player.GlobalPosition = _world.FindSpawn();
-                _player.Velocity = Vector3.Zero;
-                return "teleported to spawn";
+                return _player.TryTeleportToSafePosition()
+                        ? "teleported to a validated spawn"
+                        : "no safe spawn with ready terrain collision is available";
             case "save":
                 _world.SaveNow();
                 return "saved";
@@ -427,8 +428,9 @@ public partial class DevConsole : CanvasLayer
                         float y = kind == 3
                                 ? Structures.DungeonArenaY(site) + 2.0f
                                 : site.Y + 3.0f;
-                        _player.GlobalPosition = new Vector3(site.X + 0.5f, y, site.Z + 0.5f);
-                        _player.Velocity = Vector3.Zero;
+                        Vector3 requested = new(site.X + 0.5f, y, site.Z + 0.5f);
+                        if (!_player.TryTeleportToSafePosition(requested))
+                            return $"could not teleport to {parts[1]}: destination is unsafe or collision is unavailable";
                         return $"{parts[1]} at {site.X} {site.Y} {site.Z}";
                     }
 

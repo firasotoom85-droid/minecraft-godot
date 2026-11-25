@@ -170,6 +170,7 @@ public partial class VoxelWorld : Node3D
 
     /// <summary>Optional deterministic hook for snapshot-lock regression tests.</summary>
     internal Action? SnapshotReleasedTestHook { get; set; }
+    internal Func<SpawnCandidate, bool>? SpawnCandidateValidatorForTests { get; set; }
 
     // Nearest-first build queues: .NET's PriorityQueue replaces the
     // "sort a candidate list" bookkeeping, and the side sets keep them unique.
@@ -2489,12 +2490,15 @@ public partial class VoxelWorld : Node3D
         int i = lx + lz * ChunkZ + y * ChunkX * ChunkZ;
         bool isCampfireCell = IsCampfireSiteCell(x, y, z);
         bool lightingChanged = false;
+        bool collisionShapeChanged = false;
         lock (SnapshotLock)
         {
             // Chunk.Blocks is also read by worker meshing. Mutate it while
             // holding the snapshot lock so payload data and EditEpoch agree.
             byte oldBlock = c.Blocks[i];
             byte oldState = c.BlockStates.Length > 0 ? c.BlockStates[i] : (byte)0;
+            collisionShapeChanged = BlockShapes.OccupancyMask((BlockId)oldBlock, oldState)
+                    != BlockShapes.OccupancyMask(id, state);
             if (!c.SetBlockLocal(lx, y, lz, id, state))
             {
                 return false;
@@ -2586,6 +2590,20 @@ public partial class VoxelWorld : Node3D
         MarkDirty();
         BlockChanged?.Invoke(new Vector3I(x, y, z));
 
+        // Keep collision authoritative near the player: rebuild the edited
+        // chunk before the next physics step when a mutation changes occupied
+        // geometry inside the short movement horizon. Distant edits remain on
+        // the existing bounded asynchronous rebuild pipeline.
+        bool collisionRebuilt = false;
+        if (collisionShapeChanged && Player is { } player)
+        {
+            Vector3 playerCenter = player.GlobalPosition
+                    + Vector3.Up * (Player.CollisionHeight * 0.5f);
+            Vector3 editedCenter = new(x + 0.5f, y + 0.5f, z + 0.5f);
+            collisionRebuilt = playerCenter.DistanceSquaredTo(editedCenter) <= 4.0f
+                    && RebuildChunkNow(cp);
+        }
+
         // Geometry-only edits rebuild the owner plus sampled edge/corner chunks.
         // Lighting edits rebuild a 5x5 target region: each target consumes 3x3
         // cached maps, and those maps each include the existing 14-voxel light halo.
@@ -2601,7 +2619,8 @@ public partial class VoxelWorld : Node3D
                 }
 
                 Vector2I affected = cp + new Vector2I(dx, dz);
-                if (_chunks.ContainsKey(affected))
+                if (_chunks.ContainsKey(affected)
+                        && !(collisionRebuilt && affected == cp))
                 {
                     EnqueueRebuild(affected);
                 }
@@ -3080,6 +3099,47 @@ public partial class VoxelWorld : Node3D
         return bytes;
     }
 
+    /// <summary>
+    /// Synchronously refresh one loaded chunk from the current snapshot. A
+    /// worker payload for an older epoch is rejected by ApplyBuild; a payload
+    /// built from the same epoch is equivalent and safe to apply later.
+    /// </summary>
+    private bool RebuildChunkNow(Vector2I cp)
+    {
+        if (!_chunks.TryGetValue(cp, out Chunk? chunk))
+        {
+            chunk = BuildNow(cp);
+            return chunk.AppliedEditEpoch == EditEpoch
+                    && chunk.CollisionPayloadApplied;
+        }
+
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            MeshPayload payload = Mesher.Build(this, cp);
+            try
+            {
+                bool epochCurrent;
+                lock (SnapshotLock)
+                    epochCurrent = payload.Epoch == EditEpoch;
+                if (!epochCurrent || !Mesher.IsConfigurationCurrent(payload.MeshingRevision)
+                        || payload.BoundaryMask != MissingColliderBoundaryMask(cp))
+                    continue;
+
+                chunk.ApplyPayload(payload);
+                SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
+                return chunk.AppliedEditEpoch == payload.Epoch
+                        && chunk.CollisionPayloadApplied;
+            }
+            finally
+            {
+                PayloadPool.Release(payload);
+            }
+        }
+
+        EnqueueRebuild(cp);
+        return false;
+    }
+
     /// <summary>Synchronous build (startup / when a node must exist immediately).</summary>
     private Chunk BuildNow(Vector2I cp)
     {
@@ -3487,6 +3547,216 @@ public partial class VoxelWorld : Node3D
         }
     }
 
+    /// <summary>
+    /// Validate an arbitrary persisted/player position using the same capsule
+    /// geometry as generated spawns, while requiring real support beneath it.
+    /// Unlike IsSafeSpawnPosition this accepts normal saved positions that are
+    /// not centred on a voxel column.
+    /// </summary>
+    internal bool IsSafePlayerPosition(Vector3 position, bool allowWater = false,
+            bool allowVehicleSupport = false)
+    {
+        if (!float.IsFinite(position.X) || !float.IsFinite(position.Y)
+                || !float.IsFinite(position.Z) || position.Y < 1.0f
+                || position.Y + 1.8f > Height)
+        {
+            return false;
+        }
+
+        int minX = Mathf.FloorToInt(position.X - 0.35f);
+        int maxX = Mathf.FloorToInt(position.X + 0.35f);
+        int minZ = Mathf.FloorToInt(position.Z - 0.35f);
+        int maxZ = Mathf.FloorToInt(position.Z + 0.35f);
+        if (_genVersion >= WorldGenV12.Version)
+        {
+            for (int z = minZ; z <= maxZ; z++)
+                for (int x = minX; x <= maxX; x++)
+                    if (!WorldGenV12.ContainsWorldPosition(x, z))
+                        return false;
+        }
+
+        bool hasSolidSupport = HasPlayerSupport(position);
+        if (!hasSolidSupport && !allowWater && !allowVehicleSupport)
+            return false;
+
+        return IsSpawnCapsuleClear(position, allowWater, out bool waterIntersected)
+                && (hasSolidSupport || allowVehicleSupport
+                    || allowWater && waterIntersected);
+    }
+
+    /// <summary>
+    /// Check the actual horizontal capsule footprint against the voxel
+    /// microcells immediately below the player's support plane. The player
+    /// root sits 0.5 m above that plane, matching the existing FindSpawn
+    /// contract; half-height surfaces therefore include bottom slabs/stair
+    /// treads instead of assuming every saved position stands on a full cube.
+    /// </summary>
+    private bool HasPlayerSupport(Vector3 position) =>
+            HasPlayerSupportAtPlane(position, position.Y)
+            || HasPlayerSupportAtPlane(position, position.Y - 0.5f);
+
+    private bool HasPlayerSupportAtPlane(Vector3 position, float supportPlaneY)
+    {
+        const float radius = 0.35f;
+        const float epsilon = 0.001f;
+        int minX = Mathf.FloorToInt(position.X - radius);
+        int maxX = Mathf.FloorToInt(position.X + radius);
+        int minZ = Mathf.FloorToInt(position.Z - radius);
+        int maxZ = Mathf.FloorToInt(position.Z + radius);
+        int supportFloorY = Mathf.FloorToInt(supportPlaneY);
+
+        for (int y = supportFloorY - 1; y <= supportFloorY; y++)
+        {
+            if (y < 0 || y >= Height)
+                continue;
+
+            for (int z = minZ; z <= maxZ; z++)
+            {
+                for (int x = minX; x <= maxX; x++)
+                {
+                    BlockId id = GetBlock(x, y, z);
+                    byte mask = BlockShapes.OccupancyMask(id, GetBlockState(x, y, z));
+                    if (mask == 0)
+                        continue;
+
+                    for (int halfY = 0; halfY < 2; halfY++)
+                    {
+                        float topY = y + (halfY + 1) * 0.5f;
+                        if (Mathf.Abs(topY - supportPlaneY) > epsilon)
+                            continue;
+
+                        for (int halfZ = 0; halfZ < 2; halfZ++)
+                        {
+                            for (int halfX = 0; halfX < 2; halfX++)
+                            {
+                                int bit = halfX + halfZ * 2 + halfY * 4;
+                                if ((mask & (1 << bit)) == 0)
+                                    continue;
+
+                                float cellMinX = x + halfX * 0.5f;
+                                float cellMaxX = cellMinX + 0.5f;
+                                float cellMinZ = z + halfZ * 0.5f;
+                                float cellMaxZ = cellMinZ + 0.5f;
+                                float dx = position.X - Mathf.Clamp(position.X, cellMinX, cellMaxX);
+                                float dz = position.Z - Mathf.Clamp(position.Z, cellMinZ, cellMaxZ);
+                                if (dx * dx + dz * dz <= radius * radius + epsilon)
+                                    return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Find the occupied saved boat that actually contained the player at the
+    /// last save. The seat offset mirrors Player.EnterBoat; unrelated nearby
+    /// occupied records must not hijack normal saved-position restoration.
+    /// </summary>
+    internal bool TryGetSavedOccupiedBoatSeat(Vector3 savedPlayerPosition, out Vector3 seat)
+    {
+        seat = Vector3.Zero;
+        if (SavedBoats == null || !float.IsFinite(savedPlayerPosition.X)
+                || !float.IsFinite(savedPlayerPosition.Y)
+                || !float.IsFinite(savedPlayerPosition.Z))
+            return false;
+
+        float closestDistanceSquared = 1.0f;
+        bool found = false;
+        foreach (BoatSave savedBoat in SavedBoats)
+        {
+            if (!savedBoat.Occupied || savedBoat.Position is not { Length: 3 } position
+                    || !float.IsFinite(position[0]) || !float.IsFinite(position[1])
+                    || !float.IsFinite(position[2]) || !float.IsFinite(savedBoat.Yaw))
+                continue;
+
+            Vector3 candidate = new(position[0], position[1] + 0.48f, position[2]);
+            float distanceSquared = candidate.DistanceSquaredTo(savedPlayerPosition);
+            if (distanceSquared > closestDistanceSquared)
+                continue;
+
+            closestDistanceSquared = distanceSquared;
+            seat = candidate;
+            found = true;
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// Resolve a requested saved/respawn position or use the deterministic
+    /// world spawn. Failure is explicit and never returns an unchecked default.
+    /// </summary>
+    internal bool TryResolvePlayerDestination(Vector3? preferredPosition,
+            out Vector3 destination,
+            bool allowWater = false,
+            Func<SpawnCandidate, bool>? candidateValidatorOverride = null,
+            Vector3? alternatePosition = null,
+            bool allowVehicleSupport = false)
+    {
+        if (preferredPosition is Vector3 preferred
+                && IsSafePlayerPosition(preferred, allowWater, allowVehicleSupport))
+        {
+            destination = preferred;
+            return true;
+        }
+
+        if (alternatePosition is Vector3 alternate
+                && IsSafePlayerPosition(alternate, allowWater, allowVehicleSupport))
+        {
+            destination = alternate;
+            return true;
+        }
+
+        try
+        {
+            destination = FindSpawn(candidateValidatorOverride ?? SpawnCandidateValidatorForTests);
+            return IsSafePlayerPosition(destination);
+        }
+        catch (InvalidOperationException)
+        {
+            destination = Vector3.Zero;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Ensure the destination's chunk collider represents the latest world
+    /// edit epoch before a player transition can commit.
+    /// </summary>
+    internal bool TryEnsureCollisionReady(Vector3 destination, bool allowWater = false,
+            bool allowVehicleSupport = false)
+    {
+        if (!IsSafePlayerPosition(destination, allowWater, allowVehicleSupport))
+            return false;
+
+        Vector2I cp = new(
+                Mathf.FloorToInt(destination.X / ChunkX),
+                Mathf.FloorToInt(destination.Z / ChunkZ));
+        Chunk chunk = BuildNow(cp);
+
+        long currentEpoch;
+        lock (SnapshotLock)
+            currentEpoch = EditEpoch;
+
+        if (!ChunkCollisionReadiness.IsReady(chunk.AppliedEditEpoch, currentEpoch,
+                chunk.CollisionPayloadApplied))
+        {
+            if (!RebuildChunkNow(cp))
+                return false;
+
+            lock (SnapshotLock)
+                currentEpoch = EditEpoch;
+        }
+
+        return ChunkCollisionReadiness.IsReady(chunk.AppliedEditEpoch, currentEpoch,
+                        chunk.CollisionPayloadApplied)
+                && IsSafePlayerPosition(destination, allowWater, allowVehicleSupport);
+    }
+
     internal readonly record struct SpawnCandidate(int X, int Z, int SurfaceY, long DistanceSquared);
 
     /// <summary>Nearest validated dry-land column to the origin.</summary>
@@ -3629,11 +3899,12 @@ public partial class VoxelWorld : Node3D
 
         Vector3 feet = new(candidate.X + 0.5f,
                 candidate.SurfaceY + 1.5f, candidate.Z + 0.5f);
-        return IsSpawnCapsuleClear(feet);
+        return IsSpawnCapsuleClear(feet, allowWater: false, out _);
     }
 
-    private bool IsSpawnCapsuleClear(Vector3 feet)
+    private bool IsSpawnCapsuleClear(Vector3 feet, bool allowWater, out bool waterIntersected)
     {
+        waterIntersected = false;
         const float radius = 0.35f;
         const float height = 1.8f;
         if (feet.Y < 0.0f || feet.Y + height > Height)
@@ -3671,7 +3942,9 @@ public partial class VoxelWorld : Node3D
                         if (CapsuleIntersectsVoxelAabb(feet, radius, height,
                                 blockOrigin, waterMax))
                         {
-                            return false;
+                            waterIntersected = true;
+                            if (!allowWater)
+                                return false;
                         }
                     }
 

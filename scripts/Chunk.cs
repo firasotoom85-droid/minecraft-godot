@@ -5,6 +5,14 @@ using Godot;
 
 namespace Minecraft;
 
+/// <summary>Shared epoch/readiness predicate for authoritative terrain collision.</summary>
+internal static class ChunkCollisionReadiness
+{
+    public static bool IsReady(long appliedEditEpoch, long worldEditEpoch,
+            bool collisionPayloadApplied) =>
+            collisionPayloadApplied && appliedEditEpoch == worldEditEpoch;
+}
+
 /// <summary>
 /// A built chunk node: block data reference, three render surfaces
 /// (opaque terrain / alpha-blended glass / animated water) and one trimesh
@@ -25,6 +33,14 @@ public partial class Chunk : StaticBody3D
 
     /// <summary>Estimated CPU-side mesh/collision array bytes represented by the applied payload.</summary>
     public long EstimatedMeshBytes { get; private set; }
+    /// <summary>World edit epoch represented by the currently applied mesh/collider payload.</summary>
+    public long AppliedEditEpoch { get; private set; }
+    /// <summary>
+    /// True when the current edit-epoch payload was applied with collision
+    /// building enabled. A payload with zero collision vertices is still a
+    /// completed collision snapshot; it does not require a CollisionShape3D.
+    /// </summary>
+    public bool CollisionPayloadApplied { get; private set; }
 
     private MeshInstance3D _meshOpaque = null!;
     private MeshInstance3D? _meshGlass;
@@ -119,6 +135,7 @@ public partial class Chunk : StaticBody3D
             IReadOnlyList<ConcavePolygonShape3D> collisionShapes,
             bool applyCollision)
     {
+        AppliedEditEpoch = payload.Epoch;
         EstimatedMeshBytes = payload.EstimatedResourceBytes;
         _meshOpaque.Mesh = opaque;
         _meshOpaque.MaterialOverride = ChunkMaterials.Opaque;
@@ -129,7 +146,16 @@ public partial class Chunk : StaticBody3D
         ApplyOptionalSurface(ref _meshLava, lava, ChunkMaterials.Lava,
                 "LavaMesh", sortByBounds: false);
 
-        if (!applyCollision) return;
+        // Collision resources are optional too: most render-only chunks and
+        // many empty preview chunks never need a physics child at all. The
+        // readiness flag publishes only after every prepared shape is attached.
+        CollisionPayloadApplied = false;
+        if (!applyCollision)
+        {
+            for (int i = 0; i < _collisions.Count; i++)
+                _collisions[i].Shape = null;
+            return;
+        }
 
         for (int i = 0; i < collisionShapes.Count; i++)
         {
@@ -141,6 +167,7 @@ public partial class Chunk : StaticBody3D
 
         for (int i = collisionShapes.Count; i < _collisions.Count; i++)
             _collisions[i].Shape = null;
+        CollisionPayloadApplied = true;
     }
 
     private void ApplyOptionalSurface(

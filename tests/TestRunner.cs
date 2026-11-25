@@ -20,6 +20,7 @@ public partial class TestRunner : Node
         RunSuite("performance-benchmark", PerformanceBenchmarkTests.Run);
         await RunSuiteAsync("runner-reliability", RunnerReliabilityTests.Run);
         RunSuite("voxel-streaming", VoxelStreamingTests.Run);
+        RunSuite("spawn-recovery", () => SpawnRecoveryTests.Run(this));
         RunSuite("far-lod-lifecycle", FarLodLifecycleTests.Run);
         RunSuite("graphics", GraphicsTests.Run);
         RunSuite("low-cost-shaders", LowCostShaderTests.Run);
@@ -62,7 +63,7 @@ public partial class TestRunner : Node
         RunSuite("fluids", FluidTests.Run);
         RunSuite("fluid-world", () => FluidWorldTests.Run(this));
         RunSuite("boats-buckets", () => BoatBucketTests.Run(this));
-        RunSuite("save", SaveTests.Run);
+        RunSuite("save", () => SaveTests.Run(this));
         RunSuite("integration", () => IntegrationTests.Run(this));
         RunSuite("world-archives", WorldArchiveTests.Run);
         RunSuite("worldgen", () => WorldgenTests.Run(this));

@@ -1028,7 +1028,10 @@ public partial class PerformanceRunner : Node
     {
         if (_worldDir.Length == 0) return true;
         string directory = _worldDir;
-        bool deleted = DeleteWorldOverride?.Invoke(directory) ?? WorldStore.DeleteTemporaryWorld(directory);
+        // Benchmark worlds live in the user world library, not user://tests.
+        // Use the library deletion path and discard the recovery quarantine.
+        bool deleted = DeleteWorldOverride?.Invoke(directory)
+                ?? WorldStore.Delete(directory, retainRecoveryCopy: false);
         if (deleted) _worldDir = "";
         else GD.PushError($"PERF BENCHMARK: failed to remove disposable world '{directory}'.");
         return deleted;
