@@ -176,11 +176,12 @@ idempotent. Shutdown cancellation is distinct from a recoverable Far-LOD build
 failure and does not schedule retries during teardown.
 
 Regression coverage is in `VoxelStreamingTests`,
-`FarLodLifecycleTests` and `GlassTests`. CI verified Debug and Release
-warnings-as-errors builds, changed-C# formatting, 201,649 Godot headless checks
-with zero failures, and five spatial lighting probe grids with 27/27 reference
-samples each. This W13.1 slice does not change global `EditEpoch` validation,
-save formats, persisted IDs or world-generation versions.
+`FarLodLifecycleTests` and `GlassTests`. Verification on 2026-11-25 ran Debug
+and Release warnings-as-errors builds with zero warnings, 201,710 Godot
+headless checks with zero failures, and five spatial lighting probe grids with
+27/27 reference samples each and zero measured drift. This W13.1 slice does not
+change global `EditEpoch` validation, save formats, persisted IDs or
+world-generation versions.
 
 ## Dependency-local revisions and staged chunk application — 2026-11-25
 
