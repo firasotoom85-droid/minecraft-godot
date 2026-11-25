@@ -1,9 +1,10 @@
 # Issue closure review — 2026-11-25
 
-Read-only review of the 101 issues open on GitHub after the W12/W15 integration.
-No issue state was changed. Closure still requires hosted CI and the issue
-owner's confirmation; this record only identifies where the current tree already
-implements the requested behaviour.
+Review of the 101 issues that were open on GitHub after the W12/W15 integration.
+After hosted CI passed, 32 issues with the evidence below were closed with a
+link to this record; 69 remain open. The closed set is limited to behaviour that
+is implemented and regression-covered on the current tree. The rest still need
+rendered captures, design changes or performance work.
 
 ## Verified as implemented on current `main`
 
@@ -45,7 +46,8 @@ implements the requested behaviour.
 ## Newer remediation issues (#217–#282)
 
 These correspond to the landed W11/W12/W14/W15 work and are covered by the
-202,834-check suite, but they were not closed individually. W15's visual issues
+202,834-check suite. Only #254 (keyboard remap restore) was closed from this
+group; the others were not closed individually. W15's visual issues
 still need the captures in `docs/visual/W15_VISUAL_VALIDATION.md`, and #148
 remains open because the MX230 p95 exceeds the cooperative budget. Do not close
 the group from this review alone.
