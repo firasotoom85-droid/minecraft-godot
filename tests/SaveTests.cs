@@ -438,6 +438,18 @@ public static class SaveTests
                 && System.IO.Directory.Exists(ProjectSettings.GlobalizePath(retainedQuarantine)))
             System.IO.Directory.Delete(ProjectSettings.GlobalizePath(retainedQuarantine), recursive: true);
 
+        // The test-only cleanup helper must never be pointed at a user world:
+        // benchmark worlds live in the world library and need the library API.
+        string benchmarkDeleteDir = WorldStore.Create("Disposable Benchmark Delete Test", 424244);
+        TestAssert.Check(!WorldStore.DeleteTemporaryWorld(benchmarkDeleteDir),
+                "temporary-world cleanup refuses a user world-library path");
+        TestAssert.Check(DirAccess.DirExistsAbsolute(benchmarkDeleteDir),
+                "refused temporary cleanup leaves the world in place");
+        TestAssert.Check(WorldStore.Delete(benchmarkDeleteDir, retainRecoveryCopy: false),
+                "benchmark cleanup permanently removes a user world-library world");
+        TestAssert.Check(!DirAccess.DirExistsAbsolute(benchmarkDeleteDir),
+                "permanent benchmark cleanup leaves no live world or quarantine copy");
+
         string escapeDir = WorldStore.WorldsRoot + "/../delete-escape-world";
         DirAccess.MakeDirRecursiveAbsolute(escapeDir);
         string escapeMarker = escapeDir + "/marker.txt";
