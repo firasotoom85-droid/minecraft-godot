@@ -223,12 +223,16 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     private readonly InvSlot[] _armorSlots = new InvSlot[Inventory.ArmorSlots];
     private readonly InvSlot[] _containerSlots = new InvSlot[Container.Size];
     private readonly InvSlot[] _furnaceSlots = new InvSlot[3];
-    private readonly ItemStack[] _craft = new ItemStack[9];
+    private ItemStack[] _craft => _player.Inventory.CraftingGrid;
     private Container? _container;
     private FurnaceData? _furnace;
     private double _furnaceRefreshTimer;
     private int _craftSize = 2;
-    private ItemStack _cursor = ItemStack.Empty;
+    private ItemStack _cursor
+    {
+        get => _player.Inventory.CursorStack;
+        set => _player.Inventory.CursorStack = value;
+    }
     private bool _open;
     private bool _enchantingTableOpen;
 
@@ -670,28 +674,12 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     private void ReturnCraftItems()
     {
-        for (int i = 0; i < _craft.Length; i++)
-        {
-            if (_craft[i].IsEmpty)
-            {
-                continue;
-            }
-
-            int leftover = _player.Inventory.Add(_craft[i]);
-            _craft[i] = leftover <= 0 ? ItemStack.Empty : _craft[i] with { Count = leftover };
-        }
+        _player.Inventory.ReturnCraftingGridItems();
     }
 
     private void GiveCursorBack()
     {
-        if (_cursor.IsEmpty)
-        {
-            return;
-        }
-
-        int leftover = _player.Inventory.Add(_cursor);
-        _cursor = leftover <= 0 ? ItemStack.Empty : _cursor with { Count = leftover };
-        if (leftover > 0)
+        if (_player.Inventory.ReturnCursorItem() > 0)
         {
             _hud.ShowToast("Inventory full");
         }
@@ -703,6 +691,13 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     private void OnSlotClicked(InvSlot slot, MouseButton button)
     {
+        if (_player.Inventory.HasUnrecognizedSaveSlot(Inventory.CursorSaveSlot)
+                || IsUnrecognizedSlot(slot))
+        {
+            _hud.ShowToast("An item from a different content version is preserved and cannot be changed");
+            return;
+        }
+
         if (button == MouseButton.Left && Input.IsKeyPressed(Key.Shift) && TransferSlotToInventory(slot))
         {
             _player.Inventory.RaiseChanged();
@@ -763,13 +758,32 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             return false;
 
         ItemStack stack = ReadSlot(slot);
-        if (stack.IsEmpty) return false;
-        int leftover = _player.Inventory.Add(stack);
-        int moved = stack.Count - leftover;
-        if (moved <= 0) return false;
-        WriteSlot(slot, leftover <= 0 ? ItemStack.Empty : stack with { Count = leftover });
+        if (!InventoryStackTransfer.TryTransferToInventory(ref stack, _player.Inventory))
+            return false;
+        WriteSlot(slot, stack);
         return true;
     }
+
+    private bool IsUnrecognizedSlot(InvSlot slot) => slot.Kind switch
+    {
+        SlotKind.Craft => _player.Inventory.HasUnrecognizedSaveSlot(
+                Inventory.CraftingGridSaveSlot + slot.Index),
+        SlotKind.Backpack => _player.Inventory.HasUnrecognizedSaveSlot(
+                Inventory.HotbarSize + slot.Index),
+        SlotKind.Hotbar => _player.Inventory.HasUnrecognizedSaveSlot(slot.Index),
+        SlotKind.Armor => _player.Inventory.HasUnrecognizedSaveSlot(
+                Inventory.SlotCount + slot.Index),
+        SlotKind.Container => _container?.HasUnrecognizedSaveSlot(slot.Index) ?? false,
+        SlotKind.FurnaceInput => _furnace?.HasUnrecognizedSaveSlot(0) ?? false,
+        SlotKind.FurnaceFuel => _furnace?.HasUnrecognizedSaveSlot(1) ?? false,
+        SlotKind.FurnaceOutput => _furnace?.HasUnrecognizedSaveSlot(2) ?? false,
+        _ => false,
+    };
+
+    private (Recipe Recipe, int Row, int Col)? CraftMatch() =>
+            _player.Inventory.HasUnrecognizedCraftingGridItem()
+                    ? null
+                    : Recipes.Match(_craft, _craftSize);
 
     private ItemStack ReadSlot(InvSlot slot) => slot.Kind switch
     {
@@ -788,19 +802,42 @@ public partial class InventoryUi : CanvasLayer, IModalUi
     {
         switch (slot.Kind)
         {
-            case SlotKind.Craft: _craft[slot.Index] = stack; break;
-            case SlotKind.Backpack: _player.Inventory.Backpack[slot.Index] = stack; break;
-            case SlotKind.Hotbar: _player.Inventory.Hotbar[slot.Index] = stack; break;
-            case SlotKind.Armor: _player.Inventory.Armor[slot.Index] = stack; break;
-            case SlotKind.Container when _container != null: _container.Slots[slot.Index] = stack; break;
-            case SlotKind.FurnaceInput when _furnace != null: _furnace.Input = stack; break;
-            case SlotKind.FurnaceFuel when _furnace != null: _furnace.Fuel = stack; break;
-            case SlotKind.FurnaceOutput when _furnace != null: _furnace.Output = stack; break;
+            case SlotKind.Craft:
+                _player.Inventory.SetCraftingGridSlot(slot.Index, stack);
+                break;
+            case SlotKind.Backpack:
+                _player.Inventory.Set(Inventory.HotbarSize + slot.Index, stack);
+                break;
+            case SlotKind.Hotbar:
+                _player.Inventory.Set(slot.Index, stack);
+                break;
+            case SlotKind.Armor:
+                _player.Inventory.Set(Inventory.SlotCount + slot.Index, stack);
+                break;
+            case SlotKind.Container when _container != null:
+                _container.ClearUnrecognizedSaveSlot(slot.Index);
+                _container.Slots[slot.Index] = stack;
+                break;
+            case SlotKind.FurnaceInput when _furnace != null:
+                _furnace.ClearUnrecognizedSaveSlot(0);
+                _furnace.Input = stack;
+                break;
+            case SlotKind.FurnaceFuel when _furnace != null:
+                _furnace.ClearUnrecognizedSaveSlot(1);
+                _furnace.Fuel = stack;
+                break;
+            case SlotKind.FurnaceOutput when _furnace != null:
+                _furnace.ClearUnrecognizedSaveSlot(2);
+                _furnace.Output = stack;
+                break;
         }
     }
 
     private void OnSlotDropped(InvSlot source, InvSlot target)
     {
+        if (_player.Inventory.HasUnrecognizedSaveSlot(Inventory.CursorSaveSlot)
+                || IsUnrecognizedSlot(source) || IsUnrecognizedSlot(target))
+            return;
         if (!_cursor.IsEmpty || source.Kind == SlotKind.Result
                 || target.Kind is SlotKind.Result or SlotKind.FurnaceOutput)
             return;
@@ -929,28 +966,20 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     private void TakeResult()
     {
-        if (Recipes.Match(_craft, _craftSize) is not { } match)
+        if (CraftMatch() is not { } match)
         {
             return;
         }
 
-        ItemStack result = ItemDb.New(match.Recipe.Result, match.Recipe.ResultCount);
-        if (_cursor.IsEmpty)
-        {
-            _cursor = result;
-        }
-        else if (_cursor.Id == result.Id
-                && _cursor.Count + result.Count <= ItemDb.MaxStack(result.Id))
-        {
-            _cursor = _cursor with { Count = _cursor.Count + result.Count };
-        }
-        else if (_player.Inventory.Add(result) > 0)
+        if (!InventoryStackTransfer.TryTakeCraftingResult(
+                    _craft, _craftSize, match, _cursor, _player.Inventory,
+                    out ItemStack updatedCursor))
         {
             _hud.ShowToast("Inventory full");
             return;
         }
 
-        Recipes.ConsumeFromGrid(_craft, _craftSize, match.Recipe, match.Row, match.Col);
+        _cursor = updatedCursor;
         _player.RecordCrafted(match.Recipe.Result, match.Recipe.ResultCount);
         _player.Inventory.RaiseChanged();
     }
@@ -980,9 +1009,16 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
     private void PaletteGive(ItemId item)
     {
-        _player.Inventory.Hotbar[_player.Selected] = ItemDb.New(item, 64);
+        if (!_player.Inventory.TrySetHotbarOrAdd(_player.Selected, ItemDb.New(item, 64)))
+        {
+            _hud.ShowToast("Inventory full");
+            return;
+        }
+
         _player.Inventory.RaiseChanged();
-        _hud.ShowToast($"{ItemDb.NameOf(item)} ×64 → slot {_player.Selected + 1}");
+        _hud.ShowToast(_player.Inventory.HasUnrecognizedSaveSlot(_player.Selected)
+                ? $"{ItemDb.NameOf(item)} ×64 → inventory"
+                : $"{ItemDb.NameOf(item)} ×64 → slot {_player.Selected + 1}");
     }
 
     // -----------------------------------------------------------------------
@@ -1015,7 +1051,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
 
         RefreshFurnace();
         _resultSlot.ShowStack(
-                Recipes.Match(_craft, _craftSize) is { } match
+                CraftMatch() is { } match
                         ? ItemDb.New(match.Recipe.Result, match.Recipe.ResultCount)
                         : ItemStack.Empty,
                 false);

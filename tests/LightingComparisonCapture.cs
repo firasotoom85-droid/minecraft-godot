@@ -332,39 +332,39 @@ public partial class LightingComparisonCapture : Node
         int bestZ = 0;
         VoxelWorld.TreeInfo bestTree = default;
         for (int z = -768; z <= 768; z += 128)
-        for (int x = -768; x <= 768; x += 128)
-        {
-            (int height, Biome biome) = world.SurfaceSampleAt(x, z);
-            if (biome is not (Biome.DenseForest or Biome.Jungle or Biome.Taiga
-                    or Biome.Birch or Biome.Swamp))
-                continue;
-
-            int count = 0;
-            int nearestDistance = int.MaxValue;
-            VoxelWorld.TreeInfo nearestTree = default;
-            for (int dz = -24; dz <= 24; dz += 3)
-            for (int dx = -24; dx <= 24; dx += 3)
+            for (int x = -768; x <= 768; x += 128)
             {
-                if (world.GetTreeAt(x + dx, z + dz) is not { } tree)
+                (int height, Biome biome) = world.SurfaceSampleAt(x, z);
+                if (biome is not (Biome.DenseForest or Biome.Jungle or Biome.Taiga
+                        or Biome.Birch or Biome.Swamp))
                     continue;
-                count++;
-                int distance = dx * dx + dz * dz;
-                if (distance < nearestDistance)
+
+                int count = 0;
+                int nearestDistance = int.MaxValue;
+                VoxelWorld.TreeInfo nearestTree = default;
+                for (int dz = -24; dz <= 24; dz += 3)
+                    for (int dx = -24; dx <= 24; dx += 3)
+                    {
+                        if (world.GetTreeAt(x + dx, z + dz) is not { } tree)
+                            continue;
+                        count++;
+                        int distance = dx * dx + dz * dz;
+                        if (distance < nearestDistance)
+                        {
+                            nearestDistance = distance;
+                            nearestTree = tree;
+                        }
+                    }
+
+                int score = count * 10 + (biome == Biome.DenseForest ? 12 : 0);
+                if (score > bestCount)
                 {
-                    nearestDistance = distance;
-                    nearestTree = tree;
+                    bestCount = score;
+                    bestX = x;
+                    bestZ = z;
+                    bestTree = nearestTree;
                 }
             }
-
-            int score = count * 10 + (biome == Biome.DenseForest ? 12 : 0);
-            if (score > bestCount)
-            {
-                bestCount = score;
-                bestX = x;
-                bestZ = z;
-                bestTree = nearestTree;
-            }
-        }
 
         if (bestCount == 0)
             throw new InvalidOperationException("The fixed seed did not yield a tree-bearing forest candidate.");
@@ -392,17 +392,17 @@ public partial class LightingComparisonCapture : Node
         // voxel passes through SetBlock so baked sky/block maps are invalidated
         // and rebuilt by the exact same mutation path as player edits.
         for (int dz = -4; dz <= 4; dz++)
-        for (int dx = -4; dx <= 4; dx++)
-        {
-            WriteBlock(world, x + dx, floorY, z + dz, BlockId.Stone);
-            WriteBlock(world, x + dx, roofY, z + dz, BlockId.Stone);
-            for (int dy = 1; dy < 5; dy++)
+            for (int dx = -4; dx <= 4; dx++)
             {
-                bool wall = Math.Abs(dx) == 4 || Math.Abs(dz) == 4;
-                WriteBlock(world, x + dx, floorY + dy, z + dz,
-                        wall ? BlockId.Stone : BlockId.Air);
+                WriteBlock(world, x + dx, floorY, z + dz, BlockId.Stone);
+                WriteBlock(world, x + dx, roofY, z + dz, BlockId.Stone);
+                for (int dy = 1; dy < 5; dy++)
+                {
+                    bool wall = Math.Abs(dx) == 4 || Math.Abs(dz) == 4;
+                    WriteBlock(world, x + dx, floorY + dy, z + dz,
+                            wall ? BlockId.Stone : BlockId.Air);
+                }
             }
-        }
 
         // A one-voxel shaft leaves a controlled skylight gradient at the
         // chamber edge while the far wall remains lit by a single voxel torch.
@@ -413,8 +413,8 @@ public partial class LightingComparisonCapture : Node
         // Leave a 3×3 doorway in the camera-facing wall so the fixed camera
         // sees the interior light gradient rather than a close exterior wall.
         for (int dx = -1; dx <= 1; dx++)
-        for (int dy = 1; dy <= 3; dy++)
-            WriteBlock(world, x + dx, floorY + dy, z + 4, BlockId.Air);
+            for (int dy = 1; dy <= 3; dy++)
+                WriteBlock(world, x + dx, floorY + dy, z + 4, BlockId.Air);
 
         int torchX = x;
         int torchY = floorY + 2;
@@ -439,31 +439,31 @@ public partial class LightingComparisonCapture : Node
         float bestRiver = 0.0f;
 
         for (int z = -1536; z <= 1536; z += 8)
-        for (int x = -1536; x <= 1536; x += 8)
-        {
-            WorldGenV7.SurfaceSample surface = generator.SampleSurface(x, z, world.SeaLevel);
-            if (surface.Height >= world.SeaLevel)
-                continue;
-
-            float river = generator.ClimateAt(x, z, world.SeaLevel + 12).RiverStrength;
-            if (river < 0.78f)
-                continue;
-
-            int bank = Math.Max(
-                    Math.Max(generator.SurfaceHeight(x - 28, z, world.SeaLevel),
-                            generator.SurfaceHeight(x + 28, z, world.SeaLevel)),
-                    Math.Max(generator.SurfaceHeight(x, z - 28, world.SeaLevel),
-                            generator.SurfaceHeight(x, z + 28, world.SeaLevel)));
-            float score = river * 40.0f + Math.Min(24, bank - surface.Height) * 1.5f;
-            if (score > bestScore)
+            for (int x = -1536; x <= 1536; x += 8)
             {
-                bestScore = score;
-                bestX = x;
-                bestZ = z;
-                bestHeight = surface.Height;
-                bestRiver = river;
+                WorldGenV7.SurfaceSample surface = generator.SampleSurface(x, z, world.SeaLevel);
+                if (surface.Height >= world.SeaLevel)
+                    continue;
+
+                float river = generator.ClimateAt(x, z, world.SeaLevel + 12).RiverStrength;
+                if (river < 0.78f)
+                    continue;
+
+                int bank = Math.Max(
+                        Math.Max(generator.SurfaceHeight(x - 28, z, world.SeaLevel),
+                                generator.SurfaceHeight(x + 28, z, world.SeaLevel)),
+                        Math.Max(generator.SurfaceHeight(x, z - 28, world.SeaLevel),
+                                generator.SurfaceHeight(x, z + 28, world.SeaLevel)));
+                float score = river * 40.0f + Math.Min(24, bank - surface.Height) * 1.5f;
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestX = x;
+                    bestZ = z;
+                    bestHeight = surface.Height;
+                    bestRiver = river;
+                }
             }
-        }
 
         if (bestScore == float.MinValue)
             throw new InvalidOperationException("The fixed seed did not yield a river-channel candidate.");
@@ -483,20 +483,20 @@ public partial class LightingComparisonCapture : Node
         for (int radius = 0; radius <= 18; radius++)
         {
             for (int dz = -radius; dz <= radius; dz++)
-            for (int dx = -radius; dx <= radius; dx++)
-            {
-                if (Math.Max(Math.Abs(dx), Math.Abs(dz)) != radius)
-                    continue;
-                if (world.GetVillageSite(dx, dz) is not { } village)
-                    continue;
-
-                int distance = dx * dx + dz * dz;
-                if (distance < bestDistance)
+                for (int dx = -radius; dx <= radius; dx++)
                 {
-                    best = village;
-                    bestDistance = distance;
+                    if (Math.Max(Math.Abs(dx), Math.Abs(dz)) != radius)
+                        continue;
+                    if (world.GetVillageSite(dx, dz) is not { } village)
+                        continue;
+
+                    int distance = dx * dx + dz * dz;
+                    if (distance < bestDistance)
+                    {
+                        best = village;
+                        bestDistance = distance;
+                    }
                 }
-            }
 
             if (best != null)
                 break;
@@ -522,9 +522,9 @@ public partial class LightingComparisonCapture : Node
         int floorY = Math.Max(world.SeaLevel + 5, world.SurfaceHeight(centerX, centerZ) + 3);
 
         for (int dz = -1; dz <= 1; dz++)
-        for (int dx = -6; dx <= 6; dx++)
-            floorY = Math.Max(floorY,
-                    world.SurfaceHeight(centerX + dx, centerZ + dz) + 2);
+            for (int dx = -6; dx <= 6; dx++)
+                floorY = Math.Max(floorY,
+                        world.SurfaceHeight(centerX + dx, centerZ + dz) + 2);
 
         if (floorY >= world.Height - 5)
             throw new InvalidOperationException("Pale-material fixture has no safe build height.");
@@ -532,21 +532,21 @@ public partial class LightingComparisonCapture : Node
         // A dark cobblestone base separates the sample swatches. All fixture
         // mutations use the production SetBlock ownership path.
         for (int dz = -1; dz <= 1; dz++)
-        for (int dx = -6; dx <= 6; dx++)
-        {
-            int x = centerX + dx;
-            int z = centerZ + dz;
-            WriteBlock(world, x, floorY - 1, z, BlockId.Cobblestone);
-            for (int y = floorY; y <= floorY + 2; y++)
-                WriteBlock(world, x, y, z, BlockId.Air);
+            for (int dx = -6; dx <= 6; dx++)
+            {
+                int x = centerX + dx;
+                int z = centerZ + dz;
+                WriteBlock(world, x, floorY - 1, z, BlockId.Cobblestone);
+                for (int y = floorY; y <= floorY + 2; y++)
+                    WriteBlock(world, x, y, z, BlockId.Air);
 
-            BlockId sample = dx <= -4 ? BlockId.Snow
-                    : dx >= 4 ? BlockId.Stone
-                    : dx is >= -1 and <= 1 ? BlockId.Sand
-                    : BlockId.Air;
-            if (sample != BlockId.Air)
-                WriteBlock(world, x, floorY, z, sample);
-        }
+                BlockId sample = dx <= -4 ? BlockId.Snow
+                        : dx >= 4 ? BlockId.Stone
+                        : dx is >= -1 and <= 1 ? BlockId.Sand
+                        : BlockId.Air;
+                if (sample != BlockId.Air)
+                    WriteBlock(world, x, floorY, z, sample);
+            }
 
         Vector3 player = new(centerX + 0.5f, floorY + 1.0f, centerZ + 0.5f);
         Vector3 target = new(centerX + 0.5f, floorY + 0.35f, centerZ + 0.5f);
@@ -580,21 +580,21 @@ public partial class LightingComparisonCapture : Node
         int nearestDistance = int.MaxValue;
         for (int y = Math.Max(1, centre.Y - verticalRadius);
                 y <= Math.Min(world.Height - 1, centre.Y + verticalRadius); y++)
-        for (int z = centre.Z - horizontalRadius; z <= centre.Z + horizontalRadius; z++)
-        for (int x = centre.X - horizontalRadius; x <= centre.X + horizontalRadius; x++)
-        {
-            if (world.GetBlock(x, y, z) != block)
-                continue;
-            int dx = x - centre.X;
-            int dy = y - centre.Y;
-            int dz = z - centre.Z;
-            int distance = dx * dx + dy * dy + dz * dz;
-            if (distance < nearestDistance)
-            {
-                nearest = new Vector3I(x, y, z);
-                nearestDistance = distance;
-            }
-        }
+            for (int z = centre.Z - horizontalRadius; z <= centre.Z + horizontalRadius; z++)
+                for (int x = centre.X - horizontalRadius; x <= centre.X + horizontalRadius; x++)
+                {
+                    if (world.GetBlock(x, y, z) != block)
+                        continue;
+                    int dx = x - centre.X;
+                    int dy = y - centre.Y;
+                    int dz = z - centre.Z;
+                    int distance = dx * dx + dy * dy + dz * dz;
+                    if (distance < nearestDistance)
+                    {
+                        nearest = new Vector3I(x, y, z);
+                        nearestDistance = distance;
+                    }
+                }
         return nearest;
     }
 
@@ -602,6 +602,19 @@ public partial class LightingComparisonCapture : Node
     {
         if (y <= 0 || y >= world.Height)
             throw new ArgumentOutOfRangeException(nameof(y), y, "Lighting fixture edit is outside the world.");
+
+        Vector2I chunk = new(
+                Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX),
+                Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ));
+        // Gameplay startup now builds only its spawn-critical chunk before
+        // streaming the surrounding area. Deterministic lighting fixtures may
+        // edit a distant region during setup, so load that fixture chunk through
+        // the existing synchronous preview API before using SetBlock.
+        if (!world.HasChunk(chunk))
+        {
+            world.BuildPreview(new Vector3(x + 0.5f, y, z + 0.5f), 1);
+        }
+
         if (world.GetBlock(x, y, z) == block)
             return;
         if (!world.SetBlock(x, y, z, block))

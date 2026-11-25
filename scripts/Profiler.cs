@@ -27,13 +27,49 @@ public static class Profiler
     public static long PendingPayloadHighWaterBytes;
     public static long VoxelCacheArrayBytes;
     public static long VoxelCacheArrayHighWaterBytes;
+    public static long GeneratorSeedArrayBytes;
+    public static long GeneratorSeedArrayHighWaterBytes;
     public static long VoxelCacheBudgetBytes;
+    public static long CacheIndexBytesEstimate;
+    public static long CacheIndexBytesHighWaterEstimate;
+    public static long CropRegistryBytesEstimate;
+    public static long CropRegistryBytesHighWaterEstimate;
+    public static long SourceScanRegistryBytesEstimate;
+    public static long SourceScanRegistryBytesHighWaterEstimate;
+    public static long CropScanRegistryBytesEstimate;
+    public static long CropScanRegistryBytesHighWaterEstimate;
+    public static long CampfireSiteCacheBytesEstimate;
+    public static long CampfireSiteCacheBytesHighWaterEstimate;
+    public static long StructureSiteCacheBytesEstimate;
+    public static long StructureSiteCacheBytesHighWaterEstimate;
+    public static long VillageSiteCacheBytesEstimate;
+    public static long VillageSiteCacheBytesHighWaterEstimate;
+    public static long EditTopArrayBytes;
+    public static long EditTopArrayHighWaterBytes;
+    public static long EditTopIndexBytesEstimate;
+    public static long EditTopIndexBytesHighWaterEstimate;
+    public static long WorldStateRegistryBytesEstimate;
+    public static long WorldStateRegistryBytesHighWaterEstimate;
+    public static long ChunkIndexBytesEstimate;
+    public static long ChunkIndexBytesHighWaterEstimate;
     public static long EditMetadataBytesEstimate;
+    public static long EditMetadataBytesHighWaterEstimate;
     public static long LightSourceBytesEstimate;
+    public static long LightSourceBytesHighWaterEstimate;
     public static long AppliedMeshBytesEstimate;
+    public static long AppliedMeshBytesHighWaterEstimate;
     public static long PooledMeshBufferBytes;
+    public static long PooledMeshBufferHighWaterBytes;
+    public static long StreamingQueueBytesEstimate;
+    public static long StreamingQueueBytesHighWaterEstimate;
+    public static long PersistentMetadataBytesEstimate;
+    public static long PersistentMetadataBytesHighWaterEstimate;
+    public static long TrackedManagedBytesEstimate;
+    public static long TrackedManagedBytesHighWaterEstimate;
     public static double ApplyAverageMs;
     public static double ApplyMaximumMs;
+    public static double ApplyStepAverageMs;
+    public static double ApplyStepMaximumMs;
     public static double CollisionAverageMs;
     public static double CollisionMaximumMs;
     public static long CollisionVerticesApplied;
@@ -41,7 +77,15 @@ public static class Profiler
     private static readonly Lock RuntimeMetricsLock = new();
     private static double _applyTotalMs;
     private static long _applySamples;
+    private static double _applyStepTotalMs;
+    private static long _applyStepSamples;
+    private static readonly double[] ApplyStepTimings = new double[Window];
+    private static int _applyStepWindowCount;
+    private static int _applyStepWindowNext;
     private static double _collisionTotalMs;
+    private static readonly double[] CollisionTimings = new double[Window];
+    private static int _collisionWindowCount;
+    private static int _collisionWindowNext;
     private static long _collisionSamples;
 
     public static void RecordBuild(double ms)
@@ -98,6 +142,53 @@ public static class Profiler
         }
     }
 
+    /// <summary>Clear resource and collision timing windows before a benchmark measurement.</summary>
+    public static void ResetApplyStepSamples()
+    {
+        lock (RuntimeMetricsLock)
+        {
+            Array.Clear(ApplyStepTimings, 0, ApplyStepTimings.Length);
+            _applyStepWindowCount = 0;
+            _applyStepWindowNext = 0;
+            Array.Clear(CollisionTimings, 0, CollisionTimings.Length);
+            _collisionWindowCount = 0;
+            _collisionWindowNext = 0;
+            _applyTotalMs = 0.0;
+            _applySamples = 0;
+            ApplyAverageMs = 0.0;
+            ApplyMaximumMs = 0.0;
+            _applyStepTotalMs = 0.0;
+            _applyStepSamples = 0;
+            _collisionTotalMs = 0.0;
+            _collisionSamples = 0;
+            ApplyStepAverageMs = 0.0;
+            ApplyStepMaximumMs = 0.0;
+            CollisionAverageMs = 0.0;
+            CollisionMaximumMs = 0.0;
+            CollisionVerticesApplied = 0;
+        }
+    }
+
+    /// <summary>Record one bounded main-thread resource-creation step.</summary>
+    public static void RecordApplyStep(double milliseconds)
+    {
+        if (!double.IsFinite(milliseconds) || milliseconds < 0.0) return;
+        lock (RuntimeMetricsLock)
+        {
+            _applyStepTotalMs += milliseconds;
+            _applyStepSamples++;
+            ApplyStepAverageMs = _applyStepTotalMs / _applyStepSamples;
+            ApplyStepMaximumMs = Math.Max(ApplyStepMaximumMs, milliseconds);
+            ApplyStepTimings[_applyStepWindowNext] = milliseconds;
+            _applyStepWindowNext = (_applyStepWindowNext + 1) % Window;
+            if (_applyStepWindowCount < Window) _applyStepWindowCount++;
+        }
+    }
+
+    /// <summary>Rolling p50/p95/p99 of recent staged render/collision resource steps.</summary>
+    public static BuildTimeStats ApplyStepDistribution() =>
+            Distribution(RuntimeMetricsLock, ApplyStepTimings, _applyStepWindowCount);
+
     public static void RecordCollision(double milliseconds, int vertices)
     {
         if (!double.IsFinite(milliseconds) || milliseconds < 0.0) return;
@@ -108,18 +199,82 @@ public static class Profiler
             CollisionAverageMs = _collisionTotalMs / _collisionSamples;
             CollisionMaximumMs = Math.Max(CollisionMaximumMs, milliseconds);
             CollisionVerticesApplied += Math.Max(0, vertices);
+            CollisionTimings[_collisionWindowNext] = milliseconds;
+            _collisionWindowNext = (_collisionWindowNext + 1) % Window;
+            if (_collisionWindowCount < Window) _collisionWindowCount++;
+        }
+    }
+
+    /// <summary>Rolling p50/p95/p99 of recent collision-shape creation steps.</summary>
+    public static BuildTimeStats CollisionDistribution() =>
+            Distribution(RuntimeMetricsLock, CollisionTimings, _collisionWindowCount);
+
+    private static BuildTimeStats Distribution(Lock gate, double[] samples, int count)
+    {
+        lock (gate)
+        {
+            if (count == 0)
+                return new BuildTimeStats(0, 0.0, 0.0, 0.0, 0.0, 0.0);
+
+            double[] ordered = new double[count];
+            Array.Copy(samples, ordered, count);
+            Array.Sort(ordered);
+            double sum = 0.0;
+            for (int i = 0; i < ordered.Length; i++) sum += ordered[i];
+            return new BuildTimeStats(
+                    count,
+                    sum / count,
+                    BenchmarkStatistics.PercentileSorted(ordered, 0.50),
+                    BenchmarkStatistics.PercentileSorted(ordered, 0.95),
+                    BenchmarkStatistics.PercentileSorted(ordered, 0.99),
+                    ordered[^1]);
         }
     }
 
     public static void RecordCacheMemory(VoxelCacheMemorySnapshot snapshot)
     {
         VoxelCacheArrayBytes = snapshot.VoxelArrayBytes;
+        GeneratorSeedArrayBytes = snapshot.GeneratorSeedArrayBytes;
         VoxelCacheBudgetBytes = snapshot.VoxelArrayBudgetBytes;
+        CacheIndexBytesEstimate = snapshot.CacheIndexBytesEstimate;
+        CropRegistryBytesEstimate = snapshot.CropRegistryBytesEstimate;
+        SourceScanRegistryBytesEstimate = snapshot.SourceScanRegistryBytesEstimate;
+        CropScanRegistryBytesEstimate = snapshot.CropScanRegistryBytesEstimate;
+        CampfireSiteCacheBytesEstimate = snapshot.CampfireSiteCacheBytesEstimate;
+        StructureSiteCacheBytesEstimate = snapshot.StructureSiteCacheBytesEstimate;
+        VillageSiteCacheBytesEstimate = snapshot.VillageSiteCacheBytesEstimate;
+        EditTopArrayBytes = snapshot.EditTopArrayBytes;
+        EditTopIndexBytesEstimate = snapshot.EditTopIndexBytesEstimate;
+        WorldStateRegistryBytesEstimate = snapshot.WorldStateRegistryBytesEstimate;
+        ChunkIndexBytesEstimate = snapshot.ChunkIndexBytesEstimate;
         EditMetadataBytesEstimate = snapshot.EditMetadataBytesEstimate;
         LightSourceBytesEstimate = snapshot.LightSourceBytesEstimate;
         AppliedMeshBytesEstimate = snapshot.AppliedMeshBytesEstimate;
         PooledMeshBufferBytes = snapshot.PooledMeshBufferBytes;
+        StreamingQueueBytesEstimate = snapshot.StreamingQueueBytesEstimate;
+        PersistentMetadataBytesEstimate = snapshot.PersistentMetadataBytesEstimate;
+        TrackedManagedBytesEstimate = snapshot.TrackedManagedBytesEstimate;
+
         UpdateMaximum(ref VoxelCacheArrayHighWaterBytes, snapshot.VoxelArrayBytes);
+        UpdateMaximum(ref GeneratorSeedArrayHighWaterBytes, snapshot.GeneratorSeedArrayBytes);
+        UpdateMaximum(ref CacheIndexBytesHighWaterEstimate, snapshot.CacheIndexBytesEstimate);
+        UpdateMaximum(ref CropRegistryBytesHighWaterEstimate, snapshot.CropRegistryBytesEstimate);
+        UpdateMaximum(ref SourceScanRegistryBytesHighWaterEstimate, snapshot.SourceScanRegistryBytesEstimate);
+        UpdateMaximum(ref CropScanRegistryBytesHighWaterEstimate, snapshot.CropScanRegistryBytesEstimate);
+        UpdateMaximum(ref CampfireSiteCacheBytesHighWaterEstimate, snapshot.CampfireSiteCacheBytesEstimate);
+        UpdateMaximum(ref StructureSiteCacheBytesHighWaterEstimate, snapshot.StructureSiteCacheBytesEstimate);
+        UpdateMaximum(ref VillageSiteCacheBytesHighWaterEstimate, snapshot.VillageSiteCacheBytesEstimate);
+        UpdateMaximum(ref EditTopArrayHighWaterBytes, snapshot.EditTopArrayBytes);
+        UpdateMaximum(ref EditTopIndexBytesHighWaterEstimate, snapshot.EditTopIndexBytesEstimate);
+        UpdateMaximum(ref WorldStateRegistryBytesHighWaterEstimate, snapshot.WorldStateRegistryBytesEstimate);
+        UpdateMaximum(ref ChunkIndexBytesHighWaterEstimate, snapshot.ChunkIndexBytesEstimate);
+        UpdateMaximum(ref EditMetadataBytesHighWaterEstimate, snapshot.EditMetadataBytesEstimate);
+        UpdateMaximum(ref LightSourceBytesHighWaterEstimate, snapshot.LightSourceBytesEstimate);
+        UpdateMaximum(ref PersistentMetadataBytesHighWaterEstimate, snapshot.PersistentMetadataBytesEstimate);
+        UpdateMaximum(ref AppliedMeshBytesHighWaterEstimate, snapshot.AppliedMeshBytesEstimate);
+        UpdateMaximum(ref PooledMeshBufferHighWaterBytes, snapshot.PooledMeshBufferBytes);
+        UpdateMaximum(ref StreamingQueueBytesHighWaterEstimate, snapshot.StreamingQueueBytesEstimate);
+        UpdateMaximum(ref TrackedManagedBytesHighWaterEstimate, snapshot.TrackedManagedBytesEstimate);
     }
 
     private static void UpdateMaximum(ref int target, int value)
@@ -204,9 +359,22 @@ public static class Profiler
 public static class StreamingApplyBudget
 {
     public const int MaxPendingPayloads = 18;
-    /// <summary>Always allow one payload to make progress, even when it exceeds the frame budget.</summary>
-    public static bool ShouldStop(double elapsedMilliseconds, int appliedCount, double budgetMilliseconds) =>
-            appliedCount > 0 && elapsedMilliseconds >= Math.Max(0.0, budgetMilliseconds);
+    // 8190 is triangle-aligned; a single resource-creation step cannot consume an entire chunk payload.
+    public const int MaxVerticesPerStep = 8190;
+
+    /// <summary>Return one triangle-aligned resource-creation slice.</summary>
+    public static int BatchLength(int remainingVertices)
+    {
+        if (remainingVertices <= 0) return 0;
+        if (remainingVertices % 3 != 0)
+            throw new ArgumentException("A mesh batch must contain complete triangles.", nameof(remainingVertices));
+
+        return Math.Min(remainingVertices, MaxVerticesPerStep);
+    }
+
+    /// <summary>Always allow one bounded work unit to make progress.</summary>
+    public static bool ShouldStop(double elapsedMilliseconds, int completedSteps, double budgetMilliseconds) =>
+            completedSteps > 0 && elapsedMilliseconds >= Math.Max(0.0, budgetMilliseconds);
 }
 
 public static class StreamingMemoryBudget
@@ -233,14 +401,47 @@ public readonly record struct VoxelCacheMemorySnapshot(
         long SkyLightBytes,
         long BlockLightBytes,
         long PackedLightBytes,
+        long GeneratorSeedArrayBytes,
+        long CacheIndexBytesEstimate,
+        long CropRegistryBytesEstimate,
+        long SourceScanRegistryBytesEstimate,
+        long CropScanRegistryBytesEstimate,
+        long CampfireSiteCacheBytesEstimate,
+        long StructureSiteCacheBytesEstimate,
+        long VillageSiteCacheBytesEstimate,
+        long EditTopArrayBytes,
+        long EditTopIndexBytesEstimate,
+        long WorldStateRegistryBytesEstimate,
+        long ChunkIndexBytesEstimate,
         long EditMetadataBytesEstimate,
         long LightSourceBytesEstimate,
         long AppliedMeshBytesEstimate,
         long PooledMeshBufferBytes,
+        long StreamingQueueBytesEstimate,
         long VoxelArrayBudgetBytes)
 {
+    public const string AccountingNote =
+            "Voxel block/state/light arrays, edit-top arrays and the generator seed array use exact byte lengths. " +
+            "Non-empty Dictionary, HashSet and priority-queue capacities plus List capacities are estimated; " +
+            "empty collection backing storage is not exposed read-only and is omitted to avoid measurement allocations. " +
+            "Concurrent apply-queue nodes use count-based estimates, with payload contents reported separately. " +
+            "Saved inventory/boat values and saved-world object graphs are not deeply sized. " +
+            "VoxelLighting thread-static scratch, scene/native allocations, renderer-driver memory and VRAM are excluded. " +
+            "Source-scan and crop-scan chunk registries are tracked as separate estimates. " +
+            "The generator-v8 village-site cache dictionary is included as its own estimate.";
+
     public long VoxelArrayBytes => BlockDataBytes + BlockStateBytes + SkyLightBytes
             + BlockLightBytes + PackedLightBytes;
+
+    public long PersistentMetadataBytesEstimate =>
+            CacheIndexBytesEstimate + CropRegistryBytesEstimate + SourceScanRegistryBytesEstimate
+            + CropScanRegistryBytesEstimate + CampfireSiteCacheBytesEstimate + StructureSiteCacheBytesEstimate + VillageSiteCacheBytesEstimate
+            + EditTopIndexBytesEstimate + WorldStateRegistryBytesEstimate + ChunkIndexBytesEstimate
+            + EditMetadataBytesEstimate + LightSourceBytesEstimate;
+
+    public long TrackedManagedBytesEstimate => VoxelArrayBytes + GeneratorSeedArrayBytes + EditTopArrayBytes
+            + PersistentMetadataBytesEstimate + AppliedMeshBytesEstimate + PooledMeshBufferBytes
+            + StreamingQueueBytesEstimate;
 }
 
 public readonly record struct BuildTimeStats(

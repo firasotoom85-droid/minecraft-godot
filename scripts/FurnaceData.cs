@@ -20,10 +20,30 @@ public sealed class FurnaceData
     public float SmeltTime;
 
     private ItemId? _smeltResult;
+    private Dictionary<int, ItemStackSave>? _unrecognizedSavedSlots;
 
     public bool IsBurning => BurnTime > 0.0f;
 
-    public bool IsEmpty => Input.IsEmpty && Fuel.IsEmpty && Output.IsEmpty && BurnTime <= 0.0f && SmeltTime <= 0.0f;
+    public bool HasUnrecognizedSaveSlot(int slot) =>
+            _unrecognizedSavedSlots?.ContainsKey(slot) ?? false;
+
+    public void ClearUnrecognizedSaveSlot(int slot)
+    {
+        if (_unrecognizedSavedSlots == null)
+        {
+            return;
+        }
+
+        _unrecognizedSavedSlots.Remove(slot);
+        if (_unrecognizedSavedSlots.Count == 0)
+        {
+            _unrecognizedSavedSlots = null;
+        }
+    }
+
+    public bool IsEmpty => Input.IsEmpty && Fuel.IsEmpty && Output.IsEmpty
+            && BurnTime <= 0.0f && SmeltTime <= 0.0f
+            && _unrecognizedSavedSlots is not { Count: > 0 };
 
     /// <summary>Advance one tick; carries elapsed time across fuel boundaries.</summary>
     public bool Tick(float delta)
@@ -115,7 +135,7 @@ public sealed class FurnaceData
     {
         if (Output.IsEmpty)
         {
-            return true;
+            return !HasUnrecognizedSaveSlot(2);
         }
 
         return Output.Id == id && Output.Count < ItemDb.MaxStack(id);
@@ -151,18 +171,77 @@ public sealed class FurnaceData
             data.Add(new ItemStackSave(2, (int)Output.Id, Output.Count, Output.Durability, Output.Sharpness, Output.Protection, Output.Unbreaking));
         }
 
+        if (_unrecognizedSavedSlots != null)
+        {
+            foreach (KeyValuePair<int, ItemStackSave> entry in _unrecognizedSavedSlots)
+            {
+                ItemStack runtime = entry.Key switch
+                {
+                    0 => Input,
+                    1 => Fuel,
+                    _ => Output,
+                };
+                if (runtime.IsEmpty)
+                {
+                    data.Add(entry.Value);
+                }
+            }
+        }
+
         return data;
     }
 
     public void LoadFrom(List<ItemStackSave>? items)
     {
         Input = Fuel = Output = ItemStack.Empty;
+        _unrecognizedSavedSlots = null;
         if (items != null)
         {
-            foreach (ItemStackSave s in items)
+            bool[] loadedSlots = new bool[3];
+            foreach (ItemStackSave saved in items)
             {
-                ItemStack stack = new((ItemId)s.Id, s.Count, s.Durability);
-                switch (s.Slot)
+                if (saved.Slot < 0 || saved.Slot >= loadedSlots.Length)
+                {
+                    ItemStackSaveValidator.ReportInvalid("furnace", saved, "slot is out of range");
+                    continue;
+                }
+
+                if (ItemStackSaveValidator.IsUnrecognizedItemId(saved.Id))
+                {
+                    if (loadedSlots[saved.Slot])
+                    {
+                        ItemStackSaveValidator.ReportInvalid("furnace", saved, "duplicate slot record");
+                        continue;
+                    }
+
+                    loadedSlots[saved.Slot] = true;
+                    _unrecognizedSavedSlots ??= new Dictionary<int, ItemStackSave>();
+                    _unrecognizedSavedSlots.Add(saved.Slot, saved);
+                    ItemStackSaveValidator.ReportUnrecognized("furnace", saved);
+                    continue;
+                }
+
+                if (!ItemStackSaveValidator.TryCreate(saved, out ItemStack stack, out string reason))
+                {
+                    ItemStackSaveValidator.ReportInvalid("furnace", saved, reason);
+                    continue;
+                }
+
+                if (!ItemStackSaveValidator.FitsFurnaceSlot(saved.Slot, stack))
+                {
+                    ItemStackSaveValidator.ReportInvalid("furnace", saved,
+                            "item is not accepted in this furnace slot");
+                    continue;
+                }
+
+                if (loadedSlots[saved.Slot])
+                {
+                    ItemStackSaveValidator.ReportInvalid("furnace", saved, "duplicate slot record");
+                    continue;
+                }
+
+                loadedSlots[saved.Slot] = true;
+                switch (saved.Slot)
                 {
                     case 0:
                         Input = stack;

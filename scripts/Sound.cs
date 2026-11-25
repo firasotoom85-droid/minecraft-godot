@@ -65,12 +65,14 @@ public partial class Sound : Node
     private AudioStreamPlayer _rain = null!;
     private AudioStreamPlayer _thunderPlayer = null!;
     private AudioStreamPlayer _crickets = null!;
-    private AudioEffectLowPassFilter _muffle = null!;
-    private AudioEffectLowPassFilter _ambientMuffle = null!;
+    private AudioEffectLowPassFilter? _muffle;
+    private AudioEffectLowPassFilter? _ambientMuffle;
     private int _sfxBus = -1;
     private int _ambientBus = -1;
     private bool _muffled;
     private float _muffleBlend;
+    private bool _exitingTree;
+    private readonly Dictionary<SceneTreeTimer, Action> _pendingThunder = new();
 
     /// <summary>Set by Main after the world/weather exist (ambience scheduling).</summary>
     public Player? PlayerRef;
@@ -157,13 +159,13 @@ public partial class Sound : Node
         _ambientMuffle = new AudioEffectLowPassFilter { CutoffHz = 18000.0f };
         if (_sfxBus >= 0)
         {
-            AudioServer.AddBusEffect(_sfxBus, _muffle, 0);
-            AudioServer.SetBusEffectEnabled(_sfxBus, 0, false);
+            AudioServer.AddBusEffect(_sfxBus, _muffle, AudioServer.GetBusEffectCount(_sfxBus));
+            SetOwnedFilterEnabled(_sfxBus, _muffle, false);
         }
         if (_ambientBus >= 0)
         {
-            AudioServer.AddBusEffect(_ambientBus, _ambientMuffle, 0);
-            AudioServer.SetBusEffectEnabled(_ambientBus, 0, false);
+            AudioServer.AddBusEffect(_ambientBus, _ambientMuffle, AudioServer.GetBusEffectCount(_ambientBus));
+            SetOwnedFilterEnabled(_ambientBus, _ambientMuffle, false);
         }
 
         player.BlockBroken += OnBroken;
@@ -194,14 +196,16 @@ public partial class Sound : Node
         bool under = PlayerRef.Underwater;
         _muffleBlend = Mathf.MoveToward(_muffleBlend, under ? 1.0f : 0.0f, (float)delta * 3.0f);
         float cutoff = Mathf.Lerp(18000.0f, 650.0f, _muffleBlend);
+        if (_muffle == null || _ambientMuffle == null)
+            return;
         _muffle.CutoffHz = cutoff;
         _ambientMuffle.CutoffHz = cutoff;
         bool muffled = _muffleBlend > 0.001f;
         if (muffled != _muffled)
         {
             _muffled = muffled;
-            if (_sfxBus >= 0) AudioServer.SetBusEffectEnabled(_sfxBus, 0, _muffled);
-            if (_ambientBus >= 0) AudioServer.SetBusEffectEnabled(_ambientBus, 0, _muffled);
+            SetOwnedFilterEnabled(_sfxBus, _muffle, _muffled);
+            SetOwnedFilterEnabled(_ambientBus, _ambientMuffle, _muffled);
         }
 
         float clouds = WeatherRef == null ? 0.0f : (float)WeatherRef.Cloudiness;
@@ -220,33 +224,41 @@ public partial class Sound : Node
     }
 
     /// <summary>Material family for dig and step sounds.</summary>
-    private static string FamilyFor(BlockId id) => id switch
+    internal static string FamilyFor(BlockId id) => id switch
     {
         BlockId.Glass => "dig_glass",
-        BlockId.Leaves or BlockId.BirchLeaves or BlockId.TallGrass
+        BlockId.Leaves or BlockId.BirchLeaves or BlockId.SpruceLeaves or BlockId.JungleLeaves
+                or BlockId.SwampLeaves or BlockId.RiverReeds or BlockId.TallGrass
                 or BlockId.FlowerRed or BlockId.FlowerYellow or BlockId.Cactus
                 or BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2
                 or BlockId.Torch => "dig_leaves",
-        BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.CoalOre
-                or BlockId.IronOre or BlockId.GoldOre or BlockId.DiamondOre
+        BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.EnchantingTable or BlockId.MossyCobblestone
+                or BlockId.WeatheredCobblestone or BlockId.CrackedBrick or BlockId.MossyBrick
+                or BlockId.CobblestoneSlab or BlockId.BrickSlab
+                or BlockId.CobblestoneStairs or BlockId.BrickStairs
+                or BlockId.CoalOre or BlockId.IronOre or BlockId.GoldOre or BlockId.DiamondOre
                 or BlockId.Bedrock or BlockId.Furnace => "dig_stone",
-        BlockId.Log or BlockId.BirchLog or BlockId.Planks or BlockId.CraftingTable
-                or BlockId.Chest or BlockId.Bed or BlockId.Ladder => "dig_wood",
+        BlockId.Log or BlockId.BirchLog or BlockId.Planks or BlockId.PlanksSlab or BlockId.PlanksStairs
+                or BlockId.CraftingTable or BlockId.Chest or BlockId.Bed or BlockId.Ladder => "dig_wood",
         BlockId.Sand or BlockId.Gravel or BlockId.Snow or BlockId.Ash => "dig_sand",
         _ => "dig_dirt",
     };
 
-    private static string PlaceFamilyFor(BlockId id) => id switch
+    internal static string PlaceFamilyFor(BlockId id) => id switch
     {
         BlockId.Glass => "place_glass",
-        BlockId.Leaves or BlockId.BirchLeaves or BlockId.TallGrass
+        BlockId.Leaves or BlockId.BirchLeaves or BlockId.SpruceLeaves or BlockId.JungleLeaves
+                or BlockId.SwampLeaves or BlockId.RiverReeds or BlockId.TallGrass
                 or BlockId.FlowerRed or BlockId.FlowerYellow or BlockId.Cactus
                 or BlockId.Torch => "place_leaves",
-        BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.CoalOre
-                or BlockId.IronOre or BlockId.GoldOre or BlockId.DiamondOre
+        BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.EnchantingTable or BlockId.MossyCobblestone
+                or BlockId.WeatheredCobblestone or BlockId.CrackedBrick or BlockId.MossyBrick
+                or BlockId.CobblestoneSlab or BlockId.BrickSlab
+                or BlockId.CobblestoneStairs or BlockId.BrickStairs
+                or BlockId.CoalOre or BlockId.IronOre or BlockId.GoldOre or BlockId.DiamondOre
                 or BlockId.Bedrock or BlockId.Furnace => "place_stone",
-        BlockId.Log or BlockId.BirchLog or BlockId.Planks or BlockId.CraftingTable
-                or BlockId.Chest or BlockId.Bed or BlockId.Ladder => "place_wood",
+        BlockId.Log or BlockId.BirchLog or BlockId.Planks or BlockId.PlanksSlab or BlockId.PlanksStairs
+                or BlockId.CraftingTable or BlockId.Chest or BlockId.Bed or BlockId.Ladder => "place_wood",
         BlockId.Sand or BlockId.Gravel or BlockId.Snow or BlockId.Ash => "place_sand",
         _ => "place_dirt",
     };
@@ -254,6 +266,38 @@ public partial class Sound : Node
     private void OnMiningTick(Vector3 pos, int id)
     {
         Play(FamilyFor((BlockId)id), pos, PitchFor((BlockId)id) * 0.9f, -7.0f);
+    }
+
+    internal static int FindOwnedBusEffect(int bus, AudioEffect? ownedEffect)
+    {
+        if (bus < 0 || ownedEffect == null || !GodotObject.IsInstanceValid(ownedEffect))
+            return -1;
+        ulong ownedId = ownedEffect.GetInstanceId();
+        for (int index = 0; index < AudioServer.GetBusEffectCount(bus); index++)
+        {
+            AudioEffect? candidate = AudioServer.GetBusEffect(bus, index);
+            if (candidate != null && GodotObject.IsInstanceValid(candidate)
+                    && candidate.GetInstanceId() == ownedId)
+                return index;
+        }
+        return -1;
+    }
+
+    private static void SetOwnedFilterEnabled(int bus, AudioEffect? effect, bool enabled)
+    {
+        int index = FindOwnedBusEffect(bus, effect);
+        if (index >= 0)
+            AudioServer.SetBusEffectEnabled(bus, index, enabled);
+    }
+
+    internal static void RemoveOwnedBusEffect(int bus, AudioEffect? effect)
+    {
+        int index = FindOwnedBusEffect(bus, effect);
+        if (index >= 0)
+        {
+            AudioServer.SetBusEffectEnabled(bus, index, false);
+            AudioServer.RemoveBusEffect(bus, index);
+        }
     }
 
     /// <summary>Weather hook: rain hiss level 0..1 (0 mutes the loop).</summary>
@@ -270,18 +314,21 @@ public partial class Sound : Node
     /// <summary>Weather hook: schedule a thunder rumble after <paramref name="delay"/> seconds.</summary>
     public void Thunder(float delay)
     {
-        if (_thunderPlayer == null)
-        {
+        if (_exitingTree || _thunderPlayer == null || !GodotObject.IsInstanceValid(_thunderPlayer))
             return;
-        }
-
-        GetTree().CreateTimer(System.Math.Max(delay, 0.05f)).Timeout += () =>
+        SceneTreeTimer timer = GetTree().CreateTimer(System.Math.Max(delay, 0.05f));
+        Action callback = null!;
+        callback = () =>
         {
-            if (!Muted)
-            {
-                _thunderPlayer.Play();
-            }
+            timer.Timeout -= callback;
+            _pendingThunder.Remove(timer);
+            if (_exitingTree || !IsInsideTree()
+                    || _thunderPlayer == null || !GodotObject.IsInstanceValid(_thunderPlayer) || Muted)
+                return;
+            _thunderPlayer.Play();
         };
+        _pendingThunder[timer] = callback;
+        timer.Timeout += callback;
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -311,15 +358,19 @@ public partial class Sound : Node
         v.Play();
     }
 
-    private static float PitchFor(BlockId id) => id switch
+    internal static float PitchFor(BlockId id) => id switch
     {
         BlockId.Dirt or BlockId.Grass or BlockId.Sand or BlockId.Gravel
                 or BlockId.Snow or BlockId.SnowGrass or BlockId.Ash => 1.25f,
-        BlockId.Leaves or BlockId.BirchLeaves or BlockId.TallGrass
+        BlockId.Leaves or BlockId.BirchLeaves or BlockId.SpruceLeaves or BlockId.JungleLeaves
+                or BlockId.SwampLeaves or BlockId.RiverReeds or BlockId.TallGrass
                 or BlockId.FlowerRed or BlockId.FlowerYellow => 1.45f,
         BlockId.Glass => 1.35f,
-        BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.CoalOre
-                or BlockId.IronOre or BlockId.GoldOre or BlockId.DiamondOre or BlockId.Bedrock => 0.75f,
+        BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.EnchantingTable or BlockId.MossyCobblestone
+                or BlockId.WeatheredCobblestone or BlockId.CrackedBrick or BlockId.MossyBrick
+                or BlockId.CobblestoneSlab or BlockId.BrickSlab
+                or BlockId.CobblestoneStairs or BlockId.BrickStairs
+                or BlockId.CoalOre or BlockId.IronOre or BlockId.GoldOre or BlockId.DiamondOre or BlockId.Bedrock => 0.75f,
         _ => 1.0f,
     };
 
@@ -881,8 +932,22 @@ public partial class Sound : Node
         return wav;
     }
 
+    internal static void CancelPendingThunder(Dictionary<SceneTreeTimer, Action> pendingThunder)
+    {
+        foreach (KeyValuePair<SceneTreeTimer, Action> pending in pendingThunder)
+            pending.Key.Timeout -= pending.Value;
+        pendingThunder.Clear();
+    }
+
     public override void _ExitTree()
     {
+        _exitingTree = true;
+        CancelPendingThunder(_pendingThunder);
+        RemoveOwnedBusEffect(_sfxBus, _muffle);
+        RemoveOwnedBusEffect(_ambientBus, _ambientMuffle);
+        _muffle = null;
+        _ambientMuffle = null;
+
         // Release active playbacks and the generated stream cache before the
         // audio server shuts down. Voice players are children of this node and
         // are freed with the rest of the main scene.

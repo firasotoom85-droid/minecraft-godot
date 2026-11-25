@@ -20,6 +20,10 @@ public partial class PhotoMode : Node
     private float _yaw;
     private float _pitch;
     private bool _hudWasVisible;
+    private bool _playerWasInputLocked;
+    private bool _playerCameraWasCurrent;
+    private bool _dayNightWasPaused;
+    private Input.MouseModeEnum _mouseModeBeforePhotoMode;
 
     public void Setup(Player player, VoxelWorld world, Hud hud, DayNight daynight)
     {
@@ -39,17 +43,21 @@ public partial class PhotoMode : Node
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (GetTree().Paused || PlayerRef is not { } player || player.InputLocked || player.Stats.Dead)
-        {
+        if (PlayerRef is not { } player)
             return;
-        }
 
         if (@event is InputEventKey key && key.Pressed && !key.Echo && key.IsActionPressed("photo_mode"))
         {
-            Toggle();
-            GetViewport().SetInputAsHandled();
+            if (CanTogglePhotoMode(Active, player.InputLocked, player.Stats.Dead, GetTree().Paused))
+            {
+                Toggle();
+                GetViewport().SetInputAsHandled();
+            }
             return;
         }
+
+        if (GetTree().Paused || player.Stats.Dead || (player.InputLocked && !Active))
+            return;
 
         if (Active && @event is InputEventMouseMotion motion
                 && Input.MouseMode == Input.MouseModeEnum.Captured)
@@ -60,6 +68,9 @@ public partial class PhotoMode : Node
         }
     }
 
+    internal static bool CanTogglePhotoMode(bool active, bool inputLocked, bool dead, bool treePaused) =>
+            active || (!inputLocked && !dead && !treePaused);
+
     private void Toggle()
     {
         if (PlayerRef == null || HudRef == null)
@@ -67,33 +78,58 @@ public partial class PhotoMode : Node
             return;
         }
 
-        Active = !Active;
         if (Active)
         {
-            _cam.GlobalPosition = PlayerRef.Camera.GlobalPosition;
-            _yaw = PlayerRef.Camera.GlobalRotation.Y;
-            _pitch = PlayerRef.Camera.Rotation.X;
-            _cam.Current = true;
-            PlayerRef.InputLocked = true;
-            _hudWasVisible = HudRef.Visible;
-            HudRef.Visible = false;
-            if (DayNightRef != null)
-            {
-                DayNightRef.Paused = true;
-            }
+            ExitPhotoMode(restoreCamera: true, showToast: true);
+            return;
         }
-        else
-        {
-            _cam.Current = false;
-            PlayerRef.InputLocked = false;
-            HudRef.Visible = _hudWasVisible;
-            if (DayNightRef != null)
-            {
-                DayNightRef.Paused = false;
-            }
 
-            HudRef.ShowToast("photo mode off");
+        _playerWasInputLocked = PlayerRef.InputLocked;
+        _playerCameraWasCurrent = PlayerRef.Camera.Current;
+        _hudWasVisible = HudRef.Visible;
+        _dayNightWasPaused = DayNightRef?.Paused ?? false;
+        _mouseModeBeforePhotoMode = Input.MouseMode;
+        Active = true;
+        _cam.GlobalPosition = PlayerRef.Camera.GlobalPosition;
+        _yaw = PlayerRef.Camera.GlobalRotation.Y;
+        _pitch = PlayerRef.Camera.Rotation.X;
+        _cam.Current = true;
+        PlayerRef.InputLocked = true;
+        HudRef.Visible = false;
+        if (DayNightRef != null)
+            DayNightRef.Paused = true;
+    }
+
+    internal static Input.MouseModeEnum MouseModeAfterExit(bool sceneExit, Input.MouseModeEnum previousMode) =>
+            sceneExit ? Input.MouseModeEnum.Visible : previousMode;
+
+    private void ExitPhotoMode(bool restoreCamera, bool showToast)
+    {
+        if (!Active)
+            return;
+        Active = false;
+        if (_cam != null && GodotObject.IsInstanceValid(_cam))
+            _cam.Current = false;
+        if (PlayerRef != null && GodotObject.IsInstanceValid(PlayerRef))
+        {
+            PlayerRef.InputLocked = _playerWasInputLocked;
+            if (restoreCamera && PlayerRef.Camera != null && GodotObject.IsInstanceValid(PlayerRef.Camera))
+                PlayerRef.Camera.Current = _playerCameraWasCurrent;
         }
+        if (HudRef != null && GodotObject.IsInstanceValid(HudRef))
+        {
+            HudRef.Visible = _hudWasVisible;
+            if (showToast)
+                HudRef.ShowToast("photo mode off");
+        }
+        if (DayNightRef != null && GodotObject.IsInstanceValid(DayNightRef))
+            DayNightRef.Paused = _dayNightWasPaused;
+        Input.MouseMode = MouseModeAfterExit(sceneExit: !restoreCamera, _mouseModeBeforePhotoMode);
+    }
+
+    public override void _ExitTree()
+    {
+        ExitPhotoMode(restoreCamera: false, showToast: false);
     }
 
     public override void _Process(double delta)

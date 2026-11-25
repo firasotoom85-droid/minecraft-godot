@@ -15,9 +15,21 @@ public static class SettingsPanel
         VBoxContainer root = new();
         root.AddThemeConstantOverride("separation", 8);
 
+        Label persistenceNotice = new()
+        {
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            Visible = false,
+        };
+        persistenceNotice.AddThemeColorOverride("font_color", new Color(1.0f, 0.62f, 0.52f));
+        persistenceNotice.AddThemeFontSizeOverride("font_size", 12);
+
         void Apply()
         {
-            Settings.Save();
+            Error saveResult = Settings.Save();
+            persistenceNotice.Text = saveResult == Error.Ok
+                    ? ""
+                    : $"Could not save settings ({saveResult}). Changes remain active for this session only.";
+            persistenceNotice.Visible = saveResult != Error.Ok;
             onApply?.Invoke();
         }
 
@@ -106,6 +118,7 @@ public static class SettingsPanel
                     Settings.Difficulty = i;
                     Apply();
                 }));
+        root.AddChild(persistenceNotice);
         return root;
     }
 

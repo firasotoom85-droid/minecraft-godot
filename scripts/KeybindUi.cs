@@ -188,8 +188,8 @@ public partial class KeybindUi : CanvasLayer, IModalUi
                 }
                 else
                 {
-                    GamepadBindings.SetButton(action, button);
-                    _notice.Text = "";
+                    Error saveResult = GamepadBindings.SetButton(action, button);
+                    _notice.Text = saveResult == Error.Ok ? "" : $"Controller binding active but could not be saved ({saveResult}).";
                     RefreshPadButton(action);
                 }
                 _waitingAction = null;
@@ -220,8 +220,11 @@ public partial class KeybindUi : CanvasLayer, IModalUi
             }
             else
             {
-                _notice.Text = "";
-                Keybinds.Rebind(keyboardAction, key.Keycode);
+                Error saveResult = Keybinds.Rebind(keyboardAction, key.Keycode, out string? saveConflict);
+                if (saveResult == Error.InvalidParameter && saveConflict != null)
+                    _notice.Text = $"{key.Keycode} is already bound to {saveConflict}";
+                else
+                    _notice.Text = saveResult == Error.Ok ? "" : $"Keyboard binding active but could not be saved ({saveResult}).";
                 RefreshButton(keyboardAction);
             }
             _waitingAction = null;
@@ -261,8 +264,13 @@ public partial class KeybindUi : CanvasLayer, IModalUi
 
     private void ResetAll()
     {
-        Keybinds.ResetDefaults();
-        GamepadBindings.ResetDefaults();
+        Error keyboardResult = Keybinds.ResetDefaults();
+        Error gamepadResult = GamepadBindings.ResetDefaults();
+        _notice.Text = keyboardResult != Error.Ok
+                ? $"Keyboard defaults could not be saved ({keyboardResult})."
+                : gamepadResult != Error.Ok
+                        ? $"Controller defaults could not be saved ({gamepadResult})."
+                        : "";
         RefreshAll();
         foreach ((string action, _) in Keybinds.Bindable) RefreshPadButton(action);
     }

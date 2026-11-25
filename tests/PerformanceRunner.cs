@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Godot;
 
 namespace Minecraft;
@@ -30,7 +31,7 @@ public partial class PerformanceRunner : Node
     private readonly List<int> _dataChunks = [];
     private readonly Vector3[] _route = new Vector3[RoutePointCount];
 
-    private Main? _main;
+    private Node? _main;
     private VoxelWorld? _world;
     private Player? _player;
     private Weather? _weather;
@@ -63,6 +64,20 @@ public partial class PerformanceRunner : Node
     private double _routeElapsed;
     private bool _started;
     private bool _finishing;
+    private Task<int>? _completionTask; // Owns the asynchronous run result and prevents duplicate finalization.
+
+    // Narrow lifecycle-test seams. Production leaves these null and uses the
+    // real frame, scene, worker and filesystem operations.
+    internal Func<Task>? WaitForFrameOverride;
+    internal Func<Task>? WaitForSettleOverride;
+    internal Func<string, bool>? DeleteWorldOverride;
+    internal Func<bool>? WorkersDrainedOverride;
+    internal Action<int>? RequestExitOverride;
+    internal Action<Exception>? ReportFailureOverride;
+    internal int DrainFrameLimit = 60;
+
+    private string _reportJsonPath = "";
+    private string _reportCsvPath = "";
 
     private long _managedAllocatedAtStart;
     private int _gc0AtStart;
@@ -95,117 +110,131 @@ public partial class PerformanceRunner : Node
 
     public override void _Ready()
     {
-        ParseArguments();
-        if (!IsSupportedScenario(_scenario))
+        try
         {
-            Fail($"Unknown benchmark scenario '{_scenario}'.");
-            return;
+            ParseArguments();
+            if (!IsSupportedScenario(_scenario))
+            {
+                _completionTask = Fail($"Unknown benchmark scenario '{_scenario}'.");
+                return;
+            }
+
+            Settings.Load();
+            ConfigureDisplay();
+            Settings.GfxPreset = _preset;
+            Settings.ViewDistance = _viewDistance;
+            Settings.AutoQuality = false;
+            Settings.GreedyMeshing = true;
+            Settings.Difficulty = Settings.DifficultyNormal;
+
+            _frameTimesMs.Capacity = Math.Max(1200, (int)(_durationSeconds * 240.0) + 512);
+            _frameElapsedSeconds.Capacity = _frameTimesMs.Capacity;
+            _processTimesMs.Capacity = _frameTimesMs.Capacity;
+            _physicsTimesMs.Capacity = _frameTimesMs.Capacity;
+            _chunkCounts.Capacity = _frameTimesMs.Capacity;
+            _freshQueues.Capacity = _frameTimesMs.Capacity;
+            _rebuildQueues.Capacity = _frameTimesMs.Capacity;
+            _dataChunks.Capacity = _frameTimesMs.Capacity;
+
+            _worldDir = WorldStore.Create(
+                    $"Temporary performance benchmark ({_scenario})", _seed, "creative", "normal");
+            if (_worldDir.Length == 0 || WorldStore.ReadManifest(_worldDir) == null)
+            {
+                _completionTask = Fail("Could not create the isolated benchmark world.");
+                return;
+            }
+
+            GameSession.Instance.SelectWorld(_worldDir);
+            PackedScene scene = GD.Load<PackedScene>("res://scenes/main.tscn");
+            if (scene == null)
+            {
+                _completionTask = Fail("Could not load res://scenes/main.tscn.");
+                return;
+            }
+
+            _main = scene.Instantiate<Main>();
+            AddChild(_main);
+
+            _world = _main.GetNode<VoxelWorld>("World");
+            _player = _main.GetNode<Player>("Player");
+            _weather = _main.GetNode<Weather>("Weather");
+            _mobs = _main.GetNode<Mobs>("Mobs");
+
+            _player.SetMode(GameMode.Creative);
+            _player.InputLocked = true;
+            _player.Velocity = Vector3.Zero;
+            _world.SetViewDistance(_viewDistance);
+            _world.SetLodRadius(Gfx.Presets[_preset].Lod);
+
+            _process = Process.GetCurrentProcess();
+            GD.Print($"PERF BENCHMARK: scene ready scenario={_scenario} seed={_seed} " +
+                    $"gen=V{_world.WorldGenVersion} preset={Gfx.Presets[_preset].Name} " +
+                    $"viewDistance={_viewDistance} warmup={_warmupSeconds:0}s duration={_durationSeconds:0}s");
         }
-
-        Settings.Load();
-        ConfigureDisplay();
-        Settings.GfxPreset = _preset;
-        Settings.ViewDistance = _viewDistance;
-        Settings.AutoQuality = false;
-        Settings.GreedyMeshing = true;
-        Settings.Difficulty = Settings.DifficultyNormal;
-
-        _frameTimesMs.Capacity = Math.Max(1200, (int)(_durationSeconds * 240.0) + 512);
-        _frameElapsedSeconds.Capacity = _frameTimesMs.Capacity;
-        _processTimesMs.Capacity = _frameTimesMs.Capacity;
-        _physicsTimesMs.Capacity = _frameTimesMs.Capacity;
-        _chunkCounts.Capacity = _frameTimesMs.Capacity;
-        _freshQueues.Capacity = _frameTimesMs.Capacity;
-        _rebuildQueues.Capacity = _frameTimesMs.Capacity;
-        _dataChunks.Capacity = _frameTimesMs.Capacity;
-
-        _worldDir = WorldStore.Create(
-                $"Temporary performance benchmark ({_scenario})", _seed, "creative", "normal");
-        if (_worldDir.Length == 0 || WorldStore.ReadManifest(_worldDir) == null)
+        catch (Exception exception)
         {
-            Fail("Could not create the isolated benchmark world.");
-            return;
+            _completionTask = Fail("initialization failed", exception);
         }
-
-        GameSession.Instance.SelectWorld(_worldDir);
-        PackedScene scene = GD.Load<PackedScene>("res://scenes/main.tscn");
-        if (scene == null)
-        {
-            Fail("Could not load res://scenes/main.tscn.");
-            return;
-        }
-
-        _main = scene.Instantiate<Main>();
-        AddChild(_main);
-
-        _world = _main.GetNode<VoxelWorld>("World");
-        _player = _main.GetNode<Player>("Player");
-        _weather = _main.GetNode<Weather>("Weather");
-        _mobs = _main.GetNode<Mobs>("Mobs");
-
-        _player.SetMode(GameMode.Creative);
-        _player.InputLocked = true;
-        _player.Velocity = Vector3.Zero;
-        _world.SetViewDistance(_viewDistance);
-        _world.SetLodRadius(Gfx.Presets[_preset].Lod);
-
-        _process = Process.GetCurrentProcess();
-        GD.Print($"PERF BENCHMARK: scene ready scenario={_scenario} seed={_seed} " +
-                $"gen=V{_world.WorldGenVersion} preset={Gfx.Presets[_preset].Name} " +
-                $"viewDistance={_viewDistance} warmup={_warmupSeconds:0}s duration={_durationSeconds:0}s");
     }
 
     public override void _Process(double delta)
     {
-        if (_finishing || _world == null || _player == null)
+        try
         {
-            return;
-        }
-
-        if (!_started)
-        {
-            _startupElapsed += delta;
-            if (_startupElapsed >= 8.0)
+            if (_finishing || _world == null || _player == null)
             {
-                try
-                {
-                    StartScenario();
-                }
-                catch (Exception exception)
-                {
-                    Fail($"Scenario setup failed: {exception}");
-                }
+                return;
             }
 
-            return;
-        }
-
-        _routeElapsed += delta;
-        UpdateRoute();
-
-        if (_warmupElapsed < _warmupSeconds)
-        {
-            _warmupElapsed += delta;
-            if (_warmupElapsed >= _warmupSeconds)
+            if (!_started)
             {
-                BeginMeasurement();
+                _startupElapsed += delta;
+                if (_startupElapsed >= 8.0)
+                {
+                    try
+                    {
+                        StartScenario();
+                    }
+                    catch (Exception exception)
+                    {
+                        _completionTask = Fail("Scenario setup failed.", exception);
+                    }
+                }
+
+                return;
             }
 
-            return;
-        }
+            _routeElapsed += delta;
+            UpdateRoute();
 
-        _measurementElapsed += delta;
-        CaptureFrame(delta);
-        _memorySampleElapsed += delta;
-        if (_memorySampleElapsed >= 1.0)
-        {
-            _memorySampleElapsed = 0.0;
-            CaptureMemoryAndSceneCounters();
-        }
+            if (_warmupElapsed < _warmupSeconds)
+            {
+                _warmupElapsed += delta;
+                if (_warmupElapsed >= _warmupSeconds)
+                {
+                    BeginMeasurement();
+                }
 
-        if (_measurementElapsed >= _durationSeconds)
+                return;
+            }
+
+            _measurementElapsed += delta;
+            CaptureFrame(delta);
+            _memorySampleElapsed += delta;
+            if (_memorySampleElapsed >= 1.0)
+            {
+                _memorySampleElapsed = 0.0;
+                CaptureMemoryAndSceneCounters();
+            }
+
+            if (_measurementElapsed >= _durationSeconds)
+            {
+                _completionTask = Finish();
+            }
+        }
+        catch (Exception exception)
         {
-            Finish();
+            _completionTask = Fail("execution failed", exception);
         }
     }
 
@@ -562,6 +591,7 @@ public partial class PerformanceRunner : Node
         _measurementElapsed = 0.0;
         _memorySampleElapsed = 0.0;
         Profiler.ResetBuildSamples();
+        Profiler.ResetApplyStepSamples();
         _managedAllocatedAtStart = GC.GetTotalAllocatedBytes(false);
         _gc0AtStart = GC.CollectionCount(0);
         _gc1AtStart = GC.CollectionCount(1);
@@ -599,6 +629,8 @@ public partial class PerformanceRunner : Node
     private void CaptureMemoryAndSceneCounters()
     {
         if (_process == null) return;
+        if (_world != null)
+            Profiler.RecordCacheMemory(_world.GetCacheMemorySnapshot());
         _maxWorkingSetBytes = Math.Max(_maxWorkingSetBytes, _process.WorkingSet64);
         _maxManagedHeapBytes = Math.Max(_maxManagedHeapBytes, GC.GetTotalMemory(false));
         _maxStaticMemoryBytes = Math.Max(_maxStaticMemoryBytes,
@@ -615,60 +647,165 @@ public partial class PerformanceRunner : Node
                 (int)Performance.GetMonitor(Performance.Monitor.RenderTotalPrimitivesInFrame));
     }
 
-    private async void Finish()
+    private Task<int> Finish()
     {
-        if (_finishing) return;
+        return BeginCompletion(WriteBenchmarkReportsAsync);
+    }
+
+    private Task WriteBenchmarkReportsAsync()
+    {
+        CaptureMemoryAndSceneCounters();
+        string reportJson = BuildJsonReport();
+        string frameCsv = BuildFrameCsv();
+        string absoluteDirectory = ProjectSettings.GlobalizePath(OutputDirectory);
+        Error directoryError = DirAccess.MakeDirRecursiveAbsolute(absoluteDirectory);
+        if (directoryError != Error.Ok && !DirAccess.DirExistsAbsolute(absoluteDirectory))
+            throw new IOException($"Could not create benchmark output directory: {directoryError}");
+
+        _reportJsonPath = $"{OutputDirectory}/{_outputBase}.json";
+        _reportCsvPath = $"{OutputDirectory}/{_outputBase}-frames.csv";
+        if (!WriteText(_reportJsonPath, reportJson) || !WriteText(_reportCsvPath, frameCsv))
+            throw new IOException("A benchmark report could not be written.");
+        return Task.CompletedTask;
+    }
+
+    private Task<int> Fail(string message, Exception? cause = null)
+    {
+        Exception failure = cause == null
+                ? new InvalidOperationException(message)
+                : new InvalidOperationException(message, cause);
+        return BeginCompletion(() => Task.FromException(failure));
+    }
+
+    internal Task<int> BeginCompletion(Func<Task>? operation)
+    {
+        if (_completionTask != null)
+            return _completionTask;
+
         _finishing = true;
-        try
+        _completionTask = RunnerCompletion.ExecuteAsync(
+                operation,
+                [
+                    QueueMainForDeletionAsync,
+                    WaitForProcessFrameAsync,
+                    WaitForProcessFrameAsync,
+                    WaitForSettleDelayAsync,
+                    WaitForWorkerDrainAsync,
+                    ReleaseSceneReferencesAsync,
+                    CleanupWorldAsync,
+                ],
+                exception =>
+                {
+                    if (ReportFailureOverride != null)
+                    {
+                        ReportFailureOverride(exception);
+                        return;
+                    }
+
+                    GD.PushError($"PERF BENCHMARK: completion failed: {exception}");
+                },
+                exitCode =>
+                {
+                    if (RequestExitOverride != null)
+                    {
+                        RequestExitOverride(exitCode);
+                        return;
+                    }
+
+                    GetTree().Quit(exitCode);
+                },
+                exitCode =>
+                {
+                    bool passed = exitCode == 0;
+                    string report = _reportJsonPath.Length == 0
+                            ? "unavailable"
+                            : ProjectSettings.GlobalizePath(_reportJsonPath);
+                    string frames = _reportCsvPath.Length == 0
+                            ? "unavailable"
+                            : ProjectSettings.GlobalizePath(_reportCsvPath);
+                    GD.Print($"PERF BENCHMARK {(passed ? "PASS" : "INCOMPLETE")}: " +
+                            $"scenario={_scenario} fps={_frameTimesMs.Count / Math.Max(0.001, _measurementElapsed):0.0} " +
+                            $"p50={BenchmarkStatistics.Percentile(_frameTimesMs, 0.50):0.00}ms " +
+                            $"p95={BenchmarkStatistics.Percentile(_frameTimesMs, 0.95):0.00}ms " +
+                            $"p99={BenchmarkStatistics.Percentile(_frameTimesMs, 0.99):0.00}ms " +
+                            $"rssMax={_maxWorkingSetBytes / 1048576.0:0}MiB report={report} frames={frames}");
+                    SetProcess(false);
+                });
+        return _completionTask;
+    }
+
+    private Task QueueMainForDeletionAsync()
+    {
+        if (_main != null && GodotObject.IsInstanceValid(_main)
+                && !_main.IsQueuedForDeletion())
+            _main.QueueFree();
+        return Task.CompletedTask;
+    }
+
+    internal async Task WaitForProcessFrameAsync()
+    {
+        if (WaitForFrameOverride != null)
         {
-            CaptureMemoryAndSceneCounters();
-            string reportJson = BuildJsonReport();
-            string frameCsv = BuildFrameCsv();
-            string absoluteDirectory = ProjectSettings.GlobalizePath(OutputDirectory);
-            Error directoryError = DirAccess.MakeDirRecursiveAbsolute(absoluteDirectory);
-            if (directoryError != Error.Ok && !DirAccess.DirExistsAbsolute(absoluteDirectory))
-                throw new IOException($"Could not create benchmark output directory: {directoryError}");
-
-            string jsonPath = $"{OutputDirectory}/{_outputBase}.json";
-            string csvPath = $"{OutputDirectory}/{_outputBase}-frames.csv";
-            if (!WriteText(jsonPath, reportJson) || !WriteText(csvPath, frameCsv))
-                throw new IOException("A benchmark report could not be written.");
-
-            if (_main != null && GodotObject.IsInstanceValid(_main))
-                _main.QueueFree();
-            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-            await ToSignal(GetTree().CreateTimer(0.25), Timer.SignalName.Timeout);
-            ReleaseSceneReferences();
-
-            bool cleaned = CleanupWorld();
-            GD.Print($"PERF BENCHMARK {(cleaned ? "PASS" : "INCOMPLETE")}: " +
-                    $"scenario={_scenario} fps={_frameTimesMs.Count / Math.Max(0.001, _measurementElapsed):0.0} " +
-                    $"p50={BenchmarkStatistics.Percentile(_frameTimesMs, 0.50):0.00}ms " +
-                    $"p95={BenchmarkStatistics.Percentile(_frameTimesMs, 0.95):0.00}ms " +
-                    $"p99={BenchmarkStatistics.Percentile(_frameTimesMs, 0.99):0.00}ms " +
-                    $"rssMax={_maxWorkingSetBytes / 1048576.0:0}MiB " +
-                    $"report={ProjectSettings.GlobalizePath(jsonPath)} frames={ProjectSettings.GlobalizePath(csvPath)}");
-            GetTree().Quit(cleaned ? 0 : 1);
+            await WaitForFrameOverride();
+            return;
         }
-        catch (Exception exception)
+
+        if (IsInsideTree())
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+    }
+
+    private async Task WaitForSettleDelayAsync()
+    {
+        if (WaitForSettleOverride != null)
         {
-            GD.PushError($"PERF BENCHMARK: report or cleanup failed: {exception}");
-            if (_main != null && GodotObject.IsInstanceValid(_main))
-                _main.QueueFree();
-            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-            await ToSignal(GetTree().CreateTimer(0.25), Timer.SignalName.Timeout);
-            ReleaseSceneReferences();
-            CleanupWorld();
-            GetTree().Quit(1);
+            await WaitForSettleOverride();
+            return;
         }
+
+        if (IsInsideTree())
+            await ToSignal(GetTree().CreateTimer(0.25), Timer.SignalName.Timeout);
+    }
+
+    private bool WorkersDrained() => WorkersDrainedOverride?.Invoke()
+            ?? (Profiler.PendingPayloadCount == 0 && Profiler.PendingPayloadBytes == 0
+                && !Profiler.WorkersActive);
+
+    // QueueFree waits for the world's worker group in VoxelWorld._ExitTree;
+    // allow those frames to settle before releasing the scene and deleting the
+    // temporary world.
+    private async Task WaitForWorkerDrainAsync()
+    {
+        bool drained = WorkersDrained();
+        for (int attempt = 0; attempt < DrainFrameLimit && !drained; attempt++)
+        {
+            await WaitForProcessFrameAsync();
+            drained = WorkersDrained();
+        }
+
+        if (!drained)
+            throw new InvalidOperationException(
+                    "Meshing workers or completed payloads remained at benchmark shutdown.");
+    }
+
+    private Task ReleaseSceneReferencesAsync()
+    {
+        ReleaseSceneReferences();
+        return Task.CompletedTask;
+    }
+
+    private Task CleanupWorldAsync()
+    {
+        if (!CleanupWorld())
+            throw new IOException($"Failed to remove disposable benchmark world '{_worldDir}'.");
+        return Task.CompletedTask;
     }
 
     private string BuildJsonReport()
     {
         double meanFrameMs = Mean(_frameTimesMs);
         BuildTimeStats mesh = Profiler.BuildDistribution();
+        BuildTimeStats applySteps = Profiler.ApplyStepDistribution();
+        BuildTimeStats collisionSteps = Profiler.CollisionDistribution();
         string runStamp = DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'", CultureInfo.InvariantCulture);
         _outputBase = $"perf-{_scenario}-{_seed}-{runStamp}";
         var report = new
@@ -761,6 +898,48 @@ public partial class PerformanceRunner : Node
                 gc0Collections = GC.CollectionCount(0) - _gc0AtStart,
                 gc1Collections = GC.CollectionCount(1) - _gc1AtStart,
                 gc2Collections = GC.CollectionCount(2) - _gc2AtStart,
+                voxelArrayBytes = Profiler.VoxelCacheArrayBytes,
+                voxelArrayHighWaterBytes = Profiler.VoxelCacheArrayHighWaterBytes,
+                generatorSeedArrayBytes = Profiler.GeneratorSeedArrayBytes,
+                generatorSeedArrayHighWaterBytes = Profiler.GeneratorSeedArrayHighWaterBytes,
+                voxelArrayBudgetBytes = Profiler.VoxelCacheBudgetBytes,
+                cacheIndexBytesEstimate = Profiler.CacheIndexBytesEstimate,
+                cacheIndexHighWaterBytesEstimate = Profiler.CacheIndexBytesHighWaterEstimate,
+                cropRegistryBytesEstimate = Profiler.CropRegistryBytesEstimate,
+                cropRegistryHighWaterBytesEstimate = Profiler.CropRegistryBytesHighWaterEstimate,
+                sourceScanRegistryBytesEstimate = Profiler.SourceScanRegistryBytesEstimate,
+                sourceScanRegistryHighWaterBytesEstimate = Profiler.SourceScanRegistryBytesHighWaterEstimate,
+                cropScanRegistryBytesEstimate = Profiler.CropScanRegistryBytesEstimate,
+                cropScanRegistryHighWaterBytesEstimate = Profiler.CropScanRegistryBytesHighWaterEstimate,
+                campfireSiteCacheBytesEstimate = Profiler.CampfireSiteCacheBytesEstimate,
+                campfireSiteCacheHighWaterBytesEstimate = Profiler.CampfireSiteCacheBytesHighWaterEstimate,
+                structureSiteCacheBytesEstimate = Profiler.StructureSiteCacheBytesEstimate,
+                structureSiteCacheHighWaterBytesEstimate = Profiler.StructureSiteCacheBytesHighWaterEstimate,
+                villageSiteCacheBytesEstimate = Profiler.VillageSiteCacheBytesEstimate,
+                villageSiteCacheHighWaterBytesEstimate = Profiler.VillageSiteCacheBytesHighWaterEstimate,
+                editTopArrayBytes = Profiler.EditTopArrayBytes,
+                editTopArrayHighWaterBytes = Profiler.EditTopArrayHighWaterBytes,
+                editTopIndexBytesEstimate = Profiler.EditTopIndexBytesEstimate,
+                editTopIndexHighWaterBytesEstimate = Profiler.EditTopIndexBytesHighWaterEstimate,
+                worldStateRegistryBytesEstimate = Profiler.WorldStateRegistryBytesEstimate,
+                worldStateRegistryHighWaterBytesEstimate = Profiler.WorldStateRegistryBytesHighWaterEstimate,
+                chunkIndexBytesEstimate = Profiler.ChunkIndexBytesEstimate,
+                chunkIndexHighWaterBytesEstimate = Profiler.ChunkIndexBytesHighWaterEstimate,
+                editMetadataBytesEstimate = Profiler.EditMetadataBytesEstimate,
+                editMetadataHighWaterBytesEstimate = Profiler.EditMetadataBytesHighWaterEstimate,
+                lightSourceBytesEstimate = Profiler.LightSourceBytesEstimate,
+                lightSourceHighWaterBytesEstimate = Profiler.LightSourceBytesHighWaterEstimate,
+                appliedMeshBytesEstimate = Profiler.AppliedMeshBytesEstimate,
+                appliedMeshHighWaterBytesEstimate = Profiler.AppliedMeshBytesHighWaterEstimate,
+                pooledMeshBufferBytes = Profiler.PooledMeshBufferBytes,
+                pooledMeshBufferHighWaterBytes = Profiler.PooledMeshBufferHighWaterBytes,
+                streamingQueueBytesEstimate = Profiler.StreamingQueueBytesEstimate,
+                streamingQueueHighWaterBytesEstimate = Profiler.StreamingQueueBytesHighWaterEstimate,
+                persistentMetadataBytesEstimate = Profiler.PersistentMetadataBytesEstimate,
+                persistentMetadataHighWaterBytesEstimate = Profiler.PersistentMetadataBytesHighWaterEstimate,
+                trackedManagedBytesEstimate = Profiler.TrackedManagedBytesEstimate,
+                trackedManagedHighWaterBytesEstimate = Profiler.TrackedManagedBytesHighWaterEstimate,
+                cacheAccountingNote = VoxelCacheMemorySnapshot.AccountingNote,
             },
             sceneAndStreaming = new
             {
@@ -782,6 +961,33 @@ public partial class PerformanceRunner : Node
                 p95Ms = mesh.P95Ms,
                 p99Ms = mesh.P99Ms,
                 maxMs = mesh.MaxMs,
+            },
+            chunkPayloadApply = new
+            {
+                cooperativeBudgetMs = 2.0,
+                maximumVerticesPerResourceStep = StreamingApplyBudget.MaxVerticesPerStep,
+                totalPayloadAverageMs = Profiler.ApplyAverageMs,
+                totalPayloadMaximumMs = Profiler.ApplyMaximumMs,
+                resourceSteps = new
+                {
+                    count = applySteps.Count,
+                    averageMs = applySteps.AverageMs,
+                    p50Ms = applySteps.P50Ms,
+                    p95Ms = applySteps.P95Ms,
+                    p99Ms = applySteps.P99Ms,
+                    maxMs = applySteps.MaxMs,
+                },
+                collisionSteps = new
+                {
+                    count = collisionSteps.Count,
+                    averageMs = collisionSteps.AverageMs,
+                    p50Ms = collisionSteps.P50Ms,
+                    p95Ms = collisionSteps.P95Ms,
+                    p99Ms = collisionSteps.P99Ms,
+                    maxMs = collisionSteps.MaxMs,
+                    totalVertices = Profiler.CollisionVerticesApplied,
+                },
+                note = "The 2 ms budget is checked between bounded steps; one Godot resource creation call may exceed it.",
             },
         };
 
@@ -822,24 +1028,10 @@ public partial class PerformanceRunner : Node
     {
         if (_worldDir.Length == 0) return true;
         string directory = _worldDir;
-        bool deleted = WorldStore.Delete(directory);
+        bool deleted = DeleteWorldOverride?.Invoke(directory) ?? WorldStore.Delete(directory);
         if (deleted) _worldDir = "";
         else GD.PushError($"PERF BENCHMARK: failed to remove disposable world '{directory}'.");
         return deleted;
-    }
-
-    private async void Fail(string message)
-    {
-        if (_finishing) return;
-        GD.PushError($"PERF BENCHMARK: {message}");
-        _finishing = true;
-        if (_main != null && GodotObject.IsInstanceValid(_main))
-            _main.QueueFree();
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        ReleaseSceneReferences();
-        CleanupWorld();
-        GetTree().Quit(1);
     }
 
     private void ReleaseSceneReferences()
@@ -849,14 +1041,30 @@ public partial class PerformanceRunner : Node
         _player = null;
         _weather = null;
         _mobs = null;
-        _process?.Dispose();
+        Process? process = _process;
         _process = null;
+        process?.Dispose();
     }
 
     public override void _ExitTree()
     {
-        ReleaseSceneReferences();
-        CleanupWorld();
+        try
+        {
+            ReleaseSceneReferences();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError($"PERF BENCHMARK: emergency reference release failed: {exception}");
+        }
+
+        try
+        {
+            CleanupWorld();
+        }
+        catch (Exception exception)
+        {
+            GD.PushError($"PERF BENCHMARK: emergency world cleanup failed: {exception}");
+        }
     }
 
     private static double Mean(List<double> values)

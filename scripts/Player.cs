@@ -12,6 +12,10 @@ namespace Minecraft;
 /// </summary>
 public partial class Player : CharacterBody3D, IDamageable
 {
+    public const float CollisionRadius = 0.35f;
+    public const float CollisionHeight = 1.8f;
+
+    internal readonly record struct MinedDrop(ItemId Id, int Count);
     [Export] public float WalkSpeed = 5.0f;
     [Export] public float SprintSpeed = 8.5f;
     [Export] public float FlySpeed = 12.0f;
@@ -515,12 +519,7 @@ public partial class Player : CharacterBody3D, IDamageable
         }
         else _swimStrokeTimer = 0.0;
         _wasSwimming = Swimming;
-        // Safety net: never let the player fall out of the world (trimesh slips).
-        if (GlobalPosition.Y < -8.0f)
-        {
-            GlobalPosition = World.FindSpawn() + new Vector3(0, 1.0f, 0);
-            Velocity = Vector3.Zero;
-        }
+        RecoverFromVoidFall();
 
         Ray.ForceRaycastUpdate();
         UpdateOutline();
@@ -533,6 +532,18 @@ public partial class Player : CharacterBody3D, IDamageable
         float baseFov = Settings.Fov;
         float targetFov = sprinting && !Flying && !Swimming && direction != Vector3.Zero ? baseFov + 5.0f : baseFov;
         Camera.Fov = Mathf.Lerp(Camera.Fov, targetFov, 8.0f * dt);
+    }
+
+    /// <summary>Apply the void hit and recover in one physics-side transition.</summary>
+    internal void RecoverFromVoidFall()
+    {
+        if (World == null || GlobalPosition.Y >= -8.0f)
+            return;
+
+        ApplyFallDamage(4.0f);
+        GlobalPosition = World.FindSpawn() + new Vector3(0, 1.0f, 0);
+        Velocity = Vector3.Zero;
+        _fallStartY = null;
     }
 
     private bool IsWaterAt(Vector3 p)
@@ -658,11 +669,6 @@ public partial class Player : CharacterBody3D, IDamageable
             }
         }
 
-        // Sky-island worlds have no floor: falling out of the world hurts fast.
-        if (GlobalPosition.Y < -8.0f)
-        {
-            ApplyDamage(new DamageInfo(4.0f, DamageKind.Fall));
-        }
     }
 
     // -----------------------------------------------------------------------
@@ -670,6 +676,9 @@ public partial class Player : CharacterBody3D, IDamageable
     // -----------------------------------------------------------------------
 
     /// <summary>All incoming hurt routes here; creative and invulnerability refuse it.</summary>
+    internal bool ApplyFallDamage(float amount) =>
+            ApplyDamage(new DamageInfo(amount, DamageKind.Fall));
+
     public bool ApplyDamage(in DamageInfo info)
     {
         // Refuse invalid/deferred hits before shield durability or feedback can be consumed.
@@ -799,7 +808,15 @@ public partial class Player : CharacterBody3D, IDamageable
 
         Stats.ResetForRespawn();
         Vector3 target = RespawnPoint ?? (World?.FindSpawn() ?? GlobalPosition) + new Vector3(0, 1.0f, 0);
-        GlobalPosition = target;
+        if (IsInsideTree())
+        {
+            GlobalPosition = target;
+        }
+        else
+        {
+            Position = target;
+        }
+
         Velocity = Vector3.Zero;
         _fallStartY = null;
         EmitSignal(SignalName.Respawned);
@@ -819,7 +836,8 @@ public partial class Player : CharacterBody3D, IDamageable
     }
 
     /// <summary>Restore persisted player state; null mode keeps the world default.</summary>
-    public void LoadFromSave(string? mode, float health, float hunger, Vector3? respawn, int experience = 0)
+    public void LoadFromSave(string? mode, float health, float hunger, Vector3? respawn,
+            int experience = 0, bool dead = false)
     {
         if (mode == "survival")
         {
@@ -830,7 +848,7 @@ public partial class Player : CharacterBody3D, IDamageable
             Mode = GameMode.Creative;
         }
 
-        Stats.Load(health, hunger, experience);
+        Stats.Load(health, hunger, experience, dead && Mode == GameMode.Survival);
         RespawnPoint = respawn;
     }
 
@@ -886,7 +904,7 @@ public partial class Player : CharacterBody3D, IDamageable
                         Mathf.FloorToInt(GlobalPosition.Z));
                 if (!BlockDb.IsWater(below))
                 {
-                    Stats.ApplyDamage(Mathf.Floor(fallen - 3.0f), Mode);
+                    ApplyFallDamage(Mathf.Floor(fallen - 3.0f));
                 }
             }
         }
@@ -1030,7 +1048,7 @@ public partial class Player : CharacterBody3D, IDamageable
     /// Amanatides-Woo traversal. Cubes use cell entry, partial shapes use
     /// exact sub-voxel AABB intersections, and cross plants use their planes.
     /// </summary>
-    private bool TryRaycastVoxels(
+    internal bool TryRaycastVoxels(
             Vector3 origin, Vector3 direction, float maxDistance,
             out Vector3I blockPosition, out BlockId blockId,
             out Vector3 hitPoint, out Vector3 hitNormal)
@@ -1066,7 +1084,8 @@ public partial class Player : CharacterBody3D, IDamageable
         while (entryDistance <= maxDistance)
         {
             float exitDistance = Mathf.Min(nextX, Mathf.Min(nextY, nextZ));
-            BlockId current = World!.GetBlock(x, y, z);
+            if (!World!.TryGetLoadedBlock(x, y, z, out BlockId current))
+                return false;
             if (current != BlockId.Air && !BlockDb.IsWater(current) && current != BlockId.Lava)
             {
                 Vector3I cell = new(x, y, z);
@@ -1459,7 +1478,7 @@ public partial class Player : CharacterBody3D, IDamageable
         StartPunch(FirstPersonAction.Eat);
     }
 
-    private void FinishBreak(Vector3I bp, BlockId id, BlockDb.BlockDef def, ToolInfo? tool)
+    internal void FinishBreak(Vector3I bp, BlockId id, BlockDb.BlockDef def, ToolInfo? tool)
     {
         _mineProgress = 0.0f;
         _mineTarget = new Vector3I(int.MinValue, 0, 0);
@@ -1492,6 +1511,16 @@ public partial class Player : CharacterBody3D, IDamageable
         }
 
         byte brokenState = World.GetBlockState(bp.X, bp.Y, bp.Z);
+        Span<MinedDrop> plannedDrops = stackalloc MinedDrop[3];
+        int plannedDropCount = Mode == GameMode.Creative
+                ? 0
+                : BuildMinedDrops(id, def, tool, brokenState, plannedDrops);
+        if (!CanFitMinedDrops(Inventory, plannedDrops[..plannedDropCount]))
+        {
+            EmitSignal(SignalName.InventoryFull);
+            return;
+        }
+
         if (!World.SetBlock(bp.X, bp.Y, bp.Z, BlockId.Air))
             return;
 
@@ -1508,51 +1537,105 @@ public partial class Player : CharacterBody3D, IDamageable
         Vector3 center = new(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
         EmitSignal(SignalName.BlockBroken, center, (int)id);
 
-        // Creative mode is instant and intentionally bypasses survival drops and wear.
+        // Every reward was capacity-checked before the world mutation. Use one
+        // delivery path so ordinary and special drops report identical gather events.
         if (Mode != GameMode.Creative)
         {
-            if (id == BlockId.Wheat2)
-            {
-                GiveDrop(ItemId.Wheat, 1 + (int)(GD.Randf() * 3.0f));
-                GiveDrop(ItemId.Seeds, 1 + (int)(GD.Randf() * 2.0f));
-            }
-            else if (id is BlockId.Wheat0 or BlockId.Wheat1)
-            {
-                GiveDrop(ItemId.Seeds, 1);
-            }
-            else if (id == BlockId.TallGrass && GD.Randf() < 0.15f)
-            {
-                GiveDrop(ItemId.Seeds, 1);
-            }
-
-            if (BlockDb.CanHarvest(def, tool) && def.Drops)
-            {
-                ItemId drop = def.Drop != ItemId.None ? def.Drop : ItemDb.BlockItem(id);
-                if (drop != ItemId.None && def.DropCount > 0)
-                {
-                    int dropCount = BlockShapes.DropCount(id, brokenState, def.DropCount);
-                    int leftover = Inventory.Add(drop, dropCount);
-                    if (leftover > 0)
-                    {
-                        EmitSignal(SignalName.InventoryFull);
-                    }
-                }
-            }
-
-            // Apples are an oak-leaf bonus drop; birch foliage never produces them.
-            if (id == BlockId.Leaves && GD.Randf() < 0.06f)
-            {
-                GiveDrop(ItemId.Apple, 1);
-            }
+            for (int i = 0; i < plannedDropCount; i++)
+                GiveDrop(plannedDrops[i].Id, plannedDrops[i].Count);
 
             if (tool is not null)
-            {
                 DamageTool();
-            }
         }
     }
 
-    private void GiveDrop(ItemId id, int count)
+    private int BuildMinedDrops(BlockId id, BlockDb.BlockDef def, ToolInfo? tool,
+            byte brokenState, Span<MinedDrop> drops)
+    {
+        int count = 0;
+        if (id == BlockId.Wheat2)
+        {
+            AddMinedDrop(drops, ref count, ItemId.Wheat, 1 + (int)(GD.Randf() * 3.0f));
+            AddMinedDrop(drops, ref count, ItemId.Seeds, 1 + (int)(GD.Randf() * 2.0f));
+        }
+        else if (id is BlockId.Wheat0 or BlockId.Wheat1)
+        {
+            AddMinedDrop(drops, ref count, ItemId.Seeds, 1);
+        }
+        else if (id == BlockId.TallGrass && GD.Randf() < 0.15f)
+        {
+            AddMinedDrop(drops, ref count, ItemId.Seeds, 1);
+        }
+
+        if (BlockDb.CanHarvest(def, tool) && def.Drops)
+        {
+            ItemId drop = def.Drop != ItemId.None ? def.Drop : ItemDb.BlockItem(id);
+            if (drop != ItemId.None && def.DropCount > 0)
+                AddMinedDrop(drops, ref count, drop,
+                        BlockShapes.DropCount(id, brokenState, def.DropCount));
+        }
+
+        // Apples are an oak-leaf bonus drop; birch foliage never produces them.
+        if (id == BlockId.Leaves && GD.Randf() < 0.06f)
+            AddMinedDrop(drops, ref count, ItemId.Apple, 1);
+
+        return count;
+    }
+
+    private static void AddMinedDrop(Span<MinedDrop> drops, ref int count, ItemId id, int amount)
+    {
+        if (id == ItemId.None || amount <= 0) return;
+        if ((uint)count >= (uint)drops.Length)
+            throw new InvalidOperationException("Mined-drop plan exceeded its fixed capacity.");
+        drops[count++] = new MinedDrop(id, amount);
+    }
+
+    internal static bool CanFitMinedDrops(Inventory inventory, ReadOnlySpan<MinedDrop> drops)
+    {
+        int emptySlots = 0;
+        for (int slot = 0; slot < Inventory.SlotCount; slot++)
+            if (inventory.Get(slot).IsEmpty) emptySlots++;
+
+        int requiredEmptySlots = 0;
+        for (int i = 0; i < drops.Length; i++)
+        {
+            ItemId id = drops[i].Id;
+            if (id == ItemId.None || drops[i].Count <= 0) continue;
+
+            bool seen = false;
+            for (int previous = 0; previous < i; previous++)
+            {
+                if (drops[previous].Id == id)
+                {
+                    seen = true;
+                    break;
+                }
+            }
+            if (seen) continue;
+
+            int total = 0;
+            for (int j = i; j < drops.Length; j++)
+                if (drops[j].Id == id) total += drops[j].Count;
+            if (!inventory.CanFit(id, total)) return false;
+
+            int maxStack = ItemDb.MaxStack(id);
+            int existingSpace = 0;
+            for (int slot = 0; slot < Inventory.SlotCount; slot++)
+            {
+                ItemStack stack = inventory.Get(slot);
+                if (stack.Id == id)
+                    existingSpace += Math.Max(maxStack - stack.Count, 0);
+            }
+
+            int remainder = Math.Max(total - existingSpace, 0);
+            requiredEmptySlots += (remainder + maxStack - 1) / maxStack;
+        }
+
+        // Per-item CanFit checks share the same empty slots. Reserve the
+        // combined number of slots needed so multi-item harvests are atomic.
+        return requiredEmptySlots <= emptySlots;
+    }
+    internal void GiveDrop(ItemId id, int count)
     {
         if (count <= 0)
         {
@@ -1774,8 +1857,9 @@ public partial class Player : CharacterBody3D, IDamageable
         int bx = destination.X;
         int by = destination.Y;
         int bz = destination.Z;
-        BlockId existing = World.GetBlock(bx, by, bz);
-        if (!combineSlab && existing != BlockId.Air && !BlockDb.IsWater(existing))
+        if (!World.TryGetLoadedBlock(bx, by, bz, out BlockId existing))
+            return;
+        if (!combineSlab && !CanReplacePlacementDestination(existing))
             return;
 
         if (BlockHitsPlayer(bx, by, bz, place, state))
@@ -1945,13 +2029,11 @@ public partial class Player : CharacterBody3D, IDamageable
 
     public void PickBlock()
     {
-        if (World == null || !Ray.IsColliding() || Ray.GetCollider() is Mob)
+        if (World == null || (Ray.IsColliding() && Ray.GetCollider() is Mob)
+                || !TryGetTargetBlock(out Vector3I bp, out BlockId id))
         {
             return;
         }
-
-        Vector3I bp = TargetBlock();
-        BlockId id = World.GetBlock(bp.X, bp.Y, bp.Z);
         if (id == BlockId.Air || BlockDb.IsWater(id) || id == BlockId.Bedrock)
         {
             return;
@@ -1976,6 +2058,13 @@ public partial class Player : CharacterBody3D, IDamageable
         {
             if (Inventory.Backpack[i].Id == item)
             {
+                // A reserved slot holds an unknown future item. Do not replace
+                // it with an ordinary pick-block swap.
+                if (Inventory.HasUnrecognizedSaveSlot(Selected))
+                {
+                    return;
+                }
+
                 (Inventory.Hotbar[Selected], Inventory.Backpack[i]) =
                         (Inventory.Backpack[i], Inventory.Hotbar[Selected]);
                 Inventory.RaiseChanged();
@@ -1984,11 +2073,70 @@ public partial class Player : CharacterBody3D, IDamageable
         }
     }
 
-    private bool BlockHitsPlayer(int bx, int by, int bz, BlockId id, byte state)
+    internal static bool CanReplacePlacementDestination(BlockId existing) =>
+            existing == BlockId.Air || BlockDb.IsWater(existing) || BlockDb.IsReplaceable(existing);
+
+    internal static bool BlockIntersectsPlayerCapsule(BlockId id, byte state,
+            Vector3 blockOrigin, Vector3 capsuleBase, float radius, float height)
     {
-        Vector3 lo = GlobalPosition + new Vector3(-0.32f, 0.0f, -0.32f);
-        Vector3 hi = GlobalPosition + new Vector3(0.32f, 1.8f, 0.32f);
-        return BlockShapes.IntersectsAabb(id, state, new Vector3(bx, by, bz), lo, hi);
+        if (radius <= 0.0f || height < radius * 2.0f) return false;
+
+        byte mask = BlockShapes.OccupancyMask(id, state);
+        if (mask == 0) return false;
+
+        float segmentMinY = capsuleBase.Y + radius;
+        float segmentMaxY = capsuleBase.Y + height - radius;
+        float radiusSquared = radius * radius;
+        const float epsilon = 0.00001f;
+
+        for (int y = 0; y < 2; y++)
+            for (int z = 0; z < 2; z++)
+                for (int x = 0; x < 2; x++)
+                {
+                    if ((mask & (1 << (x + z * 2 + y * 4))) == 0) continue;
+
+                    float minX = blockOrigin.X + x * 0.5f;
+                    float maxX = minX + 0.5f;
+                    float minY = blockOrigin.Y + y * 0.5f;
+                    float maxY = minY + 0.5f;
+                    float minZ = blockOrigin.Z + z * 0.5f;
+                    float maxZ = minZ + 0.5f;
+
+                    float closestX = Mathf.Clamp(capsuleBase.X, minX, maxX);
+                    float closestZ = Mathf.Clamp(capsuleBase.Z, minZ, maxZ);
+                    float dx = capsuleBase.X - closestX;
+                    float dz = capsuleBase.Z - closestZ;
+                    float dy = segmentMaxY < minY ? minY - segmentMaxY
+                            : segmentMinY > maxY ? segmentMinY - maxY : 0.0f;
+
+                    if (dx * dx + dy * dy + dz * dz < radiusSquared - epsilon)
+                        return true;
+                }
+
+        return false;
+    }
+
+    private bool BlockHitsPlayer(int bx, int by, int bz, BlockId id, byte state) =>
+            BlockIntersectsPlayerCapsule(id, state, new Vector3(bx, by, bz),
+                    GlobalPosition, CollisionRadius, CollisionHeight);
+
+    public void RestoreOrientation(float? yaw, float? pitch)
+    {
+        if (yaw is float savedYaw && float.IsFinite(savedYaw))
+        {
+            float tau = Mathf.Pi * 2.0f;
+            float normalized = savedYaw % tau;
+            if (normalized > Mathf.Pi) normalized -= tau;
+            else if (normalized < -Mathf.Pi) normalized += tau;
+            Rotation = new Vector3(Rotation.X, normalized, Rotation.Z);
+        }
+
+        if (Camera != null && pitch is float savedPitch && float.IsFinite(savedPitch))
+        {
+            Vector3 cameraRotation = Camera.Rotation;
+            cameraRotation.X = Mathf.Clamp(savedPitch, -1.55f, 1.55f);
+            Camera.Rotation = cameraRotation;
+        }
     }
 
     public void Select(int i)

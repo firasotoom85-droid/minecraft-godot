@@ -1,3 +1,4 @@
+using System;
 using Godot;
 
 namespace Minecraft;
@@ -76,8 +77,10 @@ public partial class PauseMenu : CanvasLayer, IModalUi
         box.AddChild(MenuSkin.MakeButton("Resume", Resume, 0));
         box.AddChild(MenuSkin.MakeButton("Save", () =>
         {
-            _world.SaveNow();
-            _status.Text = $"Saved · {Time.GetTimeStringFromSystem()}";
+            if (TrySaveWorld(out string error))
+                _status.Text = $"Saved · {Time.GetTimeStringFromSystem()}";
+            else
+                _status.Text = error;
         }, 0));
         box.AddChild(MenuSkin.MakeButton("Settings", () => SwitchSettings(true), 0));
         box.AddChild(MenuSkin.MakeButton("Controls", () => _keybinds.Open(), 0));
@@ -179,9 +182,34 @@ public partial class PauseMenu : CanvasLayer, IModalUi
         UiFocus.FocusFirst(show ? _settingsPanel : _mainPanel);
     }
 
+    private bool TrySaveWorld(out string error)
+    {
+        try
+        {
+            if (!_world.SaveNow())
+            {
+                error = "Save failed. The world remains open; retry or resume without quitting.";
+                return false;
+            }
+
+            error = "";
+            return true;
+        }
+        catch (Exception exception)
+        {
+            error = "Save failed: " + exception.Message;
+            return false;
+        }
+    }
+
     private void QuitToMenu()
     {
-        _world.SaveNow();
+        if (!TrySaveWorld(out string error))
+        {
+            _status.Text = error;
+            return;
+        }
+
         GetTree().Paused = false;
         GetTree().ChangeSceneToFile(MenuScene);
     }
