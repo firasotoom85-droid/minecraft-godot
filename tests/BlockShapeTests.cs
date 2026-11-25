@@ -277,7 +277,7 @@ public static class BlockShapeTests
             TestAssert.Check(mutationSucceeded,
                     "a block edit can complete while the prior light snapshot is being solved");
             TestAssert.Check(solveCompleted && capturedSnapshots >= 2,
-                    "a light solve captured before an edit is discarded and retried against the new epoch");
+                    "a light solve captured before a light-affecting edit is discarded and retried against changed dependencies");
         }
         finally
         {

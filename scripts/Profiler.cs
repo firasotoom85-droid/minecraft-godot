@@ -297,8 +297,10 @@ public static class StreamingApplyBudget
     public static int BatchLength(int remainingVertices)
     {
         if (remainingVertices <= 0) return 0;
-        int count = Math.Min(remainingVertices, MaxVerticesPerStep);
-        return count - count % 3;
+        if (remainingVertices % 3 != 0)
+            throw new ArgumentException("A mesh batch must contain complete triangles.", nameof(remainingVertices));
+
+        return Math.Min(remainingVertices, MaxVerticesPerStep);
     }
 
     /// <summary>Always allow one bounded work unit to make progress.</summary>

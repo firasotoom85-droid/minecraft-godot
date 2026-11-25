@@ -172,8 +172,16 @@ public static class GlassTests
             opaque.Uv.Add(Vector2.Zero);
         }
 
+        List<Vector3> collision = [];
+        for (int i = 0; i < vertexCount; i += 3)
+        {
+            collision.Add(new Vector3(i, 0, 0));
+            collision.Add(new Vector3(i, 1, 0));
+            collision.Add(new Vector3(i, 0, 1));
+        }
+
         MeshPayload payload = new(opaque, new SurfaceData(), new SurfaceData(),
-                new SurfaceData(), [], 0, meshingRevision, 0);
+                new SurfaceData(), collision, 0, meshingRevision, 0);
         ChunkPayloadApplyTransaction transaction = new(chunk, payload);
         TestAssert.Check(!transaction.Step(),
                 "large surface staging yields after one bounded vertex batch");
@@ -181,14 +189,79 @@ public static class GlassTests
                 "large surface staging does not replace the visible chunk early");
         TestAssert.Check(!transaction.Step(),
                 "large surface staging schedules its remaining triangle-aligned tail separately");
+        TestAssert.Check(!transaction.Step(),
+                "large collision staging yields after one bounded face batch");
+        TestAssert.Check(chunk.GetNodeOrNull<CollisionShape3D>("Collision")?.Shape is null,
+                "large collision staging does not replace the visible collider early");
+        TestAssert.Check(!transaction.Step(),
+                "large collision staging schedules its remaining face tail separately");
         TestAssert.Check(transaction.Step(),
-                "large surface staging completes after its bounded slices and empty surfaces");
+                "large surface and collision staging complete after all bounded slices");
         transaction.Commit();
 
         TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("OpaqueMesh")?.Mesh is ArrayMesh mesh
                         && mesh.GetSurfaceCount() == 2,
                 "large payload retains two render batches after transactional commit");
+        TestAssert.Check(chunk.GetNodeOrNull<CollisionShape3D>("Collision")?.Shape is ConcavePolygonShape3D
+                        && chunk.GetNodeOrNull<CollisionShape3D>("Collision_1")?.Shape is ConcavePolygonShape3D,
+                "large collision payload is split into two installed shapes at commit");
         PayloadPool.Release(payload);
+    }
+
+    private static void TestLocalDependencyRevisionMutation(VoxelWorld world)
+    {
+        static long Capture(VoxelWorld target, Vector2I cp)
+        {
+            lock (target.SnapshotLock)
+                return target.CaptureMeshDependencyRevision(cp);
+        }
+
+        // SetBlock's authoritative mutation path is exercised directly. Stone
+        // -> dirt keeps opacity, light passage and emission unchanged.
+        TestAssert.Check(world.SetBlock(8, 100, 8, BlockId.Stone),
+                "loaded owner chunk accepts a setup block for dependency testing");
+        long ownerBefore = Capture(world, Vector2I.Zero);
+        long westBefore = Capture(world, Vector2I.Left);
+        long northWestBefore = Capture(world, new Vector2I(-1, -1));
+        long farBefore = Capture(world, new Vector2I(4, 4));
+        TestAssert.Check(world.SetBlock(8, 100, 8, BlockId.Dirt),
+                "geometry-only material replacement succeeds through SetBlock");
+        TestAssert.Check(Capture(world, Vector2I.Zero) != ownerBefore,
+                "interior SetBlock edit advances only its owner's mesh dependency revision");
+        TestAssert.Equal(westBefore, Capture(world, Vector2I.Left),
+                "interior SetBlock edit leaves an unsampled west chunk revision unchanged");
+        TestAssert.Equal(northWestBefore, Capture(world, new Vector2I(-1, -1)),
+                "interior SetBlock edit leaves an unsampled diagonal revision unchanged");
+        TestAssert.Equal(farBefore, Capture(world, new Vector2I(4, 4)),
+                "interior SetBlock edit leaves a distant payload revision unchanged");
+
+        TestAssert.Check(world.SetBlock(0, 100, 8, BlockId.Stone),
+                "west boundary fixture block is placed");
+        long westEdgeBefore = Capture(world, Vector2I.Left);
+        long diagonalBefore = Capture(world, new Vector2I(-1, -1));
+        TestAssert.Check(world.SetBlock(0, 100, 8, BlockId.Dirt),
+                "west boundary geometry-only edit succeeds");
+        TestAssert.Check(Capture(world, Vector2I.Left) != westEdgeBefore,
+                "west boundary edit invalidates the adjacent chunk that samples its edge");
+        TestAssert.Equal(diagonalBefore, Capture(world, new Vector2I(-1, -1)),
+                "single-edge edit leaves the unrelated diagonal revision current");
+
+        TestAssert.Check(world.SetBlock(0, 100, 0, BlockId.Stone),
+                "corner fixture block is placed");
+        long cornerBefore = Capture(world, new Vector2I(-1, -1));
+        TestAssert.Check(world.SetBlock(0, 100, 0, BlockId.Dirt),
+                "corner geometry-only edit succeeds");
+        TestAssert.Check(Capture(world, new Vector2I(-1, -1)) != cornerBefore,
+                "corner edit invalidates the matching diagonal mesh dependency");
+
+        long twoAwayBefore = Capture(world, new Vector2I(2, 0));
+        long threeAwayBefore = Capture(world, new Vector2I(3, 0));
+        TestAssert.Check(world.SetBlock(8, 100, 8, BlockId.Torch),
+                "opacity/emission-changing edit succeeds through SetBlock");
+        TestAssert.Check(Capture(world, new Vector2I(2, 0)) != twoAwayBefore,
+                "lighting edit invalidates a target two chunks away through the light-map halo");
+        TestAssert.Equal(threeAwayBefore, Capture(world, new Vector2I(3, 0)),
+                "lighting edit leaves targets outside its five-by-five dependency region current");
     }
 
     private static SurfaceData CreateTriangleSurface()
@@ -230,6 +303,7 @@ public static class GlassTests
         {
             Mesher.Greedy = false;
             world.BuildPreview(Vector3.Zero, 1);
+            TestLocalDependencyRevisionMutation(world);
 
             // Seed small reusable buffers, then cancel the real mesher after
             // all five pooled payload buffers have been rented. BuildCore must
