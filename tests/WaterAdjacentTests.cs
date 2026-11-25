@@ -64,8 +64,8 @@ public static class WaterAdjacentTests
             }
         TestAssert.Check(opaque >= 90 && transparent >= 500,
                 "original reed tile has a legible stalk silhouette with clean cutout gaps");
-        TestAssert.Check(BlockDb.TileArrayTexture().GetWidth() == BlockDb.TilePx,
-                "new tile remains within the existing 256-layer texture-array layout");
+        TestAssert.Equal(BlockDb.TileArrayPixels, BlockDb.TileArrayTexture().GetWidth(),
+                "repeat-aware tile width keeps the existing 256-layer texture-array layout");
     }
 
     private static void CheckWetTagsAndShaders()
