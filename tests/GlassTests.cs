@@ -152,10 +152,43 @@ public static class GlassTests
                 "empty collision rebuild clears the existing shape");
         PayloadPool.Release(emptied);
 
+        TestStagedSurfaceBatching(chunk, revision);
+
         TestAssert.Check(Mesher.CaptureConfiguration().Greedy == greedy,
                 "chunk surface setup does not mutate the active meshing configuration");
         chunk.Free();
         world.Free();
+    }
+
+    private static void TestStagedSurfaceBatching(Chunk chunk, long meshingRevision)
+    {
+        SurfaceData opaque = new();
+        const int vertexCount = StreamingApplyBudget.MaxVerticesPerStep + 3;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            opaque.Vertex.Add(Vector3.Zero);
+            opaque.Normal.Add(Vector3.Back);
+            opaque.Color.Add(Colors.White);
+            opaque.Uv.Add(Vector2.Zero);
+        }
+
+        MeshPayload payload = new(opaque, new SurfaceData(), new SurfaceData(),
+                new SurfaceData(), [], 0, meshingRevision, 0);
+        ChunkPayloadApplyTransaction transaction = new(chunk, payload);
+        TestAssert.Check(!transaction.Step(),
+                "large surface staging yields after one bounded vertex batch");
+        TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("OpaqueMesh")?.Mesh is null,
+                "large surface staging does not replace the visible chunk early");
+        TestAssert.Check(!transaction.Step(),
+                "large surface staging schedules its remaining triangle-aligned tail separately");
+        TestAssert.Check(transaction.Step(),
+                "large surface staging completes after its bounded slices and empty surfaces");
+        transaction.Commit();
+
+        TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("OpaqueMesh")?.Mesh is ArrayMesh mesh
+                        && mesh.GetSurfaceCount() == 2,
+                "large payload retains two render batches after transactional commit");
+        PayloadPool.Release(payload);
     }
 
     private static SurfaceData CreateTriangleSurface()

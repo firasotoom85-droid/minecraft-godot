@@ -3352,9 +3352,9 @@ public partial class VoxelWorld : Node3D
                 if (!_chunks.TryGetValue(item.Cp, out chunk))
                 {
                     chunk = new Chunk();
+                    isNewChunk = true;
                     chunk.Setup(this, item.Cp);
                     chunk.Generate();
-                    isNewChunk = true;
                 }
 
                 _activePayloadApply = new ActiveChunkPayloadApply(
