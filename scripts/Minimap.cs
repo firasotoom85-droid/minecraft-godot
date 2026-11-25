@@ -69,6 +69,30 @@ public partial class Minimap : Control
         _timer = 0.0;
     }
 
+    /// <summary>
+    /// Rebind when World is replaced without going through Setup (for example
+    /// a direct field assignment while loading another save). Resetting the
+    /// build state prevents a slice from the previous world being applied to
+    /// the new texture and keeps mutation subscriptions on the live world.
+    /// </summary>
+    private void RebindWorldIfNeeded()
+    {
+        if (ReferenceEquals(World, _subscribedWorld))
+            return;
+
+        if (_subscribedWorld != null)
+            _subscribedWorld.BlockChanged -= OnWorldBlockChanged;
+        _subscribedWorld = World;
+        if (_subscribedWorld != null)
+            _subscribedWorld.BlockChanged += OnWorldBlockChanged;
+
+        _building = false;
+        _hasCompletedBuild = false;
+        _rebuildPending = true;
+        _lastCentre = Vector2.Zero;
+        _timer = 0.0;
+    }
+
     private void OnWorldBlockChanged(Vector3I position)
     {
         Vector2 centre = _building
@@ -128,6 +152,8 @@ public partial class Minimap : Control
 
     public override void _Process(double delta)
     {
+        RebindWorldIfNeeded();
+
         if (World == null || PlayerRef == null)
         {
             if (_building)
