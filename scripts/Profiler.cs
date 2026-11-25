@@ -359,8 +359,10 @@ public static class Profiler
 public static class StreamingApplyBudget
 {
     public const int MaxPendingPayloads = 18;
-    // 8190 is triangle-aligned; a single resource-creation step cannot consume an entire chunk payload.
-    public const int MaxVerticesPerStep = 8190;
+    // 2046 is triangle-aligned and caps one resource-creation step at 682
+    // triangles, splitting the former 8190-vertex monolithic upload into four
+    // bounded steps.
+    public const int MaxVerticesPerStep = 2046;
 
     /// <summary>Return one triangle-aligned resource-creation slice.</summary>
     public static int BatchLength(int remainingVertices)

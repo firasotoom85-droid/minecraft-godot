@@ -222,6 +222,28 @@ version change between the compared commits. A higher-end GPU run and a
 wide-scene draw-call comparison remain outstanding before tuning the batch
 size or declaring a frame-time improvement.
 
+## Apply-step batch cap measurement — 2026-11-25
+
+Same MX230 environment and `open-terrain` scenario as above, Debug assembly,
+one 30 s run per cap. Each run uses a fresh disposable world.
+
+| Resource-step cap | FPS | Frame p95 / p99 | Resource p95 / p99 / max | Max draw calls |
+|---:|---:|---:|---:|---:|
+| 8,190 | 79.5 | 14.94 / 31.87 ms | 12.86 / 18.19 / 18.19 ms | 565 |
+| **2,046** | **79.0** | **15.58 / 27.69 ms** | **3.98 / 10.98 / 10.98 ms** | **1,551** |
+| 1,536 | 62.7 | 32.41 / 106.78 ms | 14.33 / 20.91 / 20.91 ms | 1,904 |
+| 1,023 | 62.4 | 31.40 / 98.09 ms | 0.33 / 19.00 / 19.00 ms | 2,799 |
+
+The 2,046-vertex cap (682 triangles) reduces resource-step p95 from 12.86 ms to
+3.98 ms and p99 from 18.19 ms to 10.98 ms while keeping FPS statistically
+unchanged (79.0 vs 79.5). It raises draw calls to 1,551, remaining below the
+2,000-call budget. Smaller caps reduce the median step further but cross 2,700
+draw calls and collapse frame pacing; 1,536 also hit a shader-compilation
+outlier in this run. The residual p95 above 2 ms is the cost of one
+non-interruptible Godot `ArrayMesh` resource-creation call; it is now bounded
+per step rather than per whole chunk payload. Run-to-run variance on this GPU
+is material, so these are single-run comparisons, not a speedup claim.
+
 ## Post-integration sanity run — 2026-11-25
 
 One rendered run on the final `main` after W12/W15 integration (`43f74cd`):
