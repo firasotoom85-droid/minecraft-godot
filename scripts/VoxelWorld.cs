@@ -4208,6 +4208,14 @@ public partial class VoxelWorld : Node3D
     /// </summary>
     private void PruneWorldCachesForCurrentRegion()
     {
+        // Revision storage is bounded. A reset advances the revision floor so
+        // payloads and light solves captured earlier are rejected and rebuilt,
+        // never applied across state whose revision entries were pruned.
+        lock (SnapshotLock)
+        {
+            _chunkDependencyRevisions.ResetIfUnbounded();
+        }
+
         lock (_queueLock)
         {
             PruneWorldCaches(_streamCenter, _streamRetentionLimit + 1);

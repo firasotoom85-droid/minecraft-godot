@@ -28,6 +28,7 @@ public static class VoxelStreamingTests
         TestPooledScratchBufferClearing();
         TestStreamingPolicies();
         TestChunkDependencyRevisions();
+        TestDependencyRevisionBound();
         TestStreamingApplyBatches();
 
         long expectedLow = 11L * 11L * 16 * 128 * 16 * StreamingMemoryBudget.BytesPerVoxelUpperBound;
@@ -923,6 +924,34 @@ public static class VoxelStreamingTests
                 lightingChanged: true);
         TestAssert.Check(!revisions.LightInputRevisionsCurrent(center, nextSnapshot),
                 "light-affecting edits inside the 5x5 source region are detected");
+    }
+
+    private static void TestDependencyRevisionBound()
+    {
+        ChunkDependencyRevisions revisions = new();
+        Vector2I cp = new(2, -4);
+
+        long initial = revisions.MeshRevision(cp);
+        revisions.RecordBlockMutation(cp, 8, 8, 16, 16, lightingChanged: true);
+        long capturedMesh = revisions.MeshRevision(cp);
+        long[] capturedLight = new long[25];
+        revisions.CaptureLightInputRevisions(cp, capturedLight);
+        TestAssert.Check(capturedMesh != initial,
+                "a lighting edit advances the target mesh revision before the bound is reached");
+        TestAssert.Check(revisions.ResetIfUnbounded(1),
+                "revision storage resets after exceeding the configured entry bound");
+        TestAssert.Check(!revisions.IsMeshRevisionCurrent(cp, capturedMesh),
+                "a payload captured before a revision reset is rejected by the new floor");
+        TestAssert.Check(!revisions.LightInputRevisionsCurrent(cp, capturedLight),
+                "a light solve captured before a revision reset is rejected by the new floor");
+        long afterReset = revisions.MeshRevision(cp);
+        TestAssert.Check(revisions.IsMeshRevisionCurrent(cp, afterReset),
+                "a payload captured after the reset uses the current revision floor");
+        TestAssert.Check(!revisions.ResetIfUnbounded(1),
+                "revision storage does not reset again while it is within the bound");
+        revisions.RecordBlockMutation(cp, 8, 8, 16, 16, lightingChanged: false);
+        TestAssert.Check(!revisions.IsMeshRevisionCurrent(cp, afterReset),
+                "edits after a reset advance the revision again");
     }
 
     private static void TestStreamingApplyBatches()

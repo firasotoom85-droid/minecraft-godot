@@ -239,21 +239,29 @@ internal static class ChunkStreamingPolicy
 /// </summary>
 internal sealed class ChunkDependencyRevisions
 {
+    /// <summary>
+    /// Soft cap on retained per-coordinate revisions. Reaching it advances a
+    /// revision floor and clears the maps, so in-flight payloads captured under
+    /// older revisions are rejected instead of applied against changed state.
+    /// </summary>
+    public const int MaxEntries = 16_384;
+
     private readonly Dictionary<Vector2I, long> _meshRevisions = [];
     private readonly Dictionary<Vector2I, long> _lightInputRevisions = [];
     private long _nextRevision;
+    private long _revisionFloor;
 
     public long EstimatedMemoryBytes => 128L
             + (_meshRevisions.Count + (long)_lightInputRevisions.Count) * 48L;
 
     public long MeshRevision(Vector2I cp) =>
-            _meshRevisions.TryGetValue(cp, out long revision) ? revision : 0L;
+            _meshRevisions.TryGetValue(cp, out long revision) ? revision : _revisionFloor;
 
     public bool IsMeshRevisionCurrent(Vector2I cp, long capturedRevision) =>
             MeshRevision(cp) == capturedRevision;
 
     public long LightInputRevision(Vector2I cp) =>
-            _lightInputRevisions.TryGetValue(cp, out long revision) ? revision : 0L;
+            _lightInputRevisions.TryGetValue(cp, out long revision) ? revision : _revisionFloor;
 
     /// <summary>
     /// Record one successful block mutation. Geometry dependencies follow the
@@ -309,6 +317,26 @@ internal sealed class ChunkDependencyRevisions
                     return false;
             }
 
+        return true;
+    }
+
+    /// <summary>
+    /// Keep revision storage bounded across a long session. Clearing the maps
+    /// with a fresh floor invalidates every payload captured before the reset;
+    /// their revisions are below the floor, so they are rebuilt rather than
+    /// applied to a chunk whose edits may have been pruned with the entries.
+    /// </summary>
+    public bool ResetIfUnbounded(int maximumEntries = MaxEntries)
+    {
+        if (maximumEntries <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maximumEntries));
+
+        if (_meshRevisions.Count + _lightInputRevisions.Count <= maximumEntries)
+            return false;
+
+        _meshRevisions.Clear();
+        _lightInputRevisions.Clear();
+        _revisionFloor = NextRevision();
         return true;
     }
 
