@@ -24,6 +24,7 @@ This is the **current forward plan**, not a running implementation diary. Comple
 | Player lifecycle and safe recovery (W12) | Integrated | Verified locally on 2026-11-25 (202,772 headless checks, 0 failures); keep the destination resolver authoritative; capture controlled Release performance baselines on the MX230 reference and a higher-end GPU before release sign-off |
 | UI, controls, audio and graphics (W15) | Combined branch green | `w15-combined`: 202,756 checks, 0 failures (keybind fix `3d752a2`); minimap/photo/glass captures and UI/audio playtest remain before merge |
 | Public project profile | Incomplete | Repository is already public; add a description and relevant topics in GitHub Settings |
+| W15 UI, controls, audio and graphics | In progress | Complete Debug/Release and headless verification; capture minimap, photo-mode and intra-chunk glass scenarios before closing the milestone |
 
 **Persistence contract (integrated W01):** autosave captures an immutable save
 snapshot on the main thread; one ordered background save worker serializes it
@@ -54,6 +55,12 @@ disposable internal/test worlds.
 
 **Gameplay state integrity (W14):** hostile population limits are enforced at the common spawn boundary; every herd spawn checks loaded terrain and capsule clearance; damage, breeding, furnace and inventory operations validate inputs before consuming state. Recipe-book outputs are preflighted against post-consumption capacity, achievement unlocks update an open journal, trader sessions expire with their residents, and particle bursts use bounded emitter pools. Generated village wheat is registered through the existing chunk-scan path. Campfire/structure exclusion is generator V13-only so V1–V12 remain frozen. Verified locally on 2026-11-25 by the registered headless suite (202,687 checks, zero failures); existing worlds keep their manifest generator version.
 
+**W15 implementation (in progress; runtime verification pending):** gameplay deadlines now use a pause-excluding monotonic clock, while UI/gesture timing remains real-time. Keyboard and controller overrides are resolved as complete sets; controller-only block interactions are exposed in Controls. Inventory actions participate in focus navigation, onboarding records a successful inventory-open event, and minimap work tracks yaw, nearby block edits and interrupted builds. F3 uses the shared voxel target; photo mode resamples the current FOV and Far LOD range; automatic quality changes no longer persist over the manual ceiling. Long world names and metadata use separate wrapped controls. Mining completion suppresses the periodic sound on its final tick, and appended plant/furnace material sound mappings have regression coverage.
+
+**W15 music decision:** authored music remains deferred. The nonfunctional Music slider and automatically created unused Music bus have been removed; the legacy `MusicVolume` setting is still read and written for settings-file compatibility.
+
+**W15 visual hold:** issue #137 remains an investigation. Chunk-level glass batching and the existing greedy mesher are unchanged. Do not split panes into extra mesh instances without a reproducible capture showing an intra-chunk ordering defect. Minimap, photo-mode and glass captures, plus Debug/Release and the full headless suite, remain required before marking W15 complete.
+
 ## 2. Stable-release quality gates
 
 A release candidate is ready only when all of the following are true:
@@ -68,7 +75,7 @@ A release candidate is ready only when all of the following are true:
 - No known critical or high-severity defect blocks ordinary play, saves, world loading or release installation.
 - The changelog, release notes, third-party notices and known limitations match the shipped build.
 
-The current implementation still needs human gameplay/visual sign-off. Arabic/RTL localization and authored music are also not implemented in the current roadmap; decide explicitly whether each is required for the first stable release rather than silently implying it is complete.
+The current implementation still needs human gameplay/visual sign-off. Arabic/RTL localization remains unimplemented and must be decided explicitly for the first stable release. Authored music is deferred as recorded in W15; the Settings UI does not expose a nonfunctional music control.
 
 ## 3. Post-1.0 direction
 

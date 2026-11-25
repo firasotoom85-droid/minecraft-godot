@@ -4,6 +4,40 @@ namespace Minecraft;
 
 public static class GraphicsTests
 {
+    private static void TestPhotoModeCameraSettings()
+    {
+        Camera3D camera = new();
+        try
+        {
+            PhotoMode.ApplyCameraSettings(camera, 103.0f, 12, 640.0f);
+            TestAssert.Equal(103.0f, camera.Fov,
+                    "photo mode resamples the current configured field of view");
+            TestAssert.Equal(Gfx.RequiredCameraFar(12, 640.0f), camera.Far,
+                    "photo mode covers the configured Far LOD extent");
+        }
+        finally
+        {
+            camera.Free();
+        }
+    }
+
+    private static void TestMinimapInvalidationPolicies()
+    {
+        Vector2 centre = new(0.0f, 0.0f);
+        TestAssert.Check(Minimap.IsInsideMap(new Vector3I(10, 0, 10), centre, 20.0f),
+                "nearby block mutations invalidate the represented minimap terrain");
+        TestAssert.Check(Minimap.IsInsideMap(new Vector3I(19, 0, 19), centre, 20.0f),
+                "edits in the minimap texture's square corners also invalidate terrain");
+        TestAssert.Check(!Minimap.IsInsideMap(new Vector3I(40, 0, 40), centre, 20.0f),
+                "distant block mutations do not invalidate the minimap terrain");
+        TestAssert.Check(Minimap.ShouldStartRebuild(false, false, Vector2.Zero, Vector2.Zero),
+                "an unbuilt minimap schedules its initial terrain image even at the origin");
+        TestAssert.Check(Minimap.ShouldStartRebuild(true, true, centre, centre),
+                "an interrupted or mutation-invalidated map rebuild is retried at a stationary centre");
+        TestAssert.Check(!Minimap.ShouldStartRebuild(true, false, centre, centre),
+                "a completed minimap does not rebuild without movement or invalidation");
+    }
+
     private static void TestPresetMsaaAndCameraRanges()
     {
         int[] expectedMsaa = [1, 1, 2, 2, 2, 0];
@@ -79,6 +113,8 @@ public static class GraphicsTests
 
     public static void Run()
     {
+        TestMinimapInvalidationPolicies();
+        TestPhotoModeCameraSettings();
         TestEnvironmentPresetMatrix();
         TestPresetMsaaAndCameraRanges();
         TestAssert.Equal(6, Gfx.Presets.Count, "graphics preset list includes low through max fsr2");

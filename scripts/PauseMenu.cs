@@ -152,6 +152,7 @@ public partial class PauseMenu : CanvasLayer, IModalUi
         _mainPanel.Visible = true;
         _settingsPanel.Visible = false;
         _status.Text = "";
+        GameplayClock.Pause();
         GetTree().Paused = true;
         Input.MouseMode = Input.MouseModeEnum.Visible;
         _player.InputLocked = true;
@@ -164,6 +165,7 @@ public partial class PauseMenu : CanvasLayer, IModalUi
         _open = false;
         _root.Visible = false;
         GetTree().Paused = false;
+        GameplayClock.Resume();
         UiFocus.Restore(_player);
     }
 
@@ -211,6 +213,7 @@ public partial class PauseMenu : CanvasLayer, IModalUi
         }
 
         GetTree().Paused = false;
+        GameplayClock.Resume();
         GetTree().ChangeSceneToFile(MenuScene);
     }
 }

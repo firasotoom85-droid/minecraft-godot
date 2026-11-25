@@ -18,7 +18,7 @@ This folder contains the active engineering reference, reproducible validation r
 | Area | Documents |
 |---|---|
 | Performance | [Benchmark procedure](PERFORMANCE_BENCHMARKS.md), [baseline](PERF_BASELINE.md), [Milestone 2](PERFORMANCE_MILESTONE_2_MX230.md), [Milestone 3](PERFORMANCE_MILESTONE_3_STREAMING.md), [renderer quality matrix](RENDERER_QUALITY_MATRIX.md) |
-| Visual quality | [Visual Milestone 4](VISUAL_MILESTONE_4_ENVIRONMENT.md), [lighting comparison](visual/LIGHTING_COMPARISON_REPORT_2026-11-22.md), [material gallery](visual/MATERIAL_GALLERY_VISUAL_QUALITY_REPORT_2026-11-22.md), [procedural texture validation](visual/PROCEDURAL_TEXTURE_VALIDATION.md) |
+| Visual quality | [Visual Milestone 4](VISUAL_MILESTONE_4_ENVIRONMENT.md), [W15 minimap/photo/glass validation](visual/W15_VISUAL_VALIDATION.md), [lighting comparison](visual/LIGHTING_COMPARISON_REPORT_2026-11-22.md), [material gallery](visual/MATERIAL_GALLERY_VISUAL_QUALITY_REPORT_2026-11-22.md), [procedural texture validation](visual/PROCEDURAL_TEXTURE_VALIDATION.md) |
 | World generation | [V8 visual validation](worldgen/V8_VISUAL_VALIDATION.md), [V9 visual validation](worldgen/V9_VISUAL_VALIDATION.md) |
 | Gameplay and reliability | [Gameplay Milestone 5](GAMEPLAY_MILESTONE_5.md), [player journey repair](PLAYER_JOURNEY_REPAIR_REPORT_2026-11-21.md), [survival progression audit](SURVIVAL_PROGRESSION_AUDIT_2026-11-21.md), [reliability audit](RELIABILITY_AUDIT_2026-11-21.md), [engine audit](ENGINE_AUDIT_2026-11-20.md) |
 | UI and first person | [UI design guidelines](UI_DESIGN_GUIDELINES.md), [first-person animation](FIRST_PERSON_ANIMATION.md) |

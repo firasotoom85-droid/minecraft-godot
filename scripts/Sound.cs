@@ -19,10 +19,9 @@ public partial class Sound : Node
 
     public bool Muted => Settings.Muted;
 
-    /// <summary>Music/Sfx/Ambient buses under Master; created once at boot.</summary>
+    /// <summary>SFX and ambience buses under Master; created once at boot.</summary>
     public static void EnsureBuses()
     {
-        EnsureBus("Music");
         EnsureBus("Sfx");
         EnsureBus("Ambient");
     }
@@ -43,7 +42,6 @@ public partial class Sound : Node
     public static void ApplyVolumes()
     {
         SetBusVolume("Master", Settings.MasterVolume);
-        SetBusVolume("Music", Settings.MusicVolume);
         SetBusVolume("Sfx", Settings.SfxVolume);
         SetBusVolume("Ambient", Settings.AmbientVolume);
         AudioServer.SetBusMute(AudioServer.GetBusIndex("Master"), Settings.Muted);
@@ -152,7 +150,7 @@ public partial class Sound : Node
         };
         AddChild(_thunderPlayer);
 
-        // Filter world sound only; UI feedback and music on Master stay clear.
+        // Filter world sound only; UI feedback on Master stays clear.
         _sfxBus = AudioServer.GetBusIndex("Sfx");
         _ambientBus = AudioServer.GetBusIndex("Ambient");
         _muffle = new AudioEffectLowPassFilter { CutoffHz = 18000.0f };
@@ -250,6 +248,7 @@ public partial class Sound : Node
         BlockId.Leaves or BlockId.BirchLeaves or BlockId.SpruceLeaves or BlockId.JungleLeaves
                 or BlockId.SwampLeaves or BlockId.RiverReeds or BlockId.TallGrass
                 or BlockId.FlowerRed or BlockId.FlowerYellow or BlockId.Cactus
+                or BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2
                 or BlockId.Torch => "place_leaves",
         BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.EnchantingTable or BlockId.MossyCobblestone
                 or BlockId.WeatheredCobblestone or BlockId.CrackedBrick or BlockId.MossyBrick
@@ -316,7 +315,7 @@ public partial class Sound : Node
     {
         if (_exitingTree || _thunderPlayer == null || !GodotObject.IsInstanceValid(_thunderPlayer))
             return;
-        SceneTreeTimer timer = GetTree().CreateTimer(System.Math.Max(delay, 0.05f));
+        SceneTreeTimer timer = GetTree().CreateTimer(System.Math.Max(delay, 0.05f), processAlways: false);
         Action callback = null!;
         callback = () =>
         {
@@ -364,13 +363,18 @@ public partial class Sound : Node
                 or BlockId.Snow or BlockId.SnowGrass or BlockId.Ash => 1.25f,
         BlockId.Leaves or BlockId.BirchLeaves or BlockId.SpruceLeaves or BlockId.JungleLeaves
                 or BlockId.SwampLeaves or BlockId.RiverReeds or BlockId.TallGrass
-                or BlockId.FlowerRed or BlockId.FlowerYellow => 1.45f,
+                or BlockId.FlowerRed or BlockId.FlowerYellow or BlockId.Cactus
+                or BlockId.Wheat0 or BlockId.Wheat1 or BlockId.Wheat2 or BlockId.Torch => 1.45f,
         BlockId.Glass => 1.35f,
+        BlockId.Log or BlockId.BirchLog or BlockId.Planks or BlockId.PlanksSlab
+                or BlockId.PlanksStairs or BlockId.CraftingTable or BlockId.Chest
+                or BlockId.Bed or BlockId.Ladder => 1.0f,
         BlockId.Stone or BlockId.Cobblestone or BlockId.Brick or BlockId.EnchantingTable or BlockId.MossyCobblestone
                 or BlockId.WeatheredCobblestone or BlockId.CrackedBrick or BlockId.MossyBrick
                 or BlockId.CobblestoneSlab or BlockId.BrickSlab
                 or BlockId.CobblestoneStairs or BlockId.BrickStairs
-                or BlockId.CoalOre or BlockId.IronOre or BlockId.GoldOre or BlockId.DiamondOre or BlockId.Bedrock => 0.75f,
+                or BlockId.CoalOre or BlockId.IronOre or BlockId.GoldOre or BlockId.DiamondOre
+                or BlockId.Bedrock or BlockId.Furnace => 0.75f,
         _ => 1.0f,
     };
 

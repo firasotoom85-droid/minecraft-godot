@@ -25,9 +25,12 @@ public static class OnboardingTests
         TestAssert.Check(progress.IsComplete(OnboardingStep.Move),
                 "movement step completes after movement is observed");
 
-        progress.InventoryOpened = true;
+        TestAssert.Check(progress.MarkInventoryOpened(),
+                "only the inventory's successful open event records onboarding progress");
         TestAssert.Check(progress.IsComplete(OnboardingStep.OpenInventory),
-                "inventory step uses the inventory action");
+                "the inventory step completes after the UI opens");
+        TestAssert.Check(!progress.MarkInventoryOpened(),
+                "reopening the inventory does not repeat an already recorded onboarding fact");
     }
 
     private static void CheckLegacyProgressRestoration()

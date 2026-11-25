@@ -62,13 +62,6 @@ public static class SettingsPanel
                     Settings.MasterVolume = v;
                     Apply();
                 }));
-        root.AddChild(Slider("Music volume", 0, 1, 0.05f,
-                Settings.MusicVolume, "0.00",
-                v =>
-                {
-                    Settings.MusicVolume = v;
-                    Apply();
-                }));
         root.AddChild(Slider("Effects volume", 0, 1, 0.05f,
                 Settings.SfxVolume, "0.00",
                 v =>

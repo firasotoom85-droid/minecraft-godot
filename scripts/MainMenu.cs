@@ -306,20 +306,37 @@ public partial class MainMenu : Control
         foreach ((string dir, WorldManifest manifest) in worlds)
         {
             string played = Time.GetDatetimeStringFromUnixTime(manifest.PlayedUtc, true);
-            string presetTag = manifest.Preset is { Length: > 0 } pr ? $"   ·   {pr}" : "";
+            string presetTag = manifest.Preset is { Length: > 0 } pr ? $" · {pr}" : "";
             HBoxContainer row = new();
-            row.AddThemeConstantOverride("separation", 6);
-            Button entry = MenuSkin.MakeButton(
-                    $"{manifest.Name}   ·   seed {manifest.Seed}{presetTag}   ·   gen v{manifest.GenVersion}   ·   {played}",
-                    () => StartWorld(dir),
-                    0);
-            entry.Alignment = HorizontalAlignment.Left;
-            entry.SizeFlagsHorizontal = SizeFlags.ExpandFill;
-            row.AddChild(entry);
+            row.AddThemeConstantOverride("separation", 8);
+
+            VBoxContainer details = new()
+            {
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            };
+            Label name = new()
+            {
+                Text = manifest.Name,
+                TooltipText = manifest.Name,
+                AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            };
+            name.AddThemeFontSizeOverride("font_size", 14);
+            Label metadata = new()
+            {
+                Text = $"Seed {manifest.Seed} · gen v{manifest.GenVersion}{presetTag} · {played}",
+                AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            };
+            metadata.AddThemeFontSizeOverride("font_size", 11);
+            details.AddChild(name);
+            details.AddChild(metadata);
+
+            row.AddChild(details);
+            row.AddChild(MenuSkin.MakeButton("Play", () => StartWorld(dir), 84));
             row.AddChild(MenuSkin.MakeButton("Manage", () => ShowManage(dir, manifest), 92));
             _worldList.AddChild(row);
         }
-
         foreach (string dir in WorldStore.UnreadableWorldDirectories)
         {
             HBoxContainer row = new();

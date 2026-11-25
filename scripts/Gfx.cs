@@ -227,7 +227,7 @@ public partial class Gfx : Node
     private void StepPreset(int index, string toast)
     {
         _autoStep = true;
-        ApplyPreset(index);
+        ApplyPreset(index, persist: false);
         _autoStep = false;
         EmitSignal(SignalName.PresetChanged, toast);
     }

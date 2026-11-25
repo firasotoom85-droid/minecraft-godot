@@ -299,8 +299,7 @@ public partial class Hud : CanvasLayer
     public void Bind(Player p)
     {
         PlayerRef = p;
-        _minimap.World = p.World;
-        _minimap.PlayerRef = p;
+        _minimap.Setup(p.World, p);
         if (!_bound)
         {
             p.HotbarChanged += OnHotbarChanged;
@@ -963,23 +962,12 @@ public partial class Hud : CanvasLayer
 
     private string LookingAt()
     {
-        if (PlayerRef!.Ray == null || !PlayerRef.Ray.IsColliding())
-        {
-            return "—";
-        }
-
-        if (PlayerRef.Ray.GetCollider() is Mob mob)
-        {
+        if (PlayerRef!.Ray?.GetCollider() is Mob mob)
             return mob.DisplayName;
-        }
 
-        if (PlayerRef.World == null)
-        {
+        if (!PlayerRef.TryGetTargetBlock(out _, out BlockId id))
             return "—";
-        }
 
-        Vector3 pt = PlayerRef.Ray.GetCollisionPoint() - PlayerRef.Ray.GetCollisionNormal() * 0.5f;
-        BlockId id = PlayerRef.World.GetBlock(Mathf.FloorToInt(pt.X), Mathf.FloorToInt(pt.Y), Mathf.FloorToInt(pt.Z));
         return BlockDb.IsDefined(id) ? BlockDb.NameOf(id) : "—";
     }
 }

@@ -53,25 +53,110 @@ public static class Keybinds
             return;
         }
 
+        Dictionary<string, Key> resolved = ResolveSavedBindings(cfg);
         foreach ((string action, _) in Bindable)
         {
             if (!cfg.HasSectionKey("keys", action))
-            {
                 continue;
-            }
 
             Variant stored = cfg.GetValue("keys", action, (int)Key.None);
-            if (!TryReadKey(stored, out Key key))
+            if (!TryReadKey(stored, out Key requested))
             {
                 GD.PushWarning($"Ignoring invalid keyboard binding in keys/{action}: expected a defined key code.");
                 continue;
             }
-            if (Conflict(action, key) == null)
-                Apply(action, key);
-            else
-                GD.PushWarning($"Ignoring conflicting keyboard binding in keys/{action}: {key} is already reserved.");
+
+            if (resolved.TryGetValue(action, out Key key) && requested != key)
+                GD.PushWarning($"Ignoring conflicting keyboard binding in keys/{action}: {requested} is already reserved.");
         }
+
+        foreach ((string action, _) in Bindable)
+        {
+            if (!InputMap.HasAction(action))
+                continue;
+            foreach (InputEvent existing in InputMap.ActionGetEvents(action))
+                if (existing is InputEventKey)
+                    InputMap.ActionEraseEvent(action, existing);
+        }
+        foreach ((string action, _) in Bindable)
+            if (resolved.TryGetValue(action, out Key key) && key != Key.None)
+                Apply(action, key);
+
         _loaded = true;
+    }
+
+    /// <summary>Resolve persisted overrides without depending on their declaration order.</summary>
+    internal static Dictionary<string, Key> ResolveSavedBindings(ConfigFile config)
+    {
+        CaptureDefaults();
+        Dictionary<string, Key> resolved = new(Defaults);
+        HashSet<string> overrides = [];
+
+        foreach ((string action, _) in Bindable)
+        {
+            if (!config.HasSectionKey("keys", action))
+                continue;
+            Variant stored = config.GetValue("keys", action, (int)Key.None);
+            if (!TryReadKey(stored, out Key key))
+                continue;
+            resolved[action] = key;
+            overrides.Add(action);
+        }
+
+        while (overrides.Count > 0)
+        {
+            HashSet<string> rejected = [];
+            foreach (string action in overrides)
+            {
+                Key key = resolved[action];
+                bool conflictsWithBinding = false;
+                foreach ((string other, _) in Bindable)
+                {
+                    if (other != action && resolved.TryGetValue(other, out Key otherKey)
+                            && otherKey == key)
+                    {
+                        conflictsWithBinding = true;
+                        break;
+                    }
+                }
+
+                if (conflictsWithBinding || IsReservedOutsideBindable(action, key))
+                    rejected.Add(action);
+            }
+
+            if (rejected.Count == 0)
+                break;
+
+            foreach (string action in rejected)
+            {
+                resolved[action] = Defaults.TryGetValue(action, out Key fallback)
+                        ? fallback : Key.None;
+                overrides.Remove(action);
+            }
+        }
+
+        return resolved;
+    }
+
+    private static bool IsReservedOutsideBindable(string action, Key key)
+    {
+        foreach (StringName actionName in InputMap.GetActions())
+        {
+            string other = actionName.ToString();
+            // Godot registers built-in ui_* actions (including platform text
+            // editing variants) in every project. They are engine plumbing, not
+            // game reservations, and would otherwise block nearly every key.
+            if (other == action || IsBindable(other)
+                    || other.StartsWith("ui_", StringComparison.Ordinal))
+                continue;
+            foreach (InputEvent inputEvent in InputMap.ActionGetEvents(other))
+            {
+                if (inputEvent is InputEventKey bound
+                        && (bound.Keycode == key || bound.PhysicalKeycode == key))
+                    return true;
+            }
+        }
+        return false;
     }
 
     internal static bool TryReadKey(Variant stored, out Key key)

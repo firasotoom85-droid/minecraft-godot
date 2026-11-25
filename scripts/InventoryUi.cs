@@ -26,6 +26,7 @@ public partial class InvSlot : DurabilitySlotPanel
     private TextureRect _icon = null!;
     private Label _count = null!;
     private bool _hovered;
+    private bool _selected;
     private bool _hasStack;
     private bool _dragStarted;
     private bool _suppressClick;
@@ -54,7 +55,7 @@ public partial class InvSlot : DurabilitySlotPanel
         _count.AddThemeConstantOverride("outline_size", 4);
         _count.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight, LayoutPresetMode.Minsize, 2);
         AddChild(_count);
-        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle());
+        RefreshSlotStyle();
         MouseEntered += OnMouseEntered;
         MouseExited += OnMouseExited;
     }
@@ -67,6 +68,7 @@ public partial class InvSlot : DurabilitySlotPanel
         }
 
         _hasStack = !stack.IsEmpty;
+        _selected = selected;
         _icon.Texture = stack.IsEmpty ? null : ItemDb.Icon(stack);
         _icon.Visible = !stack.IsEmpty;
         SetDurability(stack);
@@ -96,8 +98,14 @@ public partial class InvSlot : DurabilitySlotPanel
                 + condition
                 + (enchantments.Length == 0 ? "" : "\n" + enchantments);
 
-        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(selected, _hovered));
+        RefreshSlotStyle();
     }
+
+    internal static StyleBoxFlat StyleForState(bool selected, bool hovered) =>
+            MenuSkin.SlotStyle(selected, hovered);
+
+    private void RefreshSlotStyle() =>
+            AddThemeStyleboxOverride("panel", StyleForState(_selected, _hovered));
 
     private static string EnchantmentSummary(ItemStack stack)
     {
@@ -111,13 +119,13 @@ public partial class InvSlot : DurabilitySlotPanel
     private void OnMouseEntered()
     {
         _hovered = true;
-        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle(false, true));
+        RefreshSlotStyle();
     }
 
     private void OnMouseExited()
     {
         _hovered = false;
-        AddThemeStyleboxOverride("panel", MenuSkin.SlotStyle());
+        RefreshSlotStyle();
     }
 
     public override Variant _GetDragData(Vector2 atPosition)
@@ -192,6 +200,8 @@ public partial class InvSlot : DurabilitySlotPanel
 public partial class InventoryUi : CanvasLayer, IModalUi
 {
     private const int SlotPx = 44;
+
+    public event Action? Opened;
 
     private Player _player = null!;
     private Hud _hud = null!;
@@ -648,6 +658,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _player.InputLocked = true;
         Refresh();
         UiFocus.FocusFirst(_backpackSlots[0]);
+        Opened?.Invoke();
     }
 
     private void Close()
@@ -1104,7 +1115,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
                 Text = $"{recipe.Name} ×{recipe.ResultCount}\n{Recipes.IngredientText(recipe)}",
                 CustomMinimumSize = new Vector2(0, 40),
                 Alignment = HorizontalAlignment.Left,
-                FocusMode = Control.FocusModeEnum.None,
+                FocusMode = Control.FocusModeEnum.All,
             };
             row.AddThemeFontSizeOverride("font_size", 13);
             Recipe captured = recipe;
@@ -1139,7 +1150,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
                 Icon = ItemDb.Icon(item),
                 CustomMinimumSize = new Vector2(0, 40),
                 Alignment = HorizontalAlignment.Left,
-                FocusMode = Control.FocusModeEnum.None,
+                FocusMode = Control.FocusModeEnum.All,
             };
             row.AddThemeFontSizeOverride("font_size", 13);
             ItemId captured = item;
@@ -1157,6 +1168,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         {
             BuildPalette();
         }
+        UiFocus.FocusFirst(recipes ? _recipeList : _paletteList);
     }
 
     private VBoxContainer BuildEquipmentPanel()

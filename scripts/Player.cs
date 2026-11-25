@@ -259,7 +259,7 @@ public partial class Player : CharacterBody3D, IDamageable
             }
 
             float sensitivity = Settings.MouseSensitivity;
-            float dy = motion.Relative.Y * (Settings.InvertY ? -1.0f : 1.0f);
+            float dy = CameraLookInput.VerticalDelta(motion.Relative.Y, Settings.InvertY);
             RotateY(-motion.Relative.X * sensitivity);
             Vector3 camRot = Camera.Rotation;
             camRot.X = Mathf.Clamp(camRot.X - dy * sensitivity, -1.55f, 1.55f);
@@ -384,7 +384,8 @@ public partial class Player : CharacterBody3D, IDamageable
             {
                 RotateY(-look.X * 2.4f * dt);
                 Vector3 cameraRotation = Camera.Rotation;
-                cameraRotation.X = Mathf.Clamp(cameraRotation.X - look.Y * 2.0f * dt, -1.55f, 1.55f);
+                float lookY = CameraLookInput.VerticalDelta(look.Y, Settings.InvertY);
+                cameraRotation.X = Mathf.Clamp(cameraRotation.X - lookY * 2.0f * dt, -1.55f, 1.55f);
                 Camera.Rotation = cameraRotation;
             }
         }
@@ -1061,7 +1062,7 @@ public partial class Player : CharacterBody3D, IDamageable
     /// <summary>One melee swing: tool tier picks the damage, swing cadence is capped.</summary>
     private void Swing(IDamageable target)
     {
-        double now = Time.GetTicksMsec() / 1000.0;
+        double now = GameplayClock.Now;
         ItemStack held = Inventory.Hotbar[Selected];
         WeaponInfo? weapon = ItemDb.WeaponOf(held.Id);
         ToolInfo? tool = ItemDb.ToolOf(held.Id);
@@ -1101,7 +1102,7 @@ public partial class Player : CharacterBody3D, IDamageable
         return new Vector3I(Mathf.FloorToInt(p.X), Mathf.FloorToInt(p.Y), Mathf.FloorToInt(p.Z));
     }
 
-    private bool TryGetTargetBlock(out Vector3I blockPosition, out BlockId blockId) =>
+    internal bool TryGetTargetBlock(out Vector3I blockPosition, out BlockId blockId) =>
         TryGetTargetBlock(out blockPosition, out blockId, out _, out _);
 
     private bool TryGetTargetBlock(out Vector3I blockPosition, out BlockId blockId,
@@ -1550,9 +1551,9 @@ public partial class Player : CharacterBody3D, IDamageable
 
         bool rested = false;
         bool anchorSet = false;
-        if (Time.GetTicksMsec() / 1000.0 - _lastRest >= 3.0)
+        if (GameplayClock.Now - _lastRest >= 3.0)
         {
-            _lastRest = Time.GetTicksMsec() / 1000.0;
+            _lastRest = GameplayClock.Now;
             rested = true;
             Vector3I bp = TargetBlock();
             anchorSet = TrySetRespawnAnchor(
@@ -1595,7 +1596,7 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
-        if (Time.GetTicksMsec() / 1000.0 - _lastEat < 0.7)
+        if (GameplayClock.Now - _lastEat < 0.7)
         {
             return;
         }
@@ -1603,7 +1604,7 @@ public partial class Player : CharacterBody3D, IDamageable
         if (!Inventory.ConsumeSlot(Selected, stack.Id, 1))
             return;
 
-        _lastEat = Time.GetTicksMsec() / 1000.0;
+        _lastEat = GameplayClock.Now;
         Stats.AddHunger(food.Hunger);
         Stats.Heal(food.Heal);
         EmitSignal(SignalName.Ate);
@@ -1792,7 +1793,7 @@ public partial class Player : CharacterBody3D, IDamageable
     private void FireBow()
     {
         if (Inventory.Hotbar[Selected].Id != ItemId.Bow) return;
-        double now = Time.GetTicksMsec() / 1000.0;
+        double now = GameplayClock.Now;
         if (now - _lastSwing < 0.8) return;
         if (Mode == GameMode.Survival && !Inventory.Consume(ItemId.Arrow, 1))
         {
@@ -2310,6 +2311,9 @@ public partial class Player : CharacterBody3D, IDamageable
         EmitSignal(SignalName.FlyChanged, Flying);
     }
 
+    internal static bool ShouldEmitMiningTick(float progress, double soundTimer) =>
+            progress < 1.0f && soundTimer <= 0.0;
+
     private void HoldMine(float delta)
     {
         if (InputLocked || Stats.Dead || !Input.IsActionPressed("break_block") || World == null)
@@ -2377,7 +2381,7 @@ public partial class Player : CharacterBody3D, IDamageable
                 * WaterPhysics.MiningSpeedMultiplier(Underwater), 1.0f);
 
         _mineSoundTimer -= delta;
-        if (_mineSoundTimer <= 0.0)
+        if (ShouldEmitMiningTick(_mineProgress, _mineSoundTimer))
         {
             _mineSoundTimer = 0.25;
             Vector3 center = new(bp.X + 0.5f, bp.Y + 0.5f, bp.Z + 0.5f);
@@ -2723,7 +2727,7 @@ public partial class Player : CharacterBody3D, IDamageable
         }
 
         bool active = !InputLocked && !Stats.Dead;
-        double now = Time.GetTicksMsec() / 1000.0;
+        double now = GameplayClock.Now;
         float bowTarget = active && held.Id == ItemId.Bow
                 && Input.IsActionPressed("break_block") && now - _lastSwing > 0.16
                 ? 1.0f : 0.0f;

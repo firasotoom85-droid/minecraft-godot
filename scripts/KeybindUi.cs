@@ -124,6 +124,28 @@ public partial class KeybindUi : CanvasLayer, IModalUi
             }
             _rows.AddChild(row);
         }
+
+        foreach ((string action, string label) in GamepadBindings.ControllerOnlyBindable)
+        {
+            HBoxContainer row = new();
+            row.AddThemeConstantOverride("separation", 12);
+            row.AddChild(new Label
+            {
+                Text = label,
+                CustomMinimumSize = new Vector2(250, 0),
+            });
+            row.AddChild(new Label
+            {
+                Text = "Controller only",
+                CustomMinimumSize = new Vector2(120, 0),
+                HorizontalAlignment = HorizontalAlignment.Center,
+            });
+            Button pad = MenuSkin.MakeButton(GamepadBindings.LabelFor(action),
+                    () => WaitForGamepad(action), 120);
+            pad.Name = "Pad_" + action;
+            row.AddChild(pad);
+            _rows.AddChild(row);
+        }
     }
 
     private Button? FindBindingButton(string prefix, string action) =>
@@ -239,6 +261,26 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         }
     }
 
+    private void CancelCapture()
+    {
+        if (_waitingAction is { } action)
+        {
+            if (_waitingForGamepad)
+                RefreshPadButton(action);
+            else
+                RefreshButton(action);
+        }
+        CancelCaptureState(ref _waitingAction, ref _waitingForGamepad, ref _ignoreNextGamepadEvent);
+    }
+
+    internal static void CancelCaptureState(
+            ref string? waitingAction, ref bool waitingForGamepad, ref bool ignoreNextGamepadEvent)
+    {
+        waitingAction = null;
+        waitingForGamepad = false;
+        ignoreNextGamepadEvent = false;
+    }
+
     private void RefreshPadButton(string action)
     {
         Button? target = FindBindingButton("Pad_", action);
@@ -264,6 +306,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
 
     private void ResetAll()
     {
+        CancelCapture();
         Error keyboardResult = Keybinds.ResetDefaults();
         Error gamepadResult = GamepadBindings.ResetDefaults();
         _notice.Text = keyboardResult != Error.Ok
@@ -273,6 +316,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
                         : "";
         RefreshAll();
         foreach ((string action, _) in Keybinds.Bindable) RefreshPadButton(action);
+        foreach ((string action, _) in GamepadBindings.ControllerOnlyBindable) RefreshPadButton(action);
     }
 
     public void Open()
@@ -285,6 +329,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
         _ignoreNextGamepadEvent = false;
         RefreshAll();
         foreach ((string action, _) in Keybinds.Bindable) RefreshPadButton(action);
+        foreach ((string action, _) in GamepadBindings.ControllerOnlyBindable) RefreshPadButton(action);
         Input.MouseMode = Input.MouseModeEnum.Visible;
         _player.InputLocked = true;
         UiFocus.FocusFirst(_rows);
@@ -294,7 +339,7 @@ public partial class KeybindUi : CanvasLayer, IModalUi
     {
         _open = false;
         _root.Visible = false;
-        _waitingAction = null;
+        CancelCapture();
         if (_previousFocus != null && IsInstanceValid(_previousFocus))
             _previousFocus.GrabFocus();
         _previousFocus = null;

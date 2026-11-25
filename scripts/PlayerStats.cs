@@ -22,7 +22,7 @@ public sealed class PlayerStats
     public int Experience { get; private set; }
     public int ExperienceLevel => LevelForExperience(Experience);
 
-    /// <summary>Seconds (engine clock) before damage is accepted again.</summary>
+    /// <summary>GameplayClock seconds before damage is accepted again.</summary>
     public double InvulnUntil;
 
     public event Action? Changed;        // any bar value moved (HUD repaint)
@@ -35,7 +35,7 @@ public sealed class PlayerStats
     private double _starveAccum;
     private double _drownAccum;
 
-    private static double Now => Time.GetTicksMsec() / 1000.0;
+    private static double Now => GameplayClock.Now;
 
     public bool Invulnerable => Dead || Now < InvulnUntil;
 

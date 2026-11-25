@@ -9,6 +9,48 @@ public static class KeybindTests
     public static void Run()
     {
         GamepadBindings.ResetDefaults();
+        ConfigFile keySwap = new();
+        keySwap.SetValue("keys", "forward", (int)Key.E);
+        keySwap.SetValue("keys", "inventory", (int)Key.Z);
+        Dictionary<string, Key> resolvedKeys = Keybinds.ResolveSavedBindings(keySwap);
+        TestAssert.Equal(Key.E, resolvedKeys["forward"],
+                "saved keyboard remaps can take a key another saved action vacated");
+        TestAssert.Equal(Key.Z, resolvedKeys["inventory"],
+                "keyboard remap sets restore independently of declaration order");
+
+        ConfigFile duplicateKeys = new();
+        duplicateKeys.SetValue("keys", "jump", (int)Key.F10);
+        duplicateKeys.SetValue("keys", "sprint", (int)Key.F10);
+        Dictionary<string, Key> safeKeys = Keybinds.ResolveSavedBindings(duplicateKeys);
+        TestAssert.Check(safeKeys["jump"] != Key.F10 && safeKeys["sprint"] != Key.F10
+                        && safeKeys["jump"] != safeKeys["sprint"],
+                "duplicate saved keyboard overrides fall back to non-conflicting defaults");
+
+        ConfigFile buttonSwap = new();
+        buttonSwap.SetValue("buttons", "jump", (int)JoyButton.B);
+        buttonSwap.SetValue("buttons", "toggle_fly", (int)JoyButton.A);
+        Dictionary<string, JoyButton> resolvedButtons = GamepadBindings.ResolveSavedButtons(buttonSwap);
+        TestAssert.Equal(JoyButton.B, resolvedButtons["jump"],
+                "valid controller button swaps survive complete-set loading");
+        TestAssert.Equal(JoyButton.A, resolvedButtons["toggle_fly"],
+                "controller swaps are not rejected by old default assignments");
+
+        ConfigFile duplicateButtons = new();
+        duplicateButtons.SetValue("buttons", "jump", (int)JoyButton.X);
+        duplicateButtons.SetValue("buttons", "sprint", (int)JoyButton.X);
+        Dictionary<string, JoyButton> safeButtons = GamepadBindings.ResolveSavedButtons(duplicateButtons);
+        TestAssert.Check(safeButtons["jump"] != JoyButton.X && safeButtons["sprint"] != JoyButton.X
+                        && safeButtons["jump"] != safeButtons["sprint"],
+                "duplicate persisted controller buttons restore safe defaults");
+
+        foreach ((string action, string label) in GamepadBindings.ControllerOnlyBindable)
+        {
+            TestAssert.Check(!string.IsNullOrWhiteSpace(label),
+                    $"controller-only action {action} has a readable label");
+            TestAssert.Check(GamepadBindings.LabelFor(action) != "—",
+                    $"controller-only action {action} has a configured binding");
+        }
+
         HashSet<string> actions = [];
         TestAssert.Check(Keybinds.Bindable.Length > 8, "keybind list is populated");
         foreach ((string action, string label) in Keybinds.Bindable)
@@ -122,6 +164,26 @@ public static class KeybindTests
                         "user://w09-missing-controller-dir/gamepad.cfg") != Error.Ok,
                 "controller binding persistence failures are observable");
 
+        TestAssert.Equal(1.0f, CameraLookInput.VerticalDelta(1.0f, false),
+                "normal vertical look preserves the input sign across camera modes");
+        TestAssert.Equal(-1.0f, CameraLookInput.VerticalDelta(1.0f, true),
+                "Invert-Y reverses vertical look consistently across camera modes");
+
+        string? pendingCapture = "jump";
+        bool waitingForController = true;
+        bool ignoreActivationEvent = true;
+        KeybindUi.CancelCaptureState(
+                ref pendingCapture, ref waitingForController, ref ignoreActivationEvent);
+        TestAssert.Check(pendingCapture == null && !waitingForController && !ignoreActivationEvent,
+                "resetting defaults clears keyboard/controller capture and activation suppression");
+
+        TestAssert.Check(PhotoMode.ShouldCaptureMouse(true, Input.MouseModeEnum.Visible),
+                "photo mode acquires a visible pointer when it owns the camera");
+        TestAssert.Check(!PhotoMode.ShouldCaptureMouse(true, Input.MouseModeEnum.Captured),
+                "photo mode does not recapture an already captured pointer");
+        TestAssert.Check(!PhotoMode.ShouldCaptureMouse(false, Input.MouseModeEnum.Visible),
+                "inactive photo mode does not acquire mouse ownership");
+
         TestAssert.Check(PhotoMode.CanTogglePhotoMode(true, true, true, true),
                 "photo mode can always handle its own exit even while locked or dead");
         TestAssert.Check(!PhotoMode.CanTogglePhotoMode(false, true, false, false),
@@ -140,7 +202,8 @@ public static class KeybindTests
         TestAssert.Equal("?", Hud.BiomeName((Biome)255), "unknown biome ids keep a clear fallback");
 
         BlockId[] appendedFoliage = [BlockId.SpruceLeaves, BlockId.JungleLeaves,
-                BlockId.SwampLeaves, BlockId.RiverReeds];
+                BlockId.SwampLeaves, BlockId.RiverReeds, BlockId.Cactus, BlockId.Torch,
+                BlockId.Wheat0, BlockId.Wheat1, BlockId.Wheat2];
         foreach (BlockId id in appendedFoliage)
         {
             TestAssert.Equal("dig_leaves", Sound.FamilyFor(id), $"{id} uses foliage break sounds");
@@ -153,12 +216,13 @@ public static class KeybindTests
         {
             TestAssert.Equal("dig_wood", Sound.FamilyFor(id), $"{id} uses wood break sounds");
             TestAssert.Equal("place_wood", Sound.PlaceFamilyFor(id), $"{id} uses wood placement sounds");
+            TestAssert.Equal(1.0f, Sound.PitchFor(id), $"{id} uses the wood pitch");
         }
 
         BlockId[] appendedStone = [BlockId.CobblestoneSlab, BlockId.BrickSlab,
                 BlockId.CobblestoneStairs, BlockId.BrickStairs, BlockId.MossyCobblestone,
                 BlockId.WeatheredCobblestone, BlockId.CrackedBrick, BlockId.MossyBrick,
-                BlockId.EnchantingTable];
+                BlockId.EnchantingTable, BlockId.Furnace];
         foreach (BlockId id in appendedStone)
         {
             TestAssert.Equal("dig_stone", Sound.FamilyFor(id), $"{id} uses stone break sounds");
@@ -179,6 +243,8 @@ public static class KeybindTests
         TestAssert.FreeAll(focusRoot);
 
         Sound.EnsureBuses();
+        TestAssert.Equal(-1, AudioServer.GetBusIndex("Music"),
+                "authored music is deferred without creating an unused Music bus");
         int sfxBus = AudioServer.GetBusIndex("Sfx");
         int ambientBus = AudioServer.GetBusIndex("Ambient");
         int initialSfxEffects = AudioServer.GetBusEffectCount(sfxBus);
