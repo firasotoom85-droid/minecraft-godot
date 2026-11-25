@@ -14,7 +14,7 @@ public static class FarLodLifecycleTests
 {
     public static void Run()
     {
-        TestRetainedChunkOwnershipBoundary();
+        TestCoverageMaskTracksCommittedChunks();
         TestBuildTokenRejectsStaleAndRecreatedTiles();
         TestEveryCompletionHasAnExplicitDisposition();
         TestWorkerFailureRetryPolicyAndQueueCapacity();
@@ -27,48 +27,58 @@ public static class FarLodLifecycleTests
         TestCellGeometryRespectsFullResolutionOwnership();
     }
 
-    private static void TestRetainedChunkOwnershipBoundary()
+    private static void TestCoverageMaskTracksCommittedChunks()
     {
-        Vector2I playerChunk = new(-5, 3);
-        Rect2I retained = FarLodLifecycleRules.StreamedChunks(playerChunk, 2, VoxelWorld.UnloadMargin);
+        Vector2I negativeChunk = new(-1, -1);
+        Vector2I negativeTile = FarLodLifecycleRules.TileForChunk(negativeChunk);
+        TestAssert.Equal(new Vector2I(-1, -1), negativeTile,
+                "negative chunk coordinates floor into the correct Far-LOD tile");
 
-        TestAssert.Equal(new Vector2I(-9, -1), retained.Position,
-                "Far LOD's retained full-resolution rectangle expands by the two-chunk unload margin");
-        TestAssert.Equal(new Vector2I(9, 9), retained.Size,
-                "Far LOD keeps the complete square used by chunk unload hysteresis");
+        ulong mask = 0;
+        mask = FarLodLifecycleRules.SetChunkCoverage(mask, negativeTile, negativeChunk, true);
+        TestAssert.Check(FarLodLifecycleRules.IsChunkCovered(mask, 7, 7),
+                "the negative-coordinate chunk occupies the final tile bit");
+        TestAssert.Check(!FarLodLifecycleRules.ShouldEmitCell(
+                        mask, negativeTile, -16, -16, false, true),
+                "Far LOD stops emitting only after that chunk's detailed mesh is committed");
+        TestAssert.Check(FarLodLifecycleRules.ShouldEmitCell(
+                        mask, negativeTile, -32, -16, false, true),
+                "an adjacent chunk without a committed mesh keeps its coarse fallback");
 
-        TestAssert.Check(retained.HasPoint(new Vector2I(-9, 3)),
-                "negative-X retained boundary remains full resolution");
-        TestAssert.Check(retained.HasPoint(new Vector2I(-1, 3)),
-                "positive-X retained boundary remains full resolution");
-        TestAssert.Check(retained.HasPoint(new Vector2I(-5, -1)),
-                "negative-Z retained boundary remains full resolution");
-        TestAssert.Check(retained.HasPoint(new Vector2I(-5, 7)),
-                "positive-Z retained boundary remains full resolution");
-        TestAssert.Check(retained.HasPoint(new Vector2I(-9, -1)),
-                "negative corner is included in the retained square");
-        TestAssert.Check(!retained.HasPoint(new Vector2I(-10, 3)),
-                "chunks beyond the unload hysteresis ring are eligible for Far LOD");
-        TestAssert.Check(!retained.HasPoint(new Vector2I(-5, 8)),
-                "the retained boundary is symmetric on positive Z");
+        mask = FarLodLifecycleRules.SetChunkCoverage(mask, negativeTile, negativeChunk, false);
+        TestAssert.Check(!FarLodLifecycleRules.IsChunkCovered(mask, 7, 7),
+                "unloading a chunk restores its Far-LOD coverage bit");
+        TestAssert.Check(FarLodLifecycleRules.ShouldEmitCell(
+                        mask, negativeTile, -16, -16, false, true),
+                "coarse terrain returns as soon as the detailed chunk is evicted");
+
+        ulong complete = 0;
+        for (int z = 0; z < FarLodLifecycleRules.ChunksPerTile; z++)
+            for (int x = 0; x < FarLodLifecycleRules.ChunksPerTile; x++)
+                complete = FarLodLifecycleRules.SetCoverageBit(complete, x, z, true);
+        TestAssert.Equal(ulong.MaxValue, complete,
+                "one 64-bit mask represents every chunk in a 128 m Far-LOD tile");
+        TestAssert.Equal(complete,
+                FarLodLifecycleRules.SetCoverageBit(complete, 8, 0, false),
+                "out-of-tile updates leave all valid chunk bits unchanged");
     }
 
     private static void TestBuildTokenRejectsStaleAndRecreatedTiles()
     {
-        Rect2I originalSkip = new(2, 3, 4, 5);
-        Rect2I updatedSkip = new(3, 3, 4, 5);
+        ulong originalCoverage = 1UL << 11;
+        ulong updatedCoverage = originalCoverage | (1UL << 12);
 
         TestAssert.Check(FarLodLifecycleRules.IsCurrent(
-                        11, 4, originalSkip, 11, 4, originalSkip),
+                        11, 4, originalCoverage, 11, 4, originalCoverage),
                 "matching generation, revision and skip mask may apply");
         TestAssert.Check(!FarLodLifecycleRules.IsCurrent(
-                        11, 5, updatedSkip, 11, 4, originalSkip),
+                        11, 5, updatedCoverage, 11, 4, originalCoverage),
                 "a changed streamed-area revision rejects an older result");
         TestAssert.Check(!FarLodLifecycleRules.IsCurrent(
-                        12, 4, originalSkip, 11, 4, originalSkip),
+                        12, 4, originalCoverage, 11, 4, originalCoverage),
                 "a tile recreated at the same coordinate rejects the previous generation");
         TestAssert.Check(!FarLodLifecycleRules.IsCurrent(
-                        11, 4, updatedSkip, 11, 4, originalSkip),
+                        11, 4, updatedCoverage, 11, 4, originalCoverage),
                 "a changed skip rectangle rejects a result even if its revision was not advanced");
     }
 
@@ -380,53 +390,40 @@ public static class FarLodLifecycleTests
 
     private static void TestCellGeometryRespectsFullResolutionOwnership()
     {
-        Rect2I retained = new(-2, -2, 5, 5);
-
-        // A flat-height cell fixture models the full-resolution chunk square
-        // and the Far-LOD top-cell emission gate. Exactly one representation
-        // must own every cell across all four edges, including negative X/Z.
-        for (int chunkZ = -3; chunkZ <= 3; chunkZ++)
+        Vector2I tile = new(-1, -1);
+        ulong coverage = 0;
+        for (int z = 0; z < FarLodLifecycleRules.ChunksPerTile; z++)
         {
-            for (int chunkX = -3; chunkX <= 3; chunkX++)
+            for (int x = 0; x < FarLodLifecycleRules.ChunksPerTile; x++)
             {
-                Vector2I chunk = new(chunkX, chunkZ);
-                bool fullResolutionOwnsCell = retained.HasPoint(chunk);
-                bool farLodOwnsCell = FarLodLifecycleRules.ShouldEmitCell(
-                        retained, chunkX * VoxelWorld.ChunkX, chunkZ * VoxelWorld.ChunkZ,
-                        false, true);
-                TestAssert.Check(fullResolutionOwnsCell ^ farLodOwnsCell,
-                        $"chunk cell ({chunkX},{chunkZ}) has exactly one visual owner");
+                bool detailedReady = (x + z) % 3 == 0;
+                coverage = FarLodLifecycleRules.SetCoverageBit(
+                        coverage, x, z, detailedReady);
             }
         }
 
-        Rect2I afterUnload = new(-1, -1, 3, 3);
-        Vector2I[] edges =
-        [
-            new(-2, 0), new(2, 0), new(0, -2), new(0, 2),
-        ];
-        foreach (Vector2I edge in edges)
+        for (int z = 0; z < FarLodLifecycleRules.ChunksPerTile; z++)
         {
-            TestAssert.Check(retained.HasPoint(edge),
-                    $"edge chunk {edge} starts inside the retained full-resolution square");
-            TestAssert.Check(!afterUnload.HasPoint(edge),
-                    $"edge chunk {edge} is no longer retained after the view moves");
-            TestAssert.Check(FarLodLifecycleRules.ShouldEmitCell(
-                            afterUnload, edge.X * VoxelWorld.ChunkX,
-                            edge.Y * VoxelWorld.ChunkZ, false, true),
-                    $"Far LOD restores geometry for unloaded edge chunk {edge}");
+            for (int x = 0; x < FarLodLifecycleRules.ChunksPerTile; x++)
+            {
+                int worldX = (tile.X * FarLodLifecycleRules.ChunksPerTile + x)
+                        * VoxelWorld.ChunkX;
+                int worldZ = (tile.Y * FarLodLifecycleRules.ChunksPerTile + z)
+                        * VoxelWorld.ChunkZ;
+                bool fullResolutionOwnsCell =
+                        FarLodLifecycleRules.IsChunkCovered(coverage, x, z);
+                bool farLodOwnsCell = FarLodLifecycleRules.ShouldEmitCell(
+                        coverage, tile, worldX, worldZ, false, true);
+                TestAssert.Check(fullResolutionOwnsCell ^ farLodOwnsCell,
+                        $"chunk cell ({x},{z}) has exactly one visual owner");
+            }
         }
 
-        TestAssert.Check(!FarLodLifecycleRules.ShouldEmitCell(
-                        retained, -1, -1, false, true),
-                "negative-coordinate cells inside retained chunks emit no duplicate LOD geometry");
         TestAssert.Check(FarLodLifecycleRules.ShouldEmitCell(
-                        retained, -49, -49, false, true),
-                "negative-coordinate cells beyond the retained square remain eligible");
+                        coverage, tile, -16, -16, true, true)
+                        == !FarLodLifecycleRules.IsChunkCovered(coverage, 7, 7),
+                "sky-island cells use the same committed-chunk ownership handoff");
         TestAssert.Check(!FarLodLifecycleRules.ShouldEmitCell(
-                        retained, 48, 48, true, false),
-                "sky cells without an island do not emit LOD geometry");
-        TestAssert.Check(FarLodLifecycleRules.ShouldEmitCell(
-                        retained, 48, 48, true, true),
-                "sky cells with an island remain eligible for LOD geometry");
-    }
-}
+                        coverage, tile, -16, -16, true, false),
+                "sky cells without an island never create a coarse surface");
+    }}

@@ -42,6 +42,12 @@ public partial class Main : Node3D
     private FluidSystem _fluids = null!;
     private BoatSystem _boats = null!;
     private AcceptDialog? _saveFailureDialog;
+    private CanvasLayer? _loadingLayer;
+    private Control? _loadingRoot;
+    private Label? _loadingStatus;
+    private ProgressBar? _loadingProgress;
+    private double _initialLoadingElapsed;
+    private const double InitialLoadingTimeoutSeconds = 12.0;
 
     public override void _Ready()
     {
@@ -204,6 +210,7 @@ public partial class Main : Node3D
         _hud.Gfx = _gfx;
         _hud.Mobs = _mobs;
         _hud.Weather = _weather;
+        BeginInitialLoading();
         _world.SetupInitial();
         _fluids = AddSystem(new FluidSystem());
         _fluids.Setup(_world, _player);
@@ -211,6 +218,152 @@ public partial class Main : Node3D
         _boats.Setup(_world, _player, _sound);
         _hud.Bind(_player);
         _hud.ShowToast($"{_gfx.CurrentPreset.Name} quality  ·  F6 change  ·  H help  ·  F3 info");
+    }
+
+    public override void _Process(double delta)
+    {
+        if (_loadingLayer == null)
+        {
+            return;
+        }
+
+        _initialLoadingElapsed += Math.Max(0.0, delta);
+        InitialChunkLoadProgress progress = _world.GetInitialStreamingProgress();
+        if (_loadingStatus != null)
+        {
+            _loadingStatus.Text = $"Preparing nearby terrain · {progress.ReadyChunks}/{progress.TotalChunks} chunks ready";
+        }
+
+        if (_loadingProgress != null)
+        {
+            _loadingProgress.Value = progress.Fraction * 100.0;
+        }
+
+        bool timedOut = !progress.IsComplete
+                && _initialLoadingElapsed >= InitialLoadingTimeoutSeconds;
+        if (!progress.IsComplete && !timedOut)
+        {
+            return;
+        }
+
+        if (timedOut)
+        {
+            _hud.ShowToast("Nearby terrain is still streaming; distant terrain remains visible.");
+        }
+
+        FinishInitialLoading();
+    }
+
+    private void BeginInitialLoading()
+    {
+        _player.InputLocked = true;
+        _initialLoadingElapsed = 0.0;
+
+        CanvasLayer layer = new()
+        {
+            Name = "WorldLoadingOverlay",
+            Layer = 100,
+        };
+        Control root = new()
+        {
+            Name = "Root",
+            MouseFilter = Control.MouseFilterEnum.Stop,
+        };
+        root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        layer.AddChild(root);
+
+        ColorRect background = new()
+        {
+            Color = new Color(0.025f, 0.035f, 0.05f, 0.92f),
+            MouseFilter = Control.MouseFilterEnum.Stop,
+        };
+        background.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        root.AddChild(background);
+
+        CenterContainer center = new()
+        {
+            MouseFilter = Control.MouseFilterEnum.Stop,
+        };
+        center.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        root.AddChild(center);
+
+        PanelContainer panel = new()
+        {
+            CustomMinimumSize = new Vector2(440.0f, 176.0f),
+        };
+        center.AddChild(panel);
+
+        MarginContainer margins = new();
+        margins.AddThemeConstantOverride("margin_left", 28);
+        margins.AddThemeConstantOverride("margin_top", 22);
+        margins.AddThemeConstantOverride("margin_right", 28);
+        margins.AddThemeConstantOverride("margin_bottom", 22);
+        panel.AddChild(margins);
+
+        VBoxContainer content = new();
+        content.AddThemeConstantOverride("separation", 12);
+        margins.AddChild(content);
+
+        Label heading = new()
+        {
+            Text = "GENERATING WORLD",
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        heading.AddThemeFontSizeOverride("font_size", 22);
+        content.AddChild(heading);
+
+        Label status = new()
+        {
+            Text = "Preparing nearby terrain · 0/9 chunks ready",
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        content.AddChild(status);
+
+        ProgressBar progress = new()
+        {
+            MinValue = 0.0,
+            MaxValue = 100.0,
+            Value = 0.0,
+            ShowPercentage = false,
+            CustomMinimumSize = new Vector2(0.0f, 14.0f),
+        };
+        content.AddChild(progress);
+
+        Label hint = new()
+        {
+            Text = "The rest of the world continues streaming as you explore.",
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        hint.AddThemeFontSizeOverride("font_size", 13);
+        content.AddChild(hint);
+
+        AddChild(layer);
+        _loadingLayer = layer;
+        _loadingRoot = root;
+        _loadingStatus = status;
+        _loadingProgress = progress;
+    }
+
+    private void FinishInitialLoading()
+    {
+        _world.CompleteInitialStreaming();
+        _player.InputLocked = false;
+
+        CanvasLayer? layer = _loadingLayer;
+        Control? root = _loadingRoot;
+        _loadingLayer = null;
+        _loadingRoot = null;
+        _loadingStatus = null;
+        _loadingProgress = null;
+
+        if (layer == null || root == null)
+        {
+            return;
+        }
+
+        Tween tween = CreateTween();
+        tween.TweenProperty(root, "modulate:a", 0.0f, 0.25f);
+        tween.TweenCallback(Callable.From(() => layer.QueueFree()));
     }
 
     private void ShowSpawnFailure(string reason)

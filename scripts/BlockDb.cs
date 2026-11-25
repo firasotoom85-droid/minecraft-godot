@@ -1114,7 +1114,12 @@ void vertex() {
 
 " + WarmBlockLightingShader + @"
 void fragment() {
-    vec4 tex = texture(tiles, vec3(fract(tile_uv), tile_layer));
+    // fract() creates a derivative discontinuity at each repeated block-tile
+    // boundary. Feed the sampler gradients from the continuous UV instead.
+    vec2 tile_uv_dx = dFdx(tile_uv);
+    vec2 tile_uv_dy = dFdy(tile_uv);
+    vec4 tex = textureGrad(
+            tiles, vec3(fract(tile_uv), tile_layer), tile_uv_dx, tile_uv_dy);
 #ifndef MINECRAFT_LOW_QUALITY
     if (mod(floor(COLOR.a + 0.001), 8.0) < 0.5) {
         ivec3 cell = ivec3(floor(surface_world_position - surface_world_normal * 0.01));

@@ -442,3 +442,28 @@ internal static class ChunkWorkerLifecycle
         return new ChunkWorkerExecutionResult(published, retryRequested, cancelled);
     }
 }
+
+
+/// <summary>Small startup readiness snapshot for the nearby full-resolution chunks.</summary>
+internal readonly record struct InitialChunkLoadProgress(int ReadyChunks, int TotalChunks)
+{
+    public bool IsComplete => TotalChunks <= 0 || ReadyChunks >= TotalChunks;
+
+    public double Fraction => TotalChunks <= 0
+            ? 1.0
+            : Math.Clamp(ReadyChunks / (double)TotalChunks, 0.0, 1.0);
+}
+
+internal static class InitialChunkStreamingPolicy
+{
+    public const int StartupRadius = 1;
+
+    public static int RequiredChunks(int radius)
+    {
+        int width = Math.Max(0, radius) * 2 + 1;
+        return width * width;
+    }
+
+    public static bool IsComplete(int readyChunks, int totalChunks) =>
+            totalChunks <= 0 || readyChunks >= totalChunks;
+}
