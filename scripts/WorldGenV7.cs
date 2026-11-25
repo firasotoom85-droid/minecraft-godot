@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Godot;
 
 namespace Minecraft;
@@ -654,7 +655,9 @@ public partial class VoxelWorld
         return new StructureInfo(kind, x, height, z, rng);
     }
 
-    private void StampOreVeinsV7(Vector2I cp, byte[] data, int strideY, int ox, int oz)
+    private void StampOreVeinsV7(
+            Vector2I cp, byte[] data, int strideY, int ox, int oz,
+            CancellationToken cancellationToken)
     {
         // Replaying the same neighbor-cell and ore order in each target chunk
         // keeps cross-chunk veins deterministic. Reserved placements represent
@@ -668,8 +671,10 @@ public partial class VoxelWorld
                         ? new Dictionary<Vector2I, (WorldGenV7.SurfaceSample, bool)>(1024) : null;
         for (int dz = -1; dz <= 1; dz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int dx = -1; dx <= 1; dx++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 int nx = cp.X + dx;
                 int nz = cp.Y + dz;
                 uint rng = Mix((uint)_noiseSeeds[0], unchecked((uint)nx),
@@ -816,10 +821,13 @@ public partial class VoxelWorld
         }
     }
 
-    private void StampDecoratorsV7(byte[] data, int strideY, int ox, int oz)
+    private void StampDecoratorsV7(
+            byte[] data, int strideY, int ox, int oz,
+            CancellationToken cancellationToken)
     {
         for (int wz = oz - 2; wz < oz + ChunkZ + 2; wz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int wx = ox - 2; wx < ox + ChunkX + 2; wx++)
             {
                 WorldGenV7.SurfaceSample surface = GeneratorV7.SampleSurface(wx, wz, SeaLevel);
@@ -886,7 +894,9 @@ public partial class VoxelWorld
 
     private const int UndergroundStructureCell = 128;
 
-    private void StampUndergroundStructuresV7(byte[] data, int strideY, int ox, int oz)
+    private void StampUndergroundStructuresV7(
+            byte[] data, int strideY, int ox, int oz,
+            CancellationToken cancellationToken)
     {
         int minCellX = Mathf.FloorToInt((ox - 14) / (float)UndergroundStructureCell);
         int maxCellX = Mathf.FloorToInt((ox + ChunkX + 14) / (float)UndergroundStructureCell);
@@ -895,8 +905,10 @@ public partial class VoxelWorld
 
         for (int cz = minCellZ; cz <= maxCellZ; cz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int cx = minCellX; cx <= maxCellX; cx++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!TryGetUndergroundStructureSiteV7(cx, cz,
                         out Vector3I site, out int kind, out uint rng))
                 {

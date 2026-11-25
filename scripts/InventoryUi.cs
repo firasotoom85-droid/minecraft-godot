@@ -742,18 +742,10 @@ public partial class InventoryUi : CanvasLayer, IModalUi
                 ClickArmor(slot.Index, button);
                 break;
             case SlotKind.FurnaceInput:
-                if (_furnace != null)
-                {
-                    ClickStack(ref _furnace.Input, button);
-                }
-
+                ClickFurnaceSlot(0, button);
                 break;
             case SlotKind.FurnaceFuel:
-                if (_furnace != null)
-                {
-                    ClickStack(ref _furnace.Fuel, button);
-                }
-
+                ClickFurnaceSlot(1, button);
                 break;
             case SlotKind.FurnaceOutput:
                 TakeFurnaceOutput(button);
@@ -809,6 +801,13 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         _ => ItemStack.Empty,
     };
 
+    private bool CanWriteSlot(InvSlot slot, ItemStack stack) => slot.Kind switch
+    {
+        SlotKind.FurnaceInput => _furnace?.CanSetSlot(0, stack) ?? false,
+        SlotKind.FurnaceFuel => _furnace?.CanSetSlot(1, stack) ?? false,
+        _ => true,
+    };
+
     private void WriteSlot(InvSlot slot, ItemStack stack)
     {
         switch (slot.Kind)
@@ -830,12 +829,10 @@ public partial class InventoryUi : CanvasLayer, IModalUi
                 _container.Slots[slot.Index] = stack;
                 break;
             case SlotKind.FurnaceInput when _furnace != null:
-                _furnace.ClearUnrecognizedSaveSlot(0);
-                _furnace.Input = stack;
+                _furnace.TrySetSlot(0, stack);
                 break;
             case SlotKind.FurnaceFuel when _furnace != null:
-                _furnace.ClearUnrecognizedSaveSlot(1);
-                _furnace.Fuel = stack;
+                _furnace.TrySetSlot(1, stack);
                 break;
             case SlotKind.FurnaceOutput when _furnace != null:
                 _furnace.ClearUnrecognizedSaveSlot(2);
@@ -860,7 +857,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         int sourceArmorSlot = source.Kind == SlotKind.Armor ? source.Index : -1;
         int targetArmorSlot = target.Kind == SlotKind.Armor ? target.Index : -1;
         if (!InventoryStackTransfer.TryTransfer(ref moving, ref destination,
-                    sourceArmorSlot, targetArmorSlot))
+                    sourceArmorSlot, targetArmorSlot)
+                || !CanWriteSlot(source, moving) || !CanWriteSlot(target, destination))
             return;
 
         WriteSlot(source, moving);
@@ -869,52 +867,76 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         Refresh();
     }
 
+    private void ClickFurnaceSlot(int slot, MouseButton button)
+    {
+        if (_furnace == null) return;
+        ItemStack candidate = slot == 0 ? _furnace.Input : _furnace.Fuel;
+        ItemStack cursor = _cursor;
+        ClickStack(ref candidate, ref cursor, button);
+        if (!_furnace.TrySetSlot(slot, candidate))
+        {
+            _hud.ShowToast(slot == 0
+                    ? "Furnace input accepts smeltable items only"
+                    : "Furnace fuel accepts burnable items only");
+            return;
+        }
+
+        _cursor = cursor;
+    }
+
     private void ClickStack(ref ItemStack slot, MouseButton button)
+    {
+        ItemStack cursor = _cursor;
+        ClickStack(ref slot, ref cursor, button);
+        _cursor = cursor;
+    }
+
+    private static void ClickStack(ref ItemStack slot, ref ItemStack cursor, MouseButton button)
     {
         if (button == MouseButton.Left)
         {
-            if (_cursor.IsEmpty)
+            if (cursor.IsEmpty)
             {
-                _cursor = slot;
+                cursor = slot;
                 slot = ItemStack.Empty;
             }
             else if (slot.IsEmpty)
             {
-                slot = _cursor;
-                _cursor = ItemStack.Empty;
+                slot = cursor;
+                cursor = ItemStack.Empty;
             }
-            else if (slot.Id == _cursor.Id && slot.Count < ItemDb.MaxStack(slot.Id))
+            else if (slot.Id == cursor.Id && slot.Count < ItemDb.MaxStack(slot.Id))
             {
-                int take = Math.Min(ItemDb.MaxStack(slot.Id) - slot.Count, _cursor.Count);
+                int take = Math.Min(ItemDb.MaxStack(slot.Id) - slot.Count, cursor.Count);
                 slot = slot with { Count = slot.Count + take };
-                _cursor = _cursor with { Count = _cursor.Count - take };
-                if (_cursor.Count <= 0)
-                {
-                    _cursor = ItemStack.Empty;
-                }
+                cursor = cursor with { Count = cursor.Count - take };
+                if (cursor.Count <= 0) cursor = ItemStack.Empty;
             }
             else
             {
-                (_cursor, slot) = (slot, _cursor);
+                (cursor, slot) = (slot, cursor);
             }
         }
         else if (button == MouseButton.Right)
         {
-            if (_cursor.IsEmpty)
+            if (cursor.IsEmpty)
             {
                 int half = (slot.Count + 1) / 2;
-                _cursor = slot with { Count = half };
-                slot = slot.Count - half <= 0 ? ItemStack.Empty : slot with { Count = slot.Count - half };
+                cursor = slot with { Count = half };
+                slot = slot.Count - half <= 0
+                        ? ItemStack.Empty : slot with { Count = slot.Count - half };
             }
             else if (slot.IsEmpty)
             {
-                slot = _cursor with { Count = 1 };
-                _cursor = _cursor.Count <= 1 ? ItemStack.Empty : _cursor with { Count = _cursor.Count - 1 };
+                slot = cursor with { Count = 1 };
+                cursor = cursor.Count <= 1
+                        ? ItemStack.Empty : cursor with { Count = cursor.Count - 1 };
             }
-            else if (slot.Id == _cursor.Id && slot.Count < ItemDb.MaxStack(slot.Id))
+            else if (slot.Id == cursor.Id && slot.Count < ItemDb.MaxStack(slot.Id))
             {
                 slot = slot with { Count = slot.Count + 1 };
-                _cursor = _cursor.Count <= 1 ? ItemStack.Empty : _cursor with { Count = _cursor.Count - 1 };
+                cursor = cursor.Count <= 1
+                        ? ItemStack.Empty : cursor with { Count = cursor.Count - 1 };
             }
         }
     }
@@ -1002,7 +1024,8 @@ public partial class InventoryUi : CanvasLayer, IModalUi
             return;
         }
 
-        if (!_player.Inventory.CanFit(recipe.Result, recipe.ResultCount))
+        if (!_player.Inventory.CanFitAfterConsume(recipe.Result, recipe.ResultCount,
+                    Recipes.Ingredients(recipe)))
         {
             _hud.ShowToast("Inventory full");
             return;
@@ -1108,8 +1131,7 @@ public partial class InventoryUi : CanvasLayer, IModalUi
         // change was needless churn while the screen is open.
         foreach ((Button button, Recipe recipe) in _recipeRows)
         {
-            button.Disabled = !Recipes.CanCraft(recipe, _player.Inventory)
-                    || !_player.Inventory.CanFit(recipe.Result, recipe.ResultCount);
+            button.Disabled = !Recipes.CanCraftAndFit(recipe, _player.Inventory);
         }
     }
 

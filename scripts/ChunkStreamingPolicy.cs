@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Godot;
 
 namespace Minecraft;
@@ -190,6 +191,21 @@ internal static class ChunkStreamingPolicy
     }
 
     /// <summary>
+    /// A light-affecting edit can change one of the three-by-three baked light
+    /// maps consumed by a mesh two chunks away because each map has a 14-block
+    /// propagation halo. Geometry-only edits retain the tighter edge/corner rule.
+    /// </summary>
+    public static bool AffectsMeshDependency(
+            int dx, int dz, int localX, int localZ,
+            int chunkX, int chunkZ, bool lightingChanged)
+    {
+        if (lightingChanged)
+            return dx >= -2 && dx <= 2 && dz >= -2 && dz <= 2;
+
+        return AffectsChunk(dx, dz, localX, localZ, chunkX, chunkZ, lightingChanged: false);
+    }
+
+    /// <summary>
     /// Tests whether any chunk touched by a deterministic generator cell lies
     /// inside the retained area. The full cell bounds are used so null-cache
     /// entries are evicted only when their entire procedural region is distant.
@@ -217,13 +233,124 @@ internal static class ChunkStreamingPolicy
             maximumAttempts > 0 && failedAttempts > 0 && failedAttempts < maximumAttempts;
 }
 
+/// <summary>
+/// Revisions for the exact chunk dependencies used by meshing and lighting.
+/// Callers serialize reads and writes with VoxelWorld.SnapshotLock.
+/// </summary>
+internal sealed class ChunkDependencyRevisions
+{
+    /// <summary>
+    /// Soft cap on retained per-coordinate revisions. Reaching it advances a
+    /// revision floor and clears the maps, so in-flight payloads captured under
+    /// older revisions are rejected instead of applied against changed state.
+    /// </summary>
+    public const int MaxEntries = 16_384;
+
+    private readonly Dictionary<Vector2I, long> _meshRevisions = [];
+    private readonly Dictionary<Vector2I, long> _lightInputRevisions = [];
+    private long _nextRevision;
+    private long _revisionFloor;
+
+    public long EstimatedMemoryBytes => 128L
+            + (_meshRevisions.Count + (long)_lightInputRevisions.Count) * 48L;
+
+    public long MeshRevision(Vector2I cp) =>
+            _meshRevisions.TryGetValue(cp, out long revision) ? revision : _revisionFloor;
+
+    public bool IsMeshRevisionCurrent(Vector2I cp, long capturedRevision) =>
+            MeshRevision(cp) == capturedRevision;
+
+    public long LightInputRevision(Vector2I cp) =>
+            _lightInputRevisions.TryGetValue(cp, out long revision) ? revision : _revisionFloor;
+
+    /// <summary>
+    /// Record one successful block mutation. Geometry dependencies follow the
+    /// same edge/corner rules as rebuild scheduling; light inputs change only
+    /// when the mutation changes opacity, passage or emission.
+    /// </summary>
+    public void RecordBlockMutation(
+            Vector2I cp, int localX, int localZ,
+            int chunkX, int chunkZ, bool lightingChanged)
+    {
+        if (lightingChanged)
+            _lightInputRevisions[cp] = NextRevision();
+
+        int dependencyRadius = lightingChanged ? 2 : 1;
+        for (int dz = -dependencyRadius; dz <= dependencyRadius; dz++)
+            for (int dx = -dependencyRadius; dx <= dependencyRadius; dx++)
+            {
+                if (!ChunkStreamingPolicy.AffectsMeshDependency(
+                        dx, dz, localX, localZ, chunkX, chunkZ, lightingChanged))
+                    continue;
+
+                _meshRevisions[cp + new Vector2I(dx, dz)] = NextRevision();
+            }
+    }
+
+    /// <summary>Capture light-input revisions for the 5x5 solve source region.</summary>
+    public void CaptureLightInputRevisions(Vector2I center, Span<long> revisions)
+    {
+        if (revisions.Length != 25)
+            throw new ArgumentException("A light solve requires exactly 25 dependency revisions.", nameof(revisions));
+
+        for (int dz = -2; dz <= 2; dz++)
+            for (int dx = -2; dx <= 2; dx++)
+            {
+                int slot = (dz + 2) * 5 + dx + 2;
+                revisions[slot] = LightInputRevision(center + new Vector2I(dx, dz));
+            }
+    }
+
+    /// <summary>
+    /// Validate only the light-affecting edits inside the solve's 5x5 source
+    /// region. Distant or geometry-only edits do not restart the solve.
+    /// </summary>
+    public bool LightInputRevisionsCurrent(Vector2I center, ReadOnlySpan<long> revisions)
+    {
+        if (revisions.Length != 25) return false;
+
+        for (int dz = -2; dz <= 2; dz++)
+            for (int dx = -2; dx <= 2; dx++)
+            {
+                int slot = (dz + 2) * 5 + dx + 2;
+                if (LightInputRevision(center + new Vector2I(dx, dz)) != revisions[slot])
+                    return false;
+            }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Keep revision storage bounded across a long session. Clearing the maps
+    /// with a fresh floor invalidates every payload captured before the reset;
+    /// their revisions are below the floor, so they are rebuilt rather than
+    /// applied to a chunk whose edits may have been pruned with the entries.
+    /// </summary>
+    public bool ResetIfUnbounded(int maximumEntries = MaxEntries)
+    {
+        if (maximumEntries <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maximumEntries));
+
+        if (_meshRevisions.Count + _lightInputRevisions.Count <= maximumEntries)
+            return false;
+
+        _meshRevisions.Clear();
+        _lightInputRevisions.Clear();
+        _revisionFloor = NextRevision();
+        return true;
+    }
+
+    private long NextRevision() => ++_nextRevision;
+}
+
 /// <summary>One implementation of the real worker build/publish contract.</summary>
 internal interface IChunkWorkerOperation<TPayload>
         where TPayload : class
 {
+    CancellationToken CancellationToken { get; }
     bool CanContinue();
     void ReservePayloadSlot();
-    TPayload Build();
+    TPayload Build(CancellationToken cancellationToken);
     bool Publish(TPayload payload);
     void DiscardPayload(TPayload payload);
     void ReleasePayloadSlot();
@@ -255,6 +382,8 @@ internal static class ChunkWorkerLifecycle
 
         try
         {
+            CancellationToken cancellationToken = operation.CancellationToken;
+            cancellationToken.ThrowIfCancellationRequested();
             if (!operation.CanContinue())
             {
                 return new ChunkWorkerExecutionResult(false, false, false);
@@ -262,12 +391,16 @@ internal static class ChunkWorkerLifecycle
 
             operation.ReservePayloadSlot();
             reserved = true;
+            cancellationToken.ThrowIfCancellationRequested();
             if (!operation.CanContinue())
             {
                 return new ChunkWorkerExecutionResult(false, false, false);
             }
 
-            payload = operation.Build();
+            payload = operation.Build(cancellationToken);
+            // A build may complete just as shutdown is requested. Keep the
+            // returned payload owned locally until cancellation is rechecked.
+            cancellationToken.ThrowIfCancellationRequested();
             if (!operation.CanContinue())
             {
                 return new ChunkWorkerExecutionResult(false, false, false);

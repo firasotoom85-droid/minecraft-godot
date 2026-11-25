@@ -11,13 +11,13 @@ public static class VoxelStreamingTests
     public static void Run()
     {
         TestAssert.Check(!StreamingApplyBudget.ShouldStop(25.0, 0, 2.0),
-                "time budget still permits one payload to make progress");
+                "one bounded resource-creation step is allowed to begin");
         TestAssert.Check(!StreamingApplyBudget.ShouldStop(1.99, 1, 2.0),
-                "payload application continues while within its frame time budget");
+                "staged apply continues while within the frame time budget");
         TestAssert.Check(StreamingApplyBudget.ShouldStop(2.0, 1, 2.0),
-                "payload application stops once its frame time budget is exhausted");
+                "staged apply yields between resource slices when the budget is exhausted");
         TestAssert.Check(StreamingApplyBudget.ShouldStop(0.0, 1, 0.0),
-                "zero time budget stops after the first payload");
+                "zero time budget yields after one bounded resource slice");
 
         TestChunkWorkTracking();
         TestChunkWorkerLifecycle();
@@ -27,6 +27,9 @@ public static class VoxelStreamingTests
         TestPlayerPersistenceNotifications();
         TestPooledScratchBufferClearing();
         TestStreamingPolicies();
+        TestChunkDependencyRevisions();
+        TestDependencyRevisionBound();
+        TestStreamingApplyBatches();
 
         long expectedLow = 11L * 11L * 16 * 128 * 16 * StreamingMemoryBudget.BytesPerVoxelUpperBound;
         TestAssert.Equal(expectedLow,
@@ -41,6 +44,7 @@ public static class VoxelStreamingTests
 
         TestMeshingConfigurationRevision();
         TestPayloadPoolCapacityBudget();
+        TestPartialBuildBufferOwnership();
     }
 
     private static void TestMeshingConfigurationRevision()
@@ -87,6 +91,7 @@ public static class VoxelStreamingTests
         MeshPayload oversizedPayload = new(oversized, new SurfaceData(),
                 new SurfaceData(), new SurfaceData(), [], 0, revision, 0);
         PayloadPool.Release(oversizedPayload);
+        PayloadPool.Release(oversizedPayload);
 
         TestAssert.Equal(retainedBefore, PayloadPool.RetainedBufferBytes,
                 "oversized surface backing arrays are discarded instead of retained");
@@ -116,6 +121,7 @@ public static class VoxelStreamingTests
                 "the next surface rent reuses the returned backing buffer");
         TestAssert.Equal(retainedBefore, PayloadPool.RetainedBufferBytes,
                 "renting a surface subtracts its exact retained capacity");
+        PayloadPool.ReleaseBuildBuffers(rented, null, null, null, null);
 
         System.Threading.Tasks.Task[] workers = new System.Threading.Tasks.Task[8];
         for (int worker = 0; worker < workers.Length; worker++)
@@ -459,6 +465,91 @@ public static class VoxelStreamingTests
         TestAssert.Equal(1, cancelledSlots,
                 "cancellation after capacity reservation releases the slot");
         tracker.Complete(cancelledCoordinate, withinRetention: false);
+
+        using CancellationTokenSource activeBuildCancellation = new();
+        int activeBuildSlots = 1;
+        int activeBuildDiscards = 0;
+        int activeBuildPublishes = 0;
+        int activeBuildRetries = 0;
+        ChunkWorkerExecutionResult cancelledAfterBuild = ExecuteTestWorker(
+                () => true,
+                () => activeBuildSlots--,
+                () =>
+                {
+                    // Model shutdown arriving after meshing has completed but
+                    // before the worker can transfer payload ownership.
+                    activeBuildCancellation.Cancel();
+                    return new object();
+                },
+                _ =>
+                {
+                    activeBuildPublishes++;
+                    return true;
+                },
+                _ => activeBuildDiscards++,
+                () => activeBuildSlots++,
+                _ =>
+                {
+                    activeBuildRetries++;
+                    return true;
+                },
+                (_, _) => { },
+                activeBuildCancellation.Token);
+        TestAssert.Check(cancelledAfterBuild.Cancelled && !cancelledAfterBuild.Published,
+                "shutdown after a build completes is observed before payload publication");
+        TestAssert.Equal(1, activeBuildDiscards,
+                "a just-built payload remains worker-owned and is discarded exactly once");
+        TestAssert.Equal(0, activeBuildPublishes,
+                "shutdown between build and publication cannot enqueue a stale payload");
+        TestAssert.Equal(0, activeBuildRetries,
+                "shutdown between build and publication is not treated as a worker failure");
+        TestAssert.Equal(1, activeBuildSlots,
+                "cancelling after meshing releases the reserved payload slot");
+    }
+
+    private static void TestPartialBuildBufferOwnership()
+    {
+        int surfacesBefore = PayloadPool.RetainedSurfaceCount;
+        int collisionsBefore = PayloadPool.RetainedCollisionCount;
+
+        SurfaceData opaque = PayloadPool.RentSurface();
+        SurfaceData glass = PayloadPool.RentSurface();
+        SurfaceData water = PayloadPool.RentSurface();
+        SurfaceData lava = PayloadPool.RentSurface();
+        System.Collections.Generic.List<Vector3> collision = PayloadPool.RentCollision();
+
+        // Keep each rented buffer small and non-empty so the shared pool retains
+        // all five entries and the test can observe the cleanup transfer.
+        foreach (SurfaceData surface in new[] { opaque, glass, water, lava })
+        {
+            surface.Vertex.Capacity = 1;
+            surface.Normal.Capacity = 1;
+            surface.Color.Capacity = 1;
+            surface.Uv.Capacity = 1;
+            surface.Uv2.Capacity = 1;
+        }
+        collision.Capacity = 1;
+
+        bool exceptionObserved = false;
+        try
+        {
+            throw new OperationCanceledException("injected cancellation after buffer rent");
+        }
+        catch (OperationCanceledException)
+        {
+            exceptionObserved = true;
+        }
+        finally
+        {
+            PayloadPool.ReleaseBuildBuffers(opaque, glass, water, lava, collision);
+        }
+
+        TestAssert.Check(exceptionObserved,
+                "the partial mesher build fixture exits through its failure path");
+        TestAssert.Check(PayloadPool.RetainedSurfaceCount >= surfacesBefore,
+                "an interrupted pre-payload build returns all four rented surfaces");
+        TestAssert.Check(PayloadPool.RetainedCollisionCount >= collisionsBefore,
+                "an interrupted pre-payload build returns its rented collision buffer");
     }
 
     private static void TestChunkGenerationReservation()
@@ -530,8 +621,57 @@ public static class VoxelStreamingTests
         }
         TestAssert.Check(!ReferenceEquals(failed, retried) && retried.Value[0] == 9,
                 "a failed generation reservation can be replaced and retried");
-    }
+        lock (reservationLock)
+        {
+            reservations.Complete(coordinate, retried);
+        }
 
+        using CancellationTokenSource shutdown = new();
+        Lazy<byte[]> cancelled;
+        lock (reservationLock)
+        {
+            cancelled = reservations.GetOrCreate(coordinate, () =>
+            {
+                // Simulate generation reaching a safe checkpoint after work
+                // starts, then being interrupted by world shutdown.
+                shutdown.Cancel();
+                shutdown.Token.ThrowIfCancellationRequested();
+                return new byte[] { 5, 5, 5 };
+            });
+        }
+
+        bool generationCancelled = false;
+        try
+        {
+            _ = cancelled.Value;
+        }
+        catch (OperationCanceledException)
+        {
+            generationCancelled = true;
+        }
+
+        TestAssert.Check(generationCancelled,
+                "chunk generation cancellation interrupts its in-flight reservation");
+        lock (reservationLock)
+        {
+            reservations.Complete(coordinate, cancelled);
+        }
+        TestAssert.Equal(0, reservations.Count,
+                "cancelled generation removes its reservation without publishing partial data");
+
+        Lazy<byte[]> afterCancellation;
+        lock (reservationLock)
+        {
+            afterCancellation = reservations.GetOrCreate(coordinate,
+                    () => new byte[] { 6, 7, 8 });
+        }
+        TestAssert.Check(afterCancellation.Value.SequenceEqual(new byte[] { 6, 7, 8 }),
+                "a later request can generate and publish the chunk after cancellation");
+        lock (reservationLock)
+        {
+            reservations.Complete(coordinate, afterCancellation);
+        }
+    }
 
     private static void TestMutationBlockIds()
     {
@@ -719,8 +859,130 @@ public static class VoxelStreamingTests
                 "worker retries stop at the bounded attempt limit");
     }
 
+    private static void TestChunkDependencyRevisions()
+    {
+        ChunkDependencyRevisions revisions = new();
+        Vector2I center = new(6, -3);
+        Vector2I west = center + Vector2I.Left;
+        Vector2I northWest = center + new Vector2I(-1, -1);
+        Vector2I far = center + new Vector2I(8, 8);
+
+        long centerBefore = revisions.MeshRevision(center);
+        long westBefore = revisions.MeshRevision(west);
+        long northWestBefore = revisions.MeshRevision(northWest);
+        long farBefore = revisions.MeshRevision(far);
+        revisions.RecordBlockMutation(center, 8, 8, 16, 16, lightingChanged: false);
+
+        TestAssert.Check(!revisions.IsMeshRevisionCurrent(center, centerBefore),
+                "an interior edit invalidates the edited chunk's in-flight mesh");
+        TestAssert.Check(revisions.IsMeshRevisionCurrent(west, westBefore)
+                        && revisions.IsMeshRevisionCurrent(northWest, northWestBefore),
+                "an interior edit leaves unsampled geometry neighbors valid");
+        TestAssert.Check(revisions.IsMeshRevisionCurrent(far, farBefore),
+                "an interior edit leaves a distant payload valid when the world edit counter advances");
+
+        long westEdgeBefore = revisions.MeshRevision(west);
+        long northWestEdgeBefore = revisions.MeshRevision(northWest);
+        revisions.RecordBlockMutation(center, 0, 8, 16, 16, lightingChanged: false);
+        TestAssert.Check(!revisions.IsMeshRevisionCurrent(west, westEdgeBefore),
+                "a west-boundary edit invalidates the neighbor that samples that edge");
+        TestAssert.Check(revisions.IsMeshRevisionCurrent(northWest, northWestEdgeBefore),
+                "a west-edge edit does not invalidate an unrelated diagonal neighbor");
+
+        long diagonalBefore = revisions.MeshRevision(northWest);
+        revisions.RecordBlockMutation(center, 0, 0, 16, 16, lightingChanged: false);
+        TestAssert.Check(!revisions.IsMeshRevisionCurrent(northWest, diagonalBefore),
+                "a corner edit invalidates the matching diagonal dependency");
+
+        long twoChunksAwayBefore = revisions.MeshRevision(center + new Vector2I(2, 0));
+        long threeChunksAwayBefore = revisions.MeshRevision(center + new Vector2I(3, 0));
+        revisions.RecordBlockMutation(center, 8, 8, 16, 16, lightingChanged: true);
+        TestAssert.Check(!revisions.IsMeshRevisionCurrent(
+                        center + new Vector2I(2, 0), twoChunksAwayBefore),
+                "light edits invalidate targets that consume neighboring halo-affected light maps");
+        TestAssert.Check(revisions.IsMeshRevisionCurrent(
+                        center + new Vector2I(3, 0), threeChunksAwayBefore),
+                "light edits do not invalidate targets outside the 5x5 dependency region");
+
+        long[] lightSnapshot = new long[25];
+        revisions.CaptureLightInputRevisions(center, lightSnapshot);
+        revisions.RecordBlockMutation(
+                center + new Vector2I(3, 0), 8, 8, 16, 16, lightingChanged: true);
+        TestAssert.Check(revisions.LightInputRevisionsCurrent(center, lightSnapshot),
+                "a lighting edit outside the 5x5 solve input does not restart that solve");
+
+        revisions.RecordBlockMutation(center, 8, 8, 16, 16, lightingChanged: false);
+        TestAssert.Check(revisions.LightInputRevisionsCurrent(center, lightSnapshot),
+                "geometry-only edits do not invalidate light solve inputs");
+        revisions.RecordBlockMutation(center, 8, 8, 16, 16, lightingChanged: true);
+        TestAssert.Check(!revisions.LightInputRevisionsCurrent(center, lightSnapshot),
+                "opacity/emission edits inside the solve region invalidate its light snapshot");
+
+        long[] nextSnapshot = new long[25];
+        revisions.CaptureLightInputRevisions(center, nextSnapshot);
+        revisions.RecordBlockMutation(center + new Vector2I(1, 1), 8, 8, 16, 16,
+                lightingChanged: true);
+        TestAssert.Check(!revisions.LightInputRevisionsCurrent(center, nextSnapshot),
+                "light-affecting edits inside the 5x5 source region are detected");
+    }
+
+    private static void TestDependencyRevisionBound()
+    {
+        ChunkDependencyRevisions revisions = new();
+        Vector2I cp = new(2, -4);
+
+        long initial = revisions.MeshRevision(cp);
+        revisions.RecordBlockMutation(cp, 8, 8, 16, 16, lightingChanged: true);
+        long capturedMesh = revisions.MeshRevision(cp);
+        long[] capturedLight = new long[25];
+        revisions.CaptureLightInputRevisions(cp, capturedLight);
+        TestAssert.Check(capturedMesh != initial,
+                "a lighting edit advances the target mesh revision before the bound is reached");
+        TestAssert.Check(revisions.ResetIfUnbounded(1),
+                "revision storage resets after exceeding the configured entry bound");
+        TestAssert.Check(!revisions.IsMeshRevisionCurrent(cp, capturedMesh),
+                "a payload captured before a revision reset is rejected by the new floor");
+        TestAssert.Check(!revisions.LightInputRevisionsCurrent(cp, capturedLight),
+                "a light solve captured before a revision reset is rejected by the new floor");
+        long afterReset = revisions.MeshRevision(cp);
+        TestAssert.Check(revisions.IsMeshRevisionCurrent(cp, afterReset),
+                "a payload captured after the reset uses the current revision floor");
+        TestAssert.Check(!revisions.ResetIfUnbounded(1),
+                "revision storage does not reset again while it is within the bound");
+        revisions.RecordBlockMutation(cp, 8, 8, 16, 16, lightingChanged: false);
+        TestAssert.Check(!revisions.IsMeshRevisionCurrent(cp, afterReset),
+                "edits after a reset advance the revision again");
+    }
+
+    private static void TestStreamingApplyBatches()
+    {
+        TestAssert.Equal(StreamingApplyBudget.MaxVerticesPerStep,
+                StreamingApplyBudget.BatchLength(20_001),
+                "one streaming apply step is capped at the configured vertex limit");
+        TestAssert.Equal(5_001, StreamingApplyBudget.BatchLength(5_001),
+                "valid surface and collision batches keep their complete triangle groups");
+        bool rejectedIncompleteTriangle = false;
+        try
+        {
+            _ = StreamingApplyBudget.BatchLength(5_000);
+        }
+        catch (ArgumentException)
+        {
+            rejectedIncompleteTriangle = true;
+        }
+        TestAssert.Check(rejectedIncompleteTriangle,
+                "malformed mesh/collision input is rejected instead of silently dropping an incomplete triangle");
+        TestAssert.Equal(0, StreamingApplyBudget.BatchLength(0),
+                "empty surfaces do not schedule an apply step");
+        TestAssert.Check(!StreamingApplyBudget.ShouldStop(25.0, 0, 2.0),
+                "a bounded first apply step can progress even when a frame has no remaining slack");
+        TestAssert.Check(StreamingApplyBudget.ShouldStop(2.0, 1, 2.0),
+                "the next staged apply step yields when its frame budget is exhausted");
+    }
+
     private readonly struct TestWorkerOperation : IChunkWorkerOperation<object>
     {
+        private readonly CancellationToken _cancellationToken;
         private readonly Func<bool> _canContinue;
         private readonly Action _reservePayloadSlot;
         private readonly Func<object> _build;
@@ -738,8 +1000,10 @@ public static class VoxelStreamingTests
                 Action<object> discardPayload,
                 Action releasePayloadSlot,
                 Func<Exception, bool> requestRetry,
-                Action<Exception, bool> reportFailure)
+                Action<Exception, bool> reportFailure,
+                CancellationToken cancellationToken)
         {
+            _cancellationToken = cancellationToken;
             _canContinue = canContinue;
             _reservePayloadSlot = reservePayloadSlot;
             _build = build;
@@ -750,9 +1014,14 @@ public static class VoxelStreamingTests
             _reportFailure = reportFailure;
         }
 
+        public CancellationToken CancellationToken => _cancellationToken;
         public bool CanContinue() => _canContinue();
         public void ReservePayloadSlot() => _reservePayloadSlot();
-        public object Build() => _build();
+        public object Build(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return _build();
+        }
         public bool Publish(object payload) => _publish(payload);
         public void DiscardPayload(object payload) => _discardPayload(payload);
         public void ReleasePayloadSlot() => _releasePayloadSlot();
@@ -769,7 +1038,8 @@ public static class VoxelStreamingTests
             Action<object> discardPayload,
             Action releasePayloadSlot,
             Func<Exception, bool> requestRetry,
-            Action<Exception, bool> reportFailure)
+            Action<Exception, bool> reportFailure,
+            CancellationToken cancellationToken = default)
     {
         TestWorkerOperation operation = new(
                 canContinue,
@@ -779,7 +1049,8 @@ public static class VoxelStreamingTests
                 discardPayload,
                 releasePayloadSlot,
                 requestRetry,
-                reportFailure);
+                reportFailure,
+                cancellationToken);
         return ChunkWorkerLifecycle.Execute<object, TestWorkerOperation>(ref operation);
     }
 

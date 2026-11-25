@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Godot;
 
 namespace Minecraft;
@@ -44,6 +45,7 @@ public partial class FarLod : Node3D
     private readonly Dictionary<Vector2I, InFlightBuild> _inFlight = new();
     private long _nextTileGeneration;
     private long _nextBuildRequestId;
+    private readonly CancellationTokenSource _workerShutdown = new();
     private volatile bool _alive = true;
 
     private StandardMaterial3D _material = null!;
@@ -78,6 +80,7 @@ public partial class FarLod : Node3D
     public override void _ExitTree()
     {
         _alive = false;
+        _workerShutdown.Cancel();
         foreach (InFlightBuild build in _inFlight.Values)
         {
             WorkerThreadPool.WaitForTaskCompletion(build.TaskId);
@@ -85,6 +88,7 @@ public partial class FarLod : Node3D
 
         _inFlight.Clear();
         _queue.Clear();
+        _workerShutdown.Dispose();
     }
 
     /// <summary>
@@ -223,10 +227,14 @@ public partial class FarLod : Node3D
         // The same exception-capture path is exercised by the deterministic
         // worker-failure regression. An exception becomes a terminal result
         // instead of bypassing the deferred main-thread completion callback.
+        CancellationToken cancellationToken = _workerShutdown.Token;
         FarLodBuildOutcome<LodPayload> outcome =
-                FarLodLifecycleRules.CaptureBuild(() => BuildArrays(tc, token.Skip));
+                FarLodLifecycleRules.CaptureBuild(
+                        () => BuildArrays(tc, token.Skip, cancellationToken), cancellationToken);
 
-        if (_alive)
+        // Shutdown cancellation is not a tile build failure: the node is
+        // leaving, no result should be posted, and no retry may be scheduled.
+        if (_alive && !outcome.Cancelled)
         {
             Callable.From(() => ApplyTile(tc, token, outcome.Payload, outcome.Failure)).CallDeferred();
         }
@@ -236,8 +244,10 @@ public partial class FarLod : Node3D
     // Mesh building (worker thread: noise, edit-cache lookup and arrays)
     // -----------------------------------------------------------------------
 
-    private LodPayload? BuildArrays(Vector2I tc, Rect2I skip)
+    private LodPayload? BuildArrays(
+            Vector2I tc, Rect2I skip, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         int x0 = tc.X * (int)Region;
         int z0 = tc.Y * (int)Region;
         int sea = World!.SeaLevel;
@@ -246,6 +256,7 @@ public partial class FarLod : Node3D
         List<Color> colors = [];
         for (int j = 0; j < Cells; j++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             int cz0 = z0 + j * (int)CellSize;
             for (int i = 0; i < Cells; i++)
             {
@@ -528,7 +539,8 @@ public partial class FarLod : Node3D
 }
 
 
-internal readonly record struct FarLodBuildOutcome<TPayload>(TPayload? Payload, string? Failure)
+internal readonly record struct FarLodBuildOutcome<TPayload>(
+        TPayload? Payload, string? Failure, bool Cancelled = false)
         where TPayload : class;
 
 internal enum FarLodCompletionDisposition
@@ -638,11 +650,23 @@ internal static class FarLodLifecycleRules
     }
 
     internal static FarLodBuildOutcome<TPayload> CaptureBuild<TPayload>(Func<TPayload?> build)
+            where TPayload : class =>
+            CaptureBuild(build, CancellationToken.None);
+
+    internal static FarLodBuildOutcome<TPayload> CaptureBuild<TPayload>(
+            Func<TPayload?> build, CancellationToken cancellationToken)
             where TPayload : class
     {
         try
         {
-            return new FarLodBuildOutcome<TPayload>(build(), null);
+            cancellationToken.ThrowIfCancellationRequested();
+            TPayload? payload = build();
+            cancellationToken.ThrowIfCancellationRequested();
+            return new FarLodBuildOutcome<TPayload>(payload, null);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return new FarLodBuildOutcome<TPayload>(null, null, Cancelled: true);
         }
         catch (Exception exception)
         {

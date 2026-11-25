@@ -41,9 +41,12 @@ public partial class Main : Node3D
     private OnboardingSystem _onboarding = null!;
     private FluidSystem _fluids = null!;
     private BoatSystem _boats = null!;
+    private AcceptDialog? _saveFailureDialog;
 
     public override void _Ready()
     {
+        // Close requests are accepted only after the current world snapshot commits.
+        GetTree().AutoAcceptQuit = false;
         _world = GetNode<VoxelWorld>("World");
         _player = GetNode<Player>("Player");
         _hud = GetNode<Hud>("HUD");
@@ -68,7 +71,7 @@ public partial class Main : Node3D
 
         _player.Position = initialPosition;
         _player.Inventory.LoadFrom(_world.SavedInventory);
-        _player.Select(_world.SavedSelected);
+        _player.Select(_world.SavedSelected, markDirty: false);
         _player.LoadFromSave(_world.SavedMode ?? _world.DefaultMode, _world.SavedHealth,
                 _world.SavedHunger, _world.SavedRespawn, _world.SavedExperience, _world.SavedPlayerDead);
         _player.RestoreOrientation(_world.SavedPlayerYaw, _world.SavedPlayerPitch);
@@ -157,7 +160,7 @@ public partial class Main : Node3D
         _achievementSystem = AddSystem(new AchievementSystem());
         _achievementSystem.Setup(_world, _player, _hud);
         _achievementUi = AddSystem(new AchievementUi());
-        _achievementUi.Setup(_player, _world);
+        _achievementUi.Setup(_player, _world, _achievementSystem);
 
         _onboarding = AddSystem(new OnboardingSystem());
         _onboarding.Setup(_world, _player, _hud, _mobs, _inventoryUi);
@@ -250,12 +253,37 @@ public partial class Main : Node3D
 
         if (what == (int)NotificationWMCloseRequest)
         {
-            _world.SaveNow();
+            if (_world.SaveNow())
+            {
+                GetTree().Quit();
+            }
+            else
+            {
+                ShowSaveFailureDialog();
+            }
         }
         else if (what == (int)NotificationApplicationFocusOut)
         {
             _world.SaveIfDirty();
         }
+    }
+
+    private void ShowSaveFailureDialog()
+    {
+        if (_saveFailureDialog == null || !GodotObject.IsInstanceValid(_saveFailureDialog))
+        {
+            _saveFailureDialog = new AcceptDialog
+            {
+                Title = "Save failed",
+                DialogText = "The latest world changes could not be committed safely. " +
+                        "The game will remain open and the world is protected from further writes. " +
+                        "Use World Management to restore a matching backup set before trying again.",
+            };
+            AddChild(_saveFailureDialog);
+        }
+
+        if (!_saveFailureDialog.Visible)
+            _saveFailureDialog.CallDeferred("popup_centered");
     }
 
     private void SetupEnvironment()

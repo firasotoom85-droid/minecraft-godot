@@ -591,6 +591,7 @@ public partial class PerformanceRunner : Node
         _measurementElapsed = 0.0;
         _memorySampleElapsed = 0.0;
         Profiler.ResetBuildSamples();
+        Profiler.ResetApplyStepSamples();
         _managedAllocatedAtStart = GC.GetTotalAllocatedBytes(false);
         _gc0AtStart = GC.CollectionCount(0);
         _gc1AtStart = GC.CollectionCount(1);
@@ -803,6 +804,8 @@ public partial class PerformanceRunner : Node
     {
         double meanFrameMs = Mean(_frameTimesMs);
         BuildTimeStats mesh = Profiler.BuildDistribution();
+        BuildTimeStats applySteps = Profiler.ApplyStepDistribution();
+        BuildTimeStats collisionSteps = Profiler.CollisionDistribution();
         string runStamp = DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'", CultureInfo.InvariantCulture);
         _outputBase = $"perf-{_scenario}-{_seed}-{runStamp}";
         var report = new
@@ -959,6 +962,33 @@ public partial class PerformanceRunner : Node
                 p99Ms = mesh.P99Ms,
                 maxMs = mesh.MaxMs,
             },
+            chunkPayloadApply = new
+            {
+                cooperativeBudgetMs = 2.0,
+                maximumVerticesPerResourceStep = StreamingApplyBudget.MaxVerticesPerStep,
+                totalPayloadAverageMs = Profiler.ApplyAverageMs,
+                totalPayloadMaximumMs = Profiler.ApplyMaximumMs,
+                resourceSteps = new
+                {
+                    count = applySteps.Count,
+                    averageMs = applySteps.AverageMs,
+                    p50Ms = applySteps.P50Ms,
+                    p95Ms = applySteps.P95Ms,
+                    p99Ms = applySteps.P99Ms,
+                    maxMs = applySteps.MaxMs,
+                },
+                collisionSteps = new
+                {
+                    count = collisionSteps.Count,
+                    averageMs = collisionSteps.AverageMs,
+                    p50Ms = collisionSteps.P50Ms,
+                    p95Ms = collisionSteps.P95Ms,
+                    p99Ms = collisionSteps.P99Ms,
+                    maxMs = collisionSteps.MaxMs,
+                    totalVertices = Profiler.CollisionVerticesApplied,
+                },
+                note = "The 2 ms budget is checked between bounded steps; one Godot resource creation call may exceed it.",
+            },
         };
 
         return JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
@@ -998,7 +1028,7 @@ public partial class PerformanceRunner : Node
     {
         if (_worldDir.Length == 0) return true;
         string directory = _worldDir;
-        bool deleted = DeleteWorldOverride?.Invoke(directory) ?? WorldStore.Delete(directory);
+        bool deleted = DeleteWorldOverride?.Invoke(directory) ?? WorldStore.DeleteTemporaryWorld(directory);
         if (deleted) _worldDir = "";
         else GD.PushError($"PERF BENCHMARK: failed to remove disposable world '{directory}'.");
         return deleted;

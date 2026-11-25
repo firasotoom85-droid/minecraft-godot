@@ -298,6 +298,8 @@ public partial class DevConsole : CanvasLayer
                         return $"unknown item: {name}";
                     }
 
+                    bool fitsSelected = count <= ItemDb.MaxStack(id)
+                            && !_player.Inventory.HasUnrecognizedSaveSlot(_player.Selected);
                     if (!_player.Inventory.TrySetHotbarOrAdd(
                                 _player.Selected, ItemDb.New(id, count)))
                     {
@@ -305,7 +307,9 @@ public partial class DevConsole : CanvasLayer
                     }
 
                     _player.Inventory.RaiseChanged();
-                    return $"{ItemDb.NameOf(id)} x{count} in hand";
+                    return fitsSelected
+                            ? $"{ItemDb.NameOf(id)} x{count} in hand"
+                            : $"{ItemDb.NameOf(id)} x{count} added to inventory";
                 }
             case "armor":
                 {

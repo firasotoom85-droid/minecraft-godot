@@ -3,6 +3,17 @@ using Godot;
 
 namespace Minecraft;
 
+public static class LightningStrikeRules
+{
+    public static Vector3 NearStrikePosition(Vector3 playerPosition, int surfaceHeight) =>
+            new(Mathf.FloorToInt(playerPosition.X) + 0.5f, surfaceHeight + 1.0f,
+                    Mathf.FloorToInt(playerPosition.Z) + 0.5f);
+
+    public static bool CanDamagePlayer(Vector3 hit, Vector3 playerPosition,
+            int surfaceHeight, int seaLevel) =>
+            surfaceHeight > seaLevel && hit.DistanceTo(playerPosition) < 2.5f;
+}
+
 /// <summary>
 /// Dynamic weather: clear -> cloudy -> rain/snow -> storm. Owns the state
 /// machine, precipitation particles, ground wetness, lightning and the rain /
@@ -321,18 +332,32 @@ public partial class Weather : Node
             return;
         }
 
-        float ang = _rng.Randf() * Mathf.Tau;
-        float dist = _rng.RandfRange(7.0f, 30.0f);
-        int x = Mathf.FloorToInt(PlayerRef.GlobalPosition.X + Mathf.Cos(ang) * dist);
-        int z = Mathf.FloorToInt(PlayerRef.GlobalPosition.Z + Mathf.Sin(ang) * dist);
+        Vector3 playerPosition = PlayerRef.GlobalPosition;
+        bool nearStrike = _rng.Randf() < 0.12f;
+        int x;
+        int z;
+        if (nearStrike)
+        {
+            x = Mathf.FloorToInt(playerPosition.X);
+            z = Mathf.FloorToInt(playerPosition.Z);
+        }
+        else
+        {
+            float ang = _rng.Randf() * Mathf.Tau;
+            float dist = _rng.RandfRange(7.0f, 30.0f);
+            x = Mathf.FloorToInt(playerPosition.X + Mathf.Cos(ang) * dist);
+            z = Mathf.FloorToInt(playerPosition.Z + Mathf.Sin(ang) * dist);
+        }
+
         int h = World.SurfaceHeight(x, z);
         _bolt.GlobalPosition = new Vector3(x + 0.5f, h + 40.0f, z + 0.5f);
         _bolt.Visible = true;
         _boltTime = 0.15;
 
-        // Close strikes hurt — stand under a roof when it thunders.
+        // A small fraction of strikes land in the player's column; ordinary
+        // strikes remain distributed 7–30 blocks away.
         Vector3 hit = new(x + 0.5f, h + 1.0f, z + 0.5f);
-        if (hit.DistanceTo(PlayerRef.GlobalPosition) < 2.5f && h > World.SeaLevel)
+        if (LightningStrikeRules.CanDamagePlayer(hit, playerPosition, h, World.SeaLevel))
         {
             PlayerRef.ApplyDamage(new DamageInfo(4.0f, DamageKind.Lightning, hit));
         }

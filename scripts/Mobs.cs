@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Godot;
 
@@ -9,10 +10,40 @@ public static class MobPopulationRules
     public const int PassiveLimit = 10;
     public const int WildPassiveTarget = 8;
 
+    public static bool CanSpawnHostile(int population, int limit) =>
+            population >= 0 && limit > 0 && population < limit;
+
     public static bool CanSpawnWildGroup(int population) => population < WildPassiveTarget;
     public static bool CanBreed(int population) => population >= 2 && population < PassiveLimit;
     public static int LimitWildGroup(int population, int requested) =>
             Mathf.Clamp(requested, 0, Mathf.Max(0, WildPassiveTarget - population));
+}
+
+/// <summary>Pure terrain checks shared by surface wildlife spawn candidates.</summary>
+public static class MobSpawnRules
+{
+    public static bool IsSurfaceCellSafe(BlockId floor, BlockId feet,
+            BlockId body, BlockId head) =>
+            (floor is BlockId.Grass or BlockId.SnowGrass or BlockId.Sand)
+            && feet == BlockId.Air && body == BlockId.Air && head == BlockId.Air;
+
+    public static bool IsSeparated(Vector3 candidate, ReadOnlySpan<Vector3> occupied,
+            float minimumDistance)
+    {
+        if (!float.IsFinite(minimumDistance) || minimumDistance < 0.0f
+                || !float.IsFinite(candidate.X) || !float.IsFinite(candidate.Y)
+                || !float.IsFinite(candidate.Z))
+            return false;
+
+        float minimumSquared = minimumDistance * minimumDistance;
+        for (int i = 0; i < occupied.Length; i++)
+        {
+            if (candidate.DistanceSquaredTo(occupied[i]) < minimumSquared)
+                return false;
+        }
+
+        return true;
+    }
 }
 
 /// <summary>
@@ -485,7 +516,11 @@ public partial class Mobs : Node
                 continue;
             }
 
-            if (World.GetBlock(x, h, z) is not (BlockId.Grass or BlockId.SnowGrass or BlockId.Sand))
+            if (!MobSpawnRules.IsSurfaceCellSafe(
+                        World.GetBlock(x, h, z),
+                        World.GetBlock(x, h + 1, z),
+                        World.GetBlock(x, h + 2, z),
+                        World.GetBlock(x, h + 3, z)))
             {
                 continue;
             }
@@ -554,8 +589,15 @@ public partial class Mobs : Node
         return false;
     }
 
-    private void SpawnMob(Mob mob, Vector3 point, float yOffset, bool hostile)
+    private bool SpawnMob(Mob mob, Vector3 point, float yOffset, bool hostile)
     {
+        if (hostile && !MobPopulationRules.CanSpawnHostile(
+                    _hostiles.Count, MobCombatRules.HostilePopulationCap))
+        {
+            mob.Free();
+            return false;
+        }
+
         AddChild(mob);
         mob.Setup(World!, this, point);
         mob.GlobalPosition = point + new Vector3(0, yOffset, 0);
@@ -565,6 +607,46 @@ public partial class Mobs : Node
         mob.Signalled += OnSignalled;
         mob.TreeExiting += () => ForgetMobLootPlan(mob);
         (hostile ? _hostiles : _passive).Add(mob);
+        return true;
+    }
+
+    private bool TryFindHerdMemberSpawn(Vector3 anchor, float spacing,
+            Biome requiredBiome, ReadOnlySpan<Vector3> occupied, out Vector3 point)
+    {
+        point = Vector3.Zero;
+        if (World == null) return false;
+
+        for (int attempt = 0; attempt < 10; attempt++)
+        {
+            float angle = _rng.Randf() * Mathf.Tau;
+            float distance = _rng.RandfRange(spacing * 0.8f, spacing * 1.5f);
+            int x = Mathf.FloorToInt(anchor.X + Mathf.Cos(angle) * distance);
+            int z = Mathf.FloorToInt(anchor.Z + Mathf.Sin(angle) * distance);
+            int h = World.SurfaceHeight(x, z);
+            if (h <= World.SeaLevel + 1 || h >= World.Height - 4)
+                continue;
+
+            Vector2I cp = new(Mathf.FloorToInt(x / (float)VoxelWorld.ChunkX),
+                    Mathf.FloorToInt(z / (float)VoxelWorld.ChunkZ));
+            if (!World.HasChunk(cp) || World.BiomeAt(x, z, h) != requiredBiome)
+                continue;
+
+            if (!MobSpawnRules.IsSurfaceCellSafe(
+                        World.GetBlock(x, h, z),
+                        World.GetBlock(x, h + 1, z),
+                        World.GetBlock(x, h + 2, z),
+                        World.GetBlock(x, h + 3, z)))
+                continue;
+
+            Vector3 candidate = new(x + 0.5f, h + 1.0f, z + 0.5f);
+            float minimumSeparation = Mathf.Max(0.7f, spacing * 0.65f);
+            if (!MobSpawnRules.IsSeparated(candidate, occupied, minimumSeparation))
+                continue;
+            point = candidate;
+            return true;
+        }
+
+        return false;
     }
 
     private void SpawnPassiveGroup()
@@ -607,17 +689,19 @@ public partial class Mobs : Node
         HerdProfile herd = HerdProfile.For(prototype);
         int groupSize = _rng.RandiRange(herd.Minimum, herd.Maximum);
         groupSize = MobPopulationRules.LimitWildGroup(_passive.Count, groupSize);
+        Span<Vector3> occupied = stackalloc Vector3[8];
+        int occupiedCount = 0;
         for (int i = 0; i < groupSize && MobPopulationRules.CanSpawnWildGroup(_passive.Count); i++)
         {
             Vector3 spawn = point;
-            if (i > 0)
-            {
-                float angle = _rng.Randf() * Mathf.Tau;
-                spawn += new Vector3(Mathf.Cos(angle) * herd.Spacing, 0, Mathf.Sin(angle) * herd.Spacing);
-            }
+            if (i > 0 && !TryFindHerdMemberSpawn(
+                        point, herd.Spacing, biome, occupied[..occupiedCount], out spawn))
+                continue;
 
             Mob animal = i == 0 ? prototype : CreatePassive(prototype);
-            SpawnMob(animal, spawn, 0.0f, false);
+            if (!SpawnMob(animal, spawn, 0.0f, false))
+                break;
+            occupied[occupiedCount++] = spawn;
         }
     }
 
@@ -901,8 +985,7 @@ public partial class Mobs : Node
         }
 
         EmberWarden warden = new();
-        SpawnMob(warden, pos, 0.2f, true);
-        return warden;
+        return SpawnMob(warden, pos, 0.2f, true) ? warden : null;
     }
 
     /// <summary>Boss phase hook: summon adds around an arena position.</summary>
@@ -918,7 +1001,8 @@ public partial class Mobs : Node
             float angle = i * Mathf.Tau / Mathf.Max(count, 1);
             Vector3 point = center + new Vector3(Mathf.Cos(angle) * 2.5f, 1.0f,
                     Mathf.Sin(angle) * 2.5f);
-            SpawnMob(new Shade(), point, 0.0f, true);
+            if (!SpawnMob(new Shade(), point, 0.0f, true))
+                break;
         }
     }
 

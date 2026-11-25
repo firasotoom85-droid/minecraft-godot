@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Godot;
 
 namespace Minecraft;
@@ -441,10 +442,13 @@ public partial class VoxelWorld
         return new StructureInfo(kind, x, height, z, rng);
     }
 
-    private void StampDecoratorsV8(byte[] data, int strideY, int ox, int oz)
+    private void StampDecoratorsV8(
+            byte[] data, int strideY, int ox, int oz,
+            CancellationToken cancellationToken)
     {
         for (int wz = oz - 2; wz < oz + ChunkZ + 2; wz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int wx = ox - 2; wx < ox + ChunkX + 2; wx++)
             {
                 WorldGenV7.SurfaceSample surface = GeneratorV8.SampleSurface(wx, wz, SeaLevel);
@@ -636,7 +640,9 @@ public partial class VoxelWorld
         return state == 0 ? 0x9E3779B9u : state;
     }
 
-    private void StampVillagesV8(byte[] data, int strideY, int ox, int oz)
+    private void StampVillagesV8(
+            byte[] data, int strideY, int ox, int oz,
+            CancellationToken cancellationToken)
     {
         int minX = Mathf.FloorToInt((ox - VillageStructures.Radius) / (float)VillageCell);
         int maxX = Mathf.FloorToInt((ox + ChunkX + VillageStructures.Radius) / (float)VillageCell);
@@ -645,6 +651,7 @@ public partial class VoxelWorld
         for (int cellZ = minZ; cellZ <= maxZ; cellZ++)
             for (int cellX = minX; cellX <= maxX; cellX++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (GetVillageSite(cellX, cellZ) is not { } village) continue;
                 Action<int, int, int, BlockId> put = (wx, wy, wz, id) =>
                 {
@@ -664,6 +671,8 @@ public partial class VoxelWorld
                 };
                 BlockId fill = village.Theme == VillageTheme.Desert ? BlockId.Sand : BlockId.Dirt;
                 for (int dz = -VillageStructures.Radius; dz <= VillageStructures.Radius; dz++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
                     for (int dx = -VillageStructures.Radius; dx <= VillageStructures.Radius; dx++)
                     {
                         if (dx * dx + dz * dz > VillageStructures.Radius * VillageStructures.Radius) continue;
@@ -680,6 +689,8 @@ public partial class VoxelWorld
                         }
                         put(wx, village.Y, wz, ground);
                     }
+                }
+                cancellationToken.ThrowIfCancellationRequested();
                 VillageStructures.Stamp(village, put);
             }
     }

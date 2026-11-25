@@ -825,7 +825,9 @@ public partial class Player : CharacterBody3D, IDamageable
 
     public void SetMode(GameMode mode)
     {
+        bool changed = Mode != mode;
         Mode = mode;
+        if (changed) World?.MarkDirty();
         if (Mode != GameMode.Creative)
         {
             SetFlying(false);
@@ -1258,7 +1260,9 @@ public partial class Player : CharacterBody3D, IDamageable
         if (World == null
                 || World.GetBlock(plantAt.X, plantAt.Y, plantAt.Z) != BlockId.Air
                 || World.GetBlock(plantAt.X, plantAt.Y - 1, plantAt.Z) != BlockId.Farmland
-                || Inventory.CountOf(ItemId.Seeds) <= 0)
+                || (uint)Selected >= Inventory.HotbarSize
+                || Inventory.Hotbar[Selected].Id != ItemId.Seeds
+                || Inventory.Hotbar[Selected].Count <= 0)
         {
             return false;
         }
@@ -1268,7 +1272,11 @@ public partial class Player : CharacterBody3D, IDamageable
             return false;
         }
 
-        Inventory.Consume(ItemId.Seeds, 1);
+        if (!Inventory.ConsumeSlot(Selected, ItemId.Seeds, 1))
+        {
+            World.SetBlock(plantAt.X, plantAt.Y, plantAt.Z, BlockId.Air);
+            return false;
+        }
         StartPunch(FirstPersonAction.Place);
         EmitSignal(SignalName.BlockPlaced,
                 new Vector3(plantAt.X + 0.5f, plantAt.Y + 0.5f, plantAt.Z + 0.5f), (int)BlockId.Wheat0);
@@ -1394,22 +1402,25 @@ public partial class Player : CharacterBody3D, IDamageable
     /// Consume one raw food item and add its cooked result atomically. A full
     /// inventory must not eat the raw item and silently discard the cooked one.
     /// </summary>
-    internal static bool TryCook(Inventory inventory, ItemId raw)
+    internal static bool TryCook(Inventory inventory, ItemId raw) =>
+            TryCook(inventory, inventory.FirstSlotOf(raw), raw);
+
+    internal static bool TryCook(Inventory inventory, int selectedSlot, ItemId raw)
     {
-        if (ItemDb.CooksTo(raw) is not { } cooked || !inventory.Consume(raw, 1))
-        {
+        if (ItemDb.CooksTo(raw) is not { } cooked
+                || (uint)selectedSlot >= Inventory.HotbarSize
+                || inventory.Get(selectedSlot).Id != raw)
             return false;
-        }
 
-        if (inventory.Add(cooked, 1) == 0)
-        {
-            return true;
-        }
+        System.Collections.Generic.Dictionary<ItemId, int> consumed = new() { [raw] = 1 };
+        if (!inventory.CanFitAfterConsume(cooked, 1, consumed, selectedSlot)
+                || !inventory.ConsumeSlot(selectedSlot, raw, 1))
+            return false;
 
-        // The result could not fit; restore the consumed raw item so the failed
-        // action has no net cost.
-        inventory.Add(raw, 1);
-        return false;
+        if (inventory.Add(cooked, 1) != 0)
+            throw new InvalidOperationException(
+                    "Campfire output capacity preflight disagreed with inventory insertion.");
+        return true;
     }
 
     /// <summary>Campfire use: cook the held raw food and/or rest (respawn + heal).</summary>
@@ -1421,7 +1432,7 @@ public partial class Player : CharacterBody3D, IDamageable
         }
 
         bool cookable = ItemDb.CooksTo(stack.Id) != null;
-        bool cooked = TryCook(Inventory, stack.Id);
+        bool cooked = TryCook(Inventory, Selected, stack.Id);
         if (cookable && !cooked)
         {
             EmitSignal(SignalName.Notice, "Make room for the cooked food");
@@ -1471,8 +1482,10 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
+        if (!Inventory.ConsumeSlot(Selected, stack.Id, 1))
+            return;
+
         _lastEat = GameplayClock.Now;
-        Inventory.Consume(stack.Id, 1);
         Stats.AddHunger(food.Hunger);
         Stats.Heal(food.Heal);
         EmitSignal(SignalName.Ate);
@@ -1595,7 +1608,8 @@ public partial class Player : CharacterBody3D, IDamageable
     {
         int emptySlots = 0;
         for (int slot = 0; slot < Inventory.SlotCount; slot++)
-            if (inventory.Get(slot).IsEmpty) emptySlots++;
+            if (inventory.Get(slot).IsEmpty && !inventory.HasUnrecognizedSaveSlot(slot))
+                emptySlots++;
 
         int requiredEmptySlots = 0;
         for (int i = 0; i < drops.Length; i++)
@@ -1727,6 +1741,8 @@ public partial class Player : CharacterBody3D, IDamageable
         // Mobs first: right-click is "use" on a creature (tame a sheep).
         if (Ray.IsColliding() && Ray.GetCollider() is Mob mob)
         {
+            if (mob.Dead || mob.IsQueuedForDeletion())
+                return;
             if (mob.Interact(this))
             {
                 StartPunch();
@@ -2140,12 +2156,17 @@ public partial class Player : CharacterBody3D, IDamageable
         }
     }
 
-    public void Select(int i)
+    public void Select(int i, bool markDirty = true)
     {
         int next = Mathf.Wrap(i, 0, Inventory.HotbarSize);
-        if (next != Selected)
+        bool changed = next != Selected;
+        if (changed)
+        {
             StartPunch(FirstPersonAction.Select);
-        Selected = next;
+            Selected = next;
+            if (markDirty) World?.MarkDirty();
+        }
+
         EmitSignal(SignalName.HotbarChanged, Selected, (int)Inventory.Hotbar[Selected].Id);
     }
 

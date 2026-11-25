@@ -2,6 +2,12 @@ using Godot;
 
 namespace Minecraft;
 
+public static class HollowShotRules
+{
+    public static bool CanContinueCharge(bool targetAlive, bool targetVisible, bool targetInRange) =>
+            targetAlive && targetVisible && targetInRange;
+}
+
 /// <summary>
 /// Hollow: a patient ranged night stalker. It keeps a middle distance,
 /// charges a visible shot, then fires a slow projectile that can be dodged.
@@ -75,6 +81,7 @@ public partial class Hollow : Mob
 
         if (World.NearestCampfire(GlobalPosition, 8.0f) is { } fire)
         {
+            _charge = 0.0f;
             Vector3 away = GlobalPosition - fire;
             away.Y = 0.0f;
             if (away.LengthSquared() > 0.01f)
@@ -96,7 +103,8 @@ public partial class Hollow : Mob
                 _shotCd -= delta;
                 if (_charge > 0.0f)
                 {
-                    if (!visible)
+                    if (!HollowShotRules.CanContinueCharge(
+                                !player.Stats.Dead, visible, d < SightRadius))
                     {
                         _charge = 0.0f;
                     }
@@ -148,6 +156,9 @@ public partial class Hollow : Mob
             }
         }
 
+        // There is no living, in-range target at this point; discard any
+        // stale telegraph rather than firing after target removal.
+        _charge = 0.0f;
         if (TryInvestigateSound(out Vector3 noiseDirection))
         {
             return noiseDirection;

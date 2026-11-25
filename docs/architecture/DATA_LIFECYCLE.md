@@ -24,9 +24,11 @@ When a new mutation type is introduced, verify:
 
 Chunk data is deterministic for the world's seed and generator version. The generated base is combined with persisted edits before it is presented to the chunk mesher.
 
-Mesher.Build captures block, shape and lighting snapshots under the world's snapshot lock and records the current edit epoch. It performs array/geometry work off the scene tree on WorkerThreadPool jobs. Godot scene nodes, mesh resources and Jolt collision resources are applied from the main-thread completion path.
+Mesher.Build captures block and shape snapshots under the world's snapshot lock, then records a revision for the target chunk's sampled dependencies. The world-wide `EditEpoch` remains a diagnostic counter; it is not used to reject unrelated mesh payloads. Geometry edits invalidate the target and only sampled edge/corner neighbors. Light-affecting edits update per-source-chunk light revisions, invalidate target chunks through a 5×5 area (the 3×3 baked-light neighborhood plus each map's 14-voxel propagation halo), and cause light solves to validate their own 5×5 source region.
 
-The world checks the payload epoch before applying it. A payload built before a later edit is stale; discard it and schedule the required rebuild. Every rented payload/surface/collision buffer has one release owner and must be returned even when a task is cancelled, rejected, throws or the world is exiting.
+Array and geometry work runs off the scene tree on WorkerThreadPool jobs. The main thread validates the local dependency revision, meshing configuration, collider-boundary state and retention before staging, before each resource slice and immediately before commit. Mesh surfaces and collision shapes are created in triangle-aligned batches capped at 8,190 vertices per resource step. The current chunk remains visible and collidable until a complete replacement is ready, then one transaction commits it. The 2 ms target is cooperative between steps rather than a hard per-call time guarantee; performance reports retain rolling p50/p95/p99 resource-step and collision-step timings.
+
+Every rented payload/surface/collision buffer has one release owner and must be returned even when a task is cancelled, rejected, throws or the world is exiting. The completed-payload slot remains reserved while an application transaction is staged so worker backpressure continues to reflect all pending main-thread work.
 
 FarLod follows the same worker-build/main-thread-apply split. It is a coarse presentation of terrain, not a source of authoritative block mutations.
 
@@ -34,6 +36,10 @@ FarLod follows the same worker-build/main-thread-apply split. It is a coarse pre
 
 WorldStore owns serialization, path validation, atomic writes and backup rotation. Do not add independent gameplay file writes. Keep the separation between world state and player state.
 
+World and player save records carry the same `SaveGeneration`. The manifest stores the committed generation and is written last, after both save files have been atomically replaced. Readers must select both files from the same generation; individually valid but mismatched files are not a valid save. The primary files and three rotating backup tiers are searched for a matching pair. When a generation-positive pair is recovered from backups, promote both members to the primary paths and verify the pair before enabling ordinary gameplay writes. A failed transaction leaves the world recovery-protected until a coherent pair is available.
+
+Backup-browser restoration is a three-file operation: resolve a manifest, world and player candidate with the same generation, write world and player first, then publish the manifest. Never restore only one save member. Archive import applies the same contract while retaining the pre-generation (generation zero) legacy loading rules. User-requested world deletion first moves the complete world directory into `user://worlds/.trash`; keep that quarantine copy intact rather than recursively deleting user data as part of the same operation.
+ 
 A persistence change should cover:
 - Current-format round-trip.
 - Loading previous supported format(s) with defaults.

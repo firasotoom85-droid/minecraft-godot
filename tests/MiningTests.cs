@@ -199,6 +199,21 @@ public static class MiningTests
         TestAssert.Check(!Player.CanFitMinedDrops(oneSlot, mixedPlan),
                 "mining preflight reserves empty slots across different drop item types");
 
+        Inventory reservedSlot = new();
+        List<ItemStackSave> reservedSave = [];
+        for (int slot = 0; slot < Inventory.SlotCount; slot++)
+        {
+            if (slot == Inventory.SlotCount - 2) continue;
+            reservedSave.Add(slot == Inventory.SlotCount - 1
+                    ? new ItemStackSave(slot, 110, 1)
+                    : new ItemStackSave(slot, (int)ItemId.Dirt, 64));
+        }
+        reservedSlot.LoadFrom(reservedSave);
+        TestAssert.Check(reservedSlot.HasUnrecognizedSaveSlot(Inventory.SlotCount - 1),
+                "future item slot remains opaque and reserved during mining preflight");
+        TestAssert.Check(!Player.CanFitMinedDrops(reservedSlot, mixedPlan),
+                "mining does not count an opaque future-version slot as free reward capacity");
+
         Player partial = new() { Mode = GameMode.Survival };
         for (int slot = 0; slot < Inventory.SlotCount; slot++)
             partial.Inventory.Set(slot, ItemDb.New(ItemId.Dirt, 64));

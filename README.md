@@ -22,7 +22,8 @@ The project uses original procedural materials and audio. It is Minecraft-inspir
 - Infinite, seeded chunk streaming with versioned world generation, multiple biomes, rivers, caves, structures and distant terrain LOD.
 - Greedy opaque meshing, a per-face comparison path, pooled mesh payloads and bounded streaming memory.
 - Survival systems for health, hunger, equipment, crafting, cooking, farming, fishing, fluids, boats and storage.
-- Passive herds, hostile creatures, village residents, trading, quests, dungeons and the Ember Warden encounter.
+- Passive herds, bounded hostile populations, village residents, trading, quests, dungeons and the Ember Warden encounter.
+- Transactional inventory, crafting and furnace operations with selected-slot consumption and validated progression state.
 - Baked voxel lighting, day/night, weather, underwater fog blending and six graphics-quality presets.
 - Multi-world saves with atomic writes, rotating backups, import/export and compatibility for older worlds.
 - Keyboard and controller rebinding, minimap, achievements journal, contextual onboarding, photo mode and a developer console.
@@ -38,6 +39,8 @@ See the [documentation index](docs/README.md) for subsystem details, test proced
 World and player writes use sibling temporary files and rotating recovery candidates. Candidates are structurally validated before loading; a malformed primary falls back to the next valid backup, while unsupported future versions are never downgraded to an older save. The optional manifest `hasSavedData` marker records that a complete save pair has existed. If a previously saved world loses every primary and backup, or its metadata is unreadable, it is retained for recovery instead of being silently initialized or redirected to another save; ordinary writes are blocked while recovery is required. Older manifests without playtime or save-history fields load with legacy defaults.
 
 World imports are extracted to a staging directory, checked against the archive's SHA-256 file index, and only then moved into the worlds folder. Existing worlds are not overwritten; duplicate names receive a suffix. Unsafe paths, links, unsupported save/generator versions, structurally invalid records, corrupt data without a valid backup, and excessive expanded size are rejected. World duplication and deletion do not traverse symbolic links, junctions or other filesystem reparse points; failed copies are discarded instead of being published.
+
+World and player saves now carry the same monotonically increasing snapshot generation, committed by the manifest only after both files have been written. Loading selects only a matching world/player pair from the primary files or one of three rotating backup levels; mismatched or partially committed pairs are recovery-required and are never combined. A recovered matching pair is promoted to the primary files before gameplay resumes, so the next save cannot rotate away the only valid copy. Backup restoration replaces the complete matching manifest/world/player snapshot, and archive import validates the same generation contract. User-requested world deletion atomically moves the complete world into `user://worlds/.trash` and retains that recovery copy; permanent cleanup is reserved for disposable internal/test worlds. Verified locally on 2026-11-25 by the registered headless suite (201,755 checks, zero failures); the new generation fields are additive and default to zero, so existing and legacy saves load unchanged.
 
 ## Requirements
 
@@ -163,5 +166,56 @@ change persisted IDs, save format, generator versions, the mesher, or chunk
 streaming architecture. Regression cases live in the existing
 `MobPerceptionTests`, `VillageTests`, `FluidWorldTests`, and
 `MobContentTests` suites.
+
+## Chunk worker cancellation and pooled payload ownership — 2026-11-24
+
+World-shutdown cancellation now propagates through chunk generation, chunk and
+lighting snapshots, sky/block-light propagation, greedy and per-face meshing,
+and Far-LOD tile generation. The existing worker pool, chunk queues, greedy
+mesher, Far-LOD architecture and worker/main-thread publication boundary remain
+in place.
+
+Meshing workers retain ownership of rented render and collision buffers until
+a complete `MeshPayload` is constructed. Exceptions and cancellation before
+that transfer return every buffer already rented; payload release is
+idempotent. Shutdown cancellation is distinct from a recoverable Far-LOD build
+failure and does not schedule retries during teardown.
+
+Regression coverage is in `VoxelStreamingTests`,
+`FarLodLifecycleTests` and `GlassTests`. Verification on 2026-11-25 ran Debug
+and Release warnings-as-errors builds with zero warnings, 201,710 Godot
+headless checks with zero failures, and five spatial lighting probe grids with
+27/27 reference samples each and zero measured drift. This W13.1 slice does not
+change global `EditEpoch` validation, save formats, persisted IDs or
+world-generation versions.
+
+## Dependency-local revisions and staged chunk application — 2026-11-25
+
+Chunk mesh payloads now carry a revision for the target chunk's actual
+sampling dependencies. Geometry-only edits invalidate the owner and only the
+sampled edge/corner neighbors. Light-affecting edits advance source revisions
+for the light solve and invalidate the 5×5 target area needed by the 3×3 baked
+light-map neighborhood and its 14-voxel propagation halo. The world-wide
+`EditEpoch` remains diagnostic; it no longer rejects unrelated mesh payloads.
+
+Main-thread chunk application is a transaction. Render surfaces and concave
+collision shapes are prepared in triangle-aligned batches of at most 8,190
+vertices. The existing chunk remains visible and its old collider remains
+active until all replacement resources are ready, then one commit installs
+the new surfaces and collider set. The completed-payload semaphore reservation
+stays owned by the staged transaction and is released exactly once on commit,
+stale rejection, exception or shutdown.
+
+Performance reports now include rolling p50/p95/p99 timings for resource
+steps and collision batches. The nominal 2 ms budget is checked between steps;
+a single Godot resource-creation call can still exceed that wall-clock target.
+Use the benchmark output on the MX230 reference and higher-end hardware before
+tuning the batch size or declaring a frame-time improvement.
+
+Regression coverage includes interior, boundary and corner edits; the
+two-chunk lighting halo; preservation of the old chunk before transaction
+commit; multi-batch render/collision payloads; and timing-window statistics.
+This W13.2 work does not change persisted IDs, save formats, generator
+versions, greedy meshing or the WorkerThreadPool/chunk-streaming architecture.
 
 Project code and documentation are licensed under the [MIT License](LICENSE). Bundled third-party components and assets retain their own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

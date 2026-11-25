@@ -257,6 +257,71 @@ public sealed class Inventory
         return space >= count;
     }
 
+    /// <summary>
+    /// Tests output capacity after the listed ingredients are removed, without
+    /// mutating inventory state. Opaque future-version slots remain reserved.
+    /// </summary>
+    public bool CanFitAfterConsume(ItemId outputId, int outputCount,
+            IReadOnlyDictionary<ItemId, int> consumed, int preferredSlot = -1)
+    {
+        if (outputCount <= 0) return true;
+        if (outputId == ItemId.None || !ItemDb.IsRegistered(outputId)
+                || consumed == null)
+            return false;
+        if (preferredSlot >= 0
+                && ((uint)preferredSlot >= SlotCount || consumed.Count != 1))
+            return false;
+
+        Span<ItemStack> simulated = stackalloc ItemStack[SlotCount];
+        for (int slot = 0; slot < SlotCount; slot++)
+            simulated[slot] = Get(slot);
+
+        foreach ((ItemId id, int amount) in consumed)
+        {
+            if (id == ItemId.None || amount <= 0) return false;
+            if (preferredSlot >= 0)
+            {
+                ItemStack selected = simulated[preferredSlot];
+                if (selected.Id != id || selected.Count < amount) return false;
+                simulated[preferredSlot] = selected.Count == amount
+                        ? ItemStack.Empty : selected with { Count = selected.Count - amount };
+                continue;
+            }
+
+            int remaining = amount;
+            for (int slot = 0; slot < SlotCount && remaining > 0; slot++)
+            {
+                ItemStack stack = simulated[slot];
+                if (stack.Id != id) continue;
+                int take = Math.Min(stack.Count, remaining);
+                simulated[slot] = stack.Count == take
+                        ? ItemStack.Empty : stack with { Count = stack.Count - take };
+                remaining -= take;
+            }
+
+            if (remaining > 0) return false;
+        }
+
+        int max = ItemDb.MaxStack(outputId);
+        long space = 0;
+        for (int slot = 0; slot < SlotCount; slot++)
+        {
+            ItemStack stack = simulated[slot];
+            if (stack.IsEmpty)
+            {
+                if (!HasUnrecognizedSaveSlot(slot)) space += max;
+            }
+            else if (stack.Id == outputId)
+            {
+                space += Math.Max(max - stack.Count, 0);
+            }
+
+            if (space >= outputCount) return true;
+        }
+
+        return false;
+    }
+
     private int SpaceIn(ItemId id, int count, int max, ItemStack[] slots, int firstSaveSlot)
     {
         int space = 0;
@@ -331,6 +396,22 @@ public sealed class Inventory
         return true;
     }
 
+    /// <summary>Consume only from the selected hotbar slot; other stacks are untouched.</summary>
+    public bool ConsumeSlot(int hotbarSlot, ItemId id, int count)
+    {
+        if ((uint)hotbarSlot >= HotbarSize || id == ItemId.None || count < 0)
+            return false;
+        if (count == 0) return true;
+
+        ItemStack stack = Hotbar[hotbarSlot];
+        if (stack.Id != id || stack.Count < count) return false;
+
+        Set(hotbarSlot, stack.Count == count
+                ? ItemStack.Empty : stack with { Count = stack.Count - count });
+        Changed?.Invoke();
+        return true;
+    }
+
     private static int ConsumeFrom(ItemId id, int remaining, ItemStack[] slots)
     {
         for (int i = 0; i < slots.Length && remaining > 0; i++)
@@ -395,7 +476,9 @@ public sealed class Inventory
             return false;
         }
 
-        if (HasUnrecognizedSaveSlot(hotbarSlot))
+        // Command-generated stacks must still obey the persisted stack limit.
+        // Oversized requests go through the normal multi-slot insertion path.
+        if (stack.Count > ItemDb.MaxStack(stack.Id) || HasUnrecognizedSaveSlot(hotbarSlot))
         {
             return TryAddAtomic(stack);
         }

@@ -389,9 +389,9 @@ public partial class MainMenu : Control
 
     private void DeleteWorld()
     {
-        if (WorldStore.Delete(_manageDir))
+        if (WorldStore.Delete(_manageDir, retainRecoveryCopy: true))
         {
-            _manageStatus.Text = "World deleted.";
+            _manageStatus.Text = $"World deleted. Recovery copy retained at {WorldStore.LastDeleteQuarantinePath}.";
             RefreshWorlds();
             ShowWorlds();
         }
