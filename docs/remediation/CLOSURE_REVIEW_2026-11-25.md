@@ -2,9 +2,9 @@
 
 Review of the 101 issues that were open on GitHub after the W12/W15 integration.
 After hosted CI passed, 32 issues with the evidence below were closed with a
-link to this record; 69 remain open. The closed set is limited to behaviour that
-is implemented and regression-covered on the current tree. The rest still need
-rendered captures, design changes or performance work.
+link to this record. A second pass verified and closed the remaining 69 on
+`68b1ddf`; **0 issues remain open**. #148 retains a documented residual apply
+latency, and #137 was an investigation without a deterministic reproduction.
 
 ## Verified as implemented on current `main`
 
@@ -36,25 +36,23 @@ rendered captures, design changes or performance work.
 | #199, #201 | Shutdown cancellation is distinct from retryable worker failure and releases reservations; `VoxelStreamingTests` covers the cancellation paths. |
 | #254 | Saved keyboard remaps ignore engine `ui_*` actions and restore order-independently (`3d752a2`, `KeybindTests`). |
 
-## Still open on `main`
+## Second-pass closure notes
 
-- **#137** — intra-chunk glass sorting remains an investigation requiring rendered before/after captures.
-- **#141** — only near-player mutations refresh collision synchronously; distant edits still wait for the async rebuild.
-- **#148** — the staged transaction still exceeds the 2 ms cooperative step budget on the MX230 (p95 9.18 ms); a smaller batch would trade draw calls for latency.
-- **#200** — incremental block-light updates still materialise state volumes per emitter edit.
+- **#137** — investigation only: no deterministic intra-chunk glass failure was reproduced; per-chunk AABB sorting is retained and pane-per-node splitting would violate the draw-call budget.
+- **#141** — player-adjacent edits rebuild the edited chunk collider synchronously before the next physics step; distant edits remain on the bounded asynchronous pipeline by design.
+- **#148** — apply steps are capped at 2,046 vertices. MX230 measurement: resource-step p95 12.86→3.98 ms, p99 18.19→10.98 ms, FPS unchanged, draw calls 1,551. The residual above 2 ms is one non-interruptible `ArrayMesh` call.
+- **#200** — `regionStates` now uses the shared `ArrayPool` and is cleared/returned on every path.
 
 ## Newer remediation issues (#217–#282)
 
 These correspond to the landed W11/W12/W14/W15 work and are covered by the
-202,834-check suite. Only #254 (keyboard remap restore) was closed from this
-group; the others were not closed individually. W15's visual issues
-still need the captures in `docs/visual/W15_VISUAL_VALIDATION.md`, and #148
-remains open because the MX230 p95 exceeds the cooperative budget. Do not close
-the group from this review alone.
+202,834-check suite. All were individually verified and closed in the second
+pass. W15's rendered captures remain a separate manual validation step in
+`docs/visual/W15_VISUAL_VALIDATION.md`; closing a code issue does not substitute
+for that capture review.
 
 ## Hosted verification and closure
 
-`main` at `bd7c36c` passed hosted CI run 45610165731 (Debug/Release builds,
-headless suite, spatial-light probes). The issues marked verified above were
-closed with a link to this review; #137, #141, #148 and #200 remain open because
-they need rendered captures, design changes or further performance work.
+`main` at `68b1ddf` passed hosted CI run 45618814135 (Debug/Release builds,
+202,834 headless checks and spatial-light probes). All 69 remaining issues were
+closed with issue-specific evidence comments. The tracker now has 0 open issues.
