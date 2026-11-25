@@ -66,15 +66,15 @@ public static class FarLodLifecycleTests
 
     private static void TestFallbackRadiusCoversStreamingFootprint()
     {
-        TestAssert.Equal(384.0f,
+        TestAssert.Equal(392.0f * 1.41421356f,
                 FarLodLifecycleRules.EffectiveRadius(0.0f, 24, 16),
-                "Far LOD fills the complete 24-chunk detail radius when the preset LOD radius is zero");
+                "Far LOD covers the diagonal corners of the full 24-chunk detail square");
         TestAssert.Equal(640.0f,
                 FarLodLifecycleRules.EffectiveRadius(640.0f, 12, 16),
                 "an explicitly larger Far-LOD horizon remains authoritative");
-        TestAssert.Equal(80.0f,
+        TestAssert.Equal(88.0f * 1.41421356f,
                 FarLodLifecycleRules.EffectiveRadius(0.0f, 5, 16),
-                "LOW still receives fallback coverage through its configured five-chunk view radius");
+                "LOW still receives fallback coverage through the diagonal of its five-chunk view square");
     }
 
     private static void TestBuildTokenRejectsStaleAndRecreatedTiles()
