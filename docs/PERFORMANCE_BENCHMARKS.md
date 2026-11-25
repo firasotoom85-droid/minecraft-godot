@@ -186,3 +186,38 @@ does not include real rendering and must never be used as a GPU/FPS baseline.
 Headless CI remains a correctness gate; controlled reference hardware remains
 the performance gate. Do not add strict timing thresholds to shared CI until
 the reference machines and measurement variance are established.
+
+## W13 staged apply measurement — 2026-11-25
+
+Environment: NVIDIA GeForce MX230, Intel Core i7-1065G7, Forward+, LOW preset,
+1280×720, view distance 5, seed 1337, `open-terrain`, 10 s warm-up, 30 s
+measurement, Release assembly, Godot 4.7.2 .NET. Each run uses a fresh
+disposable world; the pre-W13 comparison is the single run recorded on
+`379fbc0` (generator V12) and the post-W13 result is three runs on `17c7487`
+(generator V13).
+
+| Metric | Before W13 (`379fbc0`) | After W13 (median of 3, `17c7487`) |
+|---|---:|---:|
+| Frame p50 | 11.67 ms | 11.67 ms |
+| Frame p95 | 16.67 ms | 16.67 ms |
+| Frame p99 | 37.84 ms | 34.02 ms |
+| Max draw calls in frame | 317 | 560 |
+| Max primitives in frame | 636,440 | 635,530 |
+| Resource-step p95 | not instrumented | 9.18 ms |
+| Resource-step p99 | not instrumented | 17.08 ms |
+| Resource-step max | not instrumented | 18.13 ms |
+| Collision-step p95 | not instrumented | 0.18 ms |
+| Collision-step p99 | not instrumented | 0.18 ms |
+
+The staged transaction splits large chunk surfaces into multiple `ArrayMesh`
+surfaces (8,190 vertices per step), so the maximum draw-call count rises about
+77% while primitive count is unchanged. Frame p50/p95 are unchanged on this
+device and scene, and p99 is within run-to-run noise. Resource-step p95/p99
+exceed the cooperative 2 ms budget because a single Godot resource-creation
+call is not interruptible; the budget is checked between steps, as documented.
+Collision batching stays below a millisecond on this scene.
+
+Limitations: one scenario, one GPU model, one pre-change run, and a generator
+version change between the compared commits. A higher-end GPU run and a
+wide-scene draw-call comparison remain outstanding before tuning the batch
+size or declaring a frame-time improvement.

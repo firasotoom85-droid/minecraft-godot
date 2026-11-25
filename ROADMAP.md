@@ -16,11 +16,13 @@ This is the **current forward plan**, not a running implementation diary. Comple
 | Gameplay, inventory and progression integrity (W14) | Integrated | Verified locally on 2026-11-25 (202,687 headless checks, 0 failures) for hostile limits, furnace fuel, inventory overflow, recipe transactions and generator V13. Hosted CI and a human playtest remain |
 | Build and test baseline | Established | Keep Debug/Release warnings-as-errors, registered headless suites and deterministic spatial-light probes green on every PR |
 | Worker cancellation and pooled payload ownership | Integrated (W13.1) | Keep bounded shutdown checkpoints and single-owner pooled-buffer release covered by CI |
-| Dependency-local revisions and staged chunk application | Integrated (W13.2) | Keep geometry/light dependency regressions and per-step timing reports green; collect target-hardware p95/p99 before tuning the resource-step limit |
+| Dependency-local revisions and staged chunk application | Integrated (W13.2) | MX230 measured 2026-11-25: frame p50/p95 unchanged, max draw calls 317→560, resource-step p95 9.18 ms; higher-end GPU comparison remains |
 | .NET lifecycle | Migration in this change | Verify .NET 10 through CI and the Godot 4.7.2 export path before treating it as released |
 | Release packaging | Being automated | Exercise tag-triggered Linux/Windows export packaging on a beta tag |
 | Performance baselines | Partial | Benchmark/soak reports now expose persistent managed-memory categories and high-water marks; record a fresh controlled Release baseline, with the comparable RTX 4060 run still outstanding |
 | Gameplay/visual sign-off | Partial | Complete human playtesting across mining, building, combat, quests, saves and low/high graphics presets |
+| Player lifecycle and recovery (W12) | Implemented on branch; unreviewed | Split plan in `docs/remediation/BRANCH_AUDIT_2026-11-25.md`; rebase slice 1 first |
+| UI, controls, audio and graphics (W15) | Blocked | Combined branch builds, but 2 keybind assertions fail on the branch itself; fix ordering/isolation and run visual captures |
 | Public project profile | Incomplete | Repository is already public; add a description and relevant topics in GitHub Settings |
 
 **Persistence contract (integrated W01):** autosave captures an immutable save
