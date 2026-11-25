@@ -17,6 +17,10 @@ implements the requested behaviour.
 | #124 | `Player.TrySetRespawnAnchor` calls `World.MarkDirty()` after a validated anchor change. |
 | #127 | `ChunkData` registers generated and cached wheat through `RegisterCropSourcesLocked`, so village crops enter `_crops`. |
 | #94 | Far-LOD payload application requires a matching generation, revision and streamed-area skip mask (`FarLodLifecycleRules`; `FarLodLifecycleTests`). |
+| #95 | `ChunkWorkTracker.TryBegin` rejects a second claim for an in-flight coordinate; `VoxelStreamingTests` asserts the duplicate-claim refusal. |
+| #149 | `SetupInitial` builds only the focal chunk synchronously; the surrounding ring enters the bounded worker pipeline. |
+| #151 | Edit-top reconstruction reads through `ChunkData`, so the first later stream reuses the generated cache instead of regenerating terrain. |
+| #194 | Far-LOD exclusion uses `FarLodLifecycleRules.StreamedChunks(playerChunk, ViewDistance, UnloadMargin)`, matching the chunk retention boundary; `FarLodLifecycleTests` covers it. |
 | #97 | Worker exceptions use bounded retry handling and publish no payload (`VoxelStreamingTests`). |
 | #98, #99, #195 | `ResolveWorld` rejects unsupported generator versions, refuses data-bearing worlds without a readable manifest, and refuses incomplete noise metadata without deriving replacements. |
 | #101 | Concurrent chunk generation is deduplicated through `ChunkGenerationReservations.GetOrCreate`. |
@@ -33,13 +37,9 @@ implements the requested behaviour.
 
 ## Still open on `main`
 
-- **#95** — duplicate in-flight chunk builds: the work tracker exists, but no dedicated regression proves the duplicate-scheduling case.
 - **#137** — intra-chunk glass sorting remains an investigation requiring rendered before/after captures.
 - **#141** — only near-player mutations refresh collision synchronously; distant edits still wait for the async rebuild.
 - **#148** — the staged transaction still exceeds the 2 ms cooperative step budget on the MX230 (p95 9.18 ms); a smaller batch would trade draw calls for latency.
-- **#149** — initial 3×3 spawn chunks still build synchronously during startup.
-- **#151** — edit-top metadata reconstruction still regenerates terrain data per edited chunk instead of reusing cached data.
-- **#194** — Far-LOD exclusion and full-resolution chunk retention still use different radii.
 - **#200** — incremental block-light updates still materialise state volumes per emitter edit.
 
 ## Newer remediation issues (#217–#282)
@@ -49,3 +49,10 @@ These correspond to the landed W11/W12/W14/W15 work and are covered by the
 still need the captures in `docs/visual/W15_VISUAL_VALIDATION.md`, and #148
 remains open because the MX230 p95 exceeds the cooperative budget. Do not close
 the group from this review alone.
+
+## Hosted verification and closure
+
+`main` at `bd7c36c` passed hosted CI run 45610165731 (Debug/Release builds,
+headless suite, spatial-light probes). The issues marked verified above were
+closed with a link to this review; #137, #141, #148 and #200 remain open because
+they need rendered captures, design changes or further performance work.
