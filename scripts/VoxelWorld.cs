@@ -193,6 +193,7 @@ public partial class VoxelWorld : Node3D
     // critical path. Rebuilds (player edits) are applied before fresh chunks.
     private readonly System.Collections.Concurrent.ConcurrentQueue<(Vector2I Cp, MeshPayload Payload)> _applyFresh = new();
     private readonly System.Collections.Concurrent.ConcurrentQueue<(Vector2I Cp, MeshPayload Payload)> _applyRebuild = new();
+    private ActiveChunkPayloadApply? _activePayloadApply;
     // Maximum completed payloads matches the old worst-case threshold
     // (6 workers × 3 payloads). Workers reserve a slot before building and
     // wait on this semaphore instead of polling/sleeping when the main thread
@@ -1927,10 +1928,10 @@ public partial class VoxelWorld : Node3D
     public VoxelLightData[] LightDataNeighborhood(
             Vector2I center, CancellationToken cancellationToken = default)
     {
+        long[] lightInputRevisions = new long[25];
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Span<long> lightInputRevisions = stackalloc long[25];
             VoxelLightData[] result = new VoxelLightData[9];
             byte[][] chunks = new byte[25][];
             byte[][]? stateChunks = null;
@@ -3416,6 +3417,47 @@ public partial class VoxelWorld : Node3D
         }
     }
 
+    /// <summary>
+    /// Non-threaded fallback for deterministic tools. It uses the same local
+    /// dependency validation and staged Chunk transaction, but completes the
+    /// transaction synchronously because this path already runs inside Dispatch.
+    /// </summary>
+    private void ApplyBuildSynchronously(Vector2I cp, MeshPayload payload)
+    {
+        Chunk? created = null;
+        try
+        {
+            if (!IsPayloadWithinCurrentRetention(cp)) return;
+            if (!ArePayloadDependenciesCurrent(cp, payload))
+            {
+                EnqueueRebuild(cp);
+                return;
+            }
+
+            if (_chunks.TryGetValue(cp, out Chunk? existing))
+            {
+                existing.ApplyPayload(payload);
+                SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
+                return;
+            }
+
+            created = new Chunk();
+            created.Setup(this, cp);
+            created.Generate();
+            created.ApplyPayload(payload);
+            AddChild(created);
+            _chunks[cp] = created;
+            created.FadeIn();
+            SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
+            created = null;
+        }
+        finally
+        {
+            created?.Free();
+            PayloadPool.Release(payload);
+        }
+    }
+
     internal readonly record struct SpawnCandidate(int X, int Z, int SurfaceY, long DistanceSquared);
 
     /// <summary>Nearest validated dry-land column to the origin.</summary>
@@ -4080,7 +4122,7 @@ public partial class VoxelWorld : Node3D
                 try
                 {
                     MeshPayload payload = Mesher.Build(this, cp);
-                    ApplyBuild(cp, payload);
+                    ApplyBuildSynchronously(cp, payload);
                 }
                 finally
                 {
