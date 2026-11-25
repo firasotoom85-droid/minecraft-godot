@@ -12,7 +12,7 @@ This is the **current forward plan**, not a running implementation diary. Comple
 | Area | State | Next action |
 |---|---|---|
 | Documentation and repository standards | In progress | Merge this repository-hygiene work; keep active docs short and move completed reports to history |
-| W11 persistence and recovery hardening | In progress | Verify generation-paired saves, backup promotion/restore, archive validation, deletion quarantine and stationary autosave in CI before closing the reports |
+| W11 persistence and recovery hardening | Integrated | Verified locally on 2026-11-25 (201,755 headless checks, 0 failures) including generation pairing, backup rotation/promotion, archive validation, deletion quarantine and dirty-state autosave. Hosted CI and a human save/recovery playtest remain |
 | Build and test baseline | Established | Keep Debug/Release warnings-as-errors, registered headless suites and deterministic spatial-light probes green on every PR |
 | Worker cancellation and pooled payload ownership | Integrated (W13.1) | Keep bounded shutdown checkpoints and single-owner pooled-buffer release covered by CI |
 | Dependency-local revisions and staged chunk application | Integrated (W13.2) | Keep geometry/light dependency regressions and per-step timing reports green; collect target-hardware p95/p99 before tuning the resource-step limit |
