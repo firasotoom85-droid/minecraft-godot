@@ -68,8 +68,8 @@ public static class GraphicsTests
             camera.Free();
         }
 
-        TestAssert.Check(Gfx.RequiredCameraFar(24, 0.0f) > 560.0f,
-                "maximum custom chunk view distance fits inside the gameplay camera far plane");
+        TestAssert.Check(Gfx.RequiredCameraFar(24, 0.0f) > 730.0f,
+                "the camera covers the diagonal corners and tile skirts of maximum-distance coarse fallback terrain");
         TestAssert.Check(Gfx.RequiredCameraFar(12, 640.0f) > 820.0f,
                 "MAX LOD tiles remain inside the gameplay camera far plane");
     }

@@ -51,13 +51,23 @@ public static class VoxelStreamingTests
 
     private static void TestInitialStreamingReadiness()
     {
-        TestAssert.Equal(9, InitialChunkStreamingPolicy.RequiredChunks(
-                        InitialChunkStreamingPolicy.StartupRadius),
-                "startup readiness covers the player's 3x3 neighbourhood");
-        TestAssert.Check(!InitialChunkStreamingPolicy.IsComplete(8, 9),
-                "startup waits until every nearby chunk is committed");
-        TestAssert.Check(InitialChunkStreamingPolicy.IsComplete(9, 9),
-                "startup releases once all nine nearby chunks are ready");
+        int lowRadius = InitialChunkStreamingPolicy.StartupRadiusForViewDistance(5);
+        int maximumRadius = InitialChunkStreamingPolicy.StartupRadiusForViewDistance(24);
+        TestAssert.Equal(5, lowRadius,
+                "LOW view distance warms its full configured nearby detail radius");
+        TestAssert.Equal(6, maximumRadius,
+                "maximum custom view distance uses a bounded six-chunk startup radius");
+        TestAssert.Equal(121, InitialChunkStreamingPolicy.RequiredChunks(lowRadius),
+                "default startup warm-up covers an 11x11 area instead of only 3x3");
+        TestAssert.Equal(169, InitialChunkStreamingPolicy.RequiredChunks(maximumRadius),
+                "maximum startup warm-up covers 169 detailed chunks without queuing the full 2401-chunk radius");
+        TestAssert.Equal(25, InitialChunkStreamingPolicy.RequiredChunks(
+                        InitialChunkStreamingPolicy.StartupRadiusForViewDistance(2)),
+                "minimum view distance keeps a matching 5x5 startup readiness target");
+        TestAssert.Check(!InitialChunkStreamingPolicy.IsComplete(168, 169),
+                "startup waits until every required detailed chunk has committed");
+        TestAssert.Check(InitialChunkStreamingPolicy.IsComplete(169, 169),
+                "startup releases once every bounded warm-up chunk is committed");
         TestAssert.Check(InitialChunkStreamingPolicy.IsComplete(0, 0),
                 "an empty readiness target cannot deadlock startup");
         TestAssert.Equal(0.5, new InitialChunkLoadProgress(3, 6).Fraction,
