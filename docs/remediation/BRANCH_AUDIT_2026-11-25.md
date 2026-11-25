@@ -89,3 +89,14 @@ Slices 1–3 are sequential. Slice 4 is independent after slice 1. Slice 5 comes
 last. Each slice must be rebased onto current `main`, build Debug and Release
 with warnings as errors, and pass the full suite before the next slice is
 opened.
+
+**Integration outcome:** attempting slice 1 on current `main` showed that the
+collision-epoch commits depend on the destination-transaction and readiness
+infrastructure, so they cannot compile as an isolated slice. The review boundary
+was therefore moved to the whole branch: `main` was merged into it and the only
+conflicts were `Chunk.cs` (staged apply transaction vs. single collider),
+`VoxelWorld.cs` (dependency rebuild radius), `README.md` and `ROADMAP.md`. The
+resolved tree retained the bounded transaction and multiple collision shapes,
+published collision readiness only after commit, kept the 5×5 lighting rebuild
+radius, and passed Debug/Release plus 202,772 checks. It landed on `main` as
+`3cf241f` (integration commit `22a70c7`).
