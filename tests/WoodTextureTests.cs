@@ -68,20 +68,20 @@ public static class WoodTextureTests
         int snowX = snowTile % BlockDb.AtlasCols * BlockDb.TilePx;
         int snowY = snowTile / BlockDb.AtlasCols * BlockDb.TilePx;
         for (int y = 0; y < BlockDb.TilePx; y += BlockDb.TextureDetailPx)
-        for (int x = 0; x < BlockDb.TilePx; x += BlockDb.TextureDetailPx)
-        {
-            Color sample = atlas.GetPixel(snowX + x, snowY + y);
-            for (int dy = 0; dy < BlockDb.TextureDetailPx; dy++)
-            for (int dx = 0; dx < BlockDb.TextureDetailPx; dx++)
+            for (int x = 0; x < BlockDb.TilePx; x += BlockDb.TextureDetailPx)
             {
-                Color neighbour = atlas.GetPixel(snowX + x + dx, snowY + y + dy);
-                TestAssert.Check(Mathf.IsEqualApprox(sample.R, neighbour.R)
-                        && Mathf.IsEqualApprox(sample.G, neighbour.G)
-                        && Mathf.IsEqualApprox(sample.B, neighbour.B)
-                        && Mathf.IsEqualApprox(sample.A, neighbour.A),
-                        $"snow noise keeps a coherent {BlockDb.TextureDetailPx}x{BlockDb.TextureDetailPx} texel cluster at {x},{y}");
+                Color sample = atlas.GetPixel(snowX + x, snowY + y);
+                for (int dy = 0; dy < BlockDb.TextureDetailPx; dy++)
+                    for (int dx = 0; dx < BlockDb.TextureDetailPx; dx++)
+                    {
+                        Color neighbour = atlas.GetPixel(snowX + x + dx, snowY + y + dy);
+                        TestAssert.Check(Mathf.IsEqualApprox(sample.R, neighbour.R)
+                                && Mathf.IsEqualApprox(sample.G, neighbour.G)
+                                && Mathf.IsEqualApprox(sample.B, neighbour.B)
+                                && Mathf.IsEqualApprox(sample.A, neighbour.A),
+                                $"snow noise keeps a coherent {BlockDb.TextureDetailPx}x{BlockDb.TextureDetailPx} texel cluster at {x},{y}");
+                    }
             }
-        }
         CheckTileHasVariation(atlas, oakLog.Tiles[0], "oak log end grain");
         CheckTileHasVariation(atlas, oakLog.Tiles[2], "oak bark");
         CheckTileHasVariation(atlas, birchLog.Tiles[0], "birch log end grain");
@@ -90,13 +90,13 @@ public static class WoodTextureTests
         CheckTileHasVariation(atlas, planks.Tiles[4], "plank side grain");
 
         for (int face = 0; face < 6; face++)
-        for (int corner = 0; corner < 4; corner++)
-        {
-            Vector2 actual = BlockDb.FaceUvAt(face, BlockDb.FaceVerts[face * 4 + corner]);
-            Vector2 expected = BlockDb.FaceUvs[face * 4 + corner];
-            TestAssert.Check((actual - expected).Length() < 0.0001f,
-                    $"continuous face UV mapping preserves canonical face {face} corner {corner}");
-        }
+            for (int corner = 0; corner < 4; corner++)
+            {
+                Vector2 actual = BlockDb.FaceUvAt(face, BlockDb.FaceVerts[face * 4 + corner]);
+                Vector2 expected = BlockDb.FaceUvs[face * 4 + corner];
+                TestAssert.Check((actual - expected).Length() < 0.0001f,
+                        $"continuous face UV mapping preserves canonical face {face} corner {corner}");
+            }
 
         Vector3 topPoint = new(0.25f, 1.0f, 0.75f);
         TestAssert.Check((BlockDb.BlockFaceUvAt(BlockId.PlanksStairs, 0, 0, topPoint)
@@ -161,14 +161,14 @@ public static class WoodTextureTests
         int x0 = tile % BlockDb.AtlasCols * BlockDb.TilePx;
         int y0 = tile / BlockDb.AtlasCols * BlockDb.TilePx;
         for (int y = 0; y < BlockDb.TilePx; y += 2)
-        for (int x = 0; x < BlockDb.TilePx; x += 2)
-        {
-            Color color = atlas.GetPixel(x0 + x, y0 + y);
-            float luminance = color.R * 0.2126f + color.G * 0.7152f + color.B * 0.0722f;
-            minimum = Mathf.Min(minimum, luminance);
-            maximum = Mathf.Max(maximum, luminance);
-            minimumAlpha = Mathf.Min(minimumAlpha, color.A);
-        }
+            for (int x = 0; x < BlockDb.TilePx; x += 2)
+            {
+                Color color = atlas.GetPixel(x0 + x, y0 + y);
+                float luminance = color.R * 0.2126f + color.G * 0.7152f + color.B * 0.0722f;
+                minimum = Mathf.Min(minimum, luminance);
+                maximum = Mathf.Max(maximum, luminance);
+                minimumAlpha = Mathf.Min(minimumAlpha, color.A);
+            }
 
         TestAssert.Check(maximum - minimum > 0.07f,
                 $"{label} has visible tonal structure at native atlas scale");
