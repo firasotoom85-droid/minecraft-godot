@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Threading;
 using Godot;
 
 namespace Minecraft;
@@ -110,7 +112,21 @@ public static class GlassTests
         (bool greedy, long revision) = Mesher.CaptureConfiguration();
         MeshPayload populated = new(opaque, glassSurface, waterSurface, lavaSurface,
                 collision, 0, revision, world.MissingColliderBoundaryMask(Vector2I.Zero));
-        chunk.ApplyPayload(populated);
+        ChunkPayloadApplyTransaction staged = new(chunk, populated);
+        TestAssert.Check(!staged.Step(),
+                "the first resource slice leaves the payload transaction pending");
+        TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("OpaqueMesh")?.Mesh is null
+                        && chunk.GetNodeOrNull<MeshInstance3D>("GlassMesh") is null
+                        && chunk.GetNodeOrNull<CollisionShape3D>("Collision") is null,
+                "prepared mesh resources are not exposed before the complete payload is ready");
+        while (!staged.Step()) { }
+        TestAssert.Check(staged.IsComplete,
+                "all mesh and collision slices finish before the transaction is committed");
+        TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("OpaqueMesh")?.Mesh is null
+                        && chunk.GetNodeOrNull<MeshInstance3D>("GlassMesh") is null
+                        && chunk.GetNodeOrNull<CollisionShape3D>("Collision") is null,
+                "a fully prepared payload still leaves the old chunk state visible until commit");
+        staged.Commit();
         TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("GlassMesh") is { SortingUseAabbCenter: true },
                 "first non-empty glass payload creates a bounds-sorted node");
         TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("WaterMesh") is { SortingUseAabbCenter: true },
@@ -136,10 +152,126 @@ public static class GlassTests
                 "empty collision rebuild clears the existing shape");
         PayloadPool.Release(emptied);
 
+        TestStagedSurfaceBatching(chunk, revision);
+
         TestAssert.Check(Mesher.CaptureConfiguration().Greedy == greedy,
                 "chunk surface setup does not mutate the active meshing configuration");
         chunk.Free();
         world.Free();
+    }
+
+    private static void TestStagedSurfaceBatching(Chunk chunk, long meshingRevision)
+    {
+        SurfaceData opaque = new();
+        const int vertexCount = StreamingApplyBudget.MaxVerticesPerStep + 3;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            opaque.Vertex.Add(Vector3.Zero);
+            opaque.Normal.Add(Vector3.Back);
+            opaque.Color.Add(Colors.White);
+            opaque.Uv.Add(Vector2.Zero);
+        }
+
+        List<Vector3> collision = [];
+        for (int i = 0; i < vertexCount; i += 3)
+        {
+            collision.Add(new Vector3(i, 0, 0));
+            collision.Add(new Vector3(i, 1, 0));
+            collision.Add(new Vector3(i, 0, 1));
+        }
+
+        MeshPayload payload = new(opaque, new SurfaceData(), new SurfaceData(),
+                new SurfaceData(), collision, 0, meshingRevision, 0);
+        ChunkPayloadApplyTransaction transaction = new(chunk, payload);
+        TestAssert.Check(!transaction.Step(),
+                "large surface staging yields after one bounded vertex batch");
+        TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("OpaqueMesh")?.Mesh is null,
+                "large surface staging does not replace the visible chunk early");
+        TestAssert.Check(!transaction.Step(),
+                "large surface staging schedules its remaining triangle-aligned tail separately");
+        TestAssert.Check(!transaction.Step(),
+                "large collision staging yields after one bounded face batch");
+        TestAssert.Check(chunk.GetNodeOrNull<CollisionShape3D>("Collision")?.Shape is null,
+                "large collision staging does not replace the visible collider early");
+        TestAssert.Check(!transaction.Step(),
+                "large collision staging schedules its remaining face tail separately");
+        TestAssert.Check(transaction.Step(),
+                "large surface and collision staging complete after all bounded slices");
+        transaction.Commit();
+
+        TestAssert.Check(chunk.GetNodeOrNull<MeshInstance3D>("OpaqueMesh")?.Mesh is ArrayMesh mesh
+                        && mesh.GetSurfaceCount() == 2,
+                "large payload retains two render batches after transactional commit");
+        TestAssert.Check(chunk.GetNodeOrNull<CollisionShape3D>("Collision")?.Shape is ConcavePolygonShape3D
+                        && chunk.GetNodeOrNull<CollisionShape3D>("Collision_1")?.Shape is ConcavePolygonShape3D,
+                "large collision payload is split into two installed shapes at commit");
+        PayloadPool.Release(payload);
+    }
+
+    private static void TestLocalDependencyRevisionMutation(VoxelWorld world)
+    {
+        static long Capture(VoxelWorld target, Vector2I cp)
+        {
+            lock (target.SnapshotLock)
+                return target.CaptureMeshDependencyRevision(cp);
+        }
+
+        // SetBlock's authoritative mutation path is exercised directly. Stone
+        // -> dirt keeps opacity, light passage and emission unchanged.
+        foreach (Vector2I cell in new[]
+        {
+            new Vector2I(8, 8), new Vector2I(0, 8), Vector2I.Zero,
+        })
+        {
+            world.SetBlock(cell.X, 120, cell.Y, BlockId.Air);
+            TestAssert.Equal(BlockId.Air, world.GetBlock(cell.X, 120, cell.Y),
+                    "dependency fixture starts from a known air cell");
+        }
+
+        TestAssert.Check(world.SetBlock(8, 120, 8, BlockId.Stone),
+                "loaded owner chunk accepts a setup block for dependency testing");
+        long ownerBefore = Capture(world, Vector2I.Zero);
+        long westBefore = Capture(world, Vector2I.Left);
+        long northWestBefore = Capture(world, new Vector2I(-1, -1));
+        long farBefore = Capture(world, new Vector2I(4, 4));
+        TestAssert.Check(world.SetBlock(8, 120, 8, BlockId.Dirt),
+                "geometry-only material replacement succeeds through SetBlock");
+        TestAssert.Check(Capture(world, Vector2I.Zero) != ownerBefore,
+                "interior SetBlock edit advances only its owner's mesh dependency revision");
+        TestAssert.Equal(westBefore, Capture(world, Vector2I.Left),
+                "interior SetBlock edit leaves an unsampled west chunk revision unchanged");
+        TestAssert.Equal(northWestBefore, Capture(world, new Vector2I(-1, -1)),
+                "interior SetBlock edit leaves an unsampled diagonal revision unchanged");
+        TestAssert.Equal(farBefore, Capture(world, new Vector2I(4, 4)),
+                "interior SetBlock edit leaves a distant payload revision unchanged");
+
+        TestAssert.Check(world.SetBlock(0, 120, 8, BlockId.Stone),
+                "west boundary fixture block is placed");
+        long westEdgeBefore = Capture(world, Vector2I.Left);
+        long diagonalBefore = Capture(world, new Vector2I(-1, -1));
+        TestAssert.Check(world.SetBlock(0, 120, 8, BlockId.Dirt),
+                "west boundary geometry-only edit succeeds");
+        TestAssert.Check(Capture(world, Vector2I.Left) != westEdgeBefore,
+                "west boundary edit invalidates the adjacent chunk that samples its edge");
+        TestAssert.Equal(diagonalBefore, Capture(world, new Vector2I(-1, -1)),
+                "single-edge edit leaves the unrelated diagonal revision current");
+
+        TestAssert.Check(world.SetBlock(0, 120, 0, BlockId.Stone),
+                "corner fixture block is placed");
+        long cornerBefore = Capture(world, new Vector2I(-1, -1));
+        TestAssert.Check(world.SetBlock(0, 120, 0, BlockId.Dirt),
+                "corner geometry-only edit succeeds");
+        TestAssert.Check(Capture(world, new Vector2I(-1, -1)) != cornerBefore,
+                "corner edit invalidates the matching diagonal mesh dependency");
+
+        long twoAwayBefore = Capture(world, new Vector2I(2, 0));
+        long threeAwayBefore = Capture(world, new Vector2I(3, 0));
+        TestAssert.Check(world.SetBlock(8, 120, 8, BlockId.Torch),
+                "opacity/emission-changing edit succeeds through SetBlock");
+        TestAssert.Check(Capture(world, new Vector2I(2, 0)) != twoAwayBefore,
+                "lighting edit invalidates a target two chunks away through the light-map halo");
+        TestAssert.Equal(threeAwayBefore, Capture(world, new Vector2I(3, 0)),
+                "lighting edit leaves targets outside its five-by-five dependency region current");
     }
 
     private static SurfaceData CreateTriangleSurface()
@@ -181,6 +313,54 @@ public static class GlassTests
         {
             Mesher.Greedy = false;
             world.BuildPreview(Vector3.Zero, 1);
+            TestLocalDependencyRevisionMutation(world);
+
+            // Seed small reusable buffers, then cancel the real mesher after
+            // all five pooled payload buffers have been rented. BuildCore must
+            // return its still-local buffers because no MeshPayload was created.
+            SurfaceData seedOpaque = PayloadPool.RentSurface();
+            SurfaceData seedGlass = PayloadPool.RentSurface();
+            SurfaceData seedWater = PayloadPool.RentSurface();
+            SurfaceData seedLava = PayloadPool.RentSurface();
+            List<Vector3> seedCollision = PayloadPool.RentCollision();
+            foreach (SurfaceData surface in new[]
+            {
+                seedOpaque, seedGlass, seedWater, seedLava,
+            })
+            {
+                surface.Vertex.Capacity = 1;
+                surface.Normal.Capacity = 1;
+                surface.Color.Capacity = 1;
+                surface.Uv.Capacity = 1;
+                surface.Uv2.Capacity = 1;
+            }
+            seedCollision.Capacity = 1;
+            PayloadPool.ReleaseBuildBuffers(seedOpaque, seedGlass, seedWater,
+                    seedLava, seedCollision);
+
+            long retainedBeforeCancelledBuild = PayloadPool.RetainedBufferBytes;
+            int surfacesBeforeCancelledBuild = PayloadPool.RetainedSurfaceCount;
+            int collisionsBeforeCancelledBuild = PayloadPool.RetainedCollisionCount;
+            using CancellationTokenSource mesherShutdown = new();
+            bool mesherCancellationObserved = false;
+            try
+            {
+                _ = Mesher.BuildWithAfterBufferRent(world, Vector2I.Zero,
+                        () => mesherShutdown.Cancel(), mesherShutdown.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                mesherCancellationObserved = true;
+            }
+
+            TestAssert.Check(mesherCancellationObserved,
+                    "mesher observes shutdown immediately after renting all payload buffers");
+            TestAssert.Equal(retainedBeforeCancelledBuild, PayloadPool.RetainedBufferBytes,
+                    "cancelled mesher returns every rented surface and collision backing buffer");
+            TestAssert.Equal(surfacesBeforeCancelledBuild, PayloadPool.RetainedSurfaceCount,
+                    "cancelled mesher restores all four surface pool entries");
+            TestAssert.Equal(collisionsBeforeCancelledBuild, PayloadPool.RetainedCollisionCount,
+                    "cancelled mesher restores its collision pool entry");
 
             // Isolate each material at altitude so terrain and adjacent cells
             // cannot accidentally satisfy a surface-routing assertion.

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Godot;
 
 namespace Minecraft;
@@ -140,8 +141,9 @@ public static class VoxelLighting
     /// blocks stop sun; glass transmits it; water and foliage attenuate it.
     /// </summary>
     public static byte[] BuildSkyLight(
-            byte[] blocks, int width, int height, int depth, byte[]? states = null) =>
-        BuildSkyLightCore(blocks, width, height, depth, states, false, out _);
+            byte[] blocks, int width, int height, int depth, byte[]? states = null,
+            CancellationToken cancellationToken = default) =>
+        BuildSkyLightCore(blocks, width, height, depth, states, false, out _, cancellationToken);
 
     /// <summary>
     /// Builds the existing combined skylight map and optionally snapshots the
@@ -149,13 +151,17 @@ public static class VoxelLighting
     /// </summary>
     public static byte[] BuildSkyLight(
             byte[] blocks, int width, int height, int depth,
-            byte[]? states, out byte[] directSky) =>
-        BuildSkyLightCore(blocks, width, height, depth, states, true, out directSky);
+            byte[]? states, out byte[] directSky,
+            CancellationToken cancellationToken = default) =>
+        BuildSkyLightCore(blocks, width, height, depth, states, true, out directSky,
+                cancellationToken);
 
     private static byte[] BuildSkyLightCore(
             byte[] blocks, int width, int height, int depth,
-            byte[]? states, bool captureDirectSky, out byte[] directSky)
+            byte[]? states, bool captureDirectSky, out byte[] directSky,
+            CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         BlockDb.EnsureTables();
         int volume = width * height * depth;
         if (blocks.Length != volume || (states != null && states.Length > 0 && states.Length != volume))
@@ -166,6 +172,7 @@ public static class VoxelLighting
 
         for (int z = 0; z < depth; z++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int x = 0; x < width; x++)
             {
                 int level = MaxLevel;
@@ -208,6 +215,7 @@ public static class VoxelLighting
         // in both directions before any light crosses a voxel seam.
         for (int y = 0; y < height; y++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int z = 0; z < depth; z++)
             {
                 for (int x = 0; x < width; x++)
@@ -225,7 +233,7 @@ public static class VoxelLighting
             }
         }
 
-        FloodSky(blocks, states, sky, queue, width, height, depth);
+        FloodSky(blocks, states, sky, queue, width, height, depth, cancellationToken);
         return sky;
     }
 
@@ -303,11 +311,14 @@ public static class VoxelLighting
 
     private static void FloodSky(
             byte[] blocks, byte[]? states, byte[] sky, Queue<int> queue,
-            int width, int height, int depth)
+            int width, int height, int depth, CancellationToken cancellationToken = default)
     {
         int plane = width * depth;
+        int processed = 0;
         while (queue.Count > 0)
         {
+            if ((processed++ & 0x3FF) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
             int i = queue.Dequeue();
             int level = sky[i];
             if (level <= 1) continue;
@@ -344,8 +355,10 @@ public static class VoxelLighting
     /// </summary>
     public static byte[] PropagateBlockLight(
             byte[] blocks, int width, int height, int depth,
-            IReadOnlyList<VoxelLightSource> sources, byte[]? states = null)
+            IReadOnlyList<VoxelLightSource> sources, byte[]? states = null,
+            CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         BlockDb.EnsureTables();
         int volume = width * height * depth;
         if (blocks.Length != volume || (states != null && states.Length > 0 && states.Length != volume))
@@ -357,6 +370,7 @@ public static class VoxelLighting
 
         foreach (VoxelLightSource source in sources)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             Vector3I p = source.Position;
             if (source.Level == 0 || (uint)p.X >= (uint)width
                     || (uint)p.Y >= (uint)height || (uint)p.Z >= (uint)depth)
@@ -370,8 +384,11 @@ public static class VoxelLighting
             }
         }
 
+        int processed = 0;
         while (queue.Count > 0)
         {
+            if ((processed++ & 0x3FF) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
             int i = queue.Dequeue();
             int level = light[i];
             if (level <= 1) continue;
@@ -491,11 +508,14 @@ public static class VoxelLighting
 
     private static void FloodBlockLight(
             byte[] blocks, byte[]? states, byte[] light, Queue<int> queue,
-            int width, int height, int depth)
+            int width, int height, int depth, CancellationToken cancellationToken = default)
     {
         int plane = width * depth;
+        int processed = 0;
         while (queue.Count > 0)
         {
+            if ((processed++ & 0x3FF) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
             int i = queue.Dequeue();
             int level = light[i];
             if (level <= 1) continue;

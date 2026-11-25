@@ -730,7 +730,7 @@ public partial class SurvivalSoakRunner : Node
         }
 
         string directory = _soakWorldDir;
-        bool success = DeleteWorldOverride?.Invoke(directory) ?? RemoveSoakDirectory(directory);
+        bool success = DeleteWorldOverride?.Invoke(directory) ?? WorldStore.DeleteTemporaryWorld(directory);
         if (success)
         {
             _soakWorldDir = "";

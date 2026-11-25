@@ -28,4 +28,4 @@ This folder contains the active engineering reference, reproducible validation r
 
 The [history folder](history/) contains pre-restructure snapshots of the README, roadmap and plan. They preserve the detailed implementation diary that was previously mixed into top-level project documents. The current README, ROADMAP and PLAN are the active sources of truth; historical snapshots should not be used to infer current status.
 
-The remediation folder contains the frozen worker-assignment issue ledger and release/test baseline. Those files describe their explicitly recorded baseline commits and are intentionally retained as historical records.
+The remediation folder contains the frozen worker-assignment issue ledger, release/test baseline and the 2026-11-25 unmerged-branch audit (W11 selection, W12 slice plan, W15 decision and W13 measurements). Those files describe their explicitly recorded baseline commits and are intentionally retained as historical records.

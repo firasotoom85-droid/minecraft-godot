@@ -50,47 +50,42 @@ public partial class GameSession : Node
             }
 
             Manifest = manifest;
-            WorldReadResult<WorldSave> worldRead = WorldStore.ReadJsonResult<WorldSave>(
-                    WorldStore.WorldSavePath(WorldDir), WorldStore.Json);
-            WorldReadResult<PlayerSave> playerRead = WorldStore.ReadJsonResult<PlayerSave>(
-                    WorldStore.PlayerSavePath(WorldDir), WorldStore.Json);
-            if (worldRead.Status is WorldReadStatus.Corrupt or WorldReadStatus.Unsupported
-                    or WorldReadStatus.Inaccessible
-                    || playerRead.Status is WorldReadStatus.Corrupt or WorldReadStatus.Unsupported
-                    or WorldReadStatus.Inaccessible)
-            {
-                throw new System.IO.InvalidDataException(
-                        $"The selected world requires save recovery. World data: {worldRead.Status}; "
-                        + $"player data: {playerRead.Status}. No files were replaced.");
-            }
-
-            bool incompletePair = (worldRead.Status == WorldReadStatus.Missing)
-                    != (playerRead.Status == WorldReadStatus.Missing);
-            bool knownSavedHistory = manifest.HasSavedData || manifest.PlaytimeSeconds > 0
-                    || manifest.PlayedUtc > manifest.CreatedUtc;
-            if (incompletePair && knownSavedHistory)
+            WorldReadResult<WorldSavePair> pairRead = WorldStore.ReadSavePairResult(WorldDir, manifest);
+            if (pairRead.Value is null
+                    || pairRead.Status is WorldReadStatus.Corrupt
+                    or WorldReadStatus.Unsupported or WorldReadStatus.Inaccessible)
             {
                 WorldStore.RequireRecovery(WorldDir);
                 throw new System.IO.InvalidDataException(
-                        "The selected world contains an incomplete save set. Restore a matching world/player backup before playing.");
+                        $"The selected world requires matching world/player save recovery ({pairRead.Status}). "
+                        + "No files were replaced. " + pairRead.Error);
             }
 
-            if (worldRead.Status == WorldReadStatus.Missing && playerRead.Status == WorldReadStatus.Missing
-                    && (manifest.HasSavedData || manifest.PlaytimeSeconds > 0
-                    || manifest.PlayedUtc > manifest.CreatedUtc))
+            if (pairRead.Status == WorldReadStatus.Recovered
+                    && pairRead.Value.SaveGeneration > 0)
             {
-                WorldStore.RequireRecovery(WorldDir);
-                throw new System.IO.InvalidDataException(
-                        "This world previously contained saved progress, but all world/player save candidates are missing. Recovery is required.");
+                if (!WorldStore.PromoteRecoveredSavePair(WorldDir, manifest, pairRead.Value))
+                    throw new System.IO.InvalidDataException(
+                            "A matching backup pair was found but could not be promoted safely. "
+                            + "The world remains recovery-protected.");
+                pairRead = WorldStore.ReadSavePairResult(WorldDir, manifest);
+                if (pairRead.Value is null || pairRead.Status != WorldReadStatus.Valid)
+                {
+                    WorldStore.RequireRecovery(WorldDir);
+                    throw new System.IO.InvalidDataException(
+                            "The recovered save pair could not be verified after promotion. "
+                            + "The world remains recovery-protected. " + pairRead.Error);
+                }
             }
 
             if (WorldStore.IsRecoveryRequired(WorldDir))
                 throw new System.IO.InvalidDataException(
                         "The selected world is marked as recovery-required. Its data will not be overwritten.");
 
-            // Upgrade older manifests in place after verifying both existing
-            // save models. The optional field is ignored by pre-existing versions.
-            if (!manifest.HasSavedData && worldRead.Value is not null && playerRead.Value is not null)
+            // Older manifests may not have recorded save history. Upgrade only
+            // after a matching world/player pair has been validated.
+            if (!manifest.HasSavedData && pairRead.Value.World is not null
+                    && pairRead.Value.Player is not null)
             {
                 WorldManifest marked = manifest with { HasSavedData = true };
                 if (!WorldStore.WriteManifest(WorldDir, marked))
@@ -98,7 +93,6 @@ public partial class GameSession : Node
                             "The world is readable, but its save-history safety metadata could not be persisted.");
                 Manifest = marked;
             }
-
             return WorldDir;
         }
 

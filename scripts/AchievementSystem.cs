@@ -2,6 +2,11 @@ using Godot;
 
 namespace Minecraft;
 
+public static class AchievementRules
+{
+    public static bool HasReachedDeepDown(float worldY) => worldY <= 20.0f;
+}
+
 /// <summary>
 /// Unlocks curated achievements and stores them in the world's persistent
 /// flags. Event-driven for blocks/inventory/sleep, with a light per-frame check
@@ -15,6 +20,8 @@ public partial class AchievementSystem : Node
 
     private bool _sawNight;
     private bool _deep;
+
+    public event System.Action<string>? Unlocked;
 
     public void Setup(VoxelWorld world, Player player, Hud hud)
     {
@@ -53,7 +60,7 @@ public partial class AchievementSystem : Node
             Unlock("first_night");
         }
 
-        if (!_deep && _player.GlobalPosition.Y < 20.0f)
+        if (!_deep && AchievementRules.HasReachedDeepDown(_player.GlobalPosition.Y))
         {
             _deep = true;
             Unlock("deep");
@@ -123,5 +130,6 @@ public partial class AchievementSystem : Node
         _world.Flags["ach/" + id] = true;
         _world.MarkDirty();
         _hud?.ShowToast($"Achievement — {def.Name}");
+        Unlocked?.Invoke(id);
     }
 }

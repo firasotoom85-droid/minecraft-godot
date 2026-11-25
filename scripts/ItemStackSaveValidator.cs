@@ -91,13 +91,20 @@ public static class ItemStackSaveValidator
         return ItemDb.ArmorOf(stack.Id) is { } armor && armor.Slot == armorSlot;
     }
 
-    public static bool FitsFurnaceSlot(int slot, ItemStack stack) => slot switch
+    public static bool FitsFurnaceSlot(int slot, ItemStack stack)
     {
-        0 => ItemDb.SmeltsTo(stack.Id) != null,
-        1 => ItemDb.FuelSeconds(stack.Id) > 0.0f,
-        2 => IsSmeltResult(stack.Id),
-        _ => false,
-    };
+        if (stack.IsEmpty || !ItemDb.IsRegistered(stack.Id)
+                || stack.Count <= 0 || stack.Count > ItemDb.MaxStack(stack.Id))
+            return false;
+
+        return slot switch
+        {
+            0 => ItemDb.SmeltsTo(stack.Id) != null,
+            1 => ItemDb.FuelSeconds(stack.Id) > 0.0f,
+            2 => IsSmeltResult(stack.Id),
+            _ => false,
+        };
+    }
 
     private static bool IsSmeltResult(ItemId id) => id is
             ItemId.IronIngot or ItemId.GoldIngot or ItemId.Glass or ItemId.Stone

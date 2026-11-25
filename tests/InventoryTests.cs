@@ -112,6 +112,55 @@ public static class InventoryTests
         TestAssert.Equal(1, oneGapStack.Get(Inventory.SlotCount - 1).Count,
                 "the stored tool occupies exactly one slot with count one");
 
+        Inventory selectedConsume = new();
+        selectedConsume.Set(0, ItemDb.New(ItemId.Wheat, 2));
+        selectedConsume.Set(1, ItemDb.New(ItemId.Wheat, 5));
+        int selectedChanged = 0;
+        selectedConsume.Changed += () => selectedChanged++;
+        TestAssert.Check(selectedConsume.ConsumeSlot(1, ItemId.Wheat, 2),
+                "selected-slot consume succeeds for the requested hotbar stack");
+        TestAssert.Equal(2, selectedConsume.Get(0).Count,
+                "selected-slot consume leaves earlier matching stacks unchanged");
+        TestAssert.Equal(3, selectedConsume.Get(1).Count,
+                "selected-slot consume removes only the requested count");
+        TestAssert.Equal(1, selectedChanged,
+                "selected-slot consume raises one inventory change notification");
+        TestAssert.Check(!selectedConsume.ConsumeSlot(1, ItemId.Wheat, 4)
+                        && !selectedConsume.ConsumeSlot(Inventory.HotbarSize, ItemId.Wheat, 1)
+                        && !selectedConsume.ConsumeSlot(1, ItemId.Dirt, 1),
+                "selected-slot consume rejects insufficient, non-hotbar and mismatched requests");
+        TestAssert.Equal(5, selectedConsume.CountOf(ItemId.Wheat),
+                "rejected selected-slot consumes leave inventory counts unchanged");
+
+        Inventory overLimitGive = new();
+        overLimitGive.Set(0, ItemDb.New(ItemId.Dirt, 1));
+        TestAssert.Check(overLimitGive.TrySetHotbarOrAdd(
+                        0, new ItemStack(ItemId.Stone, 65, 0)),
+                "an oversized command grant is routed through normal inventory insertion");
+        TestAssert.Equal(1, overLimitGive.Get(0).Count,
+                "oversized grants do not overwrite the selected nonmatching stack");
+        TestAssert.Equal(65, overLimitGive.CountOf(ItemId.Stone),
+                "oversized grants preserve their requested total across legal stacks");
+        for (int slot = 0; slot < Inventory.SlotCount; slot++)
+        {
+            ItemStack stack = overLimitGive.Get(slot);
+            if (!stack.IsEmpty)
+                TestAssert.Check(stack.Count <= ItemDb.MaxStack(stack.Id),
+                        $"inventory slot {slot} never stores an over-limit stack");
+        }
+
+        Inventory selectedCook = new();
+        for (int slot = 0; slot < Inventory.SlotCount; slot++)
+            selectedCook.Set(slot, ItemDb.New(ItemId.Dirt, 64));
+        selectedCook.Set(0, ItemDb.New(ItemId.RawPork, 2));
+        selectedCook.Set(1, ItemDb.New(ItemId.RawPork, 1));
+        TestAssert.Check(Player.TryCook(selectedCook, 1, ItemId.RawPork),
+                "campfire cooking can use the selected raw-food slot as its output space");
+        TestAssert.Equal(2, selectedCook.Get(0).Count,
+                "cooking leaves an earlier matching raw-food stack untouched");
+        TestAssert.Equal(ItemId.CookedPork, selectedCook.Get(1).Id,
+                "cooked output occupies the selected stack's freed slot");
+
         InventoryPersistenceRegressionTests.Run();
     }
 }

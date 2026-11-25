@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Godot;
 
 namespace Minecraft;
@@ -18,6 +19,7 @@ public static class FarLodLifecycleTests
         TestEveryCompletionHasAnExplicitDisposition();
         TestWorkerFailureRetryPolicyAndQueueCapacity();
         TestInjectedWorkerExceptionReleasesCapacity();
+        TestShutdownCancellationIsNotATileFailure();
         TestInFlightReleaseIsIdentitySafe();
         TestStaleQueueEntriesArePrunedAndBounded();
         TestCompletionPathReleasesAndClassifiesAtomically();
@@ -123,6 +125,24 @@ public static class FarLodLifecycleTests
                 "the production dispatch selector can dequeue work after a failed task releases capacity");
         TestAssert.Equal(replacement, nextTile,
                 "the tile queued behind the failed worker is the next dispatched tile");
+    }
+
+    private static void TestShutdownCancellationIsNotATileFailure()
+    {
+        using CancellationTokenSource shutdown = new();
+        FarLodBuildOutcome<string> outcome = FarLodLifecycleRules.CaptureBuild<string>(() =>
+        {
+            // Model an active tile build observing scene shutdown at a safe
+            // point after work has started but before it publishes a result.
+            shutdown.Cancel();
+            shutdown.Token.ThrowIfCancellationRequested();
+            return "stale tile payload";
+        }, shutdown.Token);
+
+        TestAssert.Check(outcome.Cancelled,
+                "Far-LOD shutdown cancellation is represented separately from a worker exception");
+        TestAssert.Check(outcome.Payload == null && outcome.Failure == null,
+                "a cancelled Far-LOD build produces neither a payload nor a retryable failure");
     }
 
     private static void TestInFlightReleaseIsIdentitySafe()

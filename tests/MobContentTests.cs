@@ -118,6 +118,55 @@ public static class MobContentTests
                 "lava remains an explicit gravity-mob navigation hazard");
         TestAssert.Check(!MobNavigationRules.IsGravityObstacle(BlockId.Water),
                 "water retains its separate swim/avoidance handling");
+        TestAssert.Check(MobNavigationRules.IsGravityDirectionBlocked(
+                        BlockId.Lava, BlockId.Air, BlockId.Air),
+                "gravity mobs treat lava in the forward floor cell as a blocked direction");
+        TestAssert.Check(!MobNavigationRules.IsGravityDirectionBlocked(
+                        BlockId.Grass, BlockId.Air, BlockId.Air),
+                "gravity mobs can still move over safe solid ground");
+        TestAssert.Check(MobPopulationRules.CanSpawnHostile(6, 7)
+                        && !MobPopulationRules.CanSpawnHostile(7, 7)
+                        && !MobPopulationRules.CanSpawnHostile(0, 0),
+                "hostile spawn reservations enforce the configured population ceiling");
+        TestAssert.Check(MobSpawnRules.IsSurfaceCellSafe(
+                        BlockId.Grass, BlockId.Air, BlockId.Air, BlockId.Air),
+                "surface mob spawn accepts open grass with full body clearance");
+        TestAssert.Check(!MobSpawnRules.IsSurfaceCellSafe(
+                        BlockId.Grass, BlockId.Log, BlockId.Air, BlockId.Air),
+                "surface mob spawn rejects a candidate inside a generated trunk");
+        TestAssert.Check(!MobSpawnRules.IsSurfaceCellSafe(
+                        BlockId.Grass, BlockId.Air, BlockId.Leaves, BlockId.Air),
+                "surface mob spawn rejects insufficient head clearance");
+        Vector3[] herdPositions = [Vector3.Zero];
+        TestAssert.Check(!MobSpawnRules.IsSeparated(new Vector3(0.5f, 0, 0),
+                        herdPositions, 1.0f)
+                        && MobSpawnRules.IsSeparated(new Vector3(2.0f, 0, 0),
+                                herdPositions, 1.0f),
+                "herd spawn positions preserve separation from already placed members");
+
+        TestAssert.Check(HollowShotRules.CanContinueCharge(true, true, true)
+                        && !HollowShotRules.CanContinueCharge(false, true, true)
+                        && !HollowShotRules.CanContinueCharge(true, false, true)
+                        && !HollowShotRules.CanContinueCharge(true, true, false),
+                "Hollow charge survives only while its target remains alive, visible and in range");
+        TestAssert.Equal(1, FxBurstPoolRules.FindAvailableIndex(
+                        new double[] { 1.0, 0.0, 1.0 }, 0.5, 0),
+                "particle burst pool selects a free emitter instead of restarting a busy one");
+        TestAssert.Equal(-1, FxBurstPoolRules.FindAvailableIndex(
+                        new double[] { 1.0, 1.0 }, 0.5, 0),
+                "saturated particle burst pool preserves all active emitters");
+
+        Mob damageProbe = new Sheep();
+        float initialHealth = damageProbe.Health;
+        TestAssert.Check(!damageProbe.ApplyDamage(
+                        new DamageInfo(float.NaN, DamageKind.Lightning, Vector3.Zero)),
+                "mob damage rejects NaN before changing health");
+        TestAssert.Check(!damageProbe.ApplyDamage(
+                        new DamageInfo(float.PositiveInfinity, DamageKind.Lightning, Vector3.Zero)),
+                "mob damage rejects infinite amounts before changing health");
+        TestAssert.Equal(initialHealth, damageProbe.Health,
+                "invalid damage leaves the mob's health unchanged");
+        damageProbe.Free();
 
         Vector3 blockOrigin = Vector3.Zero;
         Vector3 aboveMin = new(0.1f, 0.51f, 0.1f);
@@ -190,6 +239,28 @@ public static class MobContentTests
         sheepPartner.MarkBred();
         TestAssert.Check(!sheep.CanBreedWith(sheepPartner),
                 "breeding cooldown prevents immediate repeat pairing");
+
+        Player cooldownFeeder = new();
+        cooldownFeeder.Inventory.Add(ItemId.Wheat, 1);
+        TestAssert.Check(sheep.Interact(cooldownFeeder),
+                "feeding during breeding cooldown is handled without an inventory failure");
+        TestAssert.Equal(1, cooldownFeeder.Inventory.CountOf(ItemId.Wheat),
+                "breeding cooldown does not consume another wheat");
+        cooldownFeeder.Free();
+
+        Sheep selectedSlotSheep = new();
+        Player selectedSlotFeeder = new();
+        selectedSlotFeeder.Inventory.Set(0, ItemDb.New(ItemId.Wheat, 2));
+        selectedSlotFeeder.Inventory.Set(1, ItemDb.New(ItemId.Wheat, 5));
+        selectedSlotFeeder.Selected = 1;
+        TestAssert.Check(selectedSlotSheep.Interact(selectedSlotFeeder),
+                "feeding consumes from the selected hotbar stack");
+        TestAssert.Equal(2, selectedSlotFeeder.Inventory.Hotbar[0].Count,
+                "feeding leaves an earlier matching stack untouched");
+        TestAssert.Equal(4, selectedSlotFeeder.Inventory.Hotbar[1].Count,
+                "feeding removes exactly one item from the selected stack");
+        selectedSlotFeeder.Free();
+        selectedSlotSheep.Free();
 
         Player cowFeeder = new();
         cowFeeder.Inventory.Add(ItemId.Wheat, 1);

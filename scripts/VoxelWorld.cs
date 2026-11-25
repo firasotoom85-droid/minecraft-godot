@@ -21,8 +21,8 @@ namespace Minecraft;
 ///    through <c>ChunkData()</c>, which is thread-safe, and never touch the
 ///    scene tree. Results come back deferred and are applied on the
 ///    main thread (meshes + Jolt colliders must be created there).
-///  - <c>SnapshotLock</c> serialises block edits against mesher snapshots so a
-///    payload is either consistent with <c>EditEpoch</c> or discarded.
+///  - <c>SnapshotLock</c> serialises block edits against mesher snapshots.
+///    Mesh payload validation uses target-local geometry/light dependency revisions.
 /// </summary>
 public partial class VoxelWorld : Node3D
 {
@@ -106,7 +106,7 @@ public partial class VoxelWorld : Node3D
     /// <summary>New worlds default to survival; pre-M2 worlds stay creative.</summary>
     public string DefaultMode => _manifest.Mode == "survival" ? "survival" : "creative";
 
-    public long EditEpoch;               // bumped on every block edit
+    public long EditEpoch;               // monotonic world-edit diagnostic; not used for mesh-payload rejection
     public double TimeOfDay = 0.38;      // 0..1, 0.5 = noon (DayNight drives this)
 
     public int ChunkCount => _chunks.Count;
@@ -150,6 +150,8 @@ public partial class VoxelWorld : Node3D
     }
 
     private readonly Dictionary<Vector2I, byte[]> _dataCache = new();
+    // One target revision invalidates only chunks whose sampled mesh inputs changed.
+    private readonly ChunkDependencyRevisions _chunkDependencyRevisions = new();
     // Lazy reservations coalesce concurrent cache misses without holding the
     // world mutex during expensive terrain generation.
     private readonly ChunkGenerationReservations _generationInFlight = new();
@@ -192,6 +194,7 @@ public partial class VoxelWorld : Node3D
     // critical path. Rebuilds (player edits) are applied before fresh chunks.
     private readonly System.Collections.Concurrent.ConcurrentQueue<(Vector2I Cp, MeshPayload Payload)> _applyFresh = new();
     private readonly System.Collections.Concurrent.ConcurrentQueue<(Vector2I Cp, MeshPayload Payload)> _applyRebuild = new();
+    private ActiveChunkPayloadApply? _activePayloadApply;
     // Maximum completed payloads matches the old worst-case threshold
     // (6 workers × 3 payloads). Workers reserve a slot before building and
     // wait on this semaphore instead of polling/sleeping when the main thread
@@ -318,8 +321,9 @@ public partial class VoxelWorld : Node3D
             _groupActive = false;
         }
 
-        // Workers have stopped, so it is now safe to return unconsumed pooled
-        // payloads and release the reservations held for those payloads.
+        // Workers have stopped, so it is now safe to return any active staged
+        // payload, queued payloads and their completed-slot reservations.
+        FinishActivePayloadApply(commit: false, requeue: false);
         DrainPendingPayloads(_applyRebuild);
         DrainPendingPayloads(_applyFresh);
         Profiler.WorkersActive = false;
@@ -928,7 +932,31 @@ public partial class VoxelWorld : Node3D
             return null;
         }
 
+        if (_genVersion >= WorldGenV13.Version && HasCampfireStructureConflict(x, z))
+        {
+            return null;
+        }
+
         return new Vector3I(x, h, z);
+    }
+
+    private bool HasCampfireStructureConflict(int x, int z)
+    {
+        int clearance = WorldGenV13.StructureClearance;
+        int minCellX = Mathf.FloorToInt((x - clearance) / (float)StructureCell);
+        int maxCellX = Mathf.FloorToInt((x + clearance) / (float)StructureCell);
+        int minCellZ = Mathf.FloorToInt((z - clearance) / (float)StructureCell);
+        int maxCellZ = Mathf.FloorToInt((z + clearance) / (float)StructureCell);
+        for (int cz = minCellZ; cz <= maxCellZ; cz++)
+            for (int cx = minCellX; cx <= maxCellX; cx++)
+            {
+                if (CachedStructureSite(cx, cz) is { } structure
+                        && WorldGenV13.CampfireConflictsWithStructure(
+                                x, z, structure.X, structure.Z))
+                    return true;
+            }
+
+        return false;
     }
 
     private readonly Dictionary<long, Vector3I?> _campfireCache = new();
@@ -1194,8 +1222,10 @@ public partial class VoxelWorld : Node3D
     // Chunk data generation + cache (thread-safe)
     // -----------------------------------------------------------------------
 
-    private byte[] GenerateChunkData(Vector2I cp)
+    private byte[] GenerateChunkData(
+            Vector2I cp, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         byte[] data = new byte[ChunkX * Height * ChunkZ];
         if (_genVersion >= WorldGenV12.Version && !WorldGenV12.ContainsChunk(cp))
         {
@@ -1208,6 +1238,7 @@ public partial class VoxelWorld : Node3D
         int strideY = ChunkX * ChunkZ;
         for (int z = 0; z < ChunkZ; z++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int x = 0; x < ChunkX; x++)
             {
                 int wx = ox + x;
@@ -1245,13 +1276,16 @@ public partial class VoxelWorld : Node3D
         // Ore veins (gen v3+): deterministic per-chunk blobs in depth bands.
         if (_genVersion >= 3)
         {
-            StampOreVeins(cp, data, strideY, ox, oz);
+            cancellationToken.ThrowIfCancellationRequested();
+            StampOreVeins(cp, data, strideY, ox, oz, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
         // Trees from the padded neighbourhood, clipped into this chunk.
         // Only air is replaced, so overlapping trees merge gracefully.
         for (int tz = oz - 2; tz < oz + ChunkZ + 2; tz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int tx = ox - 2; tx < ox + ChunkX + 2; tx++)
             {
                 if (GetTreeAt(tx, tz) is not { } tree)
@@ -1299,6 +1333,7 @@ public partial class VoxelWorld : Node3D
         // Cacti: desert-only columns, clipped into this chunk.
         for (int tz = oz - 1; tz < oz + ChunkZ + 1; tz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int tx = ox - 1; tx < ox + ChunkX + 1; tx++)
             {
                 if (GetCactusAt(tx, tz) is not { } cactus)
@@ -1329,16 +1364,21 @@ public partial class VoxelWorld : Node3D
         // sites always win.
         if (_genVersion >= 4)
         {
-            StampDecorators(data, strideY, ox, oz);
-            StampStructures(data, strideY, ox, oz);
+            cancellationToken.ThrowIfCancellationRequested();
+            StampDecorators(data, strideY, ox, oz, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            StampStructures(data, strideY, ox, oz, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (_genVersion >= WorldGenV7.Version)
             {
-                StampUndergroundStructuresV7(data, strideY, ox, oz);
+                StampUndergroundStructuresV7(data, strideY, ox, oz, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
             }
 
             if (_genVersion >= 8)
             {
-                StampVillagesV8(data, strideY, ox, oz);
+                StampVillagesV8(data, strideY, ox, oz, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
             }
         }
 
@@ -1347,6 +1387,7 @@ public partial class VoxelWorld : Node3D
         Vector2I[] fireOffsets = [new(0, 0), new(1, 0), new(-1, 0), new(0, 1), new(0, -1)];
         for (int cellz = Mathf.FloorToInt((oz - 1) / 64.0f); cellz <= Mathf.FloorToInt((oz + ChunkZ) / 64.0f); cellz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int cellx = Mathf.FloorToInt((ox - 1) / 64.0f); cellx <= Mathf.FloorToInt((ox + ChunkX) / 64.0f); cellx++)
             {
                 if (GetCampfireSite(cellx, cellz) is not { } site)
@@ -1384,12 +1425,14 @@ public partial class VoxelWorld : Node3D
         }
 
         // Player edits on top of the generated terrain.
+        cancellationToken.ThrowIfCancellationRequested();
         lock (_mutex)
         {
             if (_edits.TryGetValue(cp, out Dictionary<int, BlockId>? edits))
             {
                 foreach ((int index, BlockId id) in edits)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     if ((uint)index < (uint)data.Length)
                     {
                         data[index] = (byte)id;
@@ -1406,18 +1449,22 @@ public partial class VoxelWorld : Node3D
     // Only stone is replaced, so caves and the surface stay untouched.
     // -----------------------------------------------------------------------
 
-    private void StampOreVeins(Vector2I cp, byte[] data, int strideY, int ox, int oz)
+    private void StampOreVeins(
+            Vector2I cp, byte[] data, int strideY, int ox, int oz,
+            CancellationToken cancellationToken)
     {
         if (_genVersion >= WorldGenV7.Version)
         {
-            StampOreVeinsV7(cp, data, strideY, ox, oz);
+            StampOreVeinsV7(cp, data, strideY, ox, oz, cancellationToken);
             return;
         }
 
         for (int dz = -1; dz <= 1; dz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int dx = -1; dx <= 1; dx++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 StampVeinsOfChunk(cp + new Vector2I(dx, dz), data, strideY, ox, oz);
             }
         }
@@ -1541,22 +1588,25 @@ public partial class VoxelWorld : Node3D
     // writes only into air above natural grass.
     // -----------------------------------------------------------------------
 
-    private void StampDecorators(byte[] data, int strideY, int ox, int oz)
+    private void StampDecorators(
+            byte[] data, int strideY, int ox, int oz,
+            CancellationToken cancellationToken)
     {
         if (_genVersion >= WorldGenV8.Version)
         {
-            StampDecoratorsV8(data, strideY, ox, oz);
+            StampDecoratorsV8(data, strideY, ox, oz, cancellationToken);
             return;
         }
 
         if (_genVersion >= WorldGenV7.Version)
         {
-            StampDecoratorsV7(data, strideY, ox, oz);
+            StampDecoratorsV7(data, strideY, ox, oz, cancellationToken);
             return;
         }
 
         for (int wz = oz - 2; wz < oz + ChunkZ + 2; wz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int wx = ox - 2; wx < ox + ChunkX + 2; wx++)
             {
                 int h = SurfaceHeight(wx, wz);
@@ -1684,7 +1734,9 @@ public partial class VoxelWorld : Node3D
     // Structures (gen v4+): templates clipped into the chunk being generated.
     // -----------------------------------------------------------------------
 
-    private void StampStructures(byte[] data, int strideY, int ox, int oz)
+    private void StampStructures(
+            byte[] data, int strideY, int ox, int oz,
+            CancellationToken cancellationToken)
     {
         int c0x = Mathf.FloorToInt((ox - 14) / (float)StructureCell);
         int c1x = Mathf.FloorToInt((ox + ChunkX + 14) / (float)StructureCell);
@@ -1692,8 +1744,10 @@ public partial class VoxelWorld : Node3D
         int c1z = Mathf.FloorToInt((oz + ChunkZ + 14) / (float)StructureCell);
         for (int cz = c0z; cz <= c1z; cz++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int cx = c0x; cx <= c1x; cx++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (CachedStructureSite(cx, cz) is not { } site)
                 {
                     continue;
@@ -1750,11 +1804,13 @@ public partial class VoxelWorld : Node3D
     /// Block data for any chunk: built node data, cached data, or freshly
     /// generated + cached. Safe to call from worker threads.
     /// </summary>
-    public byte[] ChunkData(Vector2I cp)
+    public byte[] ChunkData(Vector2I cp, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         Lazy<byte[]> generation;
         lock (_mutex)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (_dataCache.TryGetValue(cp, out byte[]? cached))
             {
                 RegisterLightSourcesLocked(cp, cached);
@@ -1762,15 +1818,33 @@ public partial class VoxelWorld : Node3D
                 return cached;
             }
 
-            generation = _generationInFlight.GetOrCreate(cp, () => GenerateChunkData(cp));
+            // All mesher workers for this world share one shutdown token. A
+            // cancelled generation throws before the completed array is cached.
+            generation = _generationInFlight.GetOrCreate(
+                    cp, () => GenerateChunkData(cp, cancellationToken));
         }
 
-        byte[] data;
         try
         {
-            // Exactly one caller generates this coordinate. Other workers wait
-            // on the same Lazy while unrelated coordinates remain parallel.
-            data = generation.Value;
+            byte[] data = generation.Value;
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_mutex)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_dataCache.TryGetValue(cp, out byte[]? existing))
+                {
+                    RegisterLightSourcesLocked(cp, existing);
+                    RegisterCropSourcesLocked(cp, existing);
+                    _generationInFlight.Complete(cp, generation);
+                    return existing;
+                }
+
+                _dataCache[cp] = data;
+                RegisterLightSourcesLocked(cp, data);
+                RegisterCropSourcesLocked(cp, data);
+                _generationInFlight.Complete(cp, generation);
+                return data;
+            }
         }
         catch
         {
@@ -1780,23 +1854,6 @@ public partial class VoxelWorld : Node3D
             }
 
             throw;
-        }
-
-        lock (_mutex)
-        {
-            if (_dataCache.TryGetValue(cp, out byte[]? existing))
-            {
-                RegisterLightSourcesLocked(cp, existing);
-                RegisterCropSourcesLocked(cp, existing);
-                _generationInFlight.Complete(cp, generation);
-                return existing;
-            }
-
-            _dataCache[cp] = data;
-            RegisterLightSourcesLocked(cp, data);
-            RegisterCropSourcesLocked(cp, data);
-            _generationInFlight.Complete(cp, generation);
-            return data;
         }
     }
 
@@ -1893,11 +1950,13 @@ public partial class VoxelWorld : Node3D
     /// region solve. A 14-voxel halo on each side is sufficient for block-light
     /// attenuation and prevents nine overlapping per-chunk solves.
     /// </summary>
-    public VoxelLightData[] LightDataNeighborhood(Vector2I center)
+    public VoxelLightData[] LightDataNeighborhood(
+            Vector2I center, CancellationToken cancellationToken = default)
     {
+        long[] lightInputRevisions = new long[25];
         while (true)
         {
-            long snapshotEpoch;
+            cancellationToken.ThrowIfCancellationRequested();
             VoxelLightData[] result = new VoxelLightData[9];
             byte[][] chunks = new byte[25][];
             byte[][]? stateChunks = null;
@@ -1905,14 +1964,15 @@ public partial class VoxelWorld : Node3D
 
             // Capture immutable inputs and the emitter set in one short
             // snapshot section. Chunk generation and array cloning are kept
-            // here because they establish the exact inputs for this epoch.
+            // here because they establish the exact inputs for this dependency set.
             lock (SnapshotLock)
             {
-                snapshotEpoch = EditEpoch;
                 bool complete = true;
                 lock (_mutex)
                 {
                     for (int dz = -1; dz <= 1; dz++)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
                         for (int dx = -1; dx <= 1; dx++)
                         {
                             int slot = (dz + 1) * 3 + dx + 1;
@@ -1922,21 +1982,28 @@ public partial class VoxelWorld : Node3D
                             else
                                 complete = false;
                         }
+                    }
                 }
                 if (complete) return result;
 
                 for (int dz = -2; dz <= 2; dz++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
                     for (int dx = -2; dx <= 2; dx++)
                     {
                         int slot = (dz + 2) * 5 + dx + 2;
-                        byte[] data = ChunkData(center + new Vector2I(dx, dz));
+                        Vector2I chunk = center + new Vector2I(dx, dz);
+                        byte[] data = ChunkData(chunk, cancellationToken);
                         chunks[slot] = (byte[])data.Clone();
-                        byte[] states = ChunkBlockStates(center + new Vector2I(dx, dz));
+                        byte[] states = ChunkBlockStates(chunk, cancellationToken);
                         if (states.Length > 0)
                         {
                             (stateChunks ??= new byte[25][])[slot] = (byte[])states.Clone();
                         }
                     }
+                }
+                _chunkDependencyRevisions.CaptureLightInputRevisions(
+                        center, lightInputRevisions);
 
                 const int halo = VoxelLighting.BlockLightRadius;
                 int width = ChunkX * 3 + halo * 2;
@@ -1950,6 +2017,7 @@ public partial class VoxelWorld : Node3D
             // Test-only hook runs after SnapshotLock has been released, before
             // the expensive region assembly/propagation work begins.
             SnapshotReleasedTestHook?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
 
             // Region assembly and both propagation algorithms operate solely
             // on the immutable arrays above. No global snapshot lock is held.
@@ -1964,6 +2032,7 @@ public partial class VoxelWorld : Node3D
             byte[]? regionStates = stateChunks == null ? null : new byte[region.Length];
             for (int z = 0; z < lightDepth; z++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 int wz = lightOriginZ + z;
                 int cz = Mathf.FloorToInt(wz / (float)ChunkZ);
                 int lz = wz - cz * ChunkZ;
@@ -1989,7 +2058,8 @@ public partial class VoxelWorld : Node3D
             }
 
             byte[] sky = VoxelLighting.BuildSkyLight(
-                    region, lightWidth, Height, lightDepth, regionStates, out byte[] directSky);
+                    region, lightWidth, Height, lightDepth, regionStates,
+                    out byte[] directSky, cancellationToken);
             int plane = lightWidth * lightDepth;
             for (int i = 0; i < sources.Count; i++)
             {
@@ -2001,9 +2071,12 @@ public partial class VoxelWorld : Node3D
             }
 
             byte[] block = VoxelLighting.PropagateBlockLight(
-                    region, lightWidth, Height, lightDepth, sources, regionStates);
+                    region, lightWidth, Height, lightDepth, sources, regionStates,
+                    cancellationToken);
             VoxelLightData[] built = new VoxelLightData[9];
             for (int dz = -1; dz <= 1; dz++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 for (int dx = -1; dx <= 1; dx++)
                 {
                     int slot = (dz + 1) * 3 + dx + 1;
@@ -2015,6 +2088,7 @@ public partial class VoxelWorld : Node3D
                     for (int y = 0; y < Height; y++)
                         for (int z = 0; z < ChunkZ; z++)
                         {
+                            cancellationToken.ThrowIfCancellationRequested();
                             int source = y * plane + (cropZ + z) * lightWidth + cropX;
                             int destination = (y * ChunkZ + z) * ChunkX;
                             for (int x = 0; x < ChunkX; x++)
@@ -2030,18 +2104,24 @@ public partial class VoxelWorld : Node3D
                         }
                     built[slot] = new VoxelLightData(packed, directPacked);
                 }
+            }
 
             // A block/source edit invalidates the entire affected neighborhood
             // while holding SnapshotLock. Discard stale solves and retry from a
             // fresh snapshot before any map is made visible to another worker.
+            cancellationToken.ThrowIfCancellationRequested();
             lock (SnapshotLock)
             {
-                if (EditEpoch != snapshotEpoch)
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!_chunkDependencyRevisions.LightInputRevisionsCurrent(
+                        center, lightInputRevisions))
                     continue;
 
                 lock (_mutex)
                 {
                     for (int dz = -1; dz <= 1; dz++)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
                         for (int dx = -1; dx <= 1; dx++)
                         {
                             int slot = (dz + 1) * 3 + dx + 1;
@@ -2054,11 +2134,19 @@ public partial class VoxelWorld : Node3D
                                 result[slot] = built[slot];
                             }
                         }
+                    }
                 }
                 return result;
             }
         }
     }
+
+    /// <summary>
+    /// Capture the revision of this chunk's complete meshing dependency set.
+    /// The caller must hold SnapshotLock.
+    /// </summary>
+    internal long CaptureMeshDependencyRevision(Vector2I cp) =>
+            _chunkDependencyRevisions.MeshRevision(cp);
 
     /// <summary>Packed sky/block lighting snapshot for one chunk.</summary>
     public VoxelLightData LightData(Vector2I cp) => LightDataNeighborhood(cp)[4];
@@ -2330,10 +2418,12 @@ public partial class VoxelWorld : Node3D
     }
 
     /// <summary>State array aligned with ChunkData; default-state chunks allocate no dense buffer.</summary>
-    public byte[] ChunkBlockStates(Vector2I cp)
+    public byte[] ChunkBlockStates(Vector2I cp, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         lock (_mutex)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (_blockStateCache.TryGetValue(cp, out byte[]? cached)) return cached;
             if (!_blockStateEdits.TryGetValue(cp, out Dictionary<int, byte>? edits) || edits.Count == 0)
             {
@@ -2343,7 +2433,10 @@ public partial class VoxelWorld : Node3D
 
             byte[] states = new byte[ChunkX * Height * ChunkZ];
             foreach ((int index, byte state) in edits)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 if ((uint)index < (uint)states.Length) states[index] = state;
+            }
             _blockStateCache[cp] = states;
             return states;
         }
@@ -2488,6 +2581,8 @@ public partial class VoxelWorld : Node3D
                     InvalidateBlockLightingLocked(cp);
                 }
 
+                _chunkDependencyRevisions.RecordBlockMutation(
+                        cp, lx, lz, ChunkX, ChunkZ, lightingChanged);
                 EditEpoch += 1;
             }
         }
@@ -2509,14 +2604,15 @@ public partial class VoxelWorld : Node3D
                     && RebuildChunkNow(cp);
         }
 
-        // The edited chunk always changes. Geometry-only dependencies are
-        // limited to the sampled edge/corner; light-affecting edits retain the
-        // full existing 3x3 region for the 14-voxel propagation halo.
-        for (int dz = -1; dz <= 1; dz++)
+        // Geometry-only edits rebuild the owner plus sampled edge/corner chunks.
+        // Lighting edits rebuild a 5x5 target region: each target consumes 3x3
+        // cached maps, and those maps each include the existing 14-voxel light halo.
+        int dependencyRadius = lightingChanged ? 2 : 1;
+        for (int dz = -dependencyRadius; dz <= dependencyRadius; dz++)
         {
-            for (int dx = -1; dx <= 1; dx++)
+            for (int dx = -dependencyRadius; dx <= dependencyRadius; dx++)
             {
-                if (!ChunkStreamingPolicy.AffectsChunk(dx, dz, lx, lz,
+                if (!ChunkStreamingPolicy.AffectsMeshDependency(dx, dz, lx, lz,
                         ChunkX, ChunkZ, lightingChanged))
                 {
                     continue;
@@ -2918,7 +3014,8 @@ public partial class VoxelWorld : Node3D
                     + EstimateDictionaryBytes(_blockLightCache, 40)
                     + EstimateDictionaryBytes(_voxelLightCache, 40)
                     + EstimateDictionaryBytes(_edits, 48)
-                    + EstimateDictionaryBytes(_blockStateEdits, 48);
+                    + EstimateDictionaryBytes(_blockStateEdits, 48)
+                    + _chunkDependencyRevisions.EstimatedMemoryBytes;
             lightSourceEstimate = EstimateDictionaryBytes(_lightSources, 48);
             // Source scanning and crop scanning are separate registries with
             // different responsibilities; account for each independently.
@@ -3103,16 +3200,18 @@ public partial class VoxelWorld : Node3D
             _attempts = 0;
         }
 
+        public CancellationToken CancellationToken => _world._workerShutdown.Token;
+
         public bool CanContinue() =>
                 _world._alive && _world.IsWithinCurrentRetention(_coordinate);
 
         public void ReservePayloadSlot() =>
-                _world._completedPayloadSlots.Wait(_world._workerShutdown.Token);
+                _world._completedPayloadSlots.Wait(CancellationToken);
 
-        public MeshPayload Build()
+        public MeshPayload Build(CancellationToken cancellationToken)
         {
             long started = System.Diagnostics.Stopwatch.GetTimestamp();
-            MeshPayload payload = Mesher.Build(_world, _coordinate);
+            MeshPayload payload = Mesher.Build(_world, _coordinate, cancellationToken);
             Profiler.RecordBuild(
                     System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             return payload;
@@ -3257,26 +3356,168 @@ public partial class VoxelWorld : Node3D
         }
     }
 
-    /// <summary>
-    /// Main-thread application of a worker payload: create a streamed chunk,
-    /// re-mesh an edited one, or re-queue when the world changed meanwhile.
-    /// </summary>
-    private void ApplyBuild(Vector2I cp, MeshPayload payload)
+    private sealed class ActiveChunkPayloadApply
     {
+        public readonly Vector2I Coordinate;
+        public readonly MeshPayload Payload;
+        public readonly Chunk Chunk;
+        public readonly bool IsNewChunk;
+        public readonly ChunkPayloadApplyTransaction Transaction;
+        public double ProcessingMilliseconds;
+
+        public ActiveChunkPayloadApply(
+                Vector2I coordinate, MeshPayload payload, Chunk chunk, bool isNewChunk)
+        {
+            Coordinate = coordinate;
+            Payload = payload;
+            Chunk = chunk;
+            IsNewChunk = isNewChunk;
+            Transaction = new ChunkPayloadApplyTransaction(chunk, payload);
+        }
+    }
+
+    private bool IsPayloadWithinCurrentRetention(Vector2I cp)
+    {
+        Vector2I center = Player != null ? PlayerChunk() : _streamCenter;
+        int limit = Player != null ? ViewDistance + UnloadMargin : _streamRetentionLimit;
+        return _alive && ChunkStreamingPolicy.IsWithinRetention(cp, center, limit);
+    }
+
+    private bool ArePayloadDependenciesCurrent(Vector2I cp, MeshPayload payload)
+    {
+        bool revisionCurrent;
+        lock (SnapshotLock)
+        {
+            revisionCurrent = _chunkDependencyRevisions.IsMeshRevisionCurrent(
+                    cp, payload.DependencyRevision);
+        }
+
+        return revisionCurrent
+                && Mesher.IsConfigurationCurrent(payload.MeshingRevision)
+                && payload.BoundaryMask == MissingColliderBoundaryMask(cp);
+    }
+
+    private void ReleasePayloadReservation(MeshPayload payload)
+    {
+        PayloadPool.Release(payload);
+        _completedPayloadSlots.Release();
+    }
+
+    /// <summary>
+    /// Start the next rebuild-first payload transaction. A payload retains its
+    /// bounded worker slot until every staged resource is committed or discarded.
+    /// </summary>
+    private bool TryStartNextPayloadApply()
+    {
+        while (true)
+        {
+            (Vector2I Cp, MeshPayload Payload) item;
+            if (!_applyRebuild.TryDequeue(out item) && !_applyFresh.TryDequeue(out item))
+                return false;
+
+            Profiler.RecordPayloadDequeued(item.Payload.EstimatedBufferBytes);
+            if (!IsPayloadWithinCurrentRetention(item.Cp))
+            {
+                ReleasePayloadReservation(item.Payload);
+                continue;
+            }
+
+            if (!ArePayloadDependenciesCurrent(item.Cp, item.Payload))
+            {
+                EnqueueRebuild(item.Cp);
+                ReleasePayloadReservation(item.Payload);
+                continue;
+            }
+
+            Chunk? chunk = null;
+            bool isNewChunk = false;
+            try
+            {
+                if (!_chunks.TryGetValue(item.Cp, out chunk))
+                {
+                    chunk = new Chunk();
+                    isNewChunk = true;
+                    chunk.Setup(this, item.Cp);
+                    chunk.Generate();
+                }
+
+                _activePayloadApply = new ActiveChunkPayloadApply(
+                        item.Cp, item.Payload, chunk, isNewChunk);
+                return true;
+            }
+            catch
+            {
+                if (isNewChunk && chunk != null)
+                    chunk.Free();
+                ReleasePayloadReservation(item.Payload);
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Commit a fully prepared transaction in one main-thread operation. Until
+    /// this point an existing chunk keeps its previous render and collision state.
+    /// </summary>
+    private void FinishActivePayloadApply(bool commit, bool requeue)
+    {
+        ActiveChunkPayloadApply? active = _activePayloadApply;
+        if (active == null) return;
+        _activePayloadApply = null;
+
+        bool committed = false;
         try
         {
-            if (!_alive) return;
-
-            Vector2I pcp = Player != null ? PlayerChunk() : _streamCenter;
-            int limit = Player != null ? ViewDistance + UnloadMargin : _streamRetentionLimit;
-            if (!ChunkStreamingPolicy.IsWithinRetention(cp, pcp, limit))
+            if (!commit)
+            {
+                if (requeue && IsPayloadWithinCurrentRetention(active.Coordinate))
+                    EnqueueRebuild(active.Coordinate);
                 return;
+            }
 
-            bool epochCurrent;
-            lock (SnapshotLock)
-                epochCurrent = payload.Epoch == EditEpoch;
-            if (!epochCurrent || !Mesher.IsConfigurationCurrent(payload.MeshingRevision)
-                    || payload.BoundaryMask != MissingColliderBoundaryMask(cp))
+            long commitStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            active.Transaction.Commit();
+            if (active.IsNewChunk)
+            {
+                AddChild(active.Chunk);
+                _chunks[active.Coordinate] = active.Chunk;
+                active.Chunk.FadeIn();
+            }
+
+            SetChunkColliderAvailability(active.Coordinate,
+                    active.Payload.Collision.Count > 0);
+            double commitMilliseconds = System.Diagnostics.Stopwatch
+                    .GetElapsedTime(commitStart).TotalMilliseconds;
+            active.ProcessingMilliseconds += commitMilliseconds;
+            Profiler.RecordApplyStep(commitMilliseconds);
+            Profiler.RecordApply(active.ProcessingMilliseconds);
+            committed = true;
+        }
+        finally
+        {
+            if (!committed && active.IsNewChunk)
+            {
+                if (active.Chunk.GetParent() == this)
+                    RemoveChild(active.Chunk);
+                active.Chunk.Free();
+            }
+
+            ReleasePayloadReservation(active.Payload);
+        }
+    }
+
+    /// <summary>
+    /// Non-threaded fallback for deterministic tools. It uses the same local
+    /// dependency validation and staged Chunk transaction, but completes the
+    /// transaction synchronously because this path already runs inside Dispatch.
+    /// </summary>
+    private void ApplyBuildSynchronously(Vector2I cp, MeshPayload payload)
+    {
+        Chunk? created = null;
+        try
+        {
+            if (!IsPayloadWithinCurrentRetention(cp)) return;
+            if (!ArePayloadDependenciesCurrent(cp, payload))
             {
                 EnqueueRebuild(cp);
                 return;
@@ -3284,22 +3525,24 @@ public partial class VoxelWorld : Node3D
 
             if (_chunks.TryGetValue(cp, out Chunk? existing))
             {
-                existing.ApplyPayload(payload);   // player-edit remesh
+                existing.ApplyPayload(payload);
                 SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
                 return;
             }
 
-            Chunk c = new();
-            AddChild(c);
-            c.Setup(this, cp);
-            c.Generate();
-            c.ApplyPayload(payload);
-            c.FadeIn();
-            _chunks[cp] = c;
+            created = new Chunk();
+            created.Setup(this, cp);
+            created.Generate();
+            created.ApplyPayload(payload);
+            AddChild(created);
+            _chunks[cp] = created;
+            created.FadeIn();
             SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
+            created = null;
         }
         finally
         {
+            created?.Free();
             PayloadPool.Release(payload);
         }
     }
@@ -3870,31 +4113,58 @@ public partial class VoxelWorld : Node3D
 
         Dispatch();
 
-        // Keep player-edit rebuilds ahead of fresh terrain, but stop after a
-        // small main-thread time slice. At least one payload is always applied
-        // so progress cannot stall when a single collider is expensive.
+        // Rebuilds remain ahead of fresh terrain. The frame budget is checked
+        // between capped mesh/collision resource slices; an individual slice
+        // never contains more than MaxVerticesPerStep.
         long applyStart = System.Diagnostics.Stopwatch.GetTimestamp();
-        int applied = 0;
+        int appliedSteps = 0;
         while (!StreamingApplyBudget.ShouldStop(
                 System.Diagnostics.Stopwatch.GetElapsedTime(applyStart).TotalMilliseconds,
-                applied, ApplyBudgetMilliseconds))
+                appliedSteps, ApplyBudgetMilliseconds))
         {
-            (Vector2I Cp, MeshPayload Payload) item;
-            if (!_applyRebuild.TryDequeue(out item) && !_applyFresh.TryDequeue(out item))
+            if (_activePayloadApply == null && !TryStartNextPayloadApply())
                 break;
 
-            Profiler.RecordPayloadDequeued(item.Payload.EstimatedBufferBytes);
-            long itemStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            ActiveChunkPayloadApply active = _activePayloadApply!;
+            if (!IsPayloadWithinCurrentRetention(active.Coordinate))
+            {
+                FinishActivePayloadApply(commit: false, requeue: false);
+                continue;
+            }
+
+            if (!ArePayloadDependenciesCurrent(active.Coordinate, active.Payload))
+            {
+                FinishActivePayloadApply(commit: false, requeue: true);
+                continue;
+            }
+
+            long stepStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            bool complete;
             try
             {
-                ApplyBuild(item.Cp, item.Payload);
+                complete = active.Transaction.Step();
             }
-            finally
+            catch
             {
-                Profiler.RecordApply(System.Diagnostics.Stopwatch.GetElapsedTime(itemStart).TotalMilliseconds);
-                _completedPayloadSlots.Release();
+                FinishActivePayloadApply(commit: false, requeue: false);
+                throw;
             }
-            applied++;
+
+            double stepMilliseconds = System.Diagnostics.Stopwatch
+                    .GetElapsedTime(stepStart).TotalMilliseconds;
+            active.ProcessingMilliseconds += stepMilliseconds;
+            Profiler.RecordApplyStep(stepMilliseconds);
+            appliedSteps++;
+
+            if (complete)
+            {
+                bool withinRetention = IsPayloadWithinCurrentRetention(active.Coordinate);
+                bool dependenciesCurrent = withinRetention
+                        && ArePayloadDependenciesCurrent(active.Coordinate, active.Payload);
+                FinishActivePayloadApply(
+                        commit: dependenciesCurrent,
+                        requeue: withinRetention && !dependenciesCurrent);
+            }
         }
 
         lock (_queueLock)
@@ -3922,15 +4192,14 @@ public partial class VoxelWorld : Node3D
             _autosaveTimer = 0.0;
             if (hasPlayer && HasUnsavedPlayerChanges(includeSmallPositionChanges: false))
             {
-                if (Player!.GlobalPosition.DistanceTo(_lastSavedPos) > 8.0f)
-                {
-                    MarkDirty();
-                }
+                MarkDirty();
+            }
 
-                if (_dirty || _unsavedPlaytimeSeconds >= AutosaveInterval)
-                {
-                    QueueBackgroundSave();
-                }
+            // World-owned dirty state must be saved even when the player has not
+            // moved. A block/container/quest mutation is independent of player pose.
+            if (_dirty || (hasPlayer && _unsavedPlaytimeSeconds >= AutosaveInterval))
+            {
+                QueueBackgroundSave();
             }
         }
     }
@@ -4166,7 +4435,7 @@ public partial class VoxelWorld : Node3D
                 try
                 {
                     MeshPayload payload = Mesher.Build(this, cp);
-                    ApplyBuild(cp, payload);
+                    ApplyBuildSynchronously(cp, payload);
                 }
                 finally
                 {
@@ -4212,6 +4481,14 @@ public partial class VoxelWorld : Node3D
     /// </summary>
     private void PruneWorldCachesForCurrentRegion()
     {
+        // Revision storage is bounded. A reset advances the revision floor so
+        // payloads and light solves captured earlier are rejected and rebuilt,
+        // never applied across state whose revision entries were pruned.
+        lock (SnapshotLock)
+        {
+            _chunkDependencyRevisions.ResetIfUnbounded();
+        }
+
         lock (_queueLock)
         {
             PruneWorldCaches(_streamCenter, _streamRetentionLimit + 1);
@@ -4344,6 +4621,7 @@ public partial class VoxelWorld : Node3D
             Velocity = (float[])boat.Velocity.Clone(),
         }).ToList();
 
+        long nextSaveGeneration = checked(_manifest.SaveGeneration + 1);
         WorldSave world = new(
                 WorldStore.WorldFormatVersion,
                 editsOut,
@@ -4354,7 +4632,8 @@ public partial class VoxelWorld : Node3D
                 blockStatesOut.Count == 0 ? null : blockStatesOut,
                 villagersOut,
                 questsOut,
-                boatsOut);
+                boatsOut,
+                nextSaveGeneration);
 
         float[] playerPos = Player is null
                 ? []
@@ -4371,7 +4650,8 @@ public partial class VoxelWorld : Node3D
                 Player?.Stats.Experience ?? 0,
                 Player?.Rotation.Y,
                 Player?.Camera?.Rotation.X,
-                Player?.Stats.Dead ?? false);
+                Player?.Stats.Dead ?? false,
+                nextSaveGeneration);
 
         long elapsedPlaytime = (long)_unsavedPlaytimeSeconds;
         WorldManifest updatedManifest = _manifest with
@@ -4380,6 +4660,7 @@ public partial class VoxelWorld : Node3D
             PlayedUtc = WorldStore.NowUtc(),
             PlaytimeSeconds = _manifest.PlaytimeSeconds + elapsedPlaytime,
             HasSavedData = true,
+            SaveGeneration = nextSaveGeneration,
         };
 
         // Globalize paths before dispatch. The worker receives only immutable
@@ -4412,9 +4693,14 @@ public partial class VoxelWorld : Node3D
         }
         else
         {
+            // One file may already have been atomically published. Repeating the
+            // same generation could rotate away the last matching previous pair.
+            // Freeze ordinary writes until the user restores a coherent snapshot.
             _dirty = true;
+            WorldStore.RequireRecovery(_worldDir);
+            SetWorldReadOnly($"the last save transaction did not commit: {result.Error}");
             GD.PushWarning(
-                    $"minecraft: background save incomplete; it will be retried on the next autosave ({result.Error})");
+                    $"minecraft: background save incomplete; the world is now read-only until a matching backup set is restored ({result.Error})");
         }
     }
 
@@ -4470,7 +4756,9 @@ public partial class VoxelWorld : Node3D
             catch (Exception error)
             {
                 _dirty = true;
-                GD.PushWarning($"minecraft: background save worker failed ({error.Message})");
+                WorldStore.RequireRecovery(_worldDir);
+                SetWorldReadOnly($"the background save worker failed after dispatch: {error.Message}");
+                GD.PushWarning($"minecraft: background save worker failed; the world is read-only pending recovery ({error.Message})");
             }
         }
 
@@ -4506,7 +4794,9 @@ public partial class VoxelWorld : Node3D
         catch (Exception error)
         {
             _dirty = true;
-            GD.PushWarning($"minecraft: background save worker failed during flush ({error.Message})");
+            WorldStore.RequireRecovery(_worldDir);
+            SetWorldReadOnly($"the background save worker failed during flush: {error.Message}");
+            GD.PushWarning($"minecraft: background save worker failed during flush; the world is read-only pending recovery ({error.Message})");
         }
     }
 
@@ -4528,6 +4818,8 @@ public partial class VoxelWorld : Node3D
             // Explicit save/quit keeps its synchronous durability contract. Finish
             // the older snapshot first, then capture and write the latest state.
             FlushBackgroundSave();
+            if (_worldReadOnlyReason != null)
+                return false;
             WorldSaveSnapshot snapshot = CaptureSaveSnapshot();
             WorldSaveWorkerResult result = WorldSaveWorker.WriteSynchronously(snapshot);
             CompleteSave(snapshot, result);
@@ -4590,7 +4882,8 @@ public partial class VoxelWorld : Node3D
     private static bool HasSaveCandidate(string path) =>
             FileAccess.FileExists(path)
             || FileAccess.FileExists(path + ".bak")
-            || FileAccess.FileExists(path + ".bak2");
+            || FileAccess.FileExists(path + ".bak2")
+            || FileAccess.FileExists(path + ".bak3");
 
     private void SetWorldReadOnly(string reason)
     {
@@ -4599,19 +4892,14 @@ public partial class VoxelWorld : Node3D
 
     private void LoadSave()
     {
-        string worldSavePath = WorldStore.WorldSavePath(_worldDir);
-        WorldSave? world = WorldStore.ReadJson<WorldSave>(worldSavePath, WorldStore.Json);
-        if (world == null && HasSaveCandidate(worldSavePath))
+        WorldReadResult<WorldSavePair> pairRead = WorldStore.ReadSavePairResult(_worldDir, _manifest);
+        WorldSave? world = pairRead.Value?.World;
+        PlayerSave? player = pairRead.Value?.Player;
+        if (pairRead.Value is null)
         {
             SetWorldReadOnly(
-                    "world save is unreadable in the primary file and both backups; saving is disabled");
-        }
-        else if (world != null && !WorldCompatibilityPolicy.IsSupportedSaveVersion(
-                world.Version, WorldStore.WorldFormatVersion))
-        {
-            SetWorldReadOnly(
-                    $"world save format V{world.Version} is unsupported; " +
-                    $"this build supports V1–V{WorldStore.WorldFormatVersion}");
+                    $"world/player saves do not form a committed snapshot pair ({pairRead.Status}); saving is disabled");
+            GD.PushWarning($"minecraft: {_worldDir} opened read-only because its save pair is inconsistent ({pairRead.Error})");
         }
 
         if (world?.Edits != null)
@@ -4783,8 +5071,6 @@ public partial class VoxelWorld : Node3D
             }
         }
 
-        PlayerSave? player = WorldStore.ReadJson<PlayerSave>(
-                WorldStore.PlayerSavePath(_worldDir), WorldStore.Json);
         if (player?.Pos is { Length: 3 } p)
         {
             SavedPlayerPos = new Vector3(p[0], p[1], p[2]);

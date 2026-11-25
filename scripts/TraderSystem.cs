@@ -2,6 +2,12 @@ using Godot;
 
 namespace Minecraft;
 
+public static class TraderLifecycleRules
+{
+    public static bool CanSpawn(bool trackedInstanceValid, bool trackedInstanceQueued) =>
+            !trackedInstanceValid || trackedInstanceQueued;
+}
+
 /// <summary>
 /// Spawns a wandering trader near a campfire every few minutes and removes it
 /// after a visit. Right-clicking the trader opens the barter panel.
@@ -31,7 +37,8 @@ public partial class TraderSystem : Node
             return;
         }
 
-        if (_trader is not null && IsInstanceValid(_trader))
+        if (_trader is not null && IsInstanceValid(_trader)
+                && !_trader.IsQueuedForDeletion())
         {
             _age += delta;
             if (_age > VisitLength
@@ -68,6 +75,12 @@ public partial class TraderSystem : Node
             return false;
         }
 
+        bool trackedValid = _trader is not null && GodotObject.IsInstanceValid(_trader);
+        bool trackedQueued = trackedValid && _trader!.IsQueuedForDeletion();
+        if (!TraderLifecycleRules.CanSpawn(trackedValid, trackedQueued))
+            return false;
+        _trader = null;
+
         Vector3 point;
         Vector3 playerPos = _player.GlobalPosition;
         if (_world.NearbyCampfireSites(playerPos, CampfireSearch).Count > 0)
@@ -90,6 +103,11 @@ public partial class TraderSystem : Node
         trader.GlobalPosition = point;
         trader.GlobalRotation = new Vector3(0, GD.Randf() * Mathf.Tau, 0);
         _trader = trader;
+        trader.TreeExiting += () =>
+        {
+            if (ReferenceEquals(_trader, trader))
+                _trader = null;
+        };
         _age = 0.0;
         return true;
     }

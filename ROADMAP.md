@@ -2,7 +2,7 @@
 
 This is the **current forward plan**, not a running implementation diary. Completed work, integration records and historical audits are preserved under docs/history and the relevant subsystem folders.
 
-**Status date:** 2026-11-24  
+**Status date:** 2026-11-25  
 **Current engine baseline:** Godot 4.7.2 .NET  
 **Current framework target:** .NET 10  
 **Latest published build:** [v1.1.0-beta.1](https://github.com/firasotoom85-droid/minecraft-godot/releases/tag/v1.1.0-beta.1)
@@ -12,12 +12,17 @@ This is the **current forward plan**, not a running implementation diary. Comple
 | Area | State | Next action |
 |---|---|---|
 | Documentation and repository standards | In progress | Merge this repository-hygiene work; keep active docs short and move completed reports to history |
+| W11 persistence and recovery hardening | Integrated | Verified locally on 2026-11-25 (201,755 headless checks, 0 failures) including generation pairing, backup rotation/promotion, archive validation, deletion quarantine and dirty-state autosave. Hosted CI and a human save/recovery playtest remain |
+| Gameplay, inventory and progression integrity (W14) | Integrated | Verified locally on 2026-11-25 (202,687 headless checks, 0 failures) for hostile limits, furnace fuel, inventory overflow, recipe transactions and generator V13. Hosted CI and a human playtest remain |
 | Build and test baseline | Established | Keep Debug/Release warnings-as-errors, registered headless suites and deterministic spatial-light probes green on every PR |
+| Worker cancellation and pooled payload ownership | Integrated (W13.1) | Keep bounded shutdown checkpoints and single-owner pooled-buffer release covered by CI |
+| Dependency-local revisions and staged chunk application | Integrated (W13.2) | MX230 measured 2026-11-25: frame p50/p95 unchanged, max draw calls 317→560, resource-step p95 9.18 ms; higher-end GPU comparison remains |
 | .NET lifecycle | Migration in this change | Verify .NET 10 through CI and the Godot 4.7.2 export path before treating it as released |
 | Release packaging | Being automated | Exercise tag-triggered Linux/Windows export packaging on a beta tag |
 | Performance baselines | Partial | Benchmark/soak reports now expose persistent managed-memory categories and high-water marks; record a fresh controlled Release baseline, with the comparable RTX 4060 run still outstanding |
 | Gameplay/visual sign-off | Partial | Complete human playtesting across mining, building, combat, quests, saves and low/high graphics presets |
-| Player lifecycle and safe recovery (W12) | Implemented; CI verified | Keep the destination resolver authoritative; capture controlled Release performance baselines on the MX230 reference and a higher-end GPU before release sign-off |
+| Player lifecycle and safe recovery (W12) | Integrated | Verified locally on 2026-11-25 (202,772 headless checks, 0 failures); keep the destination resolver authoritative; capture controlled Release performance baselines on the MX230 reference and a higher-end GPU before release sign-off |
+| UI, controls, audio and graphics (W15) | Combined branch green | `w15-combined`: 202,756 checks, 0 failures (keybind fix `3d752a2`); minimap/photo/glass captures and UI/audio playtest remain before merge |
 | Public project profile | Incomplete | Repository is already public; add a description and relevant topics in GitHub Settings |
 
 **Persistence contract (integrated W01):** autosave captures an immutable save
@@ -26,11 +31,28 @@ and performs the three atomic file writes, so `_Process()` performs no
 serialization or disk I/O. Explicit save and quit flush older work before
 writing the latest state synchronously.
 
+**W11 persistence integrity (implementation in progress):** world and player
+save records share a monotonically increasing generation, and the manifest is
+the commit marker written after both files. Readers select only a matching
+pair across the primary and three rotating backup tiers; a mismatched or
+incomplete pair is never silently combined. Recovered pairs are promoted to
+the primary files before normal play continues. Backup restores and archive
+imports validate complete generation-matched snapshots. User-requested world
+deletion atomically moves the whole directory into `user://worlds/.trash` and
+retains it as a recovery copy; permanent cleanup remains available for
+disposable internal/test worlds.
+
 **Persistence recovery (integrated W05):** world and player manifests and saves use model-specific validation with ordered backup fallback. A damaged selected world is retained in recovery rather than silently replaced, and ordinary writes are blocked until a valid world/player pair is restored. The optional `hasSavedData` manifest marker distinguishes a never-saved world from lost save history. Archive imports validate metadata and candidates; duplication and deletion do not traverse links or other reparse points.
 
 **Gameplay lifecycle guard (integrated W08):** crop growth validates loaded-only farmland and open space, pausing without generating terrain. Merchant biome progress reconciles unique `explored/<Biome>` flags. Mob and village simulation suspend when their terrain chunk is unavailable. Water columns retain level 1 at their foot, and unknown neighbours cannot weaken flow. Mob steering respects plants, lava and stateful slab/stair occupancy.
 
 **Player destination contract (W12, implemented and CI-verified):** startup, saved-position recovery, respawn, void recovery, console teleports and boat dismounts resolve through a shared player destination transaction. It validates support and capsule/hazard clearance, prepares the destination chunk's collision payload at the current world edit epoch, and only then commits the transform. Nearby occupied-geometry edits synchronously refresh the affected chunk collider; distant edits retain the bounded worker rebuild path. The Godot 4.7.2 .NET CI run passes Debug and Release with warnings as errors, all 201,706 headless assertions, and the five spatial-light probe scenarios. This verifies correctness and regression coverage, not a hardware performance benchmark: controlled Release measurements on the MX230 reference and a higher-end GPU remain part of release sign-off.
+
+**Chunk worker cancellation and payload ownership (integrated W13.1):** world-shutdown cancellation is propagated through chunk generation, snapshot preparation, voxel lighting, greedy/per-face meshing and Far-LOD tile builds. `Mesher.BuildCore()` owns each rented render/collision buffer until a completed `MeshPayload` takes ownership; failure/cancellation returns partial rents, and payload release is idempotent. Far-LOD shutdown cancellation is not treated as a retryable tile failure. Local verification on 2026-11-25 passed Debug/Release warnings-as-errors builds, 201,710 headless checks and five 27/27 spatial lighting probe grids with zero measured drift. W13.1 leaves dependency validation and main-thread payload application to the separate W13.2 slice.
+
+**Dependency-local revisions and staged application (integrated W13.2):** each mesh payload captures a target-local revision for the block and lighting data it samples; geometry edits retain edge/corner granularity, while light-affecting edits invalidate the 5×5 target region required by neighboring 3×3 light maps and their 14-voxel propagation halo. Light solves validate only the 5×5 source revisions. The monotonic world `EditEpoch` remains for diagnostics and is no longer the unrelated-payload rejection gate. Main-thread resource creation advances in triangle-aligned slices capped at 8,190 vertices; an existing chunk is not replaced until all mesh and collision resources are prepared. The 2 ms budget is checked between steps, not guaranteed as a hard cap on an individual Godot call. Performance reports include rolling apply-step and collision p50/p95/p99 metrics; controlled MX230 and higher-end runs remain the tuning gate. Dependency revision storage is capped at 16,384 entries; crossing the cap advances a revision floor, so in-flight payloads and light solves are rebuilt instead of applied after revisions are pruned.
+
+**Gameplay state integrity (W14):** hostile population limits are enforced at the common spawn boundary; every herd spawn checks loaded terrain and capsule clearance; damage, breeding, furnace and inventory operations validate inputs before consuming state. Recipe-book outputs are preflighted against post-consumption capacity, achievement unlocks update an open journal, trader sessions expire with their residents, and particle bursts use bounded emitter pools. Generated village wheat is registered through the existing chunk-scan path. Campfire/structure exclusion is generator V13-only so V1–V12 remain frozen. Verified locally on 2026-11-25 by the registered headless suite (202,687 checks, zero failures); existing worlds keep their manifest generator version.
 
 ## 2. Stable-release quality gates
 

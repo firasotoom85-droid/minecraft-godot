@@ -68,6 +68,8 @@ public static class Profiler
     public static long TrackedManagedBytesHighWaterEstimate;
     public static double ApplyAverageMs;
     public static double ApplyMaximumMs;
+    public static double ApplyStepAverageMs;
+    public static double ApplyStepMaximumMs;
     public static double CollisionAverageMs;
     public static double CollisionMaximumMs;
     public static long CollisionVerticesApplied;
@@ -75,7 +77,15 @@ public static class Profiler
     private static readonly Lock RuntimeMetricsLock = new();
     private static double _applyTotalMs;
     private static long _applySamples;
+    private static double _applyStepTotalMs;
+    private static long _applyStepSamples;
+    private static readonly double[] ApplyStepTimings = new double[Window];
+    private static int _applyStepWindowCount;
+    private static int _applyStepWindowNext;
     private static double _collisionTotalMs;
+    private static readonly double[] CollisionTimings = new double[Window];
+    private static int _collisionWindowCount;
+    private static int _collisionWindowNext;
     private static long _collisionSamples;
 
     public static void RecordBuild(double ms)
@@ -132,6 +142,53 @@ public static class Profiler
         }
     }
 
+    /// <summary>Clear resource and collision timing windows before a benchmark measurement.</summary>
+    public static void ResetApplyStepSamples()
+    {
+        lock (RuntimeMetricsLock)
+        {
+            Array.Clear(ApplyStepTimings, 0, ApplyStepTimings.Length);
+            _applyStepWindowCount = 0;
+            _applyStepWindowNext = 0;
+            Array.Clear(CollisionTimings, 0, CollisionTimings.Length);
+            _collisionWindowCount = 0;
+            _collisionWindowNext = 0;
+            _applyTotalMs = 0.0;
+            _applySamples = 0;
+            ApplyAverageMs = 0.0;
+            ApplyMaximumMs = 0.0;
+            _applyStepTotalMs = 0.0;
+            _applyStepSamples = 0;
+            _collisionTotalMs = 0.0;
+            _collisionSamples = 0;
+            ApplyStepAverageMs = 0.0;
+            ApplyStepMaximumMs = 0.0;
+            CollisionAverageMs = 0.0;
+            CollisionMaximumMs = 0.0;
+            CollisionVerticesApplied = 0;
+        }
+    }
+
+    /// <summary>Record one bounded main-thread resource-creation step.</summary>
+    public static void RecordApplyStep(double milliseconds)
+    {
+        if (!double.IsFinite(milliseconds) || milliseconds < 0.0) return;
+        lock (RuntimeMetricsLock)
+        {
+            _applyStepTotalMs += milliseconds;
+            _applyStepSamples++;
+            ApplyStepAverageMs = _applyStepTotalMs / _applyStepSamples;
+            ApplyStepMaximumMs = Math.Max(ApplyStepMaximumMs, milliseconds);
+            ApplyStepTimings[_applyStepWindowNext] = milliseconds;
+            _applyStepWindowNext = (_applyStepWindowNext + 1) % Window;
+            if (_applyStepWindowCount < Window) _applyStepWindowCount++;
+        }
+    }
+
+    /// <summary>Rolling p50/p95/p99 of recent staged render/collision resource steps.</summary>
+    public static BuildTimeStats ApplyStepDistribution() =>
+            Distribution(RuntimeMetricsLock, ApplyStepTimings, _applyStepWindowCount);
+
     public static void RecordCollision(double milliseconds, int vertices)
     {
         if (!double.IsFinite(milliseconds) || milliseconds < 0.0) return;
@@ -142,6 +199,35 @@ public static class Profiler
             CollisionAverageMs = _collisionTotalMs / _collisionSamples;
             CollisionMaximumMs = Math.Max(CollisionMaximumMs, milliseconds);
             CollisionVerticesApplied += Math.Max(0, vertices);
+            CollisionTimings[_collisionWindowNext] = milliseconds;
+            _collisionWindowNext = (_collisionWindowNext + 1) % Window;
+            if (_collisionWindowCount < Window) _collisionWindowCount++;
+        }
+    }
+
+    /// <summary>Rolling p50/p95/p99 of recent collision-shape creation steps.</summary>
+    public static BuildTimeStats CollisionDistribution() =>
+            Distribution(RuntimeMetricsLock, CollisionTimings, _collisionWindowCount);
+
+    private static BuildTimeStats Distribution(Lock gate, double[] samples, int count)
+    {
+        lock (gate)
+        {
+            if (count == 0)
+                return new BuildTimeStats(0, 0.0, 0.0, 0.0, 0.0, 0.0);
+
+            double[] ordered = new double[count];
+            Array.Copy(samples, ordered, count);
+            Array.Sort(ordered);
+            double sum = 0.0;
+            for (int i = 0; i < ordered.Length; i++) sum += ordered[i];
+            return new BuildTimeStats(
+                    count,
+                    sum / count,
+                    BenchmarkStatistics.PercentileSorted(ordered, 0.50),
+                    BenchmarkStatistics.PercentileSorted(ordered, 0.95),
+                    BenchmarkStatistics.PercentileSorted(ordered, 0.99),
+                    ordered[^1]);
         }
     }
 
@@ -273,9 +359,22 @@ public static class Profiler
 public static class StreamingApplyBudget
 {
     public const int MaxPendingPayloads = 18;
-    /// <summary>Always allow one payload to make progress, even when it exceeds the frame budget.</summary>
-    public static bool ShouldStop(double elapsedMilliseconds, int appliedCount, double budgetMilliseconds) =>
-            appliedCount > 0 && elapsedMilliseconds >= Math.Max(0.0, budgetMilliseconds);
+    // 8190 is triangle-aligned; a single resource-creation step cannot consume an entire chunk payload.
+    public const int MaxVerticesPerStep = 8190;
+
+    /// <summary>Return one triangle-aligned resource-creation slice.</summary>
+    public static int BatchLength(int remainingVertices)
+    {
+        if (remainingVertices <= 0) return 0;
+        if (remainingVertices % 3 != 0)
+            throw new ArgumentException("A mesh batch must contain complete triangles.", nameof(remainingVertices));
+
+        return Math.Min(remainingVertices, MaxVerticesPerStep);
+    }
+
+    /// <summary>Always allow one bounded work unit to make progress.</summary>
+    public static bool ShouldStop(double elapsedMilliseconds, int completedSteps, double budgetMilliseconds) =>
+            completedSteps > 0 && elapsedMilliseconds >= Math.Max(0.0, budgetMilliseconds);
 }
 
 public static class StreamingMemoryBudget
