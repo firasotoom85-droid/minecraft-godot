@@ -191,6 +191,21 @@ internal static class ChunkStreamingPolicy
     }
 
     /// <summary>
+    /// A light-affecting edit can change one of the three-by-three baked light
+    /// maps consumed by a mesh two chunks away because each map has a 14-block
+    /// propagation halo. Geometry-only edits retain the tighter edge/corner rule.
+    /// </summary>
+    public static bool AffectsMeshDependency(
+            int dx, int dz, int localX, int localZ,
+            int chunkX, int chunkZ, bool lightingChanged)
+    {
+        if (lightingChanged)
+            return dx >= -2 && dx <= 2 && dz >= -2 && dz <= 2;
+
+        return AffectsChunk(dx, dz, localX, localZ, chunkX, chunkZ, lightingChanged: false);
+    }
+
+    /// <summary>
     /// Tests whether any chunk touched by a deterministic generator cell lies
     /// inside the retained area. The full cell bounds are used so null-cache
     /// entries are evicted only when their entire procedural region is distant.
@@ -252,10 +267,11 @@ internal sealed class ChunkDependencyRevisions
         if (lightingChanged)
             _lightInputRevisions[cp] = NextRevision();
 
-        for (int dz = -1; dz <= 1; dz++)
-            for (int dx = -1; dx <= 1; dx++)
+        int dependencyRadius = lightingChanged ? 2 : 1;
+        for (int dz = -dependencyRadius; dz <= dependencyRadius; dz++)
+            for (int dx = -dependencyRadius; dx <= dependencyRadius; dx++)
             {
-                if (!ChunkStreamingPolicy.AffectsChunk(
+                if (!ChunkStreamingPolicy.AffectsMeshDependency(
                         dx, dz, localX, localZ, chunkX, chunkZ, lightingChanged))
                     continue;
 

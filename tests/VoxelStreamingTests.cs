@@ -893,6 +893,16 @@ public static class VoxelStreamingTests
         TestAssert.Check(!revisions.IsMeshRevisionCurrent(northWest, diagonalBefore),
                 "a corner edit invalidates the matching diagonal dependency");
 
+        long twoChunksAwayBefore = revisions.MeshRevision(center + new Vector2I(2, 0));
+        long threeChunksAwayBefore = revisions.MeshRevision(center + new Vector2I(3, 0));
+        revisions.RecordBlockMutation(center, 8, 8, 16, 16, lightingChanged: true);
+        TestAssert.Check(!revisions.IsMeshRevisionCurrent(
+                        center + new Vector2I(2, 0), twoChunksAwayBefore),
+                "light edits invalidate targets that consume neighboring halo-affected light maps");
+        TestAssert.Check(revisions.IsMeshRevisionCurrent(
+                        center + new Vector2I(3, 0), threeChunksAwayBefore),
+                "light edits do not invalidate targets outside the 5x5 dependency region");
+
         long[] lightSnapshot = new long[25];
         revisions.CaptureLightInputRevisions(center, lightSnapshot);
         revisions.RecordBlockMutation(

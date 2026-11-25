@@ -2561,14 +2561,15 @@ public partial class VoxelWorld : Node3D
         MarkDirty();
         BlockChanged?.Invoke(new Vector3I(x, y, z));
 
-        // The edited chunk always changes. Geometry-only dependencies are
-        // limited to the sampled edge/corner; light-affecting edits retain the
-        // full existing 3x3 region for the 14-voxel propagation halo.
-        for (int dz = -1; dz <= 1; dz++)
+        // Geometry-only edits rebuild the owner plus sampled edge/corner chunks.
+        // Lighting edits rebuild a 5x5 target region: each target consumes 3x3
+        // cached maps, and those maps each include the existing 14-voxel light halo.
+        int dependencyRadius = lightingChanged ? 2 : 1;
+        for (int dz = -dependencyRadius; dz <= dependencyRadius; dz++)
         {
-            for (int dx = -1; dx <= 1; dx++)
+            for (int dx = -dependencyRadius; dx <= dependencyRadius; dx++)
             {
-                if (!ChunkStreamingPolicy.AffectsChunk(dx, dz, lx, lz,
+                if (!ChunkStreamingPolicy.AffectsMeshDependency(dx, dz, lx, lz,
                         ChunkX, ChunkZ, lightingChanged))
                 {
                     continue;
