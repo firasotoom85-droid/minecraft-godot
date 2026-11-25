@@ -79,7 +79,13 @@ public static class Profiler
     private static long _applySamples;
     private static double _applyStepTotalMs;
     private static long _applyStepSamples;
+    private static readonly double[] ApplyStepTimings = new double[Window];
+    private static int _applyStepWindowCount;
+    private static int _applyStepWindowNext;
     private static double _collisionTotalMs;
+    private static readonly double[] CollisionTimings = new double[Window];
+    private static int _collisionWindowCount;
+    private static int _collisionWindowNext;
     private static long _collisionSamples;
 
     public static void RecordBuild(double ms)
@@ -136,6 +142,29 @@ public static class Profiler
         }
     }
 
+    /// <summary>Clear resource and collision timing windows before a benchmark measurement.</summary>
+    public static void ResetApplyStepSamples()
+    {
+        lock (RuntimeMetricsLock)
+        {
+            Array.Clear(ApplyStepTimings, 0, ApplyStepTimings.Length);
+            _applyStepWindowCount = 0;
+            _applyStepWindowNext = 0;
+            Array.Clear(CollisionTimings, 0, CollisionTimings.Length);
+            _collisionWindowCount = 0;
+            _collisionWindowNext = 0;
+            _applyStepTotalMs = 0.0;
+            _applyStepSamples = 0;
+            _collisionTotalMs = 0.0;
+            _collisionSamples = 0;
+            ApplyStepAverageMs = 0.0;
+            ApplyStepMaximumMs = 0.0;
+            CollisionAverageMs = 0.0;
+            CollisionMaximumMs = 0.0;
+            CollisionVerticesApplied = 0;
+        }
+    }
+
     /// <summary>Record one bounded main-thread resource-creation step.</summary>
     public static void RecordApplyStep(double milliseconds)
     {
@@ -146,8 +175,15 @@ public static class Profiler
             _applyStepSamples++;
             ApplyStepAverageMs = _applyStepTotalMs / _applyStepSamples;
             ApplyStepMaximumMs = Math.Max(ApplyStepMaximumMs, milliseconds);
+            ApplyStepTimings[_applyStepWindowNext] = milliseconds;
+            _applyStepWindowNext = (_applyStepWindowNext + 1) % Window;
+            if (_applyStepWindowCount < Window) _applyStepWindowCount++;
         }
     }
+
+    /// <summary>Rolling p50/p95/p99 of recent staged render/collision resource steps.</summary>
+    public static BuildTimeStats ApplyStepDistribution() =>
+            Distribution(RuntimeMetricsLock, ApplyStepTimings, _applyStepWindowCount);
 
     public static void RecordCollision(double milliseconds, int vertices)
     {
@@ -159,6 +195,35 @@ public static class Profiler
             CollisionAverageMs = _collisionTotalMs / _collisionSamples;
             CollisionMaximumMs = Math.Max(CollisionMaximumMs, milliseconds);
             CollisionVerticesApplied += Math.Max(0, vertices);
+            CollisionTimings[_collisionWindowNext] = milliseconds;
+            _collisionWindowNext = (_collisionWindowNext + 1) % Window;
+            if (_collisionWindowCount < Window) _collisionWindowCount++;
+        }
+    }
+
+    /// <summary>Rolling p50/p95/p99 of recent collision-shape creation steps.</summary>
+    public static BuildTimeStats CollisionDistribution() =>
+            Distribution(RuntimeMetricsLock, CollisionTimings, _collisionWindowCount);
+
+    private static BuildTimeStats Distribution(Lock gate, double[] samples, int count)
+    {
+        lock (gate)
+        {
+            if (count == 0)
+                return new BuildTimeStats(0, 0.0, 0.0, 0.0, 0.0, 0.0);
+
+            double[] ordered = new double[count];
+            Array.Copy(samples, ordered, count);
+            Array.Sort(ordered);
+            double sum = 0.0;
+            for (int i = 0; i < ordered.Length; i++) sum += ordered[i];
+            return new BuildTimeStats(
+                    count,
+                    sum / count,
+                    BenchmarkStatistics.PercentileSorted(ordered, 0.50),
+                    BenchmarkStatistics.PercentileSorted(ordered, 0.95),
+                    BenchmarkStatistics.PercentileSorted(ordered, 0.99),
+                    ordered[^1]);
         }
     }
 
