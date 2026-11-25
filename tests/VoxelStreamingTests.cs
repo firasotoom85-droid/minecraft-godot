@@ -928,7 +928,7 @@ public static class VoxelStreamingTests
     private static void TestStreamingApplyBatches()
     {
         TestAssert.Equal(StreamingApplyBudget.MaxVerticesPerStep,
-                StreamingApplyBudget.BatchLength(20_000),
+                StreamingApplyBudget.BatchLength(20_001),
                 "one streaming apply step is capped at the configured vertex limit");
         TestAssert.Equal(5_001, StreamingApplyBudget.BatchLength(5_001),
                 "valid surface and collision batches keep their complete triangle groups");
