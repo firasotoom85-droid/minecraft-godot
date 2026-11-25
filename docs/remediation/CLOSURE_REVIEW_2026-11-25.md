@@ -16,6 +16,16 @@ implements the requested behaviour.
 | #123 | `VoxelWorld` subscribes to `PlayerStats.Changed` and marks the world dirty, so stationary survival changes enter autosave. |
 | #124 | `Player.TrySetRespawnAnchor` calls `World.MarkDirty()` after a validated anchor change. |
 | #127 | `ChunkData` registers generated and cached wheat through `RegisterCropSourcesLocked`, so village crops enter `_crops`. |
+| #94 | Far-LOD payload application requires a matching generation, revision and streamed-area skip mask (`FarLodLifecycleRules`; `FarLodLifecycleTests`). |
+| #97 | Worker exceptions use bounded retry handling and publish no payload (`VoxelStreamingTests`). |
+| #98, #99, #195 | `ResolveWorld` rejects unsupported generator versions, refuses data-bearing worlds without a readable manifest, and refuses incomplete noise metadata without deriving replacements. |
+| #101 | Concurrent chunk generation is deduplicated through `ChunkGenerationReservations.GetOrCreate`. |
+| #103 | Generator V12 rejects coordinates outside its supported horizontal range. |
+| #111 | Unknown byte-backed block IDs remain loadable and are preserved as opaque edits (`SaveTests` future-block case). |
+| #129 | Autosave runs when playtime reaches the interval even without a gameplay dirty flag, and playtime is persisted in the manifest. |
+| #145 | Campfire, structure and village site caches are evicted by `PruneWorldCaches`. |
+| #182 | Appended block IDs have explicit break-sound family coverage in `KeybindTests`. |
+| #196, #197, #198 | Queue reconciliation drops rebuild requests outside retention, refreshes fresh priorities, and bounds retry history (`VoxelStreamingTests`). |
 | #147, #202 | Far-LOD failure/in-flight completion uses `FarLodLifecycleRules`; `FarLodLifecycleTests` covers failure, cancellation and identity-safe release. |
 | #189 | `FindSpawn` expands the deterministic search and throws when no candidate is safe; the hard-coded fallback is gone. |
 | #199, #201 | Shutdown cancellation is distinct from retryable worker failure and releases reservations; `VoxelStreamingTests` covers the cancellation paths. |
@@ -23,11 +33,14 @@ implements the requested behaviour.
 
 ## Still open on `main`
 
-- **Streaming/performance:** #94, #95, #97, #141, #145, #148, #149, #151, #194, #195, #196, #197, #198, #200. #148's staged transaction still exceeds the 2 ms step budget on the MX230 (p95 9.18 ms); #141 only covers near-player mutations synchronously.
-- **World generation:** #98, #99, #101, #103.
-- **Persistence/compatibility:** #111, #129.
-- **Rendering investigation:** #137 (intra-chunk glass sorting; needs captures).
-- **Audio:** #182 (needs issue-specific confirmation against the W15 material-sound mappings).
+- **#95** — duplicate in-flight chunk builds: the work tracker exists, but no dedicated regression proves the duplicate-scheduling case.
+- **#137** — intra-chunk glass sorting remains an investigation requiring rendered before/after captures.
+- **#141** — only near-player mutations refresh collision synchronously; distant edits still wait for the async rebuild.
+- **#148** — the staged transaction still exceeds the 2 ms cooperative step budget on the MX230 (p95 9.18 ms); a smaller batch would trade draw calls for latency.
+- **#149** — initial 3×3 spawn chunks still build synchronously during startup.
+- **#151** — edit-top metadata reconstruction still regenerates terrain data per edited chunk instead of reusing cached data.
+- **#194** — Far-LOD exclusion and full-resolution chunk retention still use different radii.
+- **#200** — incremental block-light updates still materialise state volumes per emitter edit.
 
 ## Newer remediation issues (#217–#282)
 
