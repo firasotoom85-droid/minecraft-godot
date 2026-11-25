@@ -255,12 +255,17 @@ public static class SaveTests
             string workerWorldPath = Path.Combine(workerRoot, "world.json");
             string workerPlayerPath = Path.Combine(workerRoot, "player.json");
             string workerManifestPath = Path.Combine(workerRoot, "manifest.json");
+            string workerGenerationA = Guid.NewGuid().ToString("N");
+            string workerGenerationB = Guid.NewGuid().ToString("N");
             WorldManifest workerManifest = new(
                     "Background Save Test", 24680, WorldStore.CurrentGenVersion,
-                    WorldStore.DeriveNoiseSeeds(24680), 1, 1, HasSavedData: true);
+                    WorldStore.DeriveNoiseSeeds(24680), 1, 1,
+                    HasSavedData: true, SnapshotId: workerGenerationA);
             WorldSaveSnapshot workerSnapshot = new(
-                    new WorldSave(WorldStore.WorldFormatVersion, [], 0.25),
-                    new PlayerSave([1.0f, 2.0f, 3.0f], Health: 16.0f),
+                    new WorldSave(WorldStore.WorldFormatVersion, [], 0.25,
+                            SnapshotId: workerGenerationA),
+                    new PlayerSave([1.0f, 2.0f, 3.0f], Health: 16.0f,
+                            SnapshotId: workerGenerationA),
                     workerManifest,
                     workerWorldPath,
                     workerPlayerPath,
@@ -282,9 +287,14 @@ public static class SaveTests
 
             WorldSaveSnapshot nextWorkerSnapshot = workerSnapshot with
             {
-                World = workerSnapshot.World with { Time = 0.75 },
-                Player = workerSnapshot.Player with { Health = 11.0f },
-                Manifest = workerSnapshot.Manifest with { PlaytimeSeconds = 10 },
+                World = workerSnapshot.World with { Time = 0.75, SnapshotId = workerGenerationB },
+                Player = workerSnapshot.Player with { Health = 11.0f, SnapshotId = workerGenerationB },
+                Manifest = workerSnapshot.Manifest with
+                {
+                    PlaytimeSeconds = 10,
+                    SnapshotId = workerGenerationB,
+                },
+                PreviousManifest = workerSnapshot.Manifest,
                 DirtyRevision = 2,
                 ElapsedPlaytimeSeconds = 5.0,
             };

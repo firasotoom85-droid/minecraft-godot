@@ -1154,6 +1154,8 @@ public static class WorldStore
                 if (!ValidateModel(value, out WorldReadStatus validationStatus, out string validationError))
                 {
                     lastError = $"{candidate}: {validationError}";
+                    if (typeof(T) == typeof(WorldSave) || typeof(T) == typeof(PlayerSave))
+                        GD.PushWarning($"minecraft: rejected save candidate {candidate}: {validationError}");
                     if (validationStatus == WorldReadStatus.Unsupported)
                     {
                         // Never downgrade a newer primary save to an older backup.
@@ -1174,6 +1176,7 @@ public static class WorldStore
                     if (!string.Equals(candidateSnapshotId, expectedSnapshotId ?? "", StringComparison.Ordinal))
                     {
                         lastError = $"{candidate}: save generation does not match the committed manifest";
+                        GD.PushWarning($"minecraft: rejected save candidate {candidate}: generation does not match the manifest");
                         continue;
                     }
                 }

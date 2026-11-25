@@ -4261,6 +4261,8 @@ public partial class VoxelWorld : Node3D
             WorldSaveSnapshot snapshot = CaptureSaveSnapshot();
             WorldSaveWorkerResult result = WorldSaveWorker.WriteSynchronously(snapshot);
             CompleteSave(snapshot, result);
+            if (!result.Success)
+                GD.PushWarning($"minecraft: explicit save failed; the previous committed generation was retained ({result.Error})");
             return result.Success;
         }
         catch (Exception error)

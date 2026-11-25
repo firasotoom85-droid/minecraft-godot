@@ -60,8 +60,8 @@ public partial class GameSession : Node
                     or WorldReadStatus.Inaccessible)
             {
                 throw new System.IO.InvalidDataException(
-                        $"The selected world requires save recovery. World data: {worldRead.Status}; "
-                        + $"player data: {playerRead.Status}. No files were replaced.");
+                        $"The selected world requires save recovery. World data: {worldRead.Status} ({worldRead.Error}); "
+                        + $"player data: {playerRead.Status} ({playerRead.Error}). No files were replaced.");
             }
 
             bool incompletePair = (worldRead.Status == WorldReadStatus.Missing)
