@@ -109,9 +109,10 @@ public partial class EmberWarden : Mob
             float d = toPlayer.Length();
             if (d < ChaseRadius)
             {
+                bool visible = HasLineOfSight(player);
                 _slamCd -= delta;
                 _volleyCd -= delta;
-                if (d < SlamRange && _slamCd <= 0.0)
+                if (d < SlamRange && MobCombatRules.CanAttack((float)_slamCd, visible))
                 {
                     _slamCd = SlamCooldown;
                     float damage = MobCombatRules.DamageForDifficulty(4.0f, 5.0f);
@@ -123,7 +124,7 @@ public partial class EmberWarden : Mob
                         Manager?.Lunge(this);
                     }
                 }
-                else if (d < VolleyRange && _volleyCd <= 0.0)
+                else if (d < VolleyRange && MobCombatRules.CanAttack((float)_volleyCd, visible))
                 {
                     _volleyCd = VolleyCooldown;
                     float damage = MobCombatRules.DamageForDifficulty(2.0f, 3.0f);

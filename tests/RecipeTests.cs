@@ -116,6 +116,25 @@ public static class RecipeTests
         TestAssert.Equal(4, packed.CountOf(ItemId.Planks), "failed craft keeps the planks");
         TestAssert.Equal(3, packed.CountOf(ItemId.Stick), "failed craft keeps the sticks");
 
+        Inventory ingredientsFreeOutputRoom = new();
+        for (int i = 0; i < Inventory.SlotCount; i++)
+            ingredientsFreeOutputRoom.Set(i, ItemDb.New(ItemId.Dirt, 64));
+        ingredientsFreeOutputRoom.Set(0, ItemDb.New(ItemId.Coal, 1));
+        ingredientsFreeOutputRoom.Set(1, ItemDb.New(ItemId.Stick, 1));
+        Recipe torchRecipe = Recipes.All.First(r => r.Result == ItemId.Torch);
+        TestAssert.Check(!ingredientsFreeOutputRoom.CanFit(ItemId.Torch, 4),
+                "pre-consumption capacity correctly sees no free inventory slot");
+        TestAssert.Check(Recipes.CanCraftAndFit(torchRecipe, ingredientsFreeOutputRoom),
+                "recipe-book preflight reserves capacity released by its ingredients");
+        TestAssert.Check(Recipes.Craft(torchRecipe, ingredientsFreeOutputRoom),
+                "recipe-book craft succeeds when consuming ingredients creates enough output space");
+        TestAssert.Equal(4, ingredientsFreeOutputRoom.CountOf(ItemId.Torch),
+                "crafted recipe output occupies the capacity released by its ingredients");
+        TestAssert.Equal(0, ingredientsFreeOutputRoom.CountOf(ItemId.Coal),
+                "successful recipe consumes its exact coal ingredient");
+        TestAssert.Equal(0, ingredientsFreeOutputRoom.CountOf(ItemId.Stick),
+                "successful recipe consumes its exact stick ingredient");
+
         Inventory roomy = new();
         roomy.Set(0, ItemDb.New(ItemId.Planks, 4));
         roomy.Set(1, ItemDb.New(ItemId.Stick, 3));

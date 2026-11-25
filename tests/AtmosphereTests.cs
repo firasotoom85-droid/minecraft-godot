@@ -16,6 +16,7 @@ public static class AtmosphereTests
         TestSunlightDirectionAndBakedChannels();
         TestDistanceHazeProfile();
         TestWeatherPrecipitationSelection();
+        TestLightningStrikeDamage();
         TestWaterDepthSpace();
     }
 
@@ -747,6 +748,21 @@ public static class AtmosphereTests
                 "rain keeps its configured heavy cloud target");
         TestAssert.Equal(0.95f, Weather.TargetCloudinessFor(Weather.State.Storm),
                 "storm keeps its configured maximum cloud target");
+    }
+
+    private static void TestLightningStrikeDamage()
+    {
+        Vector3 player = new(12.2f, 71.5f, -9.7f);
+        Vector3 nearHit = LightningStrikeRules.NearStrikePosition(player, 71);
+        TestAssert.Check(LightningStrikeRules.CanDamagePlayer(
+                        nearHit, player, 71, 40),
+                "a storm strike in the player's surface column can cause lightning damage");
+        TestAssert.Check(!LightningStrikeRules.CanDamagePlayer(
+                        nearHit + new Vector3(7, 0, 0), player, 71, 40),
+                "distant lightning remains visual-only for the player");
+        TestAssert.Check(!LightningStrikeRules.CanDamagePlayer(
+                        nearHit, player, 40, 40),
+                "lightning does not damage the player when the strike is at or below sea level");
     }
 
     private static void TestWaterDepthSpace()

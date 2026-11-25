@@ -87,6 +87,58 @@ public static class FurnaceTests
                 "carried partial progress completes the ninth smelt");
         TestAssert.Check(fuelBoundary.Input.IsEmpty,
                 "the input is consumed after the carried-progress smelt");
+
+        FurnaceData acceptedSlots = new();
+        TestAssert.Check(acceptedSlots.TrySetSlot(0, ItemDb.New(ItemId.RawIron, 2)),
+                "furnace runtime accepts a valid smeltable input");
+        TestAssert.Check(acceptedSlots.TrySetSlot(1, ItemDb.New(ItemId.Coal, 1)),
+                "furnace runtime accepts a valid fuel item");
+        TestAssert.Check(!acceptedSlots.TrySetSlot(0, ItemDb.New(ItemId.Planks, 1)),
+                "furnace input rejects items that have no smelting recipe");
+        TestAssert.Check(!acceptedSlots.TrySetSlot(1, ItemDb.New(ItemId.Stone, 1)),
+                "furnace fuel rejects items that cannot burn");
+        TestAssert.Equal(ItemId.RawIron, acceptedSlots.Input.Id,
+                "invalid input insertion leaves the existing furnace stack unchanged");
+        TestAssert.Equal(ItemId.Coal, acceptedSlots.Fuel.Id,
+                "invalid fuel insertion leaves the existing furnace stack unchanged");
+        TestAssert.Check(!ItemStackSaveValidator.FitsFurnaceSlot(
+                        0, ItemDb.New(ItemId.Planks, 1)),
+                "persisted furnace validation applies the same input acceptance rule");
+
+        FurnaceData malformedRuntime = new()
+        {
+            Input = ItemDb.New(ItemId.Planks, 1),
+            Fuel = ItemDb.New(ItemId.Coal, 1),
+        };
+        TestAssert.Check(!malformedRuntime.Tick(10.0f),
+                "furnace tick refuses to progress malformed runtime stacks");
+        TestAssert.Equal(1, malformedRuntime.Fuel.Count,
+                "malformed furnace state does not consume fuel");
+        TestAssert.Check(malformedRuntime.Output.IsEmpty,
+                "malformed furnace state does not produce output");
+
+        FurnaceData invalidDelta = new()
+        {
+            Input = ItemDb.New(ItemId.RawIron, 1),
+            Fuel = ItemDb.New(ItemId.Coal, 1),
+        };
+        TestAssert.Check(!invalidDelta.Tick(float.NaN),
+                "furnace rejects NaN elapsed time");
+        TestAssert.Equal(1, invalidDelta.Fuel.Count,
+                "invalid elapsed time cannot consume furnace fuel");
+
+        FurnaceData invalidFuelProgress = new()
+        {
+            Input = ItemDb.New(ItemId.RawIron, 1),
+            Fuel = ItemDb.New(ItemId.Diamond, 1),
+            SmeltTime = 4.0f,
+        };
+        TestAssert.Check(invalidFuelProgress.Tick(0.1f),
+                "furnace clears partial progress when its fuel stack is invalid");
+        TestAssert.Equal(0.0f, invalidFuelProgress.SmeltTime,
+                "invalid fuel does not preserve smelt progress without active burn time");
+        TestAssert.Equal(1, invalidFuelProgress.Fuel.Count,
+                "invalid fuel is never consumed during validation");
     }
 }
 
