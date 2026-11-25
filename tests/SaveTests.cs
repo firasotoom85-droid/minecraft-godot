@@ -12,8 +12,11 @@ public static class SaveTests
 {
     public static void Run()
     {
+
         string root = $"user://tests/save-{Time.GetTicksUsec()}";
         DirAccess.MakeDirRecursiveAbsolute(root);
+        TestCommittedSavePairGenerations();
+        TestCanonicalSaveValidation();
 
         Dictionary<string, Dictionary<string, BlockId>> edits = new()
         {
@@ -178,13 +181,16 @@ public static class SaveTests
                     "backup-rotation fixture writes its second generation");
             TestAssert.Check(WorldSaveWorker.WriteAtomic(workerRotationPath, "generation-3", out _),
                     "backup-rotation fixture establishes primary and two backups");
+            TestAssert.Check(WorldSaveWorker.WriteAtomic(workerRotationPath, "generation-4", out _),
+                    "backup-rotation fixture establishes the third backup tier");
 
             string primaryBeforeFailure = Convert.ToHexString(File.ReadAllBytes(workerRotationPath));
             string backupBeforeFailure = Convert.ToHexString(File.ReadAllBytes(workerRotationPath + ".bak"));
-            string oldestBeforeFailure = Convert.ToHexString(File.ReadAllBytes(workerRotationPath + ".bak2"));
+            string secondBackupBeforeFailure = Convert.ToHexString(File.ReadAllBytes(workerRotationPath + ".bak2"));
+            string thirdBackupBeforeFailure = Convert.ToHexString(File.ReadAllBytes(workerRotationPath + ".bak3"));
             bool failedRotation = WorldSaveWorker.WriteAtomic(
                     workerRotationPath,
-                    "generation-4",
+                    "generation-5",
                     out string? rotationError,
                     beforeCurrentToBackup: () => throw new System.IO.IOException(
                             "injected current-primary-to-backup rotation failure"));
@@ -196,18 +202,21 @@ public static class SaveTests
             TestAssert.Equal(backupBeforeFailure,
                     Convert.ToHexString(File.ReadAllBytes(workerRotationPath + ".bak")),
                     "rotation failure preserves the previous backup byte-for-byte");
-            TestAssert.Equal(oldestBeforeFailure,
+            TestAssert.Equal(secondBackupBeforeFailure,
                     Convert.ToHexString(File.ReadAllBytes(workerRotationPath + ".bak2")),
-                    "rotation failure preserves the oldest backup byte-for-byte");
+                    "rotation failure preserves the second backup byte-for-byte");
+            TestAssert.Equal(thirdBackupBeforeFailure,
+                    Convert.ToHexString(File.ReadAllBytes(workerRotationPath + ".bak3")),
+                    "rotation failure preserves the third backup byte-for-byte");
             TestAssert.Check(!File.Exists(workerRotationPath + ".tmp"),
                     "failed rotation removes its temporary file");
             TestAssert.Equal(0,
-                    Directory.GetFiles(rotationRoot, "rotation.json.bak2.stage-*").Length,
+                    Directory.GetFiles(rotationRoot, "rotation.json.bak3.stage-*").Length,
                     "failed rotation restores and removes the staged oldest backup");
 
             bool failedPublish = WorldSaveWorker.WriteAtomic(
                     workerRotationPath,
-                    "generation-4",
+                    "generation-5",
                     out string? publishError,
                     beforePublish: () => throw new System.IO.IOException(
                             "injected final temp-to-primary publish failure"));
@@ -220,25 +229,30 @@ public static class SaveTests
             TestAssert.Equal(backupBeforeFailure,
                     Convert.ToHexString(File.ReadAllBytes(workerRotationPath + ".bak")),
                     "final publish failure restores the previous backup byte-for-byte");
-            TestAssert.Equal(oldestBeforeFailure,
+            TestAssert.Equal(secondBackupBeforeFailure,
                     Convert.ToHexString(File.ReadAllBytes(workerRotationPath + ".bak2")),
-                    "final publish failure restores the oldest backup byte-for-byte");
+                    "final publish failure restores the second backup byte-for-byte");
+            TestAssert.Equal(thirdBackupBeforeFailure,
+                    Convert.ToHexString(File.ReadAllBytes(workerRotationPath + ".bak3")),
+                    "final publish failure restores the third backup byte-for-byte");
             TestAssert.Check(!File.Exists(workerRotationPath + ".tmp"),
                     "failed final publish removes its temporary file");
             TestAssert.Equal(0,
-                    Directory.GetFiles(rotationRoot, "rotation.json.bak2.stage-*").Length,
+                    Directory.GetFiles(rotationRoot, "rotation.json.bak3.stage-*").Length,
                     "successful rollback leaves no staged oldest-backup file");
 
-            TestAssert.Check(WorldSaveWorker.WriteAtomic(workerRotationPath, "generation-4", out _),
+            TestAssert.Check(WorldSaveWorker.WriteAtomic(workerRotationPath, "generation-5", out _),
                     "backup rotation succeeds after the injected publish failure");
-            TestAssert.Equal("generation-4", File.ReadAllText(workerRotationPath),
+            TestAssert.Equal("generation-5", File.ReadAllText(workerRotationPath),
                     "successful rotation publishes the new primary");
-            TestAssert.Equal("generation-3", File.ReadAllText(workerRotationPath + ".bak"),
+            TestAssert.Equal("generation-4", File.ReadAllText(workerRotationPath + ".bak"),
                     "successful rotation moves the previous primary to .bak");
-            TestAssert.Equal("generation-2", File.ReadAllText(workerRotationPath + ".bak2"),
+            TestAssert.Equal("generation-3", File.ReadAllText(workerRotationPath + ".bak2"),
                     "successful rotation advances the previous .bak to .bak2");
+            TestAssert.Equal("generation-2", File.ReadAllText(workerRotationPath + ".bak3"),
+                    "successful rotation advances the previous .bak2 to .bak3");
             TestAssert.Equal(0,
-                    Directory.GetFiles(rotationRoot, "rotation.json.bak2.stage-*").Length,
+                    Directory.GetFiles(rotationRoot, "rotation.json.bak3.stage-*").Length,
                     "successful commit removes the staged oldest-backup file");
         }
         finally
@@ -256,10 +270,11 @@ public static class SaveTests
             string workerManifestPath = Path.Combine(workerRoot, "manifest.json");
             WorldManifest workerManifest = new(
                     "Background Save Test", 24680, WorldStore.CurrentGenVersion,
-                    WorldStore.DeriveNoiseSeeds(24680), 1, 1, HasSavedData: true);
+                    WorldStore.DeriveNoiseSeeds(24680), 1, 1,
+                    HasSavedData: true, SaveGeneration: 1);
             WorldSaveSnapshot workerSnapshot = new(
-                    new WorldSave(WorldStore.WorldFormatVersion, [], 0.25),
-                    new PlayerSave([1.0f, 2.0f, 3.0f], Health: 16.0f),
+                    new WorldSave(WorldStore.WorldFormatVersion, [], 0.25, SaveGeneration: 1),
+                    new PlayerSave([1.0f, 2.0f, 3.0f], Health: 16.0f, SaveGeneration: 1),
                     workerManifest,
                     workerWorldPath,
                     workerPlayerPath,
@@ -281,9 +296,9 @@ public static class SaveTests
 
             WorldSaveSnapshot nextWorkerSnapshot = workerSnapshot with
             {
-                World = workerSnapshot.World with { Time = 0.75 },
-                Player = workerSnapshot.Player with { Health = 11.0f },
-                Manifest = workerSnapshot.Manifest with { PlaytimeSeconds = 10 },
+                World = workerSnapshot.World with { Time = 0.75, SaveGeneration = 2 },
+                Player = workerSnapshot.Player with { Health = 11.0f, SaveGeneration = 2 },
+                Manifest = workerSnapshot.Manifest with { PlaytimeSeconds = 10, SaveGeneration = 2 },
                 DirtyRevision = 2,
                 ElapsedPlaytimeSeconds = 5.0,
             };
@@ -291,6 +306,7 @@ public static class SaveTests
                     WorldSaveWorker.WriteAsync(nextWorkerSnapshot).GetAwaiter().GetResult();
             TestAssert.Check(secondWorkerSave.Success,
                     "ordered background worker accepts the next world snapshot");
+            WorldSaveWorkerSnapshotGenerationRegression(workerSnapshot, workerRoot);
             WorldSave? currentWorkerWorld =
                     JsonSerializer.Deserialize<WorldSave>(File.ReadAllText(workerWorldPath), WorldStore.Json);
             WorldSave? backupWorkerWorld =
@@ -328,10 +344,12 @@ public static class SaveTests
                     JsonSerializer.Serialize(previousManifest, WorldStore.ManifestJson));
             WorldSaveSnapshot incompletePair = workerSnapshot with
             {
+                World = workerSnapshot.World with { SaveGeneration = 2 },
+                Player = workerSnapshot.Player with { SaveGeneration = 2 },
                 WorldPath = incompleteWorldPath,
                 PlayerPath = incompletePlayerPath,
                 ManifestPath = incompleteManifestPath,
-                Manifest = workerManifest with { HasSavedData = true },
+                Manifest = workerManifest with { HasSavedData = true, SaveGeneration = 2 },
             };
             WorldSaveWorkerResult incompleteResult =
                     WorldSaveWorker.WriteSynchronously(incompletePair);
@@ -401,6 +419,25 @@ public static class SaveTests
         TestAssert.Check(!DirAccess.DirExistsAbsolute(worldDir), "world folder is gone");
         TestAssert.Check(!WorldStore.Delete("user://settings.cfg"), "delete refuses paths outside worlds");
 
+        string retainedDeleteDir = WorldStore.Create("Quarantine Retention Test", 424243);
+        string retainedMarker = retainedDeleteDir + "/preserve-me.txt";
+        using (FileAccess? markerFile = FileAccess.Open(retainedMarker, FileAccess.ModeFlags.Write))
+            markerFile?.StoreString("complete recovery copy");
+        TestAssert.Check(WorldStore.Delete(retainedDeleteDir, retainRecoveryCopy: true),
+                "user deletion commits by moving the complete world into quarantine");
+        string? retainedQuarantine = WorldStore.LastDeleteQuarantinePath;
+        TestAssert.Check(retainedQuarantine is not null
+                        && !DirAccess.DirExistsAbsolute(retainedDeleteDir)
+                        && DirAccess.DirExistsAbsolute(retainedQuarantine),
+                "quarantined world is absent from the live list but remains on disk");
+        TestAssert.Equal("complete recovery copy",
+                FileAccess.GetFileAsString(retainedQuarantine + "/preserve-me.txt"),
+                "user deletion retains every original file instead of recursively erasing it");
+
+        if (retainedQuarantine is not null
+                && System.IO.Directory.Exists(ProjectSettings.GlobalizePath(retainedQuarantine)))
+            System.IO.Directory.Delete(ProjectSettings.GlobalizePath(retainedQuarantine), recursive: true);
+
         string escapeDir = WorldStore.WorldsRoot + "/../delete-escape-world";
         DirAccess.MakeDirRecursiveAbsolute(escapeDir);
         string escapeMarker = escapeDir + "/marker.txt";
@@ -448,33 +485,38 @@ public static class SaveTests
         WorldStore.WriteAtomic(rotationPath, "generation-one");
         WorldStore.WriteAtomic(rotationPath, "generation-two");
         WorldStore.WriteAtomic(rotationPath, "generation-three");
+        WorldStore.WriteAtomic(rotationPath, "generation-four");
         WorldStore.RenameForTests = (from, to) =>
                 from == rotationPath && to == rotationPath + ".bak"
                         ? Error.Failed : DirAccess.RenameAbsolute(from, to);
         bool rotationFailed;
-        try { rotationFailed = !WorldStore.WriteAtomic(rotationPath, "generation-four"); }
+        try { rotationFailed = !WorldStore.WriteAtomic(rotationPath, "generation-five"); }
         finally { WorldStore.RenameForTests = null; }
         TestAssert.Check(rotationFailed, "injected current-to-backup rename failure is reported");
-        TestAssert.Equal("generation-three", FileAccess.GetFileAsString(rotationPath),
+        TestAssert.Equal("generation-four", FileAccess.GetFileAsString(rotationPath),
                 "failed rotation preserves the previous primary");
-        TestAssert.Equal("generation-two", FileAccess.GetFileAsString(rotationPath + ".bak"),
+        TestAssert.Equal("generation-three", FileAccess.GetFileAsString(rotationPath + ".bak"),
                 "failed rotation restores the first backup");
-        TestAssert.Equal("generation-one", FileAccess.GetFileAsString(rotationPath + ".bak2"),
-                "failed rotation restores the oldest backup");
+        TestAssert.Equal("generation-two", FileAccess.GetFileAsString(rotationPath + ".bak2"),
+                "failed rotation restores the second backup");
+        TestAssert.Equal("generation-one", FileAccess.GetFileAsString(rotationPath + ".bak3"),
+                "failed rotation restores the third backup");
 
         WorldStore.RenameForTests = (from, to) =>
                 from == rotationPath + ".tmp" && to == rotationPath
                         ? Error.Failed : DirAccess.RenameAbsolute(from, to);
         bool commitFailed;
-        try { commitFailed = !WorldStore.WriteAtomic(rotationPath, "generation-four"); }
+        try { commitFailed = !WorldStore.WriteAtomic(rotationPath, "generation-five"); }
         finally { WorldStore.RenameForTests = null; }
         TestAssert.Check(commitFailed, "injected final temp commit failure is reported");
-        TestAssert.Equal("generation-three", FileAccess.GetFileAsString(rotationPath),
+        TestAssert.Equal("generation-four", FileAccess.GetFileAsString(rotationPath),
                 "failed final commit restores the previous primary");
-        TestAssert.Equal("generation-two", FileAccess.GetFileAsString(rotationPath + ".bak"),
+        TestAssert.Equal("generation-three", FileAccess.GetFileAsString(rotationPath + ".bak"),
                 "failed final commit restores the previous backup");
-        TestAssert.Equal("generation-one", FileAccess.GetFileAsString(rotationPath + ".bak2"),
-                "failed final commit retains the oldest backup");
+        TestAssert.Equal("generation-two", FileAccess.GetFileAsString(rotationPath + ".bak2"),
+                "failed final commit restores the second backup");
+        TestAssert.Equal("generation-one", FileAccess.GetFileAsString(rotationPath + ".bak3"),
+                "failed final commit retains the third backup");
 
         // IDs are collision-resistant, and a forced duplicate cannot overwrite
         // the first world's metadata.
@@ -759,8 +801,10 @@ public static class SaveTests
             PlayedUtc = 2,
             HasSavedData = false,
         };
-        TestAssert.Check(WorldStore.WriteManifest(legacyPlayedWorld, legacyPlayedManifest),
-                "legacy timestamp-only manifest remains writable");
+        TestAssert.Check(!WorldStore.WriteManifest(legacyPlayedWorld, legacyPlayedManifest),
+                "manifest updates cannot claim saved history without a matching world/player pair");
+        File.WriteAllText(ProjectSettings.GlobalizePath(WorldStore.ManifestPath(legacyPlayedWorld)),
+                JsonSerializer.Serialize(legacyPlayedManifest, WorldStore.ManifestJson));
         if (session is not null)
         {
             session.SelectWorld(legacyPlayedWorld);
@@ -832,4 +876,211 @@ public static class SaveTests
         if (System.IO.Directory.Exists(ProjectSettings.GlobalizePath(root)))
             System.IO.Directory.Delete(ProjectSettings.GlobalizePath(root), recursive: true);
     }
+    private static void WorldSaveWorkerSnapshotGenerationRegression(
+            WorldSaveSnapshot snapshot, string workerRoot)
+    {
+        WorldSaveSnapshot mismatched = snapshot with
+        {
+            Player = snapshot.Player with { SaveGeneration = snapshot.Manifest.SaveGeneration + 1 },
+            WorldPath = Path.Combine(workerRoot, "mismatched-world.json"),
+            PlayerPath = Path.Combine(workerRoot, "mismatched-player.json"),
+            ManifestPath = Path.Combine(workerRoot, "mismatched-manifest.json"),
+        };
+        WorldSaveWorkerResult rejected = WorldSaveWorker.WriteSynchronously(mismatched);
+        TestAssert.Check(!rejected.Success,
+                "background worker rejects world/player/manifest generation mismatch");
+        TestAssert.Check(!File.Exists(mismatched.WorldPath)
+                        && !File.Exists(mismatched.PlayerPath)
+                        && !File.Exists(mismatched.ManifestPath),
+                "generation mismatch is rejected before any save file is written");
+    }
+
+    private static void TestCommittedSavePairGenerations()
+    {
+        string world = WorldStore.Create("Snapshot Pair Regression", 77231);
+        string mismatched = WorldStore.Create("Mismatched Pair Regression", 77232);
+        try
+        {
+            WorldManifest originalManifest = WorldStore.ReadManifest(world)!;
+            WorldSave worldOne = new(WorldStore.WorldFormatVersion, null, 0.25, SaveGeneration: 1);
+            PlayerSave playerOne = new([1.0f, 2.0f, 3.0f], Health: 16.0f, SaveGeneration: 1);
+            TestAssert.Check(WorldStore.WriteAtomic(WorldStore.WorldSavePath(world),
+                    JsonSerializer.Serialize(worldOne, WorldStore.Json)),
+                    "first world save generation writes");
+            TestAssert.Check(WorldStore.WriteAtomic(WorldStore.PlayerSavePath(world),
+                    JsonSerializer.Serialize(playerOne, WorldStore.Json)),
+                    "first player save generation writes");
+            WorldManifest generationOne = originalManifest with
+            {
+                HasSavedData = true,
+                SaveGeneration = 1,
+            };
+            TestAssert.Check(WorldStore.WriteManifest(world, generationOne),
+                    "manifest commits only after both generation-one files exist");
+
+            // Simulate several interrupted world-only publications. The old
+            // committed pair must remain discoverable at the third backup tier.
+            WorldSave orphanTwo = worldOne with { Time = 0.5, SaveGeneration = 2 };
+            WorldSave orphanThree = worldOne with { Time = 0.625, SaveGeneration = 3 };
+            WorldSave orphanFour = worldOne with { Time = 0.875, SaveGeneration = 4 };
+            TestAssert.Check(WorldStore.WriteAtomic(WorldStore.WorldSavePath(world),
+                    JsonSerializer.Serialize(orphanTwo, WorldStore.Json)),
+                    "first uncommitted world payload publishes");
+            TestAssert.Check(WorldStore.WriteAtomic(WorldStore.WorldSavePath(world),
+                    JsonSerializer.Serialize(orphanThree, WorldStore.Json)),
+                    "second uncommitted world payload publishes");
+            TestAssert.Check(WorldStore.WriteAtomic(WorldStore.WorldSavePath(world),
+                    JsonSerializer.Serialize(orphanFour, WorldStore.Json)),
+                    "third uncommitted world payload publishes");
+
+            WorldReadResult<WorldSavePair> halfWritten = WorldStore.ReadSavePairResult(world, generationOne);
+            TestAssert.Equal(WorldReadStatus.Recovered, halfWritten.Status,
+                    "loader selects the previous committed generation from the third backup tier");
+            TestAssert.Equal(1L, halfWritten.Value?.SaveGeneration ?? -1,
+                    "a partially written generation never becomes the loaded save pair");
+            TestAssert.Equal(0.25, halfWritten.Value?.World?.Time ?? -1.0,
+                    "world state is recovered from the matching third-tier backup");
+            TestAssert.Equal(16.0f, halfWritten.Value?.Player?.Health ?? -1.0f,
+                    "player state remains from the same committed generation");
+
+            TestAssert.Check(halfWritten.Value is not null
+                            && WorldStore.PromoteRecoveredSavePair(world, generationOne, halfWritten.Value),
+                    "the recovered third-tier pair is promoted safely before subsequent writes");
+            WorldReadResult<WorldSavePair> promoted = WorldStore.ReadSavePairResult(world, generationOne);
+            TestAssert.Equal(WorldReadStatus.Valid, promoted.Status,
+                    "promoted pair is now present in the primary save files");
+            TestAssert.Equal(1L, promoted.Value?.SaveGeneration ?? -1,
+                    "promotion preserves the committed generation identity");
+
+            WorldSave worldTwo = worldOne with { Time = 0.75, SaveGeneration = 2 };
+            PlayerSave playerTwo = playerOne with
+            {
+                Pos = [4.0f, 5.0f, 6.0f],
+                Health = 11.0f,
+                SaveGeneration = 2,
+            };
+            TestAssert.Check(WorldStore.WriteAtomic(WorldStore.WorldSavePath(world),
+                    JsonSerializer.Serialize(worldTwo, WorldStore.Json)),
+                    "new world snapshot can be written after recovery promotion");
+            TestAssert.Check(WorldStore.WriteAtomic(WorldStore.PlayerSavePath(world),
+                    JsonSerializer.Serialize(playerTwo, WorldStore.Json)),
+                    "matching player snapshot can be written after recovery promotion");
+            WorldReadResult<WorldSavePair> manifestNotAdvanced = WorldStore.ReadSavePairResult(world, generationOne);
+            TestAssert.Equal(1L, manifestNotAdvanced.Value?.SaveGeneration ?? -1,
+                    "matching previous backups remain selected until the manifest commits the new generation");
+            TestAssert.Equal(0.25, manifestNotAdvanced.Value?.World?.Time ?? -1.0,
+                    "two new primary files are not accepted before manifest commit");
+
+            WorldManifest generationTwo = generationOne with
+            {
+                PlaytimeSeconds = 5,
+                PlayedUtc = Math.Max(generationOne.PlayedUtc, generationOne.CreatedUtc + 1),
+                SaveGeneration = 2,
+            };
+            TestAssert.Check(WorldStore.WriteManifest(world, generationTwo),
+                    "manifest advances after both matching generation-two files are present");
+            WorldReadResult<WorldSavePair> committed = WorldStore.ReadSavePairResult(world, generationTwo);
+            TestAssert.Equal(WorldReadStatus.Valid, committed.Status,
+                    "fully committed current generation is loaded without backup fallback");
+            TestAssert.Equal(2L, committed.Value?.SaveGeneration ?? -1,
+                    "manifest, world and player share the committed generation");
+
+            WorldManifest mismatchManifest = WorldStore.ReadManifest(mismatched)! with
+            {
+                HasSavedData = true,
+                SaveGeneration = 1,
+                PlayedUtc = 2,
+                CreatedUtc = 1,
+            };
+            File.WriteAllText(ProjectSettings.GlobalizePath(WorldStore.WorldSavePath(mismatched)),
+                    JsonSerializer.Serialize(worldOne, WorldStore.Json));
+            File.WriteAllText(ProjectSettings.GlobalizePath(WorldStore.PlayerSavePath(mismatched)),
+                    JsonSerializer.Serialize(playerTwo, WorldStore.Json));
+            File.WriteAllText(ProjectSettings.GlobalizePath(WorldStore.ManifestPath(mismatched)),
+                    JsonSerializer.Serialize(mismatchManifest, WorldStore.ManifestJson));
+            WorldReadResult<WorldSavePair> invalidPair =
+                    WorldStore.ReadSavePairResult(mismatched, mismatchManifest);
+            TestAssert.Equal(WorldReadStatus.Corrupt, invalidPair.Status,
+                    "world/player files with different generations are rejected instead of combined");
+            TestAssert.Check(invalidPair.Value is null,
+                    "a mismatched snapshot never exposes a partially combined save model");
+            TestAssert.Check(WorldStore.IsRecoveryRequired(mismatched),
+                    "a mismatched snapshot marks the world recovery-required");
+        }
+        finally
+        {
+            WorldStore.Delete(world);
+            WorldStore.Delete(mismatched);
+        }
+    }
+
+    private static void TestCanonicalSaveValidation()
+    {
+        WorldSave valid = new(WorldStore.WorldFormatVersion,
+                new Dictionary<string, Dictionary<string, BlockId>>
+                {
+                    ["0,0"] = new Dictionary<string, BlockId> { ["3"] = BlockId.Stone },
+                },
+                0.5,
+                new Dictionary<string, List<ItemStackSave>>
+                {
+                    ["1,2,3"] = [new ItemStackSave(0, (int)ItemId.Stone, 1)],
+                });
+
+        TestAssert.Check(WorldStore.ValidateModel(valid, out _, out _),
+                "well-formed coordinate keys and canonical container stacks remain valid");
+        TestAssert.Check(!WorldStore.ValidateModel(valid with
+        {
+            Containers = new Dictionary<string, List<ItemStackSave>>
+            {
+                ["1,2"] = [new ItemStackSave(0, (int)ItemId.Stone, 1)],
+            },
+        }, out _, out _),
+                "container keys must encode exactly three integer coordinates");
+        TestAssert.Check(!WorldStore.ValidateModel(valid with
+        {
+            Edits = new Dictionary<string, Dictionary<string, BlockId>>
+            {
+                ["0,0,1"] = new Dictionary<string, BlockId> { ["3"] = BlockId.Stone },
+            },
+        }, out _, out _),
+                "chunk edit keys must encode exactly two integer coordinates");
+
+        int oversizedCount = ItemDb.MaxStack(ItemId.Stone) + 1;
+        PlayerSave oversized = new([0.0f, 0.0f, 0.0f],
+                Items: [new ItemStackSave(0, (int)ItemId.Stone, oversizedCount)]);
+        TestAssert.Check(!WorldStore.ValidateModel(oversized, out _, out _),
+                "player save validation rejects stacks that the runtime loader would discard");
+
+        PlayerSave cursorStack = new([0.0f, 0.0f, 0.0f],
+                Items: [new ItemStackSave(Inventory.CursorSaveSlot, (int)ItemId.Stone, 1)]);
+        TestAssert.Check(WorldStore.ValidateModel(cursorStack, out _, out _),
+                "persisted crafting-grid and cursor slots remain within the validated inventory slot range");
+
+        PlayerSave futureItem = new([0.0f, 0.0f, 0.0f],
+                Items: [new ItemStackSave(0, 250, 1)]);
+        TestAssert.Check(WorldStore.ValidateModel(futureItem, out _, out _),
+                "unknown byte-backed future item IDs remain preservable as opaque save data");
+
+        WorldSave futureBlock = valid with
+        {
+            Edits = new Dictionary<string, Dictionary<string, BlockId>>
+            {
+                ["0,0"] = new Dictionary<string, BlockId> { ["3"] = (BlockId)250 },
+            },
+        };
+        TestAssert.Check(WorldStore.ValidateModel(futureBlock, out _, out _),
+                "unknown byte-backed block IDs remain loadable for read-only forward compatibility");
+
+        WorldSave invalidFurnace = valid with
+        {
+            Furnaces = new Dictionary<string, FurnaceSave>
+            {
+                ["1,2,3"] = new FurnaceSave([new ItemStackSave(0, (int)ItemId.Diamond, 1)]),
+            },
+        };
+        TestAssert.Check(!WorldStore.ValidateModel(invalidFurnace, out _, out _),
+                "furnace validation rejects a known item that its runtime loader cannot accept in the input slot");
+    }
+
 }

@@ -365,7 +365,7 @@ public static class WorldArchive
 
     private static WorldManifest? ReadBestManifest(string directory)
     {
-        foreach (string suffix in new[] { "", ".bak", ".bak2" })
+        foreach (string suffix in new[] { "", ".bak", ".bak2", ".bak3" })
         {
             string path = Path.Combine(directory, "manifest.json" + suffix);
             if (!File.Exists(path)) continue;
@@ -404,10 +404,33 @@ public static class WorldArchive
         bool recovered = !IsValidManifestFile(Path.Combine(worldDirectory, "manifest.json"));
         if (recovered)
             File.WriteAllText(Path.Combine(worldDirectory, "manifest.json"),
-                    JsonSerializer.Serialize(archivedManifest, WorldStore.Json));
+                    JsonSerializer.Serialize(archivedManifest, WorldStore.ManifestJson));
 
-        recovered |= ValidateSaveCandidates(worldDirectory, "world.json", isWorldSave: true);
-        recovered |= ValidateSaveCandidates(worldDirectory, "player.json", isWorldSave: false);
+        WorldReadResult<WorldSavePair> pair = WorldStore.ReadSavePairResult(
+                worldDirectory, stagedManifest);
+        if (pair.Value is null || pair.Status is WorldReadStatus.Corrupt
+                or WorldReadStatus.Unsupported or WorldReadStatus.Inaccessible)
+            throw new InvalidDataException(
+                    "The imported world has missing, mismatched or invalid save data for its manifest generation. "
+                    + pair.Error);
+
+        // Generation-zero archives predate paired snapshot IDs. Preserve the
+        // runtime's legacy single-file support only when the manifest has no
+        // evidence of a completed save. Generation-positive imports always
+        // require both members through ReadSavePairResult.
+        recovered |= pair.Status == WorldReadStatus.Recovered;
+        if (archivedManifest.SaveGeneration > 0
+                && (pair.Value.World is null || pair.Value.Player is null))
+            throw new InvalidDataException(
+                    "The imported world is missing one member of its committed world/player snapshot.");
+
+        if (pair.Value.World is not null)
+            recovered |= !IsMatchingPrimarySave(
+                    Path.Combine(worldDirectory, "world.json"), "world.json", archivedManifest.SaveGeneration);
+        if (pair.Value.Player is not null)
+            recovered |= !IsMatchingPrimarySave(
+                    Path.Combine(worldDirectory, "player.json"), "player.json", archivedManifest.SaveGeneration);
+
         return recovered;
     }
 
@@ -424,55 +447,28 @@ public static class WorldArchive
         catch (UnauthorizedAccessException) { return false; }
     }
 
-    private static bool ValidateSaveCandidates(string directory, string fileName, bool isWorldSave)
+    private static bool IsMatchingPrimarySave(string path, string baseName, long generation)
     {
-        bool found = false;
-        string[] candidates = [fileName, fileName + ".bak", fileName + ".bak2"];
-        for (int i = 0; i < candidates.Length; i++)
+        if (!File.Exists(path)) return false;
+        try
         {
-            string path = Path.Combine(directory, candidates[i]);
-            if (!File.Exists(path)) continue;
-            found = true;
-            try
+            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                return false;
+            string json = File.ReadAllText(path);
+            if (baseName == "world.json")
             {
-                if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-                    continue;
-                string json = File.ReadAllText(path);
-                WorldReadStatus candidateStatus = WorldReadStatus.Corrupt;
-                string candidateError = "The save model is null or malformed.";
-                bool valid;
-                if (isWorldSave)
-                {
-                    WorldSave? save = JsonSerializer.Deserialize<WorldSave>(json, WorldStore.Json);
-                    valid = save is not null && WorldStore.ValidateModel(
-                            save, out candidateStatus, out candidateError);
-                }
-                else
-                {
-                    PlayerSave? player = JsonSerializer.Deserialize<PlayerSave>(json, WorldStore.Json);
-                    valid = player is not null && WorldStore.ValidateModel(
-                            player, out candidateStatus, out candidateError);
-                }
+                WorldSave? save = JsonSerializer.Deserialize<WorldSave>(json, WorldStore.Json);
+                return save is not null && save.SaveGeneration == generation
+                        && WorldStore.ValidateModel(save, out _, out _);
+            }
 
-                if (!valid)
-                {
-                    if (candidateStatus == WorldReadStatus.Unsupported)
-                        throw new InvalidDataException(
-                                $"The imported {fileName} uses an unsupported save version: {candidateError}");
-                    continue;
-                }
-                return i > 0;
-            }
-            catch (JsonException) { }
-            catch (UnauthorizedAccessException e)
-            {
-                throw new InvalidDataException($"The imported {fileName} candidate cannot be read.", e);
-            }
+            PlayerSave? player = JsonSerializer.Deserialize<PlayerSave>(json, WorldStore.Json);
+            return player is not null && player.SaveGeneration == generation
+                    && WorldStore.ValidateModel(player, out _, out _);
         }
-
-        if (found)
-            throw new InvalidDataException($"The imported {fileName} and its backups are corrupt or incompatible.");
-        return false; // A never-played world may not have created its first save yet.
+        catch (JsonException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+        catch (IOException) { return false; }
     }
 
     private static bool ManifestsMatch(WorldManifest a, WorldManifest b) =>
@@ -481,6 +477,7 @@ public static class WorldArchive
         && a.Mode == b.Mode && a.Preset == b.Preset
         && a.PlaytimeSeconds == b.PlaytimeSeconds
         && a.HasSavedData == b.HasSavedData
+        && a.SaveGeneration == b.SaveGeneration
         && a.NoiseSeeds.SequenceEqual(b.NoiseSeeds);
 
     private static string FindUniqueWorldName(string root, string requested)
@@ -488,21 +485,15 @@ public static class WorldArchive
         HashSet<string> names = new(StringComparer.OrdinalIgnoreCase);
         foreach (string directory in Directory.EnumerateDirectories(root))
         {
-            string path = Path.Combine(directory, "manifest.json");
-            if (!File.Exists(path)) continue;
             try
             {
-                if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0
-                        || (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
                     continue;
-                string json = File.ReadAllText(path);
-                if (!WorldStore.IsValidBackupModel("manifest.json", json))
-                    continue;
-                WorldManifest? manifest = JsonSerializer.Deserialize<WorldManifest>(json, WorldStore.ManifestJson);
+                WorldManifest? manifest = ReadBestManifest(directory);
                 if (!string.IsNullOrWhiteSpace(manifest?.Name))
                     names.Add(manifest.Name);
             }
-            catch (JsonException) { }
+            catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
 
@@ -574,8 +565,10 @@ public static class WorldBackupStore
         foreach (string path in paths)
         {
             string name = System.IO.Path.GetFileName(path);
-            string baseName = name.EndsWith(".bak2", StringComparison.Ordinal)
-                    ? name[..^5] : name.EndsWith(".bak", StringComparison.Ordinal) ? name[..^4] : "";
+            string baseName = name.EndsWith(".bak3", StringComparison.Ordinal)
+                    ? name[..^5] : name.EndsWith(".bak2", StringComparison.Ordinal)
+                            ? name[..^5] : name.EndsWith(".bak", StringComparison.Ordinal)
+                                    ? name[..^4] : "";
             if (!SaveFiles.Contains(baseName, StringComparer.Ordinal)) continue;
 
             try
@@ -612,27 +605,63 @@ public static class WorldBackupStore
         if (!selected.IsValid)
             return new WorldBackupRestoreResult(false, selected.Status);
 
-        string baseName = selected.FileName.EndsWith(".bak2", StringComparison.Ordinal)
-                ? selected.FileName[..^5] : selected.FileName[..^4];
+        string baseName = selected.FileName.EndsWith(".bak3", StringComparison.Ordinal)
+                ? selected.FileName[..^5] : selected.FileName.EndsWith(".bak2", StringComparison.Ordinal)
+                        ? selected.FileName[..^5] : selected.FileName[..^4];
         if (!SaveFiles.Contains(baseName, StringComparer.Ordinal))
             return new WorldBackupRestoreResult(false, "The selected file is not a recognized world backup.");
 
-        string target = worldDirectory.TrimEnd('/') + "/" + baseName;
-        string content;
-        try { content = File.ReadAllText(ProjectSettings.GlobalizePath(selected.Path)); }
+        string selectedContent;
+        long generation;
+        try
+        {
+            selectedContent = File.ReadAllText(ProjectSettings.GlobalizePath(selected.Path));
+            generation = baseName switch
+            {
+                "manifest.json" => JsonSerializer.Deserialize<WorldManifest>(
+                        selectedContent, WorldStore.ManifestJson)?.SaveGeneration ?? -1,
+                "world.json" => JsonSerializer.Deserialize<WorldSave>(
+                        selectedContent, WorldStore.Json)?.SaveGeneration ?? -1,
+                "player.json" => JsonSerializer.Deserialize<PlayerSave>(
+                        selectedContent, WorldStore.Json)?.SaveGeneration ?? -1,
+                _ => -1,
+            };
+        }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException
-                or System.Security.SecurityException)
+                or System.Security.SecurityException or JsonException)
         {
             return new WorldBackupRestoreResult(false, $"The backup could not be read: {e.Message}");
         }
 
-        if (!WorldStore.WriteAtomic(target, content, allowRecovery: true))
+        if (generation < 0)
+            return new WorldBackupRestoreResult(false, "The selected backup has an invalid snapshot generation.");
+        if (generation == 0)
             return new WorldBackupRestoreResult(false,
-                    "Restore failed. The current save was left in place; check available disk space and permissions.");
+                    "This legacy backup predates paired snapshot identities and cannot be restored safely as an individual file. Exported world archives remain available for legacy recovery.");
+
+        WorldSaveSet? matching = WorldStore.TryReadMatchingSaveSet(worldDirectory, generation);
+        if (matching is null)
+            return new WorldBackupRestoreResult(false,
+                    "This backup has no matching world, player and manifest snapshot. No files were changed.");
+
+        // Publish the manifest last: until it advances, the previous manifest
+        // continues to identify the last committed generation.
+        bool worldWritten = WorldStore.WriteAtomic(
+                WorldStore.WorldSavePath(worldDirectory), matching.WorldJson, allowRecovery: true);
+        bool playerWritten = worldWritten && WorldStore.WriteAtomic(
+                WorldStore.PlayerSavePath(worldDirectory), matching.PlayerJson, allowRecovery: true);
+        bool manifestWritten = playerWritten && WorldStore.WriteAtomic(
+                WorldStore.ManifestPath(worldDirectory), matching.ManifestJson, allowRecovery: true);
+        if (!worldWritten || !playerWritten || !manifestWritten)
+        {
+            WorldStore.RequireRecovery(worldDirectory);
+            return new WorldBackupRestoreResult(false,
+                    "Restore could not commit the complete snapshot. The world remains recovery-protected; try another matching backup set.");
+        }
 
         WorldStore.TryClearRecoveryRequired(worldDirectory);
         return new WorldBackupRestoreResult(true,
-                $"Restored {baseName}. The previous current file was retained as a safety backup.");
+                $"Restored the complete world/player snapshot at generation {generation}. Previous files remain as safety backups.");
     }
 
     private static bool ValidateBackup(string path, string baseName, out string status)
@@ -647,9 +676,29 @@ public static class WorldBackupStore
             }
             string json = ReadBackupTextForTests?.Invoke(path)
                     ?? File.ReadAllText(path);
-            bool valid = WorldStore.IsValidBackupModel(baseName, json);
-            status = valid ? "Valid restore point" : "Corrupt or unsupported backup";
-            return valid;
+            if (!WorldStore.IsValidBackupModel(baseName, json))
+            {
+                status = "Corrupt or unsupported backup";
+                return false;
+            }
+
+            long generation = baseName switch
+            {
+                "manifest.json" => JsonSerializer.Deserialize<WorldManifest>(
+                        json, WorldStore.ManifestJson)?.SaveGeneration ?? -1,
+                "world.json" => JsonSerializer.Deserialize<WorldSave>(
+                        json, WorldStore.Json)?.SaveGeneration ?? -1,
+                "player.json" => JsonSerializer.Deserialize<PlayerSave>(
+                        json, WorldStore.Json)?.SaveGeneration ?? -1,
+                _ => -1,
+            };
+            bool complete = generation > 0
+                    && WorldStore.TryReadMatchingSaveSet(Path.GetDirectoryName(path)!, generation) is not null;
+            status = complete ? "Valid complete snapshot"
+                    : generation == 0
+                            ? "Legacy backup has no paired snapshot identity"
+                            : "No matching world/player/manifest snapshot";
+            return complete;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException
                 or System.Security.SecurityException)
