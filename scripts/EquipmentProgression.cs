@@ -125,17 +125,26 @@ public static class EquipmentProgression
 
     public static ItemId UpgradeTarget(ItemId id) => id switch
     {
-        ItemId.WoodSword => ItemId.StoneSword, ItemId.StoneSword => ItemId.IronSword,
+        ItemId.WoodSword => ItemId.StoneSword,
+        ItemId.StoneSword => ItemId.IronSword,
         ItemId.IronSword => ItemId.DiamondSword,
-        ItemId.WoodPick => ItemId.StonePick, ItemId.WoodAxe => ItemId.StoneAxe,
-        ItemId.WoodShovel => ItemId.StoneShovel, ItemId.WoodHoe => ItemId.StoneHoe,
-        ItemId.StonePick => ItemId.IronPick, ItemId.StoneAxe => ItemId.IronAxe,
-        ItemId.StoneShovel => ItemId.IronShovel, ItemId.StoneHoe => ItemId.IronHoe,
+        ItemId.WoodPick => ItemId.StonePick,
+        ItemId.WoodAxe => ItemId.StoneAxe,
+        ItemId.WoodShovel => ItemId.StoneShovel,
+        ItemId.WoodHoe => ItemId.StoneHoe,
+        ItemId.StonePick => ItemId.IronPick,
+        ItemId.StoneAxe => ItemId.IronAxe,
+        ItemId.StoneShovel => ItemId.IronShovel,
+        ItemId.StoneHoe => ItemId.IronHoe,
         ItemId.IronHelmet => ItemId.DiamondHelmet,
-        ItemId.IronChestplate => ItemId.DiamondChestplate, ItemId.IronLegs => ItemId.DiamondLegs,
-        ItemId.IronBoots => ItemId.DiamondBoots, ItemId.IronPick => ItemId.DiamondPick,
-        ItemId.IronAxe => ItemId.DiamondAxe, ItemId.IronShovel => ItemId.DiamondShovel,
-        ItemId.IronHoe => ItemId.DiamondHoe, _ => ItemId.None,
+        ItemId.IronChestplate => ItemId.DiamondChestplate,
+        ItemId.IronLegs => ItemId.DiamondLegs,
+        ItemId.IronBoots => ItemId.DiamondBoots,
+        ItemId.IronPick => ItemId.DiamondPick,
+        ItemId.IronAxe => ItemId.DiamondAxe,
+        ItemId.IronShovel => ItemId.DiamondShovel,
+        ItemId.IronHoe => ItemId.DiamondHoe,
+        _ => ItemId.None,
     };
 
     public static ItemId UpgradeMaterial(ItemId id) => id switch

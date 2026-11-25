@@ -25,68 +25,71 @@ public static class WorldGenV9
         switch (material)
         {
             case BlockId.Cobblestone:
-            {
-                int mossLayer = site.Kind switch
                 {
-                    3 => 5, 4 => 4, 5 => 5, _ => 2,
-                };
-                int mossChance = site.Kind switch
-                {
-                    0 => 7,
-                    1 => 25,
-                    2 => 3,
-                    3 => 18,
-                    4 => 38,
-                    5 => 46,
-                    _ => 0,
-                };
-                uint moss = CoordinateHash(site.Seed, x, y, z, 0x4D4F5353u);
-                if (relativeY >= 1 && relativeY <= mossLayer && moss % 100u < mossChance)
-                    return BlockId.MossyCobblestone;
+                    int mossLayer = site.Kind switch
+                    {
+                        3 => 5,
+                        4 => 4,
+                        5 => 5,
+                        _ => 2,
+                    };
+                    int mossChance = site.Kind switch
+                    {
+                        0 => 7,
+                        1 => 25,
+                        2 => 3,
+                        3 => 18,
+                        4 => 38,
+                        5 => 46,
+                        _ => 0,
+                    };
+                    uint moss = CoordinateHash(site.Seed, x, y, z, 0x4D4F5353u);
+                    if (relativeY >= 1 && relativeY <= mossLayer && moss % 100u < mossChance)
+                        return BlockId.MossyCobblestone;
 
-                int weatherChance = site.Kind switch
-                {
-                    0 => 34,
-                    1 => 31,
-                    2 => 23,
-                    3 => 38,
-                    4 => 24,
-                    5 => 22,
-                    _ => 0,
-                };
-                uint wear = CoordinateHash(site.Seed, x, y, z, 0x57454152u);
-                return wear % 100u < weatherChance
-                        ? BlockId.WeatheredCobblestone : material;
-            }
+                    int weatherChance = site.Kind switch
+                    {
+                        0 => 34,
+                        1 => 31,
+                        2 => 23,
+                        3 => 38,
+                        4 => 24,
+                        5 => 22,
+                        _ => 0,
+                    };
+                    uint wear = CoordinateHash(site.Seed, x, y, z, 0x57454152u);
+                    return wear % 100u < weatherChance
+                            ? BlockId.WeatheredCobblestone : material;
+                }
 
             case BlockId.Brick:
-            {
-                int mossLayer = site.Kind is 1 or 5 ? 3 : 1;
-                int mossChance = site.Kind switch
                 {
-                    1 => 12,
-                    3 => 4,
-                    4 => 6,
-                    5 => 31,
-                    _ => 0,
-                };
-                uint moss = CoordinateHash(site.Seed, x, y, z, 0x42524D53u);
-                if (relativeY >= 1 && relativeY <= mossLayer && moss % 100u < mossChance)
-                    return BlockId.MossyBrick;
+                    int mossLayer = site.Kind is 1 or 5 ? 3 : 1;
+                    int mossChance = site.Kind switch
+                    {
+                        1 => 12,
+                        3 => 4,
+                        4 => 6,
+                        5 => 31,
+                        _ => 0,
+                    };
+                    uint moss = CoordinateHash(site.Seed, x, y, z, 0x42524D53u);
+                    if (relativeY >= 1 && relativeY <= mossLayer && moss % 100u < mossChance)
+                        return BlockId.MossyBrick;
 
-                int crackChance = site.Kind switch
-                {
-                    0 => 12,
-                    1 => 32,
-                    2 => 18,
-                    3 => 36,
-                    4 => 20,
-                    5 => 23,
-                    _ => 0,
-                };
-                uint crack = CoordinateHash(site.Seed, x, y, z, 0x43524143u);
-                return crack % 100u < crackChance ? BlockId.CrackedBrick : material;
-            }
+                    int crackChance = site.Kind switch
+                    {
+                        0 => 12,
+                        1 => 32,
+                        2 => 18,
+                        3 => 36,
+                        4 => 20,
+                        5 => 23,
+                        _ => 0,
+                    };
+                    uint crack = CoordinateHash(site.Seed, x, y, z, 0x43524143u);
+                    return crack % 100u < crackChance ? BlockId.CrackedBrick : material;
+                }
 
             default:
                 return material;

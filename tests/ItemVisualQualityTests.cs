@@ -72,7 +72,8 @@ public static class ItemVisualQualityTests
                 "unsupported enchant metadata cannot create an invalid visual treatment");
 
         ItemStack protectedArmor = ItemDb.New(ItemId.DiamondChestplate, 1)
-                with { Protection = 3 };
+                with
+        { Protection = 3 };
         Texture2D protectedIcon = ItemDb.Icon(protectedArmor);
         TestAssert.Check(HasPixelDifference(
                         ((ImageTexture)ItemDb.Icon(ItemDb.New(ItemId.DiamondChestplate, 1))).GetImage(),
@@ -80,7 +81,8 @@ public static class ItemVisualQualityTests
                 "Protection creates a distinct armor icon treatment beyond its rare facet");
 
         ItemStack reinforcedPick = ItemDb.New(ItemId.DiamondPick, 1)
-                with { Unbreaking = 3 };
+                with
+        { Unbreaking = 3 };
         Texture2D reinforcedIcon = ItemDb.Icon(reinforcedPick);
         TestAssert.Check(HasPixelDifference(
                         ((ImageTexture)ItemDb.Icon(ItemDb.New(ItemId.DiamondPick, 1))).GetImage(),

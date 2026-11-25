@@ -58,64 +58,64 @@ public static class LightingScreenshotAudit
         List<string> regressions = [];
 
         for (int row = 0; row < GridRows; row++)
-        for (int column = 0; column < GridColumns; column++)
-        {
-            int left = column * width / GridColumns;
-            int right = (column + 1) * width / GridColumns;
-            int top = row * height / GridRows;
-            int bottom = (row + 1) * height / GridRows;
-            int sampleStep = Math.Max(1,
-                    (Math.Min(right - left, bottom - top) + SamplesPerTileEdge - 1) /
-                    SamplesPerTileEdge);
-
-            double referenceSum = 0.0;
-            double capturedSum = 0.0;
-            int sampleCount = 0;
-            int severelyDarkenedSamples = 0;
-
-            for (int y = top + sampleStep / 2; y < bottom; y += sampleStep)
-            for (int x = left + sampleStep / 2; x < right; x += sampleStep)
+            for (int column = 0; column < GridColumns; column++)
             {
-                float referenceLuminance = Luminance(reference.GetPixel(x, y));
-                float capturedLuminance = Luminance(captured.GetPixel(x, y));
-                referenceSum += referenceLuminance;
-                capturedSum += capturedLuminance;
-                sampleCount++;
+                int left = column * width / GridColumns;
+                int right = (column + 1) * width / GridColumns;
+                int top = row * height / GridRows;
+                int bottom = (row + 1) * height / GridRows;
+                int sampleStep = Math.Max(1,
+                        (Math.Min(right - left, bottom - top) + SamplesPerTileEdge - 1) /
+                        SamplesPerTileEdge);
 
-                float drop = referenceLuminance - capturedLuminance;
-                if (referenceLuminance >= MinimumReferencePixelLuminance &&
-                        drop >= MinimumAbsoluteDrop &&
-                        capturedLuminance <= referenceLuminance * MaximumRetainedPixelLuminance)
-                {
-                    severelyDarkenedSamples++;
-                }
+                double referenceSum = 0.0;
+                double capturedSum = 0.0;
+                int sampleCount = 0;
+                int severelyDarkenedSamples = 0;
+
+                for (int y = top + sampleStep / 2; y < bottom; y += sampleStep)
+                    for (int x = left + sampleStep / 2; x < right; x += sampleStep)
+                    {
+                        float referenceLuminance = Luminance(reference.GetPixel(x, y));
+                        float capturedLuminance = Luminance(captured.GetPixel(x, y));
+                        referenceSum += referenceLuminance;
+                        capturedSum += capturedLuminance;
+                        sampleCount++;
+
+                        float drop = referenceLuminance - capturedLuminance;
+                        if (referenceLuminance >= MinimumReferencePixelLuminance &&
+                                drop >= MinimumAbsoluteDrop &&
+                                capturedLuminance <= referenceLuminance * MaximumRetainedPixelLuminance)
+                        {
+                            severelyDarkenedSamples++;
+                        }
+                    }
+
+                if (sampleCount == 0)
+                    continue;
+
+                float referenceMean = (float)(referenceSum / sampleCount);
+                float capturedMean = (float)(capturedSum / sampleCount);
+                if (referenceMean < MinimumReferenceTileLuminance)
+                    continue;
+
+                comparedTiles++;
+                float meanDrop = referenceMean - capturedMean;
+                worstTileDrop = Math.Max(worstTileDrop, meanDrop);
+                float severeCoverage = (float)severelyDarkenedSamples / sampleCount;
+                bool tileMeanCollapsed = meanDrop >= MinimumAbsoluteDrop &&
+                        capturedMean <= referenceMean * MaximumRetainedTileLuminance;
+                bool illuminatedPatchCollapsed =
+                        severeCoverage >= MinimumSeverelyDarkenedTileCoverage;
+
+                if (!tileMeanCollapsed && !illuminatedPatchCollapsed)
+                    continue;
+
+                regressedTiles++;
+                regressions.Add(
+                        $"({column},{row}) ref={referenceMean * 255.0f:F1} " +
+                        $"now={capturedMean * 255.0f:F1} darkened={severeCoverage:P0}");
             }
-
-            if (sampleCount == 0)
-                continue;
-
-            float referenceMean = (float)(referenceSum / sampleCount);
-            float capturedMean = (float)(capturedSum / sampleCount);
-            if (referenceMean < MinimumReferenceTileLuminance)
-                continue;
-
-            comparedTiles++;
-            float meanDrop = referenceMean - capturedMean;
-            worstTileDrop = Math.Max(worstTileDrop, meanDrop);
-            float severeCoverage = (float)severelyDarkenedSamples / sampleCount;
-            bool tileMeanCollapsed = meanDrop >= MinimumAbsoluteDrop &&
-                    capturedMean <= referenceMean * MaximumRetainedTileLuminance;
-            bool illuminatedPatchCollapsed =
-                    severeCoverage >= MinimumSeverelyDarkenedTileCoverage;
-
-            if (!tileMeanCollapsed && !illuminatedPatchCollapsed)
-                continue;
-
-            regressedTiles++;
-            regressions.Add(
-                    $"({column},{row}) ref={referenceMean * 255.0f:F1} " +
-                    $"now={capturedMean * 255.0f:F1} darkened={severeCoverage:P0}");
-        }
 
         if (comparedTiles == 0)
             return new Result(false, 0, 0, worstTileDrop,

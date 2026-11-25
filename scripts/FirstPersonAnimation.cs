@@ -105,104 +105,104 @@ public static class FirstPersonAnimation
         switch (action)
         {
             case FirstPersonAction.Mine:
-            {
-                float windup = 1.0f - SmoothStep(0.0f, 0.38f, p);
-                float impact = SmoothStep(0.22f, 0.43f, p)
-                        * (1.0f - SmoothStep(0.43f, 1.0f, p));
-                armPosition += new Vector3(0.0f, -0.045f * windup + 0.035f * impact,
-                        0.075f * windup - 0.13f * impact);
-                armRotation += new Vector3(-0.20f * windup + 0.92f * impact,
-                        0.0f, -0.15f * impact);
-                itemPosition += new Vector3(0.0f, -0.025f * windup + 0.045f * impact,
-                        0.045f * windup - 0.09f * impact);
-                itemRotation += new Vector3(-0.12f * windup + 0.42f * impact,
-                        0.0f, -0.20f * impact);
-                break;
-            }
+                {
+                    float windup = 1.0f - SmoothStep(0.0f, 0.38f, p);
+                    float impact = SmoothStep(0.22f, 0.43f, p)
+                            * (1.0f - SmoothStep(0.43f, 1.0f, p));
+                    armPosition += new Vector3(0.0f, -0.045f * windup + 0.035f * impact,
+                            0.075f * windup - 0.13f * impact);
+                    armRotation += new Vector3(-0.20f * windup + 0.92f * impact,
+                            0.0f, -0.15f * impact);
+                    itemPosition += new Vector3(0.0f, -0.025f * windup + 0.045f * impact,
+                            0.045f * windup - 0.09f * impact);
+                    itemRotation += new Vector3(-0.12f * windup + 0.42f * impact,
+                            0.0f, -0.20f * impact);
+                    break;
+                }
             case FirstPersonAction.Melee:
-            {
-                float windup = 1.0f - SmoothStep(0.0f, 0.30f, p);
-                float strike = SmoothStep(0.18f, 0.40f, p)
-                        * (1.0f - SmoothStep(0.56f, 1.0f, p));
-                armPosition += new Vector3(-0.015f * strike, -0.055f * windup,
-                        0.11f * windup - 0.16f * strike);
-                armRotation += new Vector3(-0.28f * windup + 0.88f * strike,
-                        -0.10f * strike, -0.52f * strike);
-                itemPosition += new Vector3(-0.025f * strike, -0.025f * windup,
-                        0.06f * windup - 0.14f * strike);
-                itemRotation += new Vector3(-0.20f * windup + 0.50f * strike,
-                        0.0f, -0.58f * strike);
-                break;
-            }
+                {
+                    float windup = 1.0f - SmoothStep(0.0f, 0.30f, p);
+                    float strike = SmoothStep(0.18f, 0.40f, p)
+                            * (1.0f - SmoothStep(0.56f, 1.0f, p));
+                    armPosition += new Vector3(-0.015f * strike, -0.055f * windup,
+                            0.11f * windup - 0.16f * strike);
+                    armRotation += new Vector3(-0.28f * windup + 0.88f * strike,
+                            -0.10f * strike, -0.52f * strike);
+                    itemPosition += new Vector3(-0.025f * strike, -0.025f * windup,
+                            0.06f * windup - 0.14f * strike);
+                    itemRotation += new Vector3(-0.20f * windup + 0.50f * strike,
+                            0.0f, -0.58f * strike);
+                    break;
+                }
             case FirstPersonAction.Place:
-            {
-                float tap = SmoothStep(0.08f, 0.32f, p)
-                        * (1.0f - SmoothStep(0.32f, 0.88f, p));
-                armPosition += new Vector3(0.0f, -0.055f * tap, -0.045f * tap);
-                armRotation += new Vector3(0.36f * tap, 0.0f, 0.04f * tap);
-                itemPosition += new Vector3(0.0f, -0.075f * tap, -0.07f * tap);
-                itemRotation += new Vector3(0.20f * tap, 0.0f, 0.0f);
-                break;
-            }
+                {
+                    float tap = SmoothStep(0.08f, 0.32f, p)
+                            * (1.0f - SmoothStep(0.32f, 0.88f, p));
+                    armPosition += new Vector3(0.0f, -0.055f * tap, -0.045f * tap);
+                    armRotation += new Vector3(0.36f * tap, 0.0f, 0.04f * tap);
+                    itemPosition += new Vector3(0.0f, -0.075f * tap, -0.07f * tap);
+                    itemRotation += new Vector3(0.20f * tap, 0.0f, 0.0f);
+                    break;
+                }
             case FirstPersonAction.Use:
-            {
-                armPosition += new Vector3(0.0f, -0.025f * pulse, -0.045f * pulse);
-                armRotation += new Vector3(0.22f * pulse, 0.0f, -0.06f * pulse);
-                itemPosition += new Vector3(0.0f, -0.035f * pulse, -0.055f * pulse);
-                itemRotation += new Vector3(0.12f * pulse, 0.0f, -0.05f * pulse);
-                break;
-            }
+                {
+                    armPosition += new Vector3(0.0f, -0.025f * pulse, -0.045f * pulse);
+                    armRotation += new Vector3(0.22f * pulse, 0.0f, -0.06f * pulse);
+                    itemPosition += new Vector3(0.0f, -0.035f * pulse, -0.055f * pulse);
+                    itemRotation += new Vector3(0.12f * pulse, 0.0f, -0.05f * pulse);
+                    break;
+                }
             case FirstPersonAction.Eat:
-            {
-                float lift = MathF.Sin(MathF.PI * p);
-                float chew = MathF.Sin(MathF.PI * 2.0f * p) * (1.0f - p);
-                armPosition += new Vector3(0.0f, 0.04f * lift, -0.035f * lift);
-                armRotation += new Vector3(-0.22f * lift, 0.0f, -0.05f * lift);
-                itemPosition += new Vector3(-0.005f, 0.22f * lift, -0.11f * lift);
-                itemRotation += new Vector3(-0.30f * lift + 0.06f * chew, 0.0f, -0.08f * lift);
-                itemScale = 1.0f + 0.035f * lift;
-                break;
-            }
+                {
+                    float lift = MathF.Sin(MathF.PI * p);
+                    float chew = MathF.Sin(MathF.PI * 2.0f * p) * (1.0f - p);
+                    armPosition += new Vector3(0.0f, 0.04f * lift, -0.035f * lift);
+                    armRotation += new Vector3(-0.22f * lift, 0.0f, -0.05f * lift);
+                    itemPosition += new Vector3(-0.005f, 0.22f * lift, -0.11f * lift);
+                    itemRotation += new Vector3(-0.30f * lift + 0.06f * chew, 0.0f, -0.08f * lift);
+                    itemScale = 1.0f + 0.035f * lift;
+                    break;
+                }
             case FirstPersonAction.BowRelease:
-            {
-                float drawBack = 1.0f - SmoothStep(0.0f, 0.42f, p);
-                float release = SmoothStep(0.32f, 0.62f, p)
-                        * (1.0f - SmoothStep(0.62f, 1.0f, p));
-                armPosition += new Vector3(-0.025f * drawBack, 0.0f, 0.10f * drawBack - 0.07f * release);
-                armRotation += new Vector3(-0.12f * drawBack + 0.32f * release,
-                        0.0f, 0.14f * release);
-                itemPosition += new Vector3(-0.025f * drawBack, 0.025f * drawBack,
-                        0.08f * drawBack - 0.04f * release);
-                itemRotation += new Vector3(-0.08f * drawBack, 0.0f, -0.08f * drawBack);
-                break;
-            }
+                {
+                    float drawBack = 1.0f - SmoothStep(0.0f, 0.42f, p);
+                    float release = SmoothStep(0.32f, 0.62f, p)
+                            * (1.0f - SmoothStep(0.62f, 1.0f, p));
+                    armPosition += new Vector3(-0.025f * drawBack, 0.0f, 0.10f * drawBack - 0.07f * release);
+                    armRotation += new Vector3(-0.12f * drawBack + 0.32f * release,
+                            0.0f, 0.14f * release);
+                    itemPosition += new Vector3(-0.025f * drawBack, 0.025f * drawBack,
+                            0.08f * drawBack - 0.04f * release);
+                    itemRotation += new Vector3(-0.08f * drawBack, 0.0f, -0.08f * drawBack);
+                    break;
+                }
             case FirstPersonAction.ShieldBlock:
-            {
-                float raise = SmoothStep(0.0f, 0.24f, p)
-                        * (1.0f - SmoothStep(0.42f, 1.0f, p));
-                armPosition += new Vector3(-0.055f * raise, 0.055f * raise, -0.035f * raise);
-                armRotation += new Vector3(-0.18f * raise, -0.10f * raise, 0.34f * raise);
-                itemPosition += new Vector3(-0.16f * raise, 0.10f * raise, 0.025f * raise);
-                itemRotation += new Vector3(-0.20f * raise, 0.0f, 0.30f * raise);
-                itemScale = 1.0f + 0.06f * raise;
-                break;
-            }
+                {
+                    float raise = SmoothStep(0.0f, 0.24f, p)
+                            * (1.0f - SmoothStep(0.42f, 1.0f, p));
+                    armPosition += new Vector3(-0.055f * raise, 0.055f * raise, -0.035f * raise);
+                    armRotation += new Vector3(-0.18f * raise, -0.10f * raise, 0.34f * raise);
+                    itemPosition += new Vector3(-0.16f * raise, 0.10f * raise, 0.025f * raise);
+                    itemRotation += new Vector3(-0.20f * raise, 0.0f, 0.30f * raise);
+                    itemScale = 1.0f + 0.06f * raise;
+                    break;
+                }
             case FirstPersonAction.Landing:
-            {
-                float impact = pulse;
-                armPosition += new Vector3(0.0f, -0.075f * impact, 0.035f * impact);
-                armRotation += new Vector3(0.18f * impact, 0.0f, -0.08f * impact);
-                itemPosition += new Vector3(0.0f, -0.05f * impact, 0.025f * impact);
-                break;
-            }
+                {
+                    float impact = pulse;
+                    armPosition += new Vector3(0.0f, -0.075f * impact, 0.035f * impact);
+                    armRotation += new Vector3(0.18f * impact, 0.0f, -0.08f * impact);
+                    itemPosition += new Vector3(0.0f, -0.05f * impact, 0.025f * impact);
+                    break;
+                }
             case FirstPersonAction.Select:
-            {
-                float settle = pulse;
-                armPosition += new Vector3(0.0f, 0.02f * settle, -0.025f * settle);
-                armRotation += new Vector3(-0.10f * settle, 0.0f, 0.04f * settle);
-                itemPosition += new Vector3(0.0f, 0.04f * settle, -0.035f * settle);
-                break;
-            }
+                {
+                    float settle = pulse;
+                    armPosition += new Vector3(0.0f, 0.02f * settle, -0.025f * settle);
+                    armRotation += new Vector3(-0.10f * settle, 0.0f, 0.04f * settle);
+                    itemPosition += new Vector3(0.0f, 0.04f * settle, -0.035f * settle);
+                    break;
+                }
         }
 
         // Held-state overlays are independent of one-shot action timing.

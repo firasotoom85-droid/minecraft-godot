@@ -669,8 +669,8 @@ public static class LightingTests
 
         // A stone ceiling with one open shaft feeds a horizontal cave tunnel.
         for (int z = 0; z < depth; z++)
-        for (int x = 0; x < width; x++)
-            blocks[Idx(width, height, depth, x, 4, z)] = (byte)BlockId.Stone;
+            for (int x = 0; x < width; x++)
+                blocks[Idx(width, height, depth, x, 4, z)] = (byte)BlockId.Stone;
         blocks[Idx(width, height, depth, 2, 4, 2)] = (byte)BlockId.Air;
 
         byte[] combined = VoxelLighting.BuildSkyLight(

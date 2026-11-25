@@ -73,8 +73,8 @@ public partial class VoxelLightContinuityVisualCapture : Node
 
             int baseY = 0;
             for (int dz = -5; dz <= 5; dz++)
-            for (int dx = -7; dx <= 7; dx++)
-                baseY = Math.Max(baseY, world.SurfaceHeight(centerX + dx, centerZ + dz));
+                for (int dx = -7; dx <= 7; dx++)
+                    baseY = Math.Max(baseY, world.SurfaceHeight(centerX + dx, centerZ + dz));
             baseY += 8;
             if (baseY + 6 >= world.Height)
                 throw new InvalidOperationException("Selected fixture coordinate has insufficient vertical clearance.");
@@ -180,11 +180,11 @@ public partial class VoxelLightContinuityVisualCapture : Node
 
 
         for (int x = centerX - 5; x <= centerX + 8; x++)
-        for (int y = baseY; y <= baseY + 2; y++)
-        {
-            world.SetBlock(x, y, centerZ - 1, BlockId.Stone);
-            world.SetBlock(x, y, centerZ + 1, BlockId.Stone);
-        }
+            for (int y = baseY; y <= baseY + 2; y++)
+            {
+                world.SetBlock(x, y, centerZ - 1, BlockId.Stone);
+                world.SetBlock(x, y, centerZ + 1, BlockId.Stone);
+            }
 
         for (int y = baseY; y <= baseY + 2; y++)
         {

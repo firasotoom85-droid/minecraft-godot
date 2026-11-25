@@ -91,12 +91,12 @@ public partial class WoodArtVisualCapture : Node
 
         // Flatten a compact display pad and remove nearby canopy/terrain clutter.
         for (int z = -5; z <= 5; z++)
-        for (int x = -8; x <= 8; x++)
-        {
-            Put(x, -1, z, BlockId.Stone);
-            for (int y = 0; y <= 6; y++)
-                Put(x, y, z, BlockId.Air);
-        }
+            for (int x = -8; x <= 8; x++)
+            {
+                Put(x, -1, z, BlockId.Stone);
+                for (int y = 0; y <= 6; y++)
+                    Put(x, y, z, BlockId.Air);
+            }
 
         // Logs show their end-grain cap and vertical bark in the same lighting.
         Put(-7, 0, -2, BlockId.Log);

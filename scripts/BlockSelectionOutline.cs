@@ -73,50 +73,50 @@ internal static class BlockSelectionOutline
         Span<Vector3I> corners = stackalloc Vector3I[4];
 
         for (int y = 0; y < 2; y++)
-        for (int z = 0; z < 2; z++)
-        for (int x = 0; x < 2; x++)
-        {
-            if (!BlockShapes.Occupied(id, state, x, y, z))
-                continue;
-
-            Vector3 cellCenter = new(
-                    (x + 0.5f) * 0.5f - 0.5f,
-                    (y + 0.5f) * 0.5f - 0.5f,
-                    (z + 0.5f) * 0.5f - 0.5f);
-
-            for (int face = 0; face < 6; face++)
-            {
-                if (!BlockShapes.FaceExposed(id, state, x, y, z, face, BlockId.Air, 0))
-                    continue;
-
-                Vector3 faceNormal = BlockDb.FaceDirs[face];
-                Vector3 faceCenter = cellCenter + faceNormal * 0.25f;
-
-                for (int vertex = 0; vertex < 4; vertex++)
+            for (int z = 0; z < 2; z++)
+                for (int x = 0; x < 2; x++)
                 {
-                    Vector3 unit = BlockDb.FaceVerts[face * 4 + vertex];
-                    corners[vertex] = new Vector3I(
-                            x + Mathf.RoundToInt(unit.X),
-                            y + Mathf.RoundToInt(unit.Y),
-                            z + Mathf.RoundToInt(unit.Z));
-                }
+                    if (!BlockShapes.Occupied(id, state, x, y, z))
+                        continue;
 
-                for (int edge = 0; edge < 4; edge++)
-                {
-                    Vector3I a = corners[edge];
-                    Vector3I b = corners[(edge + 1) & 3];
-                    bool ordered = Compare(a, b) <= 0;
-                    ShapeOutlineEdge key = ordered
-                            ? new ShapeOutlineEdge(face, a, b)
-                            : new ShapeOutlineEdge(face, b, a);
+                    Vector3 cellCenter = new(
+                            (x + 0.5f) * 0.5f - 0.5f,
+                            (y + 0.5f) * 0.5f - 0.5f,
+                            (z + 0.5f) * 0.5f - 0.5f);
 
-                    Vector3 localA = GridToLocal(a);
-                    Vector3 localB = GridToLocal(b);
-                    if (!exposedEdges.Remove(key))
-                        exposedEdges[key] = new FaceEdge(localA, localB, faceCenter, faceNormal);
+                    for (int face = 0; face < 6; face++)
+                    {
+                        if (!BlockShapes.FaceExposed(id, state, x, y, z, face, BlockId.Air, 0))
+                            continue;
+
+                        Vector3 faceNormal = BlockDb.FaceDirs[face];
+                        Vector3 faceCenter = cellCenter + faceNormal * 0.25f;
+
+                        for (int vertex = 0; vertex < 4; vertex++)
+                        {
+                            Vector3 unit = BlockDb.FaceVerts[face * 4 + vertex];
+                            corners[vertex] = new Vector3I(
+                                    x + Mathf.RoundToInt(unit.X),
+                                    y + Mathf.RoundToInt(unit.Y),
+                                    z + Mathf.RoundToInt(unit.Z));
+                        }
+
+                        for (int edge = 0; edge < 4; edge++)
+                        {
+                            Vector3I a = corners[edge];
+                            Vector3I b = corners[(edge + 1) & 3];
+                            bool ordered = Compare(a, b) <= 0;
+                            ShapeOutlineEdge key = ordered
+                                    ? new ShapeOutlineEdge(face, a, b)
+                                    : new ShapeOutlineEdge(face, b, a);
+
+                            Vector3 localA = GridToLocal(a);
+                            Vector3 localB = GridToLocal(b);
+                            if (!exposedEdges.Remove(key))
+                                exposedEdges[key] = new FaceEdge(localA, localB, faceCenter, faceNormal);
+                        }
+                    }
                 }
-            }
-        }
 
         return BuildFromEdges(new List<FaceEdge>(exposedEdges.Values));
     }

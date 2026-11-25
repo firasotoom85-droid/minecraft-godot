@@ -238,41 +238,41 @@ public partial class AtmosphereVisualCapture : Node
                 int bestHeight = int.MinValue;
                 int bestDistance = int.MaxValue;
                 for (int dz = -24; dz <= 24; dz++)
-                for (int dx = -24; dx <= 24; dx++)
-                {
-                    int sampleX = centerX + dx;
-                    int sampleZ = centerZ + dz;
-                    int sampleHeight = world.SurfaceHeight(sampleX, sampleZ);
-                    if (sampleHeight <= 2 || sampleHeight + 2 >= world.Height)
-                        continue;
-
-                    BlockId surface = world.GetBlock(sampleX, sampleHeight, sampleZ);
-                    if (!BlockDb.IsSolid(surface) || BlockDb.IsTransparent(surface)
-                            || BlockDb.IsWater(surface))
-                        continue;
-
-                    int neighborDelta = 0;
-                    for (int nz = -1; nz <= 1; nz++)
-                    for (int nx = -1; nx <= 1; nx++)
+                    for (int dx = -24; dx <= 24; dx++)
                     {
-                        if (nx == 0 && nz == 0)
+                        int sampleX = centerX + dx;
+                        int sampleZ = centerZ + dz;
+                        int sampleHeight = world.SurfaceHeight(sampleX, sampleZ);
+                        if (sampleHeight <= 2 || sampleHeight + 2 >= world.Height)
                             continue;
-                        neighborDelta = Math.Max(neighborDelta,
-                                Math.Abs(world.SurfaceHeight(sampleX + nx, sampleZ + nz) - sampleHeight));
-                    }
-                    if (neighborDelta > 2)
-                        continue;
 
-                    int distance = dx * dx + dz * dz;
-                    if (sampleHeight > bestHeight
-                            || (sampleHeight == bestHeight && distance < bestDistance))
-                    {
-                        bestX = sampleX;
-                        bestZ = sampleZ;
-                        bestHeight = sampleHeight;
-                        bestDistance = distance;
+                        BlockId surface = world.GetBlock(sampleX, sampleHeight, sampleZ);
+                        if (!BlockDb.IsSolid(surface) || BlockDb.IsTransparent(surface)
+                                || BlockDb.IsWater(surface))
+                            continue;
+
+                        int neighborDelta = 0;
+                        for (int nz = -1; nz <= 1; nz++)
+                            for (int nx = -1; nx <= 1; nx++)
+                            {
+                                if (nx == 0 && nz == 0)
+                                    continue;
+                                neighborDelta = Math.Max(neighborDelta,
+                                        Math.Abs(world.SurfaceHeight(sampleX + nx, sampleZ + nz) - sampleHeight));
+                            }
+                        if (neighborDelta > 2)
+                            continue;
+
+                        int distance = dx * dx + dz * dz;
+                        if (sampleHeight > bestHeight
+                                || (sampleHeight == bestHeight && distance < bestDistance))
+                        {
+                            bestX = sampleX;
+                            bestZ = sampleZ;
+                            bestHeight = sampleHeight;
+                            bestDistance = distance;
+                        }
                     }
-                }
 
                 if (bestHeight != int.MinValue)
                 {
@@ -286,19 +286,19 @@ public partial class AtmosphereVisualCapture : Node
                 // uses SetBlock; this world is disposable and never saved.
                 int floorY = Math.Max(2, height - 12);
                 for (int y = floorY + 1; y <= floorY + 4; y++)
-                for (int dz = -2; dz <= 2; dz++)
-                for (int dx = -2; dx <= 2; dx++)
-                {
-                    int x = centerX + dx;
-                    int z = centerZ + dz;
-                    if (world.GetBlock(x, y, z) != BlockId.Air
-                            && !world.SetBlock(x, y, z, BlockId.Air))
-                    {
-                        GD.PushError("Could not carve the temporary cave through VoxelWorld.SetBlock.");
-                        GetTree().Quit(9);
-                        return;
-                    }
-                }
+                    for (int dz = -2; dz <= 2; dz++)
+                        for (int dx = -2; dx <= 2; dx++)
+                        {
+                            int x = centerX + dx;
+                            int z = centerZ + dz;
+                            if (world.GetBlock(x, y, z) != BlockId.Air
+                                    && !world.SetBlock(x, y, z, BlockId.Air))
+                            {
+                                GD.PushError("Could not carve the temporary cave through VoxelWorld.SetBlock.");
+                                GetTree().Quit(9);
+                                return;
+                            }
+                        }
 
                 // Entrance modes cut the same narrow passage and vertical
                 // shaft. Sealed modes leave the roof intact so the camera sees
@@ -319,17 +319,17 @@ public partial class AtmosphereVisualCapture : Node
                     }
 
                     for (int dx = 3; dx < 10; dx++)
-                    for (int y = floorY + 2; y <= floorY + 3; y++)
-                    {
-                        int x = centerX + dx;
-                        if (world.GetBlock(x, y, centerZ) != BlockId.Air
-                                && !world.SetBlock(x, y, centerZ, BlockId.Air))
+                        for (int y = floorY + 2; y <= floorY + 3; y++)
                         {
-                            GD.PushError("Could not open the temporary cave passage through VoxelWorld.SetBlock.");
-                            GetTree().Quit(9);
-                            return;
+                            int x = centerX + dx;
+                            if (world.GetBlock(x, y, centerZ) != BlockId.Air
+                                    && !world.SetBlock(x, y, centerZ, BlockId.Air))
+                            {
+                                GD.PushError("Could not open the temporary cave passage through VoxelWorld.SetBlock.");
+                                GetTree().Quit(9);
+                                return;
+                            }
                         }
-                    }
                 }
 
                 int torchY = floorY + 1;
@@ -410,18 +410,18 @@ public partial class AtmosphereVisualCapture : Node
                 int floorY = Math.Max(2, height - 12);
                 int waterY = floorY + 1;
                 for (int dz = -3; dz <= 3; dz++)
-                for (int dx = -3; dx <= 3; dx++)
-                {
-                    int x = centerX + dx;
-                    int z = centerZ + dz;
-                    if (world.GetBlock(x, waterY, z) != BlockId.Air
-                            && !world.SetBlock(x, waterY, z, BlockId.Air))
+                    for (int dx = -3; dx <= 3; dx++)
                     {
-                        GD.PushError("Could not clear the temporary immersion chamber through VoxelWorld.SetBlock.");
-                        GetTree().Quit(9);
-                        return;
+                        int x = centerX + dx;
+                        int z = centerZ + dz;
+                        if (world.GetBlock(x, waterY, z) != BlockId.Air
+                                && !world.SetBlock(x, waterY, z, BlockId.Air))
+                        {
+                            GD.PushError("Could not clear the temporary immersion chamber through VoxelWorld.SetBlock.");
+                            GetTree().Quit(9);
+                            return;
+                        }
                     }
-                }
 
                 // Connect a narrow dry shaft to the surface. The water pool is
                 // kept in its own chamber so its volume is deterministic.
@@ -438,18 +438,18 @@ public partial class AtmosphereVisualCapture : Node
                 }
 
                 for (int dz = -3; dz <= 3; dz++)
-                for (int dx = -3; dx <= 3; dx++)
-                {
-                    int x = centerX + dx;
-                    int z = centerZ + dz;
-                    if (world.GetBlock(x, waterY, z) != BlockId.Water
-                            && !world.SetBlock(x, waterY, z, BlockId.Water))
+                    for (int dx = -3; dx <= 3; dx++)
                     {
-                        GD.PushError("Could not fill the temporary immersion pool through VoxelWorld.SetBlock.");
-                        GetTree().Quit(9);
-                        return;
+                        int x = centerX + dx;
+                        int z = centerZ + dz;
+                        if (world.GetBlock(x, waterY, z) != BlockId.Water
+                                && !world.SetBlock(x, waterY, z, BlockId.Water))
+                        {
+                            GD.PushError("Could not fill the temporary immersion pool through VoxelWorld.SetBlock.");
+                            GetTree().Quit(9);
+                            return;
+                        }
                     }
-                }
 
                 Vector3 waterTarget = new(centerX + 0.5f, waterY + 0.5f, centerZ + 0.5f);
                 player.GlobalPosition = new Vector3(centerX + 0.5f, floorY + 0.05f, centerZ + 0.5f);
@@ -643,15 +643,15 @@ public partial class AtmosphereVisualCapture : Node
         // Every voxel in this visual fixture still uses the production edit API.
         int platformY = world.Height - 12;
         for (int z = centerZ - 4; z <= centerZ + 4; z++)
-        for (int x = centerX - 6; x <= centerX + 6; x++)
-        {
-            if (world.GetBlock(x, platformY, z) != BlockId.Stone
-                    && !world.SetBlock(x, platformY, z, BlockId.Stone))
+            for (int x = centerX - 6; x <= centerX + 6; x++)
             {
-                throw new InvalidOperationException(
-                        "Could not build the temporary hostile inspection platform through VoxelWorld.SetBlock.");
+                if (world.GetBlock(x, platformY, z) != BlockId.Stone
+                        && !world.SetBlock(x, platformY, z, BlockId.Stone))
+                {
+                    throw new InvalidOperationException(
+                            "Could not build the temporary hostile inspection platform through VoxelWorld.SetBlock.");
+                }
             }
-        }
 
         Mob[] subjects = [new Dreadwing(), new Shade(), new EmberWarden()];
         for (int i = 0; i < subjects.Length; i++)
@@ -726,25 +726,25 @@ public partial class AtmosphereVisualCapture : Node
         int bestDistance = int.MaxValue;
         bool found = false;
         for (int z = -radius; z <= radius; z += stride)
-        for (int x = -radius; x <= radius; x += stride)
-        {
-            int distance = x * x + z * z;
-            if (distance >= bestDistance)
-                continue;
-            int sampleX = originX + x;
-            int sampleZ = originZ + z;
-            int surface = world.SurfaceHeight(sampleX, sampleZ);
-            Biome biome = world.BiomeAt(sampleX, sampleZ, surface);
-            bool matches = target == Biome.DenseForest
-                    ? biome is Biome.DenseForest or Biome.Taiga or Biome.Birch
-                            or Biome.Jungle or Biome.Swamp
-                    : biome == target;
-            if (!matches)
-                continue;
-            bestDistance = distance;
-            position = new Vector2I(sampleX, sampleZ);
-            found = true;
-        }
+            for (int x = -radius; x <= radius; x += stride)
+            {
+                int distance = x * x + z * z;
+                if (distance >= bestDistance)
+                    continue;
+                int sampleX = originX + x;
+                int sampleZ = originZ + z;
+                int surface = world.SurfaceHeight(sampleX, sampleZ);
+                Biome biome = world.BiomeAt(sampleX, sampleZ, surface);
+                bool matches = target == Biome.DenseForest
+                        ? biome is Biome.DenseForest or Biome.Taiga or Biome.Birch
+                                or Biome.Jungle or Biome.Swamp
+                        : biome == target;
+                if (!matches)
+                    continue;
+                bestDistance = distance;
+                position = new Vector2I(sampleX, sampleZ);
+                found = true;
+            }
 
         return found;
     }

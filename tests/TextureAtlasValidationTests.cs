@@ -226,8 +226,8 @@ public static class TextureAtlasValidationTests
     private static void FillTile(Image atlas, int column, int row, int columns, Color color)
     {
         for (int y = 0; y < 4; y++)
-        for (int x = 0; x < 4; x++)
-            atlas.SetPixel(column * 4 + x, row * 4 + y, color);
+            for (int x = 0; x < 4; x++)
+                atlas.SetPixel(column * 4 + x, row * 4 + y, color);
     }
 
     private static bool HasIssue(TextureValidationReport report, string code)

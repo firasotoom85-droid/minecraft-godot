@@ -57,11 +57,11 @@ public static class WaterAdjacentTests
         int opaque = 0;
         int transparent = 0;
         for (int y = 0; y < BlockDb.TilePx; y++)
-        for (int x = 0; x < BlockDb.TilePx; x++)
-        {
-            if (atlas.GetPixel(tileX + x, tileY + y).A > 0.5f) opaque++;
-            else transparent++;
-        }
+            for (int x = 0; x < BlockDb.TilePx; x++)
+            {
+                if (atlas.GetPixel(tileX + x, tileY + y).A > 0.5f) opaque++;
+                else transparent++;
+            }
         TestAssert.Check(opaque >= 90 && transparent >= 500,
                 "original reed tile has a legible stalk silhouette with clean cutout gaps");
         TestAssert.Check(BlockDb.TileArrayTexture().GetWidth() == BlockDb.TilePx,
@@ -165,35 +165,35 @@ public static class WaterAdjacentTests
             int comparedChunks = 0;
             // Scan a fixed region around the existing seed-1337 river valley.
             for (int cz = -30; cz <= -18 && !foundReeds; cz++)
-            for (int cx = 26; cx <= 38 && !foundReeds; cx++)
-            {
-                Vector2I chunk = new(cx, cz);
-                byte[] oldData = v10.ChunkData(chunk);
-                byte[] newData = v11.ChunkData(chunk);
-                TestAssert.Equal(oldData.Length, newData.Length,
-                        "V10 and V11 retain the same chunk storage shape");
-                int reedsInChunk = 0;
-                bool onlyShoreReedsChanged = true;
-                for (int i = 0; i < oldData.Length; i++)
+                for (int cx = 26; cx <= 38 && !foundReeds; cx++)
                 {
-                    if (oldData[i] == newData[i]) continue;
-                    if ((BlockId)newData[i] == BlockId.RiverReeds
-                            && (BlockId)oldData[i] == BlockId.Air)
+                    Vector2I chunk = new(cx, cz);
+                    byte[] oldData = v10.ChunkData(chunk);
+                    byte[] newData = v11.ChunkData(chunk);
+                    TestAssert.Equal(oldData.Length, newData.Length,
+                            "V10 and V11 retain the same chunk storage shape");
+                    int reedsInChunk = 0;
+                    bool onlyShoreReedsChanged = true;
+                    for (int i = 0; i < oldData.Length; i++)
                     {
-                        reedsInChunk++;
+                        if (oldData[i] == newData[i]) continue;
+                        if ((BlockId)newData[i] == BlockId.RiverReeds
+                                && (BlockId)oldData[i] == BlockId.Air)
+                        {
+                            reedsInChunk++;
+                        }
+                        else
+                        {
+                            onlyShoreReedsChanged = false;
+                            break;
+                        }
                     }
-                    else
-                    {
-                        onlyShoreReedsChanged = false;
-                        break;
-                    }
-                }
 
-                TestAssert.Check(onlyShoreReedsChanged,
-                        $"V11 chunk {chunk} changes only V10 air cells into shoreline reeds");
-                comparedChunks++;
-                foundReeds = reedsInChunk > 0;
-            }
+                    TestAssert.Check(onlyShoreReedsChanged,
+                            $"V11 chunk {chunk} changes only V10 air cells into shoreline reeds");
+                    comparedChunks++;
+                    foundReeds = reedsInChunk > 0;
+                }
 
             TestAssert.Check(foundReeds,
                     $"V11 adds deterministically placed shoreline reeds within {comparedChunks} river-valley chunks");

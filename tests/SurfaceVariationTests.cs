@@ -184,51 +184,51 @@ public static class SurfaceVariationTests
         double verticalInterior = 0.0;
 
         for (int y = 0; y < BlockDb.TilePx; y++)
-        for (int x = 0; x < BlockDb.TilePx; x++)
-        {
-            Color pixel = atlas.GetPixel(originX + x, originY + y);
-            float luminance = Luminance(pixel);
-            minLuminance = Mathf.Min(minLuminance, luminance);
-            maxLuminance = Mathf.Max(maxLuminance, luminance);
-            TestAssert.Check(Mathf.IsEqualApprox(pixel.A, 1.0f),
-                    $"{name} tile remains fully opaque at {x},{y}");
+            for (int x = 0; x < BlockDb.TilePx; x++)
+            {
+                Color pixel = atlas.GetPixel(originX + x, originY + y);
+                float luminance = Luminance(pixel);
+                minLuminance = Mathf.Min(minLuminance, luminance);
+                maxLuminance = Mathf.Max(maxLuminance, luminance);
+                TestAssert.Check(Mathf.IsEqualApprox(pixel.A, 1.0f),
+                        $"{name} tile remains fully opaque at {x},{y}");
 
-            if (x == BlockDb.TilePx - 1)
-            {
-                Color first = atlas.GetPixel(originX, originY + y);
-                horizontalSeam += Mathf.Abs(luminance - Luminance(first));
-            }
-            else
-            {
-                Color right = atlas.GetPixel(originX + x + 1, originY + y);
-                horizontalInterior += Mathf.Abs(luminance - Luminance(right));
-            }
+                if (x == BlockDb.TilePx - 1)
+                {
+                    Color first = atlas.GetPixel(originX, originY + y);
+                    horizontalSeam += Mathf.Abs(luminance - Luminance(first));
+                }
+                else
+                {
+                    Color right = atlas.GetPixel(originX + x + 1, originY + y);
+                    horizontalInterior += Mathf.Abs(luminance - Luminance(right));
+                }
 
-            if (y == BlockDb.TilePx - 1)
-            {
-                Color first = atlas.GetPixel(originX + x, originY);
-                verticalSeam += Mathf.Abs(luminance - Luminance(first));
+                if (y == BlockDb.TilePx - 1)
+                {
+                    Color first = atlas.GetPixel(originX + x, originY);
+                    verticalSeam += Mathf.Abs(luminance - Luminance(first));
+                }
+                else
+                {
+                    Color below = atlas.GetPixel(originX + x, originY + y + 1);
+                    verticalInterior += Mathf.Abs(luminance - Luminance(below));
+                }
             }
-            else
-            {
-                Color below = atlas.GetPixel(originX + x, originY + y + 1);
-                verticalInterior += Mathf.Abs(luminance - Luminance(below));
-            }
-        }
 
         int detailPx = BlockDb.TextureDetailPx;
         for (int y = 0; y < BlockDb.TilePx; y += detailPx)
-        for (int x = 0; x < BlockDb.TilePx; x += detailPx)
-        {
-            Color cluster = atlas.GetPixel(originX + x, originY + y);
-            for (int dy = 0; dy < detailPx; dy++)
-            for (int dx = 0; dx < detailPx; dx++)
+            for (int x = 0; x < BlockDb.TilePx; x += detailPx)
             {
-                Color neighbour = atlas.GetPixel(originX + x + dx, originY + y + dy);
-                TestAssert.Check(cluster == neighbour,
-                        $"{name} retains coherent {detailPx}x{detailPx} detail clusters at {x},{y}");
+                Color cluster = atlas.GetPixel(originX + x, originY + y);
+                for (int dy = 0; dy < detailPx; dy++)
+                    for (int dx = 0; dx < detailPx; dx++)
+                    {
+                        Color neighbour = atlas.GetPixel(originX + x + dx, originY + y + dy);
+                        TestAssert.Check(cluster == neighbour,
+                                $"{name} retains coherent {detailPx}x{detailPx} detail clusters at {x},{y}");
+                    }
             }
-        }
 
         double seamHorizontalAverage = horizontalSeam / BlockDb.TilePx;
         double seamVerticalAverage = verticalSeam / BlockDb.TilePx;
@@ -256,11 +256,11 @@ public static class SurfaceVariationTests
         int originY = tile / BlockDb.AtlasCols * BlockDb.TilePx;
         Vector3 sum = Vector3.Zero;
         for (int y = 0; y < BlockDb.TilePx; y++)
-        for (int x = 0; x < BlockDb.TilePx; x++)
-        {
-            Color pixel = atlas.GetPixel(originX + x, originY + y);
-            sum += new Vector3(pixel.R, pixel.G, pixel.B);
-        }
+            for (int x = 0; x < BlockDb.TilePx; x++)
+            {
+                Color pixel = atlas.GetPixel(originX + x, originY + y);
+                sum += new Vector3(pixel.R, pixel.G, pixel.B);
+            }
 
         sum /= BlockDb.TilePx * BlockDb.TilePx;
         return new Color(sum.X, sum.Y, sum.Z);

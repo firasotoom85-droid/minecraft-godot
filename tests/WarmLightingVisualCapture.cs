@@ -93,8 +93,8 @@ public partial class WarmLightingVisualCapture : Node
                 for (int radius = 1; radius <= 8 && selectedFire == null; radius++)
                 {
                     for (int dz = -radius; dz <= radius && selectedFire == null; dz++)
-                    for (int dx = -radius; dx <= radius && selectedFire == null; dx++)
-                        selectedFire = world.GetCampfireSite(cellX + dx, cellZ + dz);
+                        for (int dx = -radius; dx <= radius && selectedFire == null; dx++)
+                            selectedFire = world.GetCampfireSite(cellX + dx, cellZ + dz);
                 }
 
                 fire = selectedFire
@@ -217,19 +217,19 @@ public partial class WarmLightingVisualCapture : Node
         const int min = -19;
         const int max = -14;
         for (int z = min; z <= max; z++)
-        for (int x = min; x <= max; x++)
-        {
-            SetFixtureBlock(world, x, sourceY - 1, z, BlockId.Stone);
-            SetFixtureBlock(world, x, sourceY + 2, z, BlockId.Stone);
-            // Leave the positive-X/positive-Z corner open for the capture
-            // camera; the opposite walls still prevent side spill from the
-            // adjacent generated terrain from dominating the room.
-            if (x != min && z != min)
-                continue;
+            for (int x = min; x <= max; x++)
+            {
+                SetFixtureBlock(world, x, sourceY - 1, z, BlockId.Stone);
+                SetFixtureBlock(world, x, sourceY + 2, z, BlockId.Stone);
+                // Leave the positive-X/positive-Z corner open for the capture
+                // camera; the opposite walls still prevent side spill from the
+                // adjacent generated terrain from dominating the room.
+                if (x != min && z != min)
+                    continue;
 
-            SetFixtureBlock(world, x, sourceY, z, BlockId.Stone);
-            SetFixtureBlock(world, x, sourceY + 1, z, BlockId.Stone);
-        }
+                SetFixtureBlock(world, x, sourceY, z, BlockId.Stone);
+                SetFixtureBlock(world, x, sourceY + 1, z, BlockId.Stone);
+            }
     }
 
     private static void SetFixtureBlock(VoxelWorld world, int x, int y, int z, BlockId block)

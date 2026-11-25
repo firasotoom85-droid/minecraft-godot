@@ -235,9 +235,9 @@ public static class LightingProbeComparison
     {
         List<Vector3I> offsets = new(27);
         for (int y = -2; y <= 2; y += 2)
-        for (int z = -2; z <= 2; z += 2)
-        for (int x = -2; x <= 2; x += 2)
-            offsets.Add(new Vector3I(x, y, z));
+            for (int z = -2; z <= 2; z += 2)
+                for (int x = -2; x <= 2; x += 2)
+                    offsets.Add(new Vector3I(x, y, z));
         return offsets.ToArray();
     }
 }

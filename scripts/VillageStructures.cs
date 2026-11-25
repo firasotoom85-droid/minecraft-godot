@@ -25,14 +25,14 @@ public static class VillageStructures
         int z = village.Z;
 
         for (int d = -18; d <= 18; d++)
-        for (int w = -1; w <= 1; w++)
-        {
-            put(x + w, y, z + d, road);
-            put(x + d, y, z + w, road);
-        }
+            for (int w = -1; w <= 1; w++)
+            {
+                put(x + w, y, z + d, road);
+                put(x + d, y, z + w, road);
+            }
 
         for (int dx = -5; dx <= 5; dx++)
-        for (int dz = -5; dz <= 5; dz++) put(x + dx, y, z + dz, road);
+            for (int dz = -5; dz <= 5; dz++) put(x + dx, y, z + dz, road);
 
         foreach ((int dx, int dz) in new[] { (-5, -5), (5, -5), (-5, 5), (5, 5) })
         {
@@ -49,9 +49,9 @@ public static class VillageStructures
         Farm(put, x + 17, y, z + 1, village.Theme);
 
         for (int dx = -2; dx <= 2; dx++)
-        for (int dz = -2; dz <= 2; dz++)
-            if (Math.Abs(dx) == 2 || Math.Abs(dz) == 2)
-                put(x + dx, y + 1, z + dz, BlockId.Cobblestone);
+            for (int dz = -2; dz <= 2; dz++)
+                if (Math.Abs(dx) == 2 || Math.Abs(dz) == 2)
+                    put(x + dx, y + 1, z + dz, BlockId.Cobblestone);
         put(x, y + 1, z, BlockId.Water);
     }
 
@@ -59,16 +59,16 @@ public static class VillageStructures
             int x, int y, int z, BlockId log)
     {
         for (int dx = -2; dx <= 2; dx++)
-        for (int dz = -2; dz <= 2; dz++)
-            put(x + dx, y, z + dz, BlockId.Cobblestone);
+            for (int dz = -2; dz <= 2; dz++)
+                put(x + dx, y, z + dz, BlockId.Cobblestone);
 
         foreach (int sx in new[] { -2, 2 })
-        foreach (int sz in new[] { -2, 2 })
-        {
-            for (int dy = 1; dy <= 4; dy++)
-                put(x + sx, y + dy, z + sz, log);
-            put(x + sx, y + 5, z + sz, BlockId.Torch);
-        }
+            foreach (int sz in new[] { -2, 2 })
+            {
+                for (int dy = 1; dy <= 4; dy++)
+                    put(x + sx, y + dy, z + sz, log);
+                put(x + sx, y + 5, z + sz, BlockId.Torch);
+            }
 
         for (int dx = -2; dx <= 2; dx++)
             put(x + dx, y + 4, z, BlockId.Planks);
@@ -79,16 +79,16 @@ public static class VillageStructures
             BlockId floor, BlockId workstation)
     {
         for (int dx = -4; dx <= 4; dx++)
-        for (int dz = -4; dz <= 4; dz++)
-        {
-            put(x + dx, y, z + dz, floor);
-            for (int dy = 1; dy <= 3; dy++)
+            for (int dz = -4; dz <= 4; dz++)
             {
-                bool edge = Math.Abs(dx) == 4 || Math.Abs(dz) == 4;
-                bool corner = Math.Abs(dx) == 4 && Math.Abs(dz) == 4;
-                put(x + dx, y + dy, z + dz, edge ? (corner ? log : wall) : BlockId.Air);
+                put(x + dx, y, z + dz, floor);
+                for (int dy = 1; dy <= 3; dy++)
+                {
+                    bool edge = Math.Abs(dx) == 4 || Math.Abs(dz) == 4;
+                    bool corner = Math.Abs(dx) == 4 && Math.Abs(dz) == 4;
+                    put(x + dx, y + dy, z + dz, edge ? (corner ? log : wall) : BlockId.Air);
+                }
             }
-        }
 
         put(x, y + 1, z + 4, BlockId.Air);
         put(x, y + 2, z + 4, BlockId.Air);
@@ -97,7 +97,7 @@ public static class VillageStructures
         put(x - 4, y + 2, z, BlockId.Glass);
         put(x + 4, y + 2, z, BlockId.Glass);
         for (int dx = -5; dx <= 5; dx++)
-        for (int dz = -5; dz <= 5; dz++) put(x + dx, y + 4, z + dz, roof);
+            for (int dz = -5; dz <= 5; dz++) put(x + dx, y + 4, z + dz, roof);
         for (int dx = -2; dx <= 2; dx++) put(x + dx, y + 5, z, roof);
 
         put(x, y + 1, z - 2, BlockId.Bed);
@@ -110,27 +110,27 @@ public static class VillageStructures
             int x, int y, int z, VillageTheme theme)
     {
         for (int dx = -4; dx <= 4; dx++)
-        for (int dz = -4; dz <= 4; dz++)
-        {
-            if (Math.Abs(dx) == 4 || Math.Abs(dz) == 4)
+            for (int dz = -4; dz <= 4; dz++)
             {
-                put(x + dx, y, z + dz, BlockId.Dirt);
-                continue;
-            }
+                if (Math.Abs(dx) == 4 || Math.Abs(dz) == 4)
+                {
+                    put(x + dx, y, z + dz, BlockId.Dirt);
+                    continue;
+                }
 
-            if (dx == 0 || dz == 0)
-            {
-                // Source water sits level with the farmland, one block below
-                // the crops, and the outer dirt rim keeps it from spilling.
-                put(x + dx, y, z + dz, BlockId.Water);
-                continue;
-            }
+                if (dx == 0 || dz == 0)
+                {
+                    // Source water sits level with the farmland, one block below
+                    // the crops, and the outer dirt rim keeps it from spilling.
+                    put(x + dx, y, z + dz, BlockId.Water);
+                    continue;
+                }
 
-            put(x + dx, y, z + dz, BlockId.Farmland);
-            uint hash = unchecked((uint)x * 73856093u ^ (uint)z * 19349663u
-                    ^ (uint)dx * 83492791u ^ (uint)dz * 2654435761u);
-            put(x + dx, y + 1, z + dz, hash % 4u == 0 ? BlockId.Wheat1 : BlockId.Wheat0);
-        }
+                put(x + dx, y, z + dz, BlockId.Farmland);
+                uint hash = unchecked((uint)x * 73856093u ^ (uint)z * 19349663u
+                        ^ (uint)dx * 83492791u ^ (uint)dz * 2654435761u);
+                put(x + dx, y + 1, z + dz, hash % 4u == 0 ? BlockId.Wheat1 : BlockId.Wheat0);
+            }
 
         put(x, y + 2, z - 5, BlockId.Torch);
         put(x, y + 2, z + 5, BlockId.Torch);

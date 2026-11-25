@@ -263,14 +263,14 @@ public static class ContentTests
             Color firstPixel = atlas.GetPixel(originX, originY);
             bool hasVariation = false;
             for (int y = 0; y < BlockDb.TilePx && !hasVariation; y++)
-            for (int x = 0; x < BlockDb.TilePx; x++)
-            {
-                if (atlas.GetPixel(originX + x, originY + y) != firstPixel)
+                for (int x = 0; x < BlockDb.TilePx; x++)
                 {
-                    hasVariation = true;
-                    break;
+                    if (atlas.GetPixel(originX + x, originY + y) != firstPixel)
+                    {
+                        hasVariation = true;
+                        break;
+                    }
                 }
-            }
             TestAssert.Check(hasVariation, $"weathered atlas tile {tile} contains painted texture detail");
         }
 
@@ -278,14 +278,14 @@ public static class ContentTests
         int unusedTileY = 61 / BlockDb.AtlasCols * BlockDb.TilePx;
         bool neighboringTileIsUntouched = true;
         for (int y = 0; y < BlockDb.TilePx && neighboringTileIsUntouched; y++)
-        for (int x = 0; x < BlockDb.TilePx; x++)
-        {
-            if (atlas.GetPixel(unusedTileX + x, unusedTileY + y).A > 0.0f)
+            for (int x = 0; x < BlockDb.TilePx; x++)
             {
-                neighboringTileIsUntouched = false;
-                break;
+                if (atlas.GetPixel(unusedTileX + x, unusedTileY + y).A > 0.0f)
+                {
+                    neighboringTileIsUntouched = false;
+                    break;
+                }
             }
-        }
         TestAssert.Check(neighboringTileIsUntouched,
                 "registered atlas painting leaves the next unallocated tile untouched");
 
@@ -316,8 +316,8 @@ public static class ContentTests
             int originY = tile / BlockDb.AtlasCols * BlockDb.TilePx;
             int visiblePixels = 0;
             for (int y = 0; y < BlockDb.TilePx; y++)
-            for (int x = 0; x < BlockDb.TilePx; x++)
-                if (isOrePixel(atlas.GetPixel(originX + x, originY + y))) visiblePixels++;
+                for (int x = 0; x < BlockDb.TilePx; x++)
+                    if (isOrePixel(atlas.GetPixel(originX + x, originY + y))) visiblePixels++;
             TestAssert.Check(visiblePixels >= 55,
                     $"{name} ore has enough high-contrast mineral pixels for distant readability");
         }

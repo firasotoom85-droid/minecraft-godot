@@ -28,19 +28,19 @@ public static class TextureScaleTests
         int snowX = snowTile % BlockDb.AtlasCols * BlockDb.TilePx;
         int snowY = snowTile / BlockDb.AtlasCols * BlockDb.TilePx;
         for (int y = 0; y < BlockDb.TilePx; y += BlockDb.TextureDetailPx)
-        for (int x = 0; x < BlockDb.TilePx; x += BlockDb.TextureDetailPx)
-        {
-            Color sample = atlas.GetPixel(snowX + x, snowY + y);
-            for (int dy = 0; dy < BlockDb.TextureDetailPx; dy++)
-            for (int dx = 0; dx < BlockDb.TextureDetailPx; dx++)
+            for (int x = 0; x < BlockDb.TilePx; x += BlockDb.TextureDetailPx)
             {
-                Color neighbour = atlas.GetPixel(snowX + x + dx, snowY + y + dy);
-                TestAssert.Check(Mathf.IsEqualApprox(sample.R, neighbour.R)
-                        && Mathf.IsEqualApprox(sample.G, neighbour.G)
-                        && Mathf.IsEqualApprox(sample.B, neighbour.B)
-                        && Mathf.IsEqualApprox(sample.A, neighbour.A),
-                        $"snow noise keeps a coherent {BlockDb.TextureDetailPx}x{BlockDb.TextureDetailPx} texel cluster at {x},{y}");
+                Color sample = atlas.GetPixel(snowX + x, snowY + y);
+                for (int dy = 0; dy < BlockDb.TextureDetailPx; dy++)
+                    for (int dx = 0; dx < BlockDb.TextureDetailPx; dx++)
+                    {
+                        Color neighbour = atlas.GetPixel(snowX + x + dx, snowY + y + dy);
+                        TestAssert.Check(Mathf.IsEqualApprox(sample.R, neighbour.R)
+                                && Mathf.IsEqualApprox(sample.G, neighbour.G)
+                                && Mathf.IsEqualApprox(sample.B, neighbour.B)
+                                && Mathf.IsEqualApprox(sample.A, neighbour.A),
+                                $"snow noise keeps a coherent {BlockDb.TextureDetailPx}x{BlockDb.TextureDetailPx} texel cluster at {x},{y}");
+                    }
             }
-        }
     }
 }

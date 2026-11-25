@@ -77,7 +77,7 @@ public static class LightingScreenshotAuditTests
     private static void FillRect(Image image, int left, int top, int width, int height, Color color)
     {
         for (int y = top; y < top + height; y++)
-        for (int x = left; x < left + width; x++)
-            image.SetPixel(x, y, color);
+            for (int x = left; x < left + width; x++)
+                image.SetPixel(x, y, color);
     }
 }
