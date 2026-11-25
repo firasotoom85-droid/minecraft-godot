@@ -3391,6 +3391,7 @@ public partial class VoxelWorld : Node3D
                 return;
             }
 
+            long commitStart = System.Diagnostics.Stopwatch.GetTimestamp();
             active.Transaction.Commit();
             if (active.IsNewChunk)
             {
@@ -3401,6 +3402,10 @@ public partial class VoxelWorld : Node3D
 
             SetChunkColliderAvailability(active.Coordinate,
                     active.Payload.Collision.Count > 0);
+            double commitMilliseconds = System.Diagnostics.Stopwatch
+                    .GetElapsedTime(commitStart).TotalMilliseconds;
+            active.ProcessingMilliseconds += commitMilliseconds;
+            Profiler.RecordApplyStep(commitMilliseconds);
             Profiler.RecordApply(active.ProcessingMilliseconds);
             committed = true;
         }
@@ -3824,6 +3829,18 @@ public partial class VoxelWorld : Node3D
                 break;
 
             ActiveChunkPayloadApply active = _activePayloadApply!;
+            if (!IsPayloadWithinCurrentRetention(active.Coordinate))
+            {
+                FinishActivePayloadApply(commit: false, requeue: false);
+                continue;
+            }
+
+            if (!ArePayloadDependenciesCurrent(active.Coordinate, active.Payload))
+            {
+                FinishActivePayloadApply(commit: false, requeue: true);
+                continue;
+            }
+
             long stepStart = System.Diagnostics.Stopwatch.GetTimestamp();
             bool complete;
             try
