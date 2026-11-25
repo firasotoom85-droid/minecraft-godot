@@ -629,7 +629,10 @@ internal static class FarLodLifecycleRules
     /// </summary>
     internal static float EffectiveRadius(float configuredRadius, int viewDistance, int chunkSize)
     {
-        float streamedRadius = Math.Max(2, viewDistance) * (float)Math.Max(1, chunkSize);
+        // The detail queue is a square. Cover its diagonal as well as the
+        // axis-aligned radius, otherwise Far LOD can leave holes at the corners.
+        float streamedRadius = (Math.Max(2, viewDistance) + 0.5f)
+                * Math.Max(1, chunkSize) * 1.41421356f;
         return Math.Max(Math.Max(0.0f, configuredRadius), streamedRadius);
     }
 

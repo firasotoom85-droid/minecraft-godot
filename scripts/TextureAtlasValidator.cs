@@ -91,7 +91,7 @@ public sealed class TextureValidationReport
         output.AppendLine($"| Painted tiles | {PaintedTiles} |");
         output.AppendLine($"| Painted but unreferenced | {OrphanedPaintedTiles} |");
         output.AppendLine($"| Placeable item mappings | {PlaceableItems} |");
-        output.AppendLine($"| Greedy texture-array | {TileArrayLayers} layers; isolated mipmaps: {(TileArrayHasMipmaps ? "yes" : "no")} |");
+        output.AppendLine($"| Greedy texture-array | {TileArrayLayers} layers; repeat-aware mipmaps: {(TileArrayHasMipmaps ? "yes" : "no")} |");
         output.AppendLine($"| Errors / warnings | {ErrorCount} / {WarningCount} |");
         output.AppendLine();
         output.AppendLine("The packed atlas intentionally uses nearest sampling without atlas mipmaps. Each greedy texture-array layer repeats its source tile in a 3×3 image before mip generation; the shader samples the center copy with continuous gradients, keeping mip footprints continuous at repeated edges without allowing neighbouring atlas entries to bleed.");
