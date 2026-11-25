@@ -1045,9 +1045,14 @@ public static class WorldStore
         string? lastError = null;
         string? expectedSnapshotId = null;
         string? stableSnapshotPath = null;
-        bool validateSnapshotPair = typeof(T) == typeof(WorldSave) || typeof(T) == typeof(PlayerSave);
-        if (validateSnapshotPair && ParentWorldDirectory(path) is { } worldDirectory)
+        bool validateSnapshotPair = false;
+        if ((typeof(T) == typeof(WorldSave) || typeof(T) == typeof(PlayerSave))
+                && ParentWorldDirectory(path) is { } worldDirectory)
         {
+            // The manifest is authoritative only for worlds managed under
+            // user://worlds. Standalone/legacy test and migration paths have no
+            // paired manifest contract and retain their historical file fallback.
+            validateSnapshotPair = true;
             WorldReadResult<WorldManifest> manifestRead = ReadManifestResult(worldDirectory);
             if (manifestRead.Value is not { } committedManifest)
             {
@@ -1154,8 +1159,6 @@ public static class WorldStore
                 if (!ValidateModel(value, out WorldReadStatus validationStatus, out string validationError))
                 {
                     lastError = $"{candidate}: {validationError}";
-                    if (typeof(T) == typeof(WorldSave) || typeof(T) == typeof(PlayerSave))
-                        GD.PushWarning($"minecraft: rejected save candidate {candidate}: {validationError}");
                     if (validationStatus == WorldReadStatus.Unsupported)
                     {
                         // Never downgrade a newer primary save to an older backup.
@@ -1176,7 +1179,6 @@ public static class WorldStore
                     if (!string.Equals(candidateSnapshotId, expectedSnapshotId ?? "", StringComparison.Ordinal))
                     {
                         lastError = $"{candidate}: save generation does not match the committed manifest";
-                        GD.PushWarning($"minecraft: rejected save candidate {candidate}: generation does not match the manifest");
                         continue;
                     }
                 }
