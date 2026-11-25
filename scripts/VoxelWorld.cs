@@ -21,8 +21,8 @@ namespace Minecraft;
 ///    through <c>ChunkData()</c>, which is thread-safe, and never touch the
 ///    scene tree. Results come back deferred and are applied on the
 ///    main thread (meshes + Jolt colliders must be created there).
-///  - <c>SnapshotLock</c> serialises block edits against mesher snapshots so a
-///    payload is either consistent with <c>EditEpoch</c> or discarded.
+///  - <c>SnapshotLock</c> serialises block edits against mesher snapshots.
+///    Mesh payload validation uses target-local geometry/light dependency revisions.
 /// </summary>
 public partial class VoxelWorld : Node3D
 {
@@ -106,7 +106,7 @@ public partial class VoxelWorld : Node3D
     /// <summary>New worlds default to survival; pre-M2 worlds stay creative.</summary>
     public string DefaultMode => _manifest.Mode == "survival" ? "survival" : "creative";
 
-    public long EditEpoch;               // bumped on every block edit
+    public long EditEpoch;               // monotonic world-edit diagnostic; not used for mesh-payload rejection
     public double TimeOfDay = 0.38;      // 0..1, 0.5 = noon (DayNight drives this)
 
     public int ChunkCount => _chunks.Count;
@@ -150,6 +150,8 @@ public partial class VoxelWorld : Node3D
     }
 
     private readonly Dictionary<Vector2I, byte[]> _dataCache = new();
+    // One target revision invalidates only chunks whose sampled mesh inputs changed.
+    private readonly ChunkDependencyRevisions _chunkDependencyRevisions = new();
     // Lazy reservations coalesce concurrent cache misses without holding the
     // world mutex during expensive terrain generation.
     private readonly ChunkGenerationReservations _generationInFlight = new();
@@ -317,8 +319,9 @@ public partial class VoxelWorld : Node3D
             _groupActive = false;
         }
 
-        // Workers have stopped, so it is now safe to return unconsumed pooled
-        // payloads and release the reservations held for those payloads.
+        // Workers have stopped, so it is now safe to return any active staged
+        // payload, queued payloads and their completed-slot reservations.
+        FinishActivePayloadApply(commit: false, requeue: false);
         DrainPendingPayloads(_applyRebuild);
         DrainPendingPayloads(_applyFresh);
         Profiler.WorkersActive = false;
@@ -1927,7 +1930,7 @@ public partial class VoxelWorld : Node3D
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            long snapshotEpoch;
+            Span<long> lightInputRevisions = stackalloc long[25];
             VoxelLightData[] result = new VoxelLightData[9];
             byte[][] chunks = new byte[25][];
             byte[][]? stateChunks = null;
@@ -1935,10 +1938,9 @@ public partial class VoxelWorld : Node3D
 
             // Capture immutable inputs and the emitter set in one short
             // snapshot section. Chunk generation and array cloning are kept
-            // here because they establish the exact inputs for this epoch.
+            // here because they establish the exact inputs for this dependency set.
             lock (SnapshotLock)
             {
-                snapshotEpoch = EditEpoch;
                 bool complete = true;
                 lock (_mutex)
                 {
@@ -1974,6 +1976,8 @@ public partial class VoxelWorld : Node3D
                         }
                     }
                 }
+                _chunkDependencyRevisions.CaptureLightInputRevisions(
+                        center, lightInputRevisions);
 
                 const int halo = VoxelLighting.BlockLightRadius;
                 int width = ChunkX * 3 + halo * 2;
@@ -2083,7 +2087,8 @@ public partial class VoxelWorld : Node3D
             lock (SnapshotLock)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (EditEpoch != snapshotEpoch)
+                if (!_chunkDependencyRevisions.LightInputRevisionsCurrent(
+                        center, lightInputRevisions))
                     continue;
 
                 lock (_mutex)
@@ -2109,6 +2114,13 @@ public partial class VoxelWorld : Node3D
             }
         }
     }
+
+    /// <summary>
+    /// Capture the revision of this chunk's complete meshing dependency set.
+    /// The caller must hold SnapshotLock.
+    /// </summary>
+    internal long CaptureMeshDependencyRevision(Vector2I cp) =>
+            _chunkDependencyRevisions.MeshRevision(cp);
 
     /// <summary>Packed sky/block lighting snapshot for one chunk.</summary>
     public VoxelLightData LightData(Vector2I cp) => LightDataNeighborhood(cp)[4];
@@ -2540,6 +2552,8 @@ public partial class VoxelWorld : Node3D
                     InvalidateBlockLightingLocked(cp);
                 }
 
+                _chunkDependencyRevisions.RecordBlockMutation(
+                        cp, lx, lz, ChunkX, ChunkZ, lightingChanged);
                 EditEpoch += 1;
             }
         }
@@ -2955,7 +2969,8 @@ public partial class VoxelWorld : Node3D
                     + EstimateDictionaryBytes(_blockLightCache, 40)
                     + EstimateDictionaryBytes(_voxelLightCache, 40)
                     + EstimateDictionaryBytes(_edits, 48)
-                    + EstimateDictionaryBytes(_blockStateEdits, 48);
+                    + EstimateDictionaryBytes(_blockStateEdits, 48)
+                    + _chunkDependencyRevisions.EstimatedMemoryBytes;
             lightSourceEstimate = EstimateDictionaryBytes(_lightSources, 48);
             // Source scanning and crop scanning are separate registries with
             // different responsibilities; account for each independently.
@@ -3255,50 +3270,148 @@ public partial class VoxelWorld : Node3D
         }
     }
 
-    /// <summary>
-    /// Main-thread application of a worker payload: create a streamed chunk,
-    /// re-mesh an edited one, or re-queue when the world changed meanwhile.
-    /// </summary>
-    private void ApplyBuild(Vector2I cp, MeshPayload payload)
+    private sealed class ActiveChunkPayloadApply
     {
+        public readonly Vector2I Coordinate;
+        public readonly MeshPayload Payload;
+        public readonly Chunk Chunk;
+        public readonly bool IsNewChunk;
+        public readonly ChunkPayloadApplyTransaction Transaction;
+        public double ProcessingMilliseconds;
+
+        public ActiveChunkPayloadApply(
+                Vector2I coordinate, MeshPayload payload, Chunk chunk, bool isNewChunk)
+        {
+            Coordinate = coordinate;
+            Payload = payload;
+            Chunk = chunk;
+            IsNewChunk = isNewChunk;
+            Transaction = new ChunkPayloadApplyTransaction(chunk, payload);
+        }
+    }
+
+    private bool IsPayloadWithinCurrentRetention(Vector2I cp)
+    {
+        Vector2I center = Player != null ? PlayerChunk() : _streamCenter;
+        int limit = Player != null ? ViewDistance + UnloadMargin : _streamRetentionLimit;
+        return _alive && ChunkStreamingPolicy.IsWithinRetention(cp, center, limit);
+    }
+
+    private bool ArePayloadDependenciesCurrent(Vector2I cp, MeshPayload payload)
+    {
+        bool revisionCurrent;
+        lock (SnapshotLock)
+        {
+            revisionCurrent = _chunkDependencyRevisions.IsMeshRevisionCurrent(
+                    cp, payload.DependencyRevision);
+        }
+
+        return revisionCurrent
+                && Mesher.IsConfigurationCurrent(payload.MeshingRevision)
+                && payload.BoundaryMask == MissingColliderBoundaryMask(cp);
+    }
+
+    private void ReleasePayloadReservation(MeshPayload payload)
+    {
+        PayloadPool.Release(payload);
+        _completedPayloadSlots.Release();
+    }
+
+    /// <summary>
+    /// Start the next rebuild-first payload transaction. A payload retains its
+    /// bounded worker slot until every staged resource is committed or discarded.
+    /// </summary>
+    private bool TryStartNextPayloadApply()
+    {
+        while (true)
+        {
+            (Vector2I Cp, MeshPayload Payload) item;
+            if (!_applyRebuild.TryDequeue(out item) && !_applyFresh.TryDequeue(out item))
+                return false;
+
+            Profiler.RecordPayloadDequeued(item.Payload.EstimatedBufferBytes);
+            if (!IsPayloadWithinCurrentRetention(item.Cp))
+            {
+                ReleasePayloadReservation(item.Payload);
+                continue;
+            }
+
+            if (!ArePayloadDependenciesCurrent(item.Cp, item.Payload))
+            {
+                EnqueueRebuild(item.Cp);
+                ReleasePayloadReservation(item.Payload);
+                continue;
+            }
+
+            Chunk? chunk = null;
+            bool isNewChunk = false;
+            try
+            {
+                if (!_chunks.TryGetValue(item.Cp, out chunk))
+                {
+                    chunk = new Chunk();
+                    chunk.Setup(this, item.Cp);
+                    chunk.Generate();
+                    isNewChunk = true;
+                }
+
+                _activePayloadApply = new ActiveChunkPayloadApply(
+                        item.Cp, item.Payload, chunk, isNewChunk);
+                return true;
+            }
+            catch
+            {
+                if (isNewChunk && chunk != null)
+                    chunk.Free();
+                ReleasePayloadReservation(item.Payload);
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Commit a fully prepared transaction in one main-thread operation. Until
+    /// this point an existing chunk keeps its previous render and collision state.
+    /// </summary>
+    private void FinishActivePayloadApply(bool commit, bool requeue)
+    {
+        ActiveChunkPayloadApply? active = _activePayloadApply;
+        if (active == null) return;
+        _activePayloadApply = null;
+
+        bool committed = false;
         try
         {
-            if (!_alive) return;
-
-            Vector2I pcp = Player != null ? PlayerChunk() : _streamCenter;
-            int limit = Player != null ? ViewDistance + UnloadMargin : _streamRetentionLimit;
-            if (!ChunkStreamingPolicy.IsWithinRetention(cp, pcp, limit))
-                return;
-
-            bool epochCurrent;
-            lock (SnapshotLock)
-                epochCurrent = payload.Epoch == EditEpoch;
-            if (!epochCurrent || !Mesher.IsConfigurationCurrent(payload.MeshingRevision)
-                    || payload.BoundaryMask != MissingColliderBoundaryMask(cp))
+            if (!commit)
             {
-                EnqueueRebuild(cp);
+                if (requeue && IsPayloadWithinCurrentRetention(active.Coordinate))
+                    EnqueueRebuild(active.Coordinate);
                 return;
             }
 
-            if (_chunks.TryGetValue(cp, out Chunk? existing))
+            active.Transaction.Commit();
+            if (active.IsNewChunk)
             {
-                existing.ApplyPayload(payload);   // player-edit remesh
-                SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
-                return;
+                AddChild(active.Chunk);
+                _chunks[active.Coordinate] = active.Chunk;
+                active.Chunk.FadeIn();
             }
 
-            Chunk c = new();
-            AddChild(c);
-            c.Setup(this, cp);
-            c.Generate();
-            c.ApplyPayload(payload);
-            c.FadeIn();
-            _chunks[cp] = c;
-            SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
+            SetChunkColliderAvailability(active.Coordinate,
+                    active.Payload.Collision.Count > 0);
+            Profiler.RecordApply(active.ProcessingMilliseconds);
+            committed = true;
         }
         finally
         {
-            PayloadPool.Release(payload);
+            if (!committed && active.IsNewChunk)
+            {
+                if (active.Chunk.GetParent() == this)
+                    RemoveChild(active.Chunk);
+                active.Chunk.Free();
+            }
+
+            ReleasePayloadReservation(active.Payload);
         }
     }
 
@@ -3655,31 +3768,46 @@ public partial class VoxelWorld : Node3D
 
         Dispatch();
 
-        // Keep player-edit rebuilds ahead of fresh terrain, but stop after a
-        // small main-thread time slice. At least one payload is always applied
-        // so progress cannot stall when a single collider is expensive.
+        // Rebuilds remain ahead of fresh terrain. The frame budget is checked
+        // between capped mesh/collision resource slices; an individual slice
+        // never contains more than MaxVerticesPerStep.
         long applyStart = System.Diagnostics.Stopwatch.GetTimestamp();
-        int applied = 0;
+        int appliedSteps = 0;
         while (!StreamingApplyBudget.ShouldStop(
                 System.Diagnostics.Stopwatch.GetElapsedTime(applyStart).TotalMilliseconds,
-                applied, ApplyBudgetMilliseconds))
+                appliedSteps, ApplyBudgetMilliseconds))
         {
-            (Vector2I Cp, MeshPayload Payload) item;
-            if (!_applyRebuild.TryDequeue(out item) && !_applyFresh.TryDequeue(out item))
+            if (_activePayloadApply == null && !TryStartNextPayloadApply())
                 break;
 
-            Profiler.RecordPayloadDequeued(item.Payload.EstimatedBufferBytes);
-            long itemStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            ActiveChunkPayloadApply active = _activePayloadApply!;
+            long stepStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            bool complete;
             try
             {
-                ApplyBuild(item.Cp, item.Payload);
+                complete = active.Transaction.Step();
             }
-            finally
+            catch
             {
-                Profiler.RecordApply(System.Diagnostics.Stopwatch.GetElapsedTime(itemStart).TotalMilliseconds);
-                _completedPayloadSlots.Release();
+                FinishActivePayloadApply(commit: false, requeue: false);
+                throw;
             }
-            applied++;
+
+            double stepMilliseconds = System.Diagnostics.Stopwatch
+                    .GetElapsedTime(stepStart).TotalMilliseconds;
+            active.ProcessingMilliseconds += stepMilliseconds;
+            Profiler.RecordApplyStep(stepMilliseconds);
+            appliedSteps++;
+
+            if (complete)
+            {
+                bool withinRetention = IsPayloadWithinCurrentRetention(active.Coordinate);
+                bool dependenciesCurrent = withinRetention
+                        && ArePayloadDependenciesCurrent(active.Coordinate, active.Payload);
+                FinishActivePayloadApply(
+                        commit: dependenciesCurrent,
+                        requeue: withinRetention && !dependenciesCurrent);
+            }
         }
 
         lock (_queueLock)
