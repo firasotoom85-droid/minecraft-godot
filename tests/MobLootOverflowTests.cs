@@ -9,6 +9,15 @@ public static class MobLootOverflowTests
     {
         Mobs manager = new();
         Player player = new();
+        player.AddChild(new CollisionShape3D
+        {
+            Name = "Collision",
+            Shape = new CapsuleShape3D { Radius = Player.CollisionRadius, Height = Player.CollisionHeight },
+            Position = Vector3.Up * (Player.CollisionHeight * 0.5f),
+        });
+        Camera3D camera = new() { Name = "Camera3D" };
+        camera.AddChild(new RayCast3D { Name = "RayCast3D" });
+        player.AddChild(camera);
         MobDeathProbe mob = new()
         {
             Health = 10.0f,

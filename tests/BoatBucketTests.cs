@@ -42,9 +42,9 @@ public static class BoatBucketTests
 
         // Keep an isolated, deterministic fluid test pocket in loaded chunk zero.
         for (int y = 48; y <= 52; y++)
-        for (int z = 4; z <= 12; z++)
-        for (int x = 4; x <= 12; x++)
-            world.SetBlock(x, y, z, BlockId.Air);
+            for (int z = 4; z <= 12; z++)
+                for (int x = 4; x <= 12; x++)
+                    world.SetBlock(x, y, z, BlockId.Air);
 
         Inventory waterBuckets = new();
         waterBuckets.Add(ItemId.EmptyBucket, 1);
@@ -131,6 +131,8 @@ public static class BoatBucketTests
         world.SetBlock(8, 49, 8, BlockId.Water);
         Player player = MakeTestPlayer();
         host.AddChild(player);
+        player.World = world;
+        world.Player = player;
         world.SavedBoats = [new BoatSave([40.5f, 50.0f, 40.5f], 0.25f, [0.0f, 0.0f, 0.0f])];
         BoatSystem deferredBoats = new();
         host.AddChild(deferredBoats);
@@ -176,6 +178,14 @@ public static class BoatBucketTests
             TestAssert.Check(player.Stats.ApplyDamage(100.0f, GameMode.Survival) && player.Dead,
                     "lethal damage kills a seated player");
             player.RespawnPoint = boat.GlobalPosition + new Vector3(0.0f, 1.0f, 0.0f);
+            TestAssert.Check(player.CurrentBoat == boat,
+                    "respawn fixture remains attached to its occupied boat");
+            TestAssert.Check(world.IsSafePlayerPosition(player.RespawnPoint.Value,
+                            allowWater: true, allowVehicleSupport: true),
+                    "boat respawn anchor passes capsule and external-support validation");
+            TestAssert.Check(world.TryEnsureCollisionReady(player.RespawnPoint.Value,
+                            allowWater: true, allowVehicleSupport: true),
+                    "boat respawn anchor has an applied collision snapshot");
             player.Respawn();
             TestAssert.Check(player.CurrentBoat == null && boat.Rider == null,
                     "respawning after death in a boat detaches the player and frees the seat");
@@ -185,6 +195,14 @@ public static class BoatBucketTests
                     "respawning after death in a boat uses the respawn point");
             TestAssert.Check(boats.TryBoard(boat, player),
                     "a respawned player can board the boat again");
+            Vector3 dismountCandidate = boat.GlobalPosition
+                    + boat.GlobalBasis.X * 1.35f + Vector3.Up * 0.15f;
+            TestAssert.Check(world.IsSafePlayerPosition(dismountCandidate,
+                            allowWater: true, allowVehicleSupport: true),
+                    "boat dismount candidate passes capsule and external-support validation");
+            TestAssert.Check(world.TryEnsureCollisionReady(dismountCandidate,
+                            allowWater: true, allowVehicleSupport: true),
+                    "boat dismount candidate has an applied collision snapshot");
 
             TestAssert.Check(boats.Dismount(boat), "player dismounts to a loaded clear cell");
             TestAssert.Check(player.CurrentBoat == null && boat.Rider == null,

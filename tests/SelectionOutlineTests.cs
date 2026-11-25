@@ -1,3 +1,4 @@
+using System.Reflection;
 using Godot;
 
 namespace Minecraft;
@@ -11,6 +12,7 @@ public static class SelectionOutlineTests
     public static void Run()
     {
         CheckHighContrastMaterials();
+        CheckMountedOutlineInvalidation();
 
         BlockSelectionOutline.MeshSet cube = BlockSelectionOutline.BuildCube();
         CheckMeshSet(cube, "full cube selection");
@@ -47,6 +49,31 @@ public static class SelectionOutlineTests
                         $"{label} keeps its inset contrast lines on exposed surfaces");
             }
         }
+    }
+
+    private static void CheckMountedOutlineInvalidation()
+    {
+        Player player = new();
+        MeshInstance3D outline = new() { Visible = true };
+        MeshInstance3D contrast = new() { Visible = true };
+        player.AddChild(outline);
+        player.AddChild(contrast);
+
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        typeof(Player).GetField("_outline", flags)!.SetValue(player, outline);
+        typeof(Player).GetField("_outlineContrast", flags)!.SetValue(player, contrast);
+        typeof(Player).GetField("_outlinedBlock", flags)!.SetValue(player, new Vector3I(4, 5, 6));
+        typeof(Player).GetField("_outlinedId", flags)!.SetValue(player, BlockId.Stone);
+        typeof(Player).GetField("_outlinedState", flags)!.SetValue(player, (byte)1);
+
+        typeof(Player).GetMethod("ClearOutline", flags)!.Invoke(player, null);
+        TestAssert.Check(!outline.Visible && !contrast.Visible,
+                "mounting invalidates both visible selection-outline passes");
+        TestAssert.Equal(new Vector3I(int.MinValue, 0, 0),
+                (Vector3I)typeof(Player).GetField("_outlinedBlock", flags)!.GetValue(player)!,
+                "mounting clears the stale outline target identity");
+
+        player.Free();
     }
 
     private static void CheckHighContrastMaterials()

@@ -138,9 +138,18 @@ public partial class BoatSystem : Node
         ];
         foreach (Vector3 candidate in candidates)
         {
-            if (!CanDismountAt(candidate)) continue;
-            boat.SetRider(null);
-            player.ExitBoat(boat, candidate);
+            // CanDismountAt validates the loaded feet/head cells. The boat's
+            // hull/water is the external support for this transition; the
+            // shared transaction still validates capsule clearance, hazards,
+            // world bounds and the destination collider before it commits.
+            if (!CanDismountAt(candidate)
+                    || !_world.IsSafePlayerPosition(candidate, allowWater: true,
+                            allowVehicleSupport: true))
+                continue;
+            if (!player.TryTeleportToSafePosition(candidate, allowWater: true,
+                    allowVehicleSupport: true))
+                continue;
+
             _world.MarkDirty();
             _sound?.Play("place", candidate, 0.9f, -5.0f);
             return true;
@@ -150,7 +159,7 @@ public partial class BoatSystem : Node
 
     public void RemoveBoat(Boat boat, Player player)
     {
-        if (!_boats.Contains(boat)) return;
+        if (_world == null || !_boats.Contains(boat)) return;
         if (player.Mode == GameMode.Survival && !player.Inventory.CanFit(ItemId.WoodenBoat, 1))
         {
             player.EmitSignal(Player.SignalName.InventoryFull);
@@ -161,9 +170,12 @@ public partial class BoatSystem : Node
             if (!Dismount(boat))
             {
                 Vector3 fallback = boat.GlobalPosition + Vector3.Up * 1.1f;
-                if (!CanDismountAt(fallback)) return;
-                boat.SetRider(null);
-                rider.ExitBoat(boat, fallback);
+                if (!CanDismountAt(fallback)
+                        || !_world.IsSafePlayerPosition(fallback, allowWater: true,
+                                allowVehicleSupport: true)
+                        || !rider.TryTeleportToSafePosition(fallback, allowWater: true,
+                                allowVehicleSupport: true))
+                    return;
             }
         }
 
@@ -173,7 +185,7 @@ public partial class BoatSystem : Node
             player.Inventory.Add(ItemId.WoodenBoat, 1);
         _sound?.Play("place", boat.GlobalPosition, 0.72f, -1.0f);
         boat.QueueFree();
-        _world?.MarkDirty();
+        _world.MarkDirty();
     }
 
     internal void PlayRow(Vector3 position, float speed)

@@ -58,18 +58,34 @@ public partial class Main : Node3D
         _world.Player = _player;
         _player.World = _world;
 
-        Vector3 initialPosition;
         try
         {
-            initialPosition = _world.SavedPlayerPos ?? _world.FindSpawn();
+            // A saved-dead player resumes from the saved bed/campfire anchor,
+            // not from the last death position. For living saves, retain a
+            // validated anchor as the alternate if the saved position became
+            // obstructed after the last save.
+            bool savedDead = _world.SavedPlayerDead;
+            Vector3? savedBoatSeat = !savedDead && _world.SavedPlayerPos is Vector3 savedPosition
+                    && _world.TryGetSavedOccupiedBoatSeat(savedPosition, out Vector3 seat)
+                    ? seat : null;
+            Vector3? startupPosition = savedDead
+                    ? _world.SavedRespawn
+                    : savedBoatSeat ?? _world.SavedPlayerPos;
+            Vector3? alternatePosition = savedDead ? null : _world.SavedRespawn;
+            if (!_player.TryTeleportToSafePosition(startupPosition,
+                        allowWater: savedBoatSeat.HasValue,
+                        alternatePosition: alternatePosition,
+                        allowVehicleSupport: savedBoatSeat.HasValue))
+            {
+                ShowSpawnFailure("The saved position, respawn anchor and deterministic world spawn could not be prepared safely.");
+                return;
+            }
         }
         catch (InvalidOperationException error)
         {
             ShowSpawnFailure(error.Message);
             return;
         }
-
-        _player.Position = initialPosition;
         _player.Inventory.LoadFrom(_world.SavedInventory);
         _player.Select(_world.SavedSelected, markDirty: false);
         _player.LoadFromSave(_world.SavedMode ?? _world.DefaultMode, _world.SavedHealth,
@@ -203,6 +219,9 @@ public partial class Main : Node3D
         // chooses a different seed/preset from the world menu.
         _world.SetProcess(false);
         _world.SetPhysicsProcess(false);
+        _player.InputLocked = true;
+        _player.SetProcessUnhandledInput(false);
+        Input.MouseMode = Input.MouseModeEnum.Visible;
         _player.SetProcess(false);
         _player.SetPhysicsProcess(false);
         if (_world.GetNodeOrNull<FarLod>("FarLod") is { } farLod)

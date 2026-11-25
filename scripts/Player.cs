@@ -23,7 +23,24 @@ public partial class Player : CharacterBody3D, IDamageable
     [Export] public float Gravity = 24.0f;
     [Export] public float Reach = 5.0f;
 
-    public bool InputLocked;    // menus / console own the input while true
+    private bool _inputLocked;
+    // Menus / console own the input while true. Lock transitions invalidate
+    // queued actions so they cannot execute after a modal has taken focus.
+    public bool InputLocked
+    {
+        get => _inputLocked;
+        set
+        {
+            if (_inputLocked == value) return;
+            _inputLocked = value;
+            if (value)
+            {
+                ResetMovementInput();
+                ResetMining();
+                _mineTimer = 0.0;
+            }
+        }
+    }
 
     private const double CoyoteTime = 0.1;      // jump grace after leaving the ground
     private const double JumpBuffer = 0.12;     // early jump press forgiveness
@@ -112,6 +129,7 @@ public partial class Player : CharacterBody3D, IDamageable
     private bool _skipMotion;
     private double _coyote;
     private double _jumpBuffer;
+    private bool _voidRecoveryFailed;
     private MeshInstance3D _outline = null!;
     private MeshInstance3D _outlineContrast = null!;
     private Mesh _cubeOutlineMesh = null!;
@@ -354,6 +372,11 @@ public partial class Player : CharacterBody3D, IDamageable
 
         float dt = (float)delta;
         bool locked = InputLocked || Stats.Dead;
+        if (locked)
+        {
+            _jumpBuffer = 0.0;
+            _coyote = 0.0;
+        }
         if (!locked)
         {
             Vector2 look = Input.GetVector("look_left", "look_right", "look_up", "look_down");
@@ -489,7 +512,7 @@ public partial class Player : CharacterBody3D, IDamageable
                     _jumpBuffer = System.Math.Max(_jumpBuffer - delta, 0.0);
                 }
 
-                if (_jumpBuffer > 0.0 && _coyote > 0.0)
+                if (!locked && _jumpBuffer > 0.0 && _coyote > 0.0)
                 {
                     velocity.Y = JumpVelocity;
                     _jumpBuffer = 0.0;
@@ -537,13 +560,29 @@ public partial class Player : CharacterBody3D, IDamageable
     /// <summary>Apply the void hit and recover in one physics-side transition.</summary>
     internal void RecoverFromVoidFall()
     {
-        if (World == null || GlobalPosition.Y >= -8.0f)
+        if (World == null)
+            return;
+
+        if (GlobalPosition.Y >= -8.0f)
+        {
+            _voidRecoveryFailed = false;
+            return;
+        }
+
+        // A world with no safe destination must not apply the void hit again
+        // on every physics tick. Retry only after an explicit recovery action
+        // or after the player has been moved back above the void threshold.
+        if (_voidRecoveryFailed)
             return;
 
         ApplyFallDamage(4.0f);
-        GlobalPosition = World.FindSpawn() + new Vector3(0, 1.0f, 0);
-        Velocity = Vector3.Zero;
-        _fallStartY = null;
+        if (!TryTeleportToSafePosition())
+        {
+            _voidRecoveryFailed = true;
+            Velocity = Vector3.Zero;
+            EmitSignal(SignalName.Notice,
+                    "Void recovery failed: no safe location with ready terrain collision is available");
+        }
     }
 
     private bool IsWaterAt(Vector3 p)
@@ -780,23 +819,29 @@ public partial class Player : CharacterBody3D, IDamageable
         }
     }
 
-    /// <summary>Softcore respawn (D5): full bars at spawn/campfire, inventory kept.</summary>
-    public void Respawn()
+    /// <summary>
+    /// Resolve, validate and prepare collision before committing any player
+    /// relocation. All player spawn/respawn callers use this transaction.
+    /// </summary>
+    internal bool TryTeleportToSafePosition(Vector3? preferredPosition = null, bool allowWater = false,
+            Vector3? alternatePosition = null, bool allowVehicleSupport = false)
     {
-        if (!Stats.Dead)
+        if (World == null
+                || !World.TryResolvePlayerDestination(preferredPosition, out Vector3 destination,
+                        allowWater, alternatePosition: alternatePosition,
+                        allowVehicleSupport: allowVehicleSupport)
+                || !World.TryEnsureCollisionReady(destination, allowWater, allowVehicleSupport))
         {
-            return;
+            return false;
         }
 
-        // Death can happen while seated. The player is reparented under the boat
-        // and its body collider is disabled, so respawning without leaving the
-        // boat would strand the player as a dead-passenger with no movement.
+        // Detach only after destination validation/readiness succeeded.
         if (CurrentBoat is { } mounted)
         {
             if (GodotObject.IsInstanceValid(mounted))
             {
                 if (mounted.Rider == this) mounted.SetRider(null);
-                ExitBoat(mounted, mounted.GlobalPosition + Vector3.Up * 1.1f);
+                DetachFromBoatAt(mounted, destination);
             }
             else
             {
@@ -806,19 +851,67 @@ public partial class Player : CharacterBody3D, IDamageable
             }
         }
 
-        Stats.ResetForRespawn();
-        Vector3 target = RespawnPoint ?? (World?.FindSpawn() ?? GlobalPosition) + new Vector3(0, 1.0f, 0);
         if (IsInsideTree())
-        {
-            GlobalPosition = target;
-        }
+            GlobalPosition = destination;
         else
-        {
-            Position = target;
-        }
+            Position = destination;
 
         Velocity = Vector3.Zero;
         _fallStartY = null;
+        ResetMovementInput();
+        ResetMining();
+        _mineTimer = 0.0;
+        _stepAccum = 0.0f;
+        _wasSwimming = false;
+        Swimming = false;
+        InWater = false;
+        Underwater = false;
+        InLava = false;
+        Climbing = false;
+        _voidRecoveryFailed = false;
+        ClearOutline();
+        return true;
+    }
+
+    private void ResetMovementInput()
+    {
+        _coyote = 0.0;
+        _jumpBuffer = 0.0;
+        _lastJumpTap = -10.0;
+        _push = Vector3.Zero;
+        _swimStrokeTimer = 0.0;
+    }
+
+    /// <summary>Softcore respawn (D5): full bars at spawn/campfire, inventory kept.</summary>
+    public void Respawn()
+    {
+        if (!Stats.Dead)
+            return;
+
+        bool respawningFromBoat = CurrentBoat is { } boat
+                && GodotObject.IsInstanceValid(boat)
+                && RespawnPoint is Vector3 boatAnchor
+                && boat.GlobalPosition.DistanceSquaredTo(boatAnchor) <= 9.0f;
+        bool allowBoatSupport = respawningFromBoat;
+        if (RespawnPoint is { } anchor && World != null
+                && !World.IsSafePlayerPosition(anchor, allowWater: allowBoatSupport,
+                        allowVehicleSupport: allowBoatSupport))
+        {
+            RespawnPoint = null;
+            World.MarkDirty();
+        }
+
+        // Keep death state and UI intact unless the complete relocation commits.
+        if (!TryTeleportToSafePosition(RespawnPoint,
+                allowWater: allowBoatSupport,
+                allowVehicleSupport: allowBoatSupport))
+        {
+            EmitSignal(SignalName.Notice,
+                    "Respawn failed: no safe location with ready terrain collision is available");
+            return;
+        }
+
+        Stats.ResetForRespawn();
         EmitSignal(SignalName.Respawned);
     }
 
@@ -1104,8 +1197,8 @@ public partial class Player : CharacterBody3D, IDamageable
                 else if (BlockDb.IsCross(current))
                 {
                     hit = BlockDb.RayIntersectsCross(origin, direction, cell,
-                            entryDistance, Mathf.Min(exitDistance, maxDistance), out hitDistance);
-                    normal = -direction;
+                            entryDistance, Mathf.Min(exitDistance, maxDistance),
+                            out hitDistance, out normal);
                 }
 
                 if (hit)
@@ -1123,10 +1216,12 @@ public partial class Player : CharacterBody3D, IDamageable
                 break;
             }
 
-            const float tieEpsilon = 0.00001f;
-            bool advanceX = nextX <= exitDistance + tieEpsilon;
-            bool advanceY = nextY <= exitDistance + tieEpsilon;
-            bool advanceZ = nextZ <= exitDistance + tieEpsilon;
+            // Advance only across boundaries at the exact minimum distance.
+            // Near-tied but distinct crossings must visit their short-lived
+            // intermediate voxel instead of coalescing into a false corner.
+            bool advanceX = nextX == exitDistance;
+            bool advanceY = nextY == exitDistance;
+            bool advanceZ = nextZ == exitDistance;
             if (advanceX)
             {
                 x += stepX;
@@ -1364,12 +1459,28 @@ public partial class Player : CharacterBody3D, IDamageable
             return false;
         }
 
-        RespawnPoint = new Vector3(bedPos.X + 0.5f, bedPos.Y + 1.0f, bedPos.Z + 0.5f);
+        Vector3 anchor = new(bedPos.X + 0.5f, bedPos.Y + 1.0f, bedPos.Z + 0.5f);
+        if (!TrySetRespawnAnchor(anchor))
+        {
+            EmitSignal(SignalName.Notice, "There is not enough safe space above this bed");
+            return false;
+        }
+
         World.TimeOfDay = 0.26;
         World.MarkDirty();
         StartPunch();
         EmitSignal(SignalName.Slept);
         EmitSignal(SignalName.Notice, "Slept until dawn — respawn set");
+        return true;
+    }
+
+    private bool TrySetRespawnAnchor(Vector3 anchor)
+    {
+        if (World == null || !World.IsSafePlayerPosition(anchor))
+            return false;
+
+        RespawnPoint = anchor;
+        World.MarkDirty();
         return true;
     }
 
@@ -1438,12 +1549,16 @@ public partial class Player : CharacterBody3D, IDamageable
         }
 
         bool rested = false;
+        bool anchorSet = false;
         if (Time.GetTicksMsec() / 1000.0 - _lastRest >= 3.0)
         {
             _lastRest = Time.GetTicksMsec() / 1000.0;
             rested = true;
             Vector3I bp = TargetBlock();
-            RespawnPoint = new Vector3(bp.X + 0.5f, bp.Y + 1.0f, bp.Z + 0.5f);
+            anchorSet = TrySetRespawnAnchor(
+                    new Vector3(bp.X + 0.5f, bp.Y + 1.0f, bp.Z + 0.5f));
+            if (!anchorSet)
+                EmitSignal(SignalName.Notice, "There is not enough safe space above this campfire");
             Stats.Heal(8.0f);
             Stats.AddHunger(3.0f);
         }
@@ -1456,9 +1571,13 @@ public partial class Player : CharacterBody3D, IDamageable
         StartPunch();
         EmitSignal(SignalName.CampfireUsed, (cooked, rested) switch
         {
-            (true, true) => "Cooked 1 · rested — respawn set, healed",
+            (true, true) => anchorSet
+                    ? "Cooked 1 · rested — respawn set, healed"
+                    : "Cooked 1 · rested, healed — no safe respawn space",
             (true, false) => "Cooked 1",
-            _ => "Rested — respawn point set, healed",
+            _ => anchorSet
+                    ? "Rested — respawn point set, healed"
+                    : "Rested and healed — no safe respawn space",
         });
     }
 
@@ -1692,6 +1811,7 @@ public partial class Player : CharacterBody3D, IDamageable
     public void EnterBoat(Boat boat)
     {
         if (CurrentBoat != null) return;
+        ClearOutline();
         CurrentBoat = boat;
         _preBoatParent = GetParent();
         _bodyCollider.SetDeferred(CollisionShape3D.PropertyName.Disabled, true);
@@ -1703,7 +1823,7 @@ public partial class Player : CharacterBody3D, IDamageable
         _jumpBuffer = 0.0;
     }
 
-    public void ExitBoat(Boat boat, Vector3 position)
+    private void DetachFromBoatAt(Boat boat, Vector3 position)
     {
         if (CurrentBoat != boat) return;
         Node? destination = _preBoatParent is { } parent && GodotObject.IsInstanceValid(parent)
@@ -2177,11 +2297,15 @@ public partial class Player : CharacterBody3D, IDamageable
             return;
         }
 
+        if (Flying == value)
+            return;
+
         Flying = value;
+        // Movement-mode changes invalidate grace state; flight must not freeze
+        // a coyote window or a buffered jump for later use.
+        ResetMovementInput();
         if (Flying)
-        {
             Velocity = Vector3.Zero;
-        }
 
         EmitSignal(SignalName.FlyChanged, Flying);
     }
@@ -2197,6 +2321,7 @@ public partial class Player : CharacterBody3D, IDamageable
 
         if (Inventory.Hotbar[Selected].Id == ItemId.Bow)
         {
+            ResetMining();
             _mineTimer -= delta;
             if (_mineTimer <= 0.0)
             {
@@ -2433,6 +2558,15 @@ public partial class Player : CharacterBody3D, IDamageable
         }
     }
 
+    private void ClearOutline()
+    {
+        if (_outline != null) _outline.Visible = false;
+        if (_outlineContrast != null) _outlineContrast.Visible = false;
+        _outlinedBlock = new Vector3I(int.MinValue, 0, 0);
+        _outlinedId = BlockId.Air;
+        _outlinedState = byte.MaxValue;
+    }
+
     private void UpdateOutline()
     {
         if (World == null || _outline == null || _outlineContrast == null)
@@ -2471,11 +2605,7 @@ public partial class Player : CharacterBody3D, IDamageable
         }
         else
         {
-            _outline.Visible = false;
-            _outlineContrast.Visible = false;
-            _outlinedBlock = new Vector3I(int.MinValue, 0, 0);
-            _outlinedId = BlockId.Air;
-            _outlinedState = byte.MaxValue;
+            ClearOutline();
         }
     }
 

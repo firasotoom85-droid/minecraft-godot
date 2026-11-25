@@ -307,7 +307,19 @@ public partial class FluidSystem : Node
     {
         if (_world == null || !TryGetLoaded(position, out BlockId id)
                 || id != BlockId.Lava) return 0;
-        if (!SetFluidBlock(position, FluidRules.ReactWithWater(id))) return 0;
+
+        BlockId reactedBlock = FluidRules.ReactWithWater(id);
+        if (_world.Player is { } player
+                && Player.BlockIntersectsPlayerCapsule(reactedBlock, 0,
+                        new Vector3(position.X, position.Y, position.Z),
+                        player.GlobalPosition, Player.CollisionRadius, Player.CollisionHeight))
+        {
+            // Keep the lava until the capsule has moved clear; the source pulse
+            // will revisit it without creating collision inside the player.
+            return 0;
+        }
+
+        if (!SetFluidBlock(position, reactedBlock)) return 0;
         EnqueueWithNeighbours(position);
         return 1;
     }
