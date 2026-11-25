@@ -56,15 +56,19 @@ followups branch as the single base and treat the other branch as superseded.
 
 A combined branch (`w15-combined`, merge `5ac8f3f`) merged current `main` and
 resolved the only semantic conflict by keeping W14's selected-slot consumption
-together with W15's pause-aware eat cooldown. It builds with zero warnings, but
-the full suite reports **2 failures on the branch itself** (the keybind files are
-byte-identical between the branch and the combined tree):
+together with W15's pause-aware eat cooldown. It builds with zero warnings. The
+first combined suite exposed two keybind failures on the branch itself:
 
 - `saved keyboard remaps can take a key another saved action vacated (expected E, got W)`
 - `keyboard remap sets restore independently of declaration order (expected Z, got E)`
 
-Do not merge W15 until those keybind-set ordering/isolation failures are fixed
-and the minimap/photo/glass captures plus a human UI/audio playtest are done.
+Both were a product bug: `IsReservedOutsideBindable` scanned every InputMap
+action, including Godot's built-in `ui_*` actions and platform text-editing
+variants, so nearly every key looked reserved and saved remaps silently fell
+back to defaults. Commit `3d752a2` skips `ui_*` plumbing while still protecting
+non-bindable game actions; the combined branch then passed **202,756 checks,
+0 failures**, including keybinds. W15 still needs its minimap/photo/glass
+captures and a human UI/audio playtest before merging.
 
 ## W12 — player lifecycle
 

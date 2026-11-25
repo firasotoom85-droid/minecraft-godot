@@ -22,7 +22,7 @@ This is the **current forward plan**, not a running implementation diary. Comple
 | Performance baselines | Partial | Benchmark/soak reports now expose persistent managed-memory categories and high-water marks; record a fresh controlled Release baseline, with the comparable RTX 4060 run still outstanding |
 | Gameplay/visual sign-off | Partial | Complete human playtesting across mining, building, combat, quests, saves and low/high graphics presets |
 | Player lifecycle and recovery (W12) | Implemented on branch; unreviewed | Split plan in `docs/remediation/BRANCH_AUDIT_2026-11-25.md`; rebase slice 1 first |
-| UI, controls, audio and graphics (W15) | Blocked | Combined branch builds, but 2 keybind assertions fail on the branch itself; fix ordering/isolation and run visual captures |
+| UI, controls, audio and graphics (W15) | Combined branch green | `w15-combined`: 202,756 checks, 0 failures (keybind fix `3d752a2`); minimap/photo/glass captures and UI/audio playtest remain before merge |
 | Public project profile | Incomplete | Repository is already public; add a description and relevant topics in GitHub Settings |
 
 **Persistence contract (integrated W01):** autosave captures an immutable save
