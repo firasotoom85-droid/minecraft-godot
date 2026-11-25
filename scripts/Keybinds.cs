@@ -143,7 +143,11 @@ public static class Keybinds
         foreach (StringName actionName in InputMap.GetActions())
         {
             string other = actionName.ToString();
-            if (other == action || IsBindable(other))
+            // Godot registers built-in ui_* actions (including platform text
+            // editing variants) in every project. They are engine plumbing, not
+            // game reservations, and would otherwise block nearly every key.
+            if (other == action || IsBindable(other)
+                    || other.StartsWith("ui_", StringComparison.Ordinal))
                 continue;
             foreach (InputEvent inputEvent in InputMap.ActionGetEvents(other))
             {
