@@ -153,6 +153,10 @@ public static class Profiler
             Array.Clear(CollisionTimings, 0, CollisionTimings.Length);
             _collisionWindowCount = 0;
             _collisionWindowNext = 0;
+            _applyTotalMs = 0.0;
+            _applySamples = 0;
+            ApplyAverageMs = 0.0;
+            ApplyMaximumMs = 0.0;
             _applyStepTotalMs = 0.0;
             _applyStepSamples = 0;
             _collisionTotalMs = 0.0;

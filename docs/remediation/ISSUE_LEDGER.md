@@ -121,21 +121,16 @@ Other tracked relationships are not duplicates: #199/#201 cover non-blocking shu
 
 ### #96 — Performance: Global EditEpoch invalidates chunk builds unrelated to the edited area
 
-- **Current GitHub status:** Open; no state change made.
+- **Current GitHub status:** Open; no issue state change made.
 - **Severity / priority:** Moderate / P2.
 - **Subsystem:** VoxelWorld, chunk streaming, and world-level coordination.
-- **Verified root cause / investigation status:** The epoch is global rather than spatially scoped. The mesher already snapshots padded chunk and neighbor data, while `SetBlock()` schedules local affected chunks; however, payload validation does not track versions for those actual dependencies. **Issue confidence:** Confirmed by static analysis; not yet reproduced with a workload benchmark. The global comparison is explicit. The actual cost depends on edit frequency and concurrent build volume.
-- **Evidence locations:** - File: `scripts/Mesher.cs`, method `Build()`, lines 230–247; - File: `scripts/VoxelWorld.cs`, method `SetBlock()`, lines 2060–2184 (epoch increment and local neighbor rebuild scheduling); - File: `scripts/VoxelWorld.cs`, method `ApplyBuild()`, lines 2585–2594
-- **Primary worker owner:** W01 — VoxelWorld, chunk streaming, and world-level coordination. Work branch: `agent/w01-voxelworld`.
-- **Related / duplicate issue IDs:** Related but distinct: #93, #146 and #176 (meshing invalidation/lock scope and rebuild breadth).
-- **Required implementation:** Replace the all-world invalidation check with dependency-scoped version validation. Capture revisions for the target chunk and the neighboring block/light data actually sampled by the mesher, then validate those revisions before applying the payload. Preserve invalidation for every affected chunk, including lighting dependencies; do not simply remove epoch validation.
-- **Required regression test:** - Start builds for two distant chunks, edit one chunk, and assert that the unaffected payload remains valid and is applied without a redundant rebuild.
-- Edit a block on a chunk boundary and assert that every dependent neighbor payload is rejected/rebuilt.
-- Cover edits that change light opacity/emission so light-dependent payloads remain correctly invalidated.
-- Add a stress benchmark with repeated local edits while distant chunks stream, recording discarded payload count and total mesh-build time.
-- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). W01 integration and dependency coordination are recorded in merged PR #207; implementation still requires the W03 `Mesher.cs` owner. Keep the issue open.
-- **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
-- **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
+- **Verified root cause:** Confirmed. The former payload gate used the world-wide `EditEpoch`, even when an edit did not affect the target's sampled data.
+- **Implementation:** W13.2 adds target-local mesh dependency revisions. Geometry-only edits invalidate the owner and sampled edge/corner targets. Light-affecting edits invalidate a 5×5 target region because each target samples neighboring 3×3 baked-light maps with a 14-voxel propagation halo. Light-solve publication validates the 5×5 light-input source revisions. `EditEpoch` remains monotonic diagnostic state and is no longer the payload validity gate.
+- **Regression coverage:** Direct `SetBlock` tests cover interior, edge, corner, two-chunk light-halo and out-of-range targets; deterministic revision tests also verify distant payload validity. Light-solve tests verify stale input snapshots are retried.
+- **Performance evidence still required:** A controlled repeated-local-edit/remote-streaming run should record discarded payload count and build-time distribution on the MX230 and a higher-end GPU. CI establishes correctness, not the magnitude of the runtime gain.
+- **Implementation branch:** [`fix/w13-dependency-revisions-staged-apply`](https://github.com/firasotoom85-droid/minecraft-godot/tree/fix/w13-dependency-revisions-staged-apply).
+- **Final verification:** Final-head CI is the merge gate; no issue closure performed.
+- **Closure status:** Open — awaiting target-hardware performance evidence and owner review.
 
 ### #97 — Bug: Chunk worker exceptions discard dequeued requests without retrying them
 
@@ -1117,22 +1112,16 @@ If no visible failure can be reproduced, close this issue as not reproducible an
 
 ### #148 — [Performance][Moderate] Single chunk payload application can exceed the main-thread time budget
 
-- **Current GitHub status:** Open; no state change made.
+- **Current GitHub status:** Open; no issue state change made.
 - **Severity / priority:** Moderate / P2.
 - **Subsystem:** VoxelWorld, chunk streaming, and world-level coordination.
-- **Verified root cause / investigation status:** The time-slice controller is payload-granular, while the cost of an individual payload is unbounded and is not split into smaller application units. The code's "at least one payload" progress guarantee can override the nominal budget. **Issue confidence:** Confirmed by static analysis; the maximum duration of a single application was not benchmarked during this audit.
-- **Evidence locations:** - File: `scripts/VoxelWorld.cs`; - Method: `_Process()` (payload application loop); - Lines: `2721–2745`; - File: `scripts/Chunk.cs`; - Methods: `ApplyPayload()`, `ApplySurface()`; - Lines: `109–137`, `155–178`
-- **Primary worker owner:** W01 — VoxelWorld, chunk streaming, and world-level coordination. Work branch: `agent/w01-voxelworld`.
-- **Related / duplicate issue IDs:** None identified during this refresh.
-- **Required implementation:** Profile and report each application sub-step separately. If large-payload spikes exceed the frame target, split safe work into staged application or reduce redundant copies where Godot's API permits. Keep the existing main-thread Godot resource creation requirements, payload ownership/release rules, and stale-payload validation intact.
-- **Required regression test:** - Apply representative small, median, and worst-case payloads and record apply/collision time separately.
-- Verify the apply queue progresses without starving fresh or rebuild payloads.
-- Verify staged application never exposes a partially replaced chunk as complete.
-- Verify payload buffers are released exactly once on success, rejection, and cancellation.
-- Add a performance test that records p95/p99 apply duration at the project's target view distance.
-- **PR / commit reference:** [PR #207](https://github.com/firasotoom85-droid/minecraft-godot/pull/207) — merged as [`9e62125a037d87f0b9f3a3ca895645a4e40873b4`](https://github.com/firasotoom85-droid/minecraft-godot/commit/9e62125a037d87f0b9f3a3ca895645a4e40873b4). W01 integration dependency is recorded in merged PR #207; staged collision/payload application remains owned by the W03 `Chunk.cs` work. Keep the issue open.
-- **Final verification:** Pending remediation. At minimum, run the Godot 4.7.2 .NET build and `scripts/verify.sh`, execute the focused regression suite, and attach issue-specific runtime/performance evidence where the report requires it. Preserve existing world/save compatibility and existing chunk streaming/greedy meshing unless the issue itself is scoped to those systems.
-- **Closure status:** Open — unchanged by this ledger refresh; no issue closure requested or performed.
+- **Verified root cause:** Confirmed. The previous frame budget was payload-granular and could be exceeded by a single large surface/collision resource creation.
+- **Implementation:** W13.2 introduces `ChunkPayloadApplyTransaction`. Render surfaces and concave collision faces are created in triangle-aligned slices capped at 8,190 vertices. The old chunk render/collision state remains installed until all replacement resources are prepared and committed atomically. Worker payload capacity remains reserved throughout staging and every exit path releases the payload once. The 2 ms budget is cooperative between steps, not a hard upper bound for one Godot API call.
+- **Regression coverage:** Tests verify old render/collider state remains installed before commit, large surfaces create multiple mesh batches, collision payloads create multiple shapes, and the resource transaction commits only after every slice. Timing tests verify bounded rolling windows and collision vertex accounting.
+- **Performance evidence still required:** `PerformanceRunner` now records rolling p50/p95/p99 and max timings for resource steps and collision batches. Run controlled target-view-distance captures on the MX230 and higher-end hardware to decide whether the batch limit meets the frame target and whether extra mesh/collider subdivisions have an acceptable draw/physics cost.
+- **Implementation branch:** [`fix/w13-dependency-revisions-staged-apply`](https://github.com/firasotoom85-droid/minecraft-godot/tree/fix/w13-dependency-revisions-staged-apply).
+- **Final verification:** Final-head CI is the merge gate; no issue closure performed.
+- **Closure status:** Open — awaiting target-hardware p95/p99 evidence and owner review.
 
 ### #149 — [Startup][Moderate] Initial 3×3 chunk builds run synchronously on the main thread
 

@@ -24,9 +24,11 @@ When a new mutation type is introduced, verify:
 
 Chunk data is deterministic for the world's seed and generator version. The generated base is combined with persisted edits before it is presented to the chunk mesher.
 
-Mesher.Build captures block, shape and lighting snapshots under the world's snapshot lock and records the current edit epoch. It performs array/geometry work off the scene tree on WorkerThreadPool jobs. Godot scene nodes, mesh resources and Jolt collision resources are applied from the main-thread completion path.
+Mesher.Build captures block and shape snapshots under the world's snapshot lock, then records a revision for the target chunk's sampled dependencies. The world-wide `EditEpoch` remains a diagnostic counter; it is not used to reject unrelated mesh payloads. Geometry edits invalidate the target and only sampled edge/corner neighbors. Light-affecting edits update per-source-chunk light revisions, invalidate target chunks through a 5×5 area (the 3×3 baked-light neighborhood plus each map's 14-voxel propagation halo), and cause light solves to validate their own 5×5 source region.
 
-The world checks the payload epoch before applying it. A payload built before a later edit is stale; discard it and schedule the required rebuild. Every rented payload/surface/collision buffer has one release owner and must be returned even when a task is cancelled, rejected, throws or the world is exiting.
+Array and geometry work runs off the scene tree on WorkerThreadPool jobs. The main thread validates the local dependency revision, meshing configuration, collider-boundary state and retention before and after staged application. Mesh surfaces and collision shapes are created in triangle-aligned batches capped at 8,190 vertices per resource step. The current chunk remains visible and collidable until a complete replacement is ready, then one transaction commits it. The 2 ms target is cooperative between steps rather than a hard per-call time guarantee; performance reports retain rolling p50/p95/p99 resource-step and collision-step timings.
+
+Every rented payload/surface/collision buffer has one release owner and must be returned even when a task is cancelled, rejected, throws or the world is exiting. The completed-payload slot remains reserved while an application transaction is staged so worker backpressure continues to reflect all pending main-thread work.
 
 FarLod follows the same worker-build/main-thread-apply split. It is a coarse presentation of terrain, not a source of authoritative block mutations.
 

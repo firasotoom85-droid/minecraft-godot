@@ -182,4 +182,33 @@ with zero failures, and five spatial lighting probe grids with 27/27 reference
 samples each. This W13.1 slice does not change global `EditEpoch` validation,
 save formats, persisted IDs or world-generation versions.
 
+## Dependency-local revisions and staged chunk application — 2026-11-25
+
+Chunk mesh payloads now carry a revision for the target chunk's actual
+sampling dependencies. Geometry-only edits invalidate the owner and only the
+sampled edge/corner neighbors. Light-affecting edits advance source revisions
+for the light solve and invalidate the 5×5 target area needed by the 3×3 baked
+light-map neighborhood and its 14-voxel propagation halo. The world-wide
+`EditEpoch` remains diagnostic; it no longer rejects unrelated mesh payloads.
+
+Main-thread chunk application is a transaction. Render surfaces and concave
+collision shapes are prepared in triangle-aligned batches of at most 8,190
+vertices. The existing chunk remains visible and its old collider remains
+active until all replacement resources are ready, then one commit installs
+the new surfaces and collider set. The completed-payload semaphore reservation
+stays owned by the staged transaction and is released exactly once on commit,
+stale rejection, exception or shutdown.
+
+Performance reports now include rolling p50/p95/p99 timings for resource
+steps and collision batches. The nominal 2 ms budget is checked between steps;
+a single Godot resource-creation call can still exceed that wall-clock target.
+Use the benchmark output on the MX230 reference and higher-end hardware before
+tuning the batch size or declaring a frame-time improvement.
+
+Regression coverage includes interior, boundary and corner edits; the
+two-chunk lighting halo; preservation of the old chunk before transaction
+commit; multi-batch render/collision payloads; and timing-window statistics.
+This W13.2 work does not change persisted IDs, save formats, generator
+versions, greedy meshing or the WorkerThreadPool/chunk-streaming architecture.
+
 Project code and documentation are licensed under the [MIT License](LICENSE). Bundled third-party components and assets retain their own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

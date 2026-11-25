@@ -218,13 +218,23 @@ public static class GlassTests
 
         // SetBlock's authoritative mutation path is exercised directly. Stone
         // -> dirt keeps opacity, light passage and emission unchanged.
-        TestAssert.Check(world.SetBlock(8, 100, 8, BlockId.Stone),
+        foreach (Vector2I cell in new[]
+        {
+            new Vector2I(8, 8), new Vector2I(0, 8), Vector2I.Zero,
+        })
+        {
+            world.SetBlock(cell.X, 120, cell.Y, BlockId.Air);
+            TestAssert.Equal(BlockId.Air, world.GetBlock(cell.X, 120, cell.Y),
+                    "dependency fixture starts from a known air cell");
+        }
+
+        TestAssert.Check(world.SetBlock(8, 120, 8, BlockId.Stone),
                 "loaded owner chunk accepts a setup block for dependency testing");
         long ownerBefore = Capture(world, Vector2I.Zero);
         long westBefore = Capture(world, Vector2I.Left);
         long northWestBefore = Capture(world, new Vector2I(-1, -1));
         long farBefore = Capture(world, new Vector2I(4, 4));
-        TestAssert.Check(world.SetBlock(8, 100, 8, BlockId.Dirt),
+        TestAssert.Check(world.SetBlock(8, 120, 8, BlockId.Dirt),
                 "geometry-only material replacement succeeds through SetBlock");
         TestAssert.Check(Capture(world, Vector2I.Zero) != ownerBefore,
                 "interior SetBlock edit advances only its owner's mesh dependency revision");
@@ -235,28 +245,28 @@ public static class GlassTests
         TestAssert.Equal(farBefore, Capture(world, new Vector2I(4, 4)),
                 "interior SetBlock edit leaves a distant payload revision unchanged");
 
-        TestAssert.Check(world.SetBlock(0, 100, 8, BlockId.Stone),
+        TestAssert.Check(world.SetBlock(0, 120, 8, BlockId.Stone),
                 "west boundary fixture block is placed");
         long westEdgeBefore = Capture(world, Vector2I.Left);
         long diagonalBefore = Capture(world, new Vector2I(-1, -1));
-        TestAssert.Check(world.SetBlock(0, 100, 8, BlockId.Dirt),
+        TestAssert.Check(world.SetBlock(0, 120, 8, BlockId.Dirt),
                 "west boundary geometry-only edit succeeds");
         TestAssert.Check(Capture(world, Vector2I.Left) != westEdgeBefore,
                 "west boundary edit invalidates the adjacent chunk that samples its edge");
         TestAssert.Equal(diagonalBefore, Capture(world, new Vector2I(-1, -1)),
                 "single-edge edit leaves the unrelated diagonal revision current");
 
-        TestAssert.Check(world.SetBlock(0, 100, 0, BlockId.Stone),
+        TestAssert.Check(world.SetBlock(0, 120, 0, BlockId.Stone),
                 "corner fixture block is placed");
         long cornerBefore = Capture(world, new Vector2I(-1, -1));
-        TestAssert.Check(world.SetBlock(0, 100, 0, BlockId.Dirt),
+        TestAssert.Check(world.SetBlock(0, 120, 0, BlockId.Dirt),
                 "corner geometry-only edit succeeds");
         TestAssert.Check(Capture(world, new Vector2I(-1, -1)) != cornerBefore,
                 "corner edit invalidates the matching diagonal mesh dependency");
 
         long twoAwayBefore = Capture(world, new Vector2I(2, 0));
         long threeAwayBefore = Capture(world, new Vector2I(3, 0));
-        TestAssert.Check(world.SetBlock(8, 100, 8, BlockId.Torch),
+        TestAssert.Check(world.SetBlock(8, 120, 8, BlockId.Torch),
                 "opacity/emission-changing edit succeeds through SetBlock");
         TestAssert.Check(Capture(world, new Vector2I(2, 0)) != twoAwayBefore,
                 "lighting edit invalidates a target two chunks away through the light-map halo");
