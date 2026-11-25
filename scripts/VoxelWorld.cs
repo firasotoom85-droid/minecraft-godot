@@ -40,6 +40,8 @@ public partial class VoxelWorld : Node3D
     public bool BuildCollision = true;  // false for render-only previews such as the main menu
     public float LodRadius;             // far-view LOD ring radius in metres (0 = off)
     private FarLod? _farLod;            // FarLod ring node (created in _Ready)
+    private bool _initialStreamingStarted;
+    private Vector2I _initialStreamingCenter;
 
     private const double AutosaveInterval = 4.0;
 
@@ -2861,6 +2863,8 @@ public partial class VoxelWorld : Node3D
     public void SetupInitial()
     {
         Vector2I pcp = PlayerChunk();
+        _initialStreamingCenter = pcp;
+        _initialStreamingStarted = true;
 
         // Only the player's current chunk is required before the first physics
         // step. Its floor/collider is ready synchronously; surrounding chunks
@@ -2871,6 +2875,35 @@ public partial class VoxelWorld : Node3D
         _lastPlayerPos = Player?.GlobalPosition ?? Vector3.Zero;
         RebuildQueue(pcp);
     }
+
+    internal InitialChunkLoadProgress GetInitialStreamingProgress()
+    {
+        if (!_initialStreamingStarted)
+        {
+            return new InitialChunkLoadProgress(0, 0);
+        }
+
+        int radius = InitialChunkStreamingPolicy.StartupRadius;
+        int ready = 0;
+        for (int dz = -radius; dz <= radius; dz++)
+        {
+            for (int dx = -radius; dx <= radius; dx++)
+            {
+                if (_chunks.ContainsKey(_initialStreamingCenter + new Vector2I(dx, dz)))
+                {
+                    ready++;
+                }
+            }
+        }
+
+        return new InitialChunkLoadProgress(
+                ready, InitialChunkStreamingPolicy.RequiredChunks(radius));
+    }
+
+    internal void CompleteInitialStreaming() => _initialStreamingStarted = false;
+
+    private void SetFarLodChunkCoverage(Vector2I coordinate, bool covered) =>
+            _farLod?.SetChunkCoverage(coordinate, covered);
 
     /// <summary>
     /// Synchronous preview builder retained for deterministic fixtures and
@@ -3157,6 +3190,7 @@ public partial class VoxelWorld : Node3D
         c.ApplyPayload(payload);
         PayloadPool.Release(payload);
         _chunks[cp] = c;
+        SetFarLodChunkCoverage(cp, covered: true);
         SetChunkColliderAvailability(cp, hasCollider);
         return c;
     }
@@ -3481,6 +3515,7 @@ public partial class VoxelWorld : Node3D
             {
                 AddChild(active.Chunk);
                 _chunks[active.Coordinate] = active.Chunk;
+                SetFarLodChunkCoverage(active.Coordinate, covered: true);
                 active.Chunk.FadeIn();
             }
 
@@ -3536,6 +3571,7 @@ public partial class VoxelWorld : Node3D
             created.ApplyPayload(payload);
             AddChild(created);
             _chunks[cp] = created;
+            SetFarLodChunkCoverage(cp, covered: true);
             created.FadeIn();
             SetChunkColliderAvailability(cp, payload.Collision.Count > 0);
             created = null;
@@ -4167,6 +4203,10 @@ public partial class VoxelWorld : Node3D
             }
         }
 
+        // Several chunks can commit in one staged-apply frame. Coalesce their
+        // Far-LOD ownership changes into one rebuild per affected 128 m tile.
+        _farLod?.FlushCoverageUpdates();
+
         lock (_queueLock)
         {
             Profiler.FreshQueued = _queue.Count;
@@ -4465,6 +4505,7 @@ public partial class VoxelWorld : Node3D
             {
                 Chunk c = _chunks[cp];
                 _chunks.Remove(cp);
+                SetFarLodChunkCoverage(cp, covered: false);
                 SetChunkColliderAvailability(cp, false);
                 c.QueueFree();
             }

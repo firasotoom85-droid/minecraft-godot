@@ -20,6 +20,7 @@ public static class VoxelStreamingTests
                 "zero time budget yields after one bounded resource slice");
 
         TestColliderReadinessEpochs();
+        TestInitialStreamingReadiness();
         TestChunkWorkTracking();
         TestChunkWorkerLifecycle();
         TestChunkGenerationReservation();
@@ -46,6 +47,21 @@ public static class VoxelStreamingTests
         TestMeshingConfigurationRevision();
         TestPayloadPoolCapacityBudget();
         TestPartialBuildBufferOwnership();
+    }
+
+    private static void TestInitialStreamingReadiness()
+    {
+        TestAssert.Equal(9, InitialChunkStreamingPolicy.RequiredChunks(
+                        InitialChunkStreamingPolicy.StartupRadius),
+                "startup readiness covers the player's 3x3 neighbourhood");
+        TestAssert.Check(!InitialChunkStreamingPolicy.IsComplete(8, 9),
+                "startup waits until every nearby chunk is committed");
+        TestAssert.Check(InitialChunkStreamingPolicy.IsComplete(9, 9),
+                "startup releases once all nine nearby chunks are ready");
+        TestAssert.Check(InitialChunkStreamingPolicy.IsComplete(0, 0),
+                "an empty readiness target cannot deadlock startup");
+        TestAssert.Equal(0.5, new InitialChunkLoadProgress(3, 6).Fraction,
+                "loading progress reports a bounded ready-to-required ratio");
     }
 
     private static void TestColliderReadinessEpochs()

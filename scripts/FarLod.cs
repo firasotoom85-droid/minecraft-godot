@@ -7,12 +7,10 @@ using Godot;
 namespace Minecraft;
 
 /// <summary>
-/// Far-view LOD ring: coarse heightmap tiles beyond the streamed chunk area so
-/// the horizon shows distant terrain instead of pop-in. Cells sample terrain
-/// height / biome from world noise and sparse edit-top data (no chunk data or
-/// collision). Edited surface IDs preserve dirt/farmland colors after unload.
-/// Cells inside the streamed chunk square are skipped, so tiles touching it
-/// rebuild only when the square advances across them.
+/// Far-view LOD ring: coarse heightmap tiles fill every area without a committed
+/// full-resolution chunk mesh. The handoff is tracked per chunk, not inferred
+/// from the requested view-distance square, so terrain never disappears while
+/// its detailed replacement is still queued or building.
 ///
 /// Builds run on WorkerThreadPool workers (terrain sampling, edit-cache lookup
 /// and array math); meshes are applied on the main thread.
@@ -30,19 +28,21 @@ public partial class FarLod : Node3D
     private sealed class Tile
     {
         public MeshInstance3D? Node;
-        public Rect2I Skip;
+        public ulong CoverageMask;
         public long Generation;
         public long Revision;
         public int FailureCount;
     }
 
-    private readonly record struct BuildToken(long Generation, long Revision, long RequestId, Rect2I Skip);
+    private readonly record struct BuildToken(long Generation, long Revision, long RequestId, ulong CoverageMask);
     private readonly record struct InFlightBuild(long TaskId, BuildToken Token);
     private sealed record LodPayload(Vector3[] Verts, Vector3[] Normals, Color[] Colors);
 
     private readonly Dictionary<Vector2I, Tile> _tiles = new();  // Vector2I -> tile
     private readonly FarLodWorkQueue _queue = new();
     private readonly Dictionary<Vector2I, InFlightBuild> _inFlight = new();
+    private readonly HashSet<Vector2I> _coveredChunks = [];
+    private readonly HashSet<Vector2I> _dirtyCoverageTiles = [];
     private long _nextTileGeneration;
     private long _nextBuildRequestId;
     private readonly CancellationTokenSource _workerShutdown = new();
@@ -108,6 +108,7 @@ public partial class FarLod : Node3D
 
             _tiles.Clear();
             _queue.Clear();
+            _dirtyCoverageTiles.Clear();
             return;
         }
 
@@ -115,7 +116,6 @@ public partial class FarLod : Node3D
         int tcx = (int)System.Math.Floor(center.X / Region);
         int tcz = (int)System.Math.Floor(center.Y / Region);
         int ring = (int)System.Math.Ceiling((radius + Region * 0.7f) / Region);
-        Rect2I streamed = StreamedChunks(pcp);
         HashSet<Vector2I> keep = [];
         for (int dz = -ring; dz <= ring; dz++)
         {
@@ -129,23 +129,17 @@ public partial class FarLod : Node3D
                 }
 
                 keep.Add(tc);
-                Rect2I skip = TileSkip(tc, streamed);
+                ulong coverageMask = CoverageMaskFor(tc);
                 if (_tiles.TryGetValue(tc, out Tile? tile))
                 {
-                    if (tile.Skip != skip)
+                    if (tile.CoverageMask != coverageMask)
                     {
-                        tile.Skip = skip;
+                        tile.CoverageMask = coverageMask;
                         tile.Revision++;
                         tile.FailureCount = 0;
-                        // The existing surface was built for a different
-                        // full-resolution ownership mask. Remove it immediately
-                        // so it cannot overlap retained chunk meshes while the
-                        // replacement build is queued or running.
-                        if (tile.Node != null)
-                        {
-                            tile.Node.Mesh = null;
-                        }
-
+                        // Keep the old coarse surface until its replacement is
+                        // ready. Its slight vertical inset prevents z-fighting
+                        // with a newly committed detailed chunk during handoff.
                         Enqueue(tc);
                     }
                 }
@@ -154,7 +148,7 @@ public partial class FarLod : Node3D
                     _tiles[tc] = new Tile
                     {
                         Node = null,
-                        Skip = skip,
+                        CoverageMask = coverageMask,
                         Generation = ++_nextTileGeneration,
                     };
                     Enqueue(tc);
@@ -168,6 +162,7 @@ public partial class FarLod : Node3D
             {
                 _tiles[key].Node?.QueueFree();
                 _tiles.Remove(key);
+                _dirtyCoverageTiles.Remove(key);
             }
         }
 
@@ -178,17 +173,79 @@ public partial class FarLod : Node3D
         Dispatch();
     }
 
-    private Rect2I StreamedChunks(Vector2I pcp) =>
-            FarLodLifecycleRules.StreamedChunks(pcp, World!.ViewDistance, VoxelWorld.UnloadMargin);
+    /// <summary>
+    /// Publish a chunk only after its full-resolution render payload has committed.
+    /// Calls are cheap; tile rebuilds are coalesced until FlushCoverageUpdates().
+    /// </summary>
+    public void SetChunkCoverage(Vector2I chunkCoordinate, bool covered)
+    {
+        bool changed = covered
+                ? _coveredChunks.Add(chunkCoordinate)
+                : _coveredChunks.Remove(chunkCoordinate);
+        if (!changed)
+        {
+            return;
+        }
+
+        Vector2I tileCoordinate = FarLodLifecycleRules.TileForChunk(chunkCoordinate);
+        if (_tiles.ContainsKey(tileCoordinate))
+        {
+            _dirtyCoverageTiles.Add(tileCoordinate);
+        }
+    }
 
     /// <summary>
-    /// Streamed-chunk intersection with this tile, in chunk coords; empty when the
-    /// streamed square does not reach the tile, which keeps far tiles stable.
+    /// Apply all chunk-ready/unloaded changes once per world frame. This avoids
+    /// rebuilding the same 128 m tile repeatedly when several chunks commit in
+    /// one staged-application budget.
     /// </summary>
-    private static Rect2I TileSkip(Vector2I tc, Rect2I streamed)
+    public void FlushCoverageUpdates()
     {
-        Rect2I tileRect = new(tc.X * TileChunks, tc.Y * TileChunks, TileChunks, TileChunks);
-        return tileRect.Intersection(streamed);
+        if (!_alive || _dirtyCoverageTiles.Count == 0)
+        {
+            return;
+        }
+
+        foreach (Vector2I tc in _dirtyCoverageTiles)
+        {
+            if (!_tiles.TryGetValue(tc, out Tile? tile))
+            {
+                continue;
+            }
+
+            ulong coverageMask = CoverageMaskFor(tc);
+            if (coverageMask == tile.CoverageMask)
+            {
+                continue;
+            }
+
+            tile.CoverageMask = coverageMask;
+            tile.Revision++;
+            tile.FailureCount = 0;
+            Enqueue(tc);
+        }
+
+        _dirtyCoverageTiles.Clear();
+        Dispatch();
+    }
+
+    private ulong CoverageMaskFor(Vector2I tileCoordinate)
+    {
+        ulong mask = 0;
+        int originX = tileCoordinate.X * TileChunks;
+        int originZ = tileCoordinate.Y * TileChunks;
+        for (int z = 0; z < TileChunks; z++)
+        {
+            for (int x = 0; x < TileChunks; x++)
+            {
+                if (_coveredChunks.Contains(new Vector2I(originX + x, originZ + z)))
+                {
+                    mask |= 1UL << (z * TileChunks + x);
+                }
+            }
+        }
+
+        return mask;
     }
 
     private void Enqueue(Vector2I tc)
@@ -215,7 +272,7 @@ public partial class FarLod : Node3D
             // Capture the tile's requested state, not a fresh global sample.
             // A subsequent UpdateAround() increments the revision and makes
             // this result stale even when the coordinate itself is unchanged.
-            BuildToken token = new(tile.Generation, tile.Revision, ++_nextBuildRequestId, tile.Skip);
+            BuildToken token = new(tile.Generation, tile.Revision, ++_nextBuildRequestId, tile.CoverageMask);
             long tid = WorkerThreadPool.AddTask(
                     Callable.From(() => BuildTask(tc, token)), true, $"lod_{tc.X}_{tc.Y}");
             _inFlight[tc] = new InFlightBuild(tid, token);
@@ -230,7 +287,7 @@ public partial class FarLod : Node3D
         CancellationToken cancellationToken = _workerShutdown.Token;
         FarLodBuildOutcome<LodPayload> outcome =
                 FarLodLifecycleRules.CaptureBuild(
-                        () => BuildArrays(tc, token.Skip, cancellationToken), cancellationToken);
+                        () => BuildArrays(tc, token.CoverageMask, cancellationToken), cancellationToken);
 
         // Shutdown cancellation is not a tile build failure: the node is
         // leaving, no result should be posted, and no retry may be scheduled.
@@ -245,7 +302,7 @@ public partial class FarLod : Node3D
     // -----------------------------------------------------------------------
 
     private LodPayload? BuildArrays(
-            Vector2I tc, Rect2I skip, CancellationToken cancellationToken)
+            Vector2I tc, ulong coverageMask, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         int x0 = tc.X * (int)Region;
@@ -262,7 +319,8 @@ public partial class FarLod : Node3D
             {
                 int cx0 = x0 + i * (int)CellSize;
                 bool hasIsland = !World.IsSky || World.IslandAt(cx0 + 2, cz0 + 2);
-                if (!FarLodLifecycleRules.ShouldEmitCell(skip, cx0, cz0, World.IsSky, hasIsland))
+                if (!FarLodLifecycleRules.ShouldEmitCell(
+                        coverageMask, tc, cx0, cz0, World.IsSky, hasIsland))
                 {
                     continue;
                 }
@@ -285,7 +343,9 @@ public partial class FarLod : Node3D
                 }
 
                 bool isWater = hc <= sea;
-                float y = isWater ? sea + 1 : hc + 1;
+                // Keep fallback terrain fractionally below the detailed surface
+                // during the short interval before the tile's coverage rebuild applies.
+                float y = (isWater ? sea + 1 : hc + 1) - 0.025f;
                 Vector3 b = new(cx0, y, cz0);
                 bool wetShoreCell = IsWetShoreCell(isWater, hc, sea, h00, h10, h01, h11);
                 Color topColor = isWater ? _topColors[(int)BlockId.Water] : TopColor(surfaceBlock);
@@ -442,8 +502,8 @@ public partial class FarLod : Node3D
 
             bool tileExists = _tiles.TryGetValue(tc, out Tile? tile) && tile != null;
             bool tokenIsCurrent = tile != null && FarLodLifecycleRules.IsCurrent(
-                    tile.Generation, tile.Revision, tile.Skip,
-                    token.Generation, token.Revision, token.Skip);
+                    tile.Generation, tile.Revision, tile.CoverageMask,
+                    token.Generation, token.Revision, token.CoverageMask);
             if (!FarLodLifecycleRules.TryCompleteInFlight(
                     _inFlight, tc, active, tileExists, tokenIsCurrent, failure != null,
                     out FarLodCompletionDisposition disposition))
@@ -559,64 +619,76 @@ internal enum FarLodCompletionDisposition
 internal static class FarLodLifecycleRules
 {
     internal const int MaxBuildRetries = 2;
+    internal const int ChunksPerTile = 8;
 
-    internal static Rect2I StreamedChunks(
-            Vector2I playerChunk, int viewDistance, int retentionMargin)
+    internal static Vector2I TileForChunk(Vector2I chunk) => new(
+            Mathf.FloorToInt(chunk.X / (float)ChunksPerTile),
+            Mathf.FloorToInt(chunk.Y / (float)ChunksPerTile));
+
+    internal static ulong SetCoverageBit(
+            ulong mask, int localChunkX, int localChunkZ, bool covered)
     {
-        int radius = Math.Max(viewDistance, 0) + Math.Max(retentionMargin, 0);
-        return new Rect2I(
-                playerChunk.X - radius, playerChunk.Y - radius,
-                radius * 2 + 1, radius * 2 + 1);
+        if ((uint)localChunkX >= ChunksPerTile || (uint)localChunkZ >= ChunksPerTile)
+        {
+            return mask;
+        }
+
+        ulong bit = 1UL << (localChunkZ * ChunksPerTile + localChunkX);
+        return covered ? mask | bit : mask & ~bit;
+    }
+
+    internal static ulong SetChunkCoverage(
+            ulong mask, Vector2I tile, Vector2I chunk, bool covered)
+    {
+        int localX = chunk.X - tile.X * ChunksPerTile;
+        int localZ = chunk.Y - tile.Y * ChunksPerTile;
+        return SetCoverageBit(mask, localX, localZ, covered);
+    }
+
+    internal static bool IsChunkCovered(ulong mask, int localChunkX, int localChunkZ)
+    {
+        if ((uint)localChunkX >= ChunksPerTile || (uint)localChunkZ >= ChunksPerTile)
+        {
+            return false;
+        }
+
+        ulong bit = 1UL << (localChunkZ * ChunksPerTile + localChunkX);
+        return (mask & bit) != 0;
+    }
+
+    internal static bool ShouldEmitCell(
+            ulong coverageMask, Vector2I tile, int worldX, int worldZ,
+            bool isSky, bool hasIsland)
+    {
+        int chunkX = Mathf.FloorToInt(worldX / (float)VoxelWorld.ChunkX);
+        int chunkZ = Mathf.FloorToInt(worldZ / (float)VoxelWorld.ChunkZ);
+        int localX = chunkX - tile.X * ChunksPerTile;
+        int localZ = chunkZ - tile.Y * ChunksPerTile;
+        bool detailedChunkReady = IsChunkCovered(coverageMask, localX, localZ);
+        return !detailedChunkReady && (!isSky || hasIsland);
     }
 
     internal static bool IsCurrent(
-            long tileGeneration, long tileRevision, Rect2I tileSkip,
-            long buildGeneration, long buildRevision, Rect2I buildSkip) =>
+            long tileGeneration, long tileRevision, ulong tileCoverageMask,
+            long buildGeneration, long buildRevision, ulong buildCoverageMask) =>
             tileGeneration == buildGeneration
             && tileRevision == buildRevision
-            && tileSkip == buildSkip;
-
-    internal static bool ShouldEmitCell(
-            Rect2I skip, int worldX, int worldZ, bool isSky, bool hasIsland)
-    {
-        Vector2I chunk = new(
-                Mathf.FloorToInt(worldX / (float)VoxelWorld.ChunkX),
-                Mathf.FloorToInt(worldZ / (float)VoxelWorld.ChunkZ));
-        return !skip.HasPoint(chunk) && (!isSky || hasIsland);
-    }
+            && tileCoverageMask == buildCoverageMask;
 
     internal static FarLodCompletionDisposition ClassifyCompletion(
             bool tileExists, bool tokenIsCurrent, bool failed)
     {
-        if (!tileExists)
-        {
-            return FarLodCompletionDisposition.Discard;
-        }
-
-        if (!tokenIsCurrent)
-        {
-            return FarLodCompletionDisposition.RebuildLatest;
-        }
-
-        return failed
-                ? FarLodCompletionDisposition.Failed
-                : FarLodCompletionDisposition.Apply;
+        if (!tileExists) return FarLodCompletionDisposition.Discard;
+        if (!tokenIsCurrent) return FarLodCompletionDisposition.RebuildLatest;
+        return failed ? FarLodCompletionDisposition.Failed : FarLodCompletionDisposition.Apply;
     }
 
     internal static bool IsMatchingBuildRequest(long activeRequestId, long completedRequestId) =>
             activeRequestId == completedRequestId;
 
-    /// <summary>
-    /// Atomically releases the exact completed request and classifies its
-    /// result. FarLod.ApplyTile and lifecycle regressions share this path.
-    /// </summary>
     internal static bool TryCompleteInFlight<TKey, TValue>(
-            Dictionary<TKey, TValue> registry,
-            TKey key,
-            TValue expected,
-            bool tileExists,
-            bool tokenIsCurrent,
-            bool failed,
+            Dictionary<TKey, TValue> registry, TKey key, TValue expected,
+            bool tileExists, bool tokenIsCurrent, bool failed,
             out FarLodCompletionDisposition disposition)
             where TKey : notnull
             where TValue : notnull
@@ -675,11 +747,9 @@ internal static class FarLodLifecycleRules
     }
 
     internal static bool TryDequeueEligibleTile<TTile, TBuild>(
-            FarLodWorkQueue queue,
-            IReadOnlyDictionary<Vector2I, TTile> tiles,
+            FarLodWorkQueue queue, IReadOnlyDictionary<Vector2I, TTile> tiles,
             IReadOnlyDictionary<Vector2I, TBuild> inFlight,
-            out Vector2I coordinate,
-            out TTile tile)
+            out Vector2I coordinate, out TTile tile)
             where TTile : notnull
             where TBuild : notnull
     {
@@ -701,7 +771,6 @@ internal static class FarLodLifecycleRules
             int inFlightCount, int queuedCount, int buildLimit, bool alive) =>
             alive && inFlightCount < buildLimit && queuedCount > 0;
 }
-
 
 /// <summary>
 /// FIFO of pending Far-LOD tile coordinates. It keeps membership O(1), avoids

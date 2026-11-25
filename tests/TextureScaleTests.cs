@@ -1,3 +1,4 @@
+using System;
 using Godot;
 
 namespace Minecraft;
@@ -20,6 +21,13 @@ public static class TextureScaleTests
                 "mipmapped tile array preserves the full atlas layer layout");
         TestAssert.Check(tileArray.HasMipmaps(),
                 "texture-array layers include generated mipmaps");
+
+        string greedyShader = BlockDb.WarmLightingShaderSources[2];
+        TestAssert.Check(greedyShader.Contains("textureGrad(", StringComparison.Ordinal)
+                        && greedyShader.Contains("dFdx(tile_uv)", StringComparison.Ordinal)
+                        && greedyShader.Contains("dFdy(tile_uv)", StringComparison.Ordinal)
+                        && !greedyShader.Contains("texture(tiles, vec3(fract(tile_uv)", StringComparison.Ordinal),
+                "greedy repeated UVs use continuous pre-fract gradients for stable mip selection");
 
         TestAssert.Equal(2, BlockDb.TextureDetailPx,
                 "procedural material noise shares a two-texel minimum detail unit");
