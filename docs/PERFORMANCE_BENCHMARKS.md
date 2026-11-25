@@ -221,3 +221,15 @@ Limitations: one scenario, one GPU model, one pre-change run, and a generator
 version change between the compared commits. A higher-end GPU run and a
 wide-scene draw-call comparison remain outstanding before tuning the batch
 size or declaring a frame-time improvement.
+
+## Post-integration sanity run — 2026-11-25
+
+One rendered run on the final `main` after W12/W15 integration (`43f74cd`):
+MX230, LOW, 1280×720, view distance 5, seed 1337, `open-terrain`, 10 s warm-up,
+30 s measurement. Result: PASS, 98.6 fps, frame p50 6.67 ms, p95 21.34 ms,
+p99 32.86 ms, RSS max 1,121 MiB. The disposable world was deleted successfully.
+
+This is a smoke/sanity result, not a controlled comparison: W12 changes player
+collision/rebuild behavior and W15 changes UI/audio, so it is not directly
+comparable to the W13 table above. The higher-end GPU reference remains
+outstanding.
